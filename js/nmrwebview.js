@@ -3987,6 +3987,20 @@ function show_hide_peaks(index,flag,b_show)
 }
 
 /**
+ * User clicked button to run dosy fitting
+ */
+function run_dosy()
+{
+    /**
+     * Convert space(s) delimited string (From dosy_gradient) to array of floats
+     */
+    let dosy_gradient_text = document.getElementById("dosy_gradient").value;
+    let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
+    let gradients = dosy_gradient_text.split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
+    pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
+}
+
+/**
  * Download pseudo 3D peak fitting result
  */
 function download_pseudo3d()

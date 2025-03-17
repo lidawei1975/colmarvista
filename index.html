@@ -169,6 +169,14 @@
                         pseudo-3D fitted peaks (.list): </label><input type="file" disabled
                         id="assignment_file"><br>
                     <br>
+                    <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
+                    <div id="dosy_area" style="display:block;">
+                        <label for="gradient">DOSY gradient values (space separated): </label>
+                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520">
+                        <label for="dosy_rescale">Rescale factor: </label>
+                        <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
+                        <button id="button_run_dosy"  onclick="run_dosy()">Run DOSY fitting</button>
+                    </div>
                     <label class="information">Use this button to run pseudo-3D on all experimental spectra. The
                         current showing peak list
                         will be used as the initial guess. You can download pseudo-3D fitting result after
