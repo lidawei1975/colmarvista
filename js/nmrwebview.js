@@ -3947,7 +3947,33 @@ function show_hide_peaks(index,flag,b_show)
         let pseudo3d_spectrum = new spectrum();
         pseudo3d_spectrum.fitted_peaks_object = pseudo3d_fitted_peaks_object;
 
-        main_plot.add_peaks(pseudo3d_spectrum,'fitted');
+        /**
+         * If we have DOSY in column_headers, add it to peak_properties.
+         */
+        if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY')!==-1)
+        {
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY']);
+            /**
+             * Get min and max of pseudo3d_fitted_peaks_object.column['DOSY']
+             */
+            let dosy_values = pseudo3d_fitted_peaks_object.get_column_by_header('DOSY');
+            let dosy_min = dosy_values[0];
+            let dosy_max = dosy_values[0];
+          
+            for (let i = 1; i < dosy_values.length; i++) {
+              if (dosy_values[i] < dosy_min) {
+                dosy_min = dosy_values[i];
+              }
+              if (dosy_values[i] > dosy_max) {
+                dosy_max = dosy_values[i];
+              }
+            }
+            main_plot.set_color_map(dosy_min,dosy_max);
+        }
+        else
+        {
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);    
+        }
     }
 
     else if(b_show)
@@ -3973,7 +3999,7 @@ function show_hide_peaks(index,flag,b_show)
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
-        main_plot.add_peaks(hsqc_spectra[index],flag);
+        main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);
         
     }
     else

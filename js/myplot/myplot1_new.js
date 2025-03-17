@@ -53,6 +53,8 @@ function plotit(input) {
     this.allow_brush_to_remove = false; //default is false
 
     this.peak_color = "#FF0000"; //default color is red
+    this.peak_color_scale = d3.scaleSequential(d3.interpolateRdBu); //default color scale is Red-Blue. 
+    this.peak_color_flag = 'solid'; //default is solid, can be a color-map, depending on some peak properties
     this.peak_size = 6;
     this.peak_thickness = 5;
 
@@ -959,9 +961,10 @@ plotit.prototype.set_peak_level = function (level) {
 /**
  * Set peaks for the plot
  */
-plotit.prototype.add_peaks = function (spectrum,flag) {
+plotit.prototype.add_peaks = function (spectrum,flag,properties) {
     this.spectrum = spectrum;
     this.peak_flag = flag;
+    this.peak_properties = properties;
     this.draw_peaks();
 }
 
@@ -1287,10 +1290,10 @@ plotit.prototype.draw_peaks = function () {
      */
     this.new_peaks;
     if(self.peak_flag === 'picked') {
-        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'])
+        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
     }
     else{
-        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'])
+        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
     }
     
     for(let i=0;i<self.new_peaks.length;i++)
@@ -1326,16 +1329,64 @@ plotit.prototype.draw_peaks = function () {
         })
         .attr("clip-path", "url(#clip)")
         .attr('r', self.peak_size)
-        .attr('stroke', self.peak_color)
+        .attr('stroke', function(d){
+            if(self.peak_color_flag === "solid"){
+                return self.peak_color;
+            }
+            else if(self.peak_color_flag === "colormap"){
+                return self.peak_color_scale(d['color']);
+            }
+            else{
+                return "red";
+            }
+        })
         .attr('fill', 'none')
         .attr('stroke-width', self.peak_thickness);
+};
+
+plotit.prototype.set_color_map = function (dosy_min, dosy_max) {
+
+    let self = this;
+    self.peak_color_scale = d3.scaleSequential(d3.interpolateRdYlBu)
+    self.peak_color_flag = "colormap";
+    /**
+     * In this.new_peaks, map DOSY to color, linearly from [dosy_min, dosy_max] to [0,1]
+     */
+    self.new_peaks.forEach(function (d) {
+        if( d.DOSY >= dosy_min && d.DOSY <= dosy_max)
+        {
+            d.color = (d.DOSY - dosy_min) / (dosy_max - dosy_min);
+        }
+        else if(d.DOSY < dosy_min)
+        {
+            d.color = 0;
+        }
+        else if(d.DOSY > dosy_max)
+        {
+            d.color = 1;
+        }
+    });
+    /**
+     * Redraw peaks with new color
+     */
+    self.redraw_peaks();
 };
 
 plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
         .attr('r', self.peak_size)
-        .attr('stroke', self.peak_color)
+        .attr('stroke', function(d){
+            if(self.peak_color_flag === "solid"){
+                return self.peak_color;
+            }
+            else if(self.peak_color_flag === "colormap"){
+                return self.peak_color_scale(d['color']);
+            }
+            else{
+                return "red";
+            }
+        })
         .attr('visibility',function(d) {
             if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level)
             {

@@ -357,6 +357,17 @@ class cpeaks {
     }
 
     /**
+     * Get a column as a array, using colomn header name
+     */
+    get_column_by_header(column_header_name) {
+        let index = this.column_headers.indexOf(column_header_name);
+        if (index === -1) {
+            return [];
+        }
+        return this.columns[index];
+    }
+
+    /**
      * Filter a column by a range of values
      * then apply the filter to all columns
      */
@@ -610,13 +621,13 @@ class cpeaks {
             /**
              * Step 3, run the fitting function to get the DOSY value
              */
-            let dosy_value = this.dosy_fitting(z_values, gradients);
+            let dosy_value = this.dosy_fitting_core(z_values, gradients);
             /**
              * Step 4, add the DOSY value to the peaks object
              */
             if (i === 0) {
                 this.column_headers.push('DOSY');
-                this.column_formats.push('%10.4f');
+                this.column_formats.push('%6.4e');
                 this.columns.push([]);
             }
             this.columns[this.column_headers.indexOf('DOSY')].push(-dosy_value.slope*scale_constant);
@@ -628,7 +639,7 @@ class cpeaks {
      * Dosy fitting function to calculate the DOSY value from the Z_A values and gradients
      * I=I0*exp(-D*G^2), so D = -ln(I/I0)/G^2, so we can get D from a linear fit of -ln(I) vs G^2
      */
-    dosy_fitting(z_values, gradients) {
+    dosy_fitting_core(z_values, gradients) {
         /**
          * Step 1, get the natural log of the Z_A values.
          * z[0] is always 1.0, and z becomes smaller as the gradient increases
