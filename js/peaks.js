@@ -1,8 +1,42 @@
+
+/**
+ * Linear regression function to calculate the slope of a line, without intercept
+ * @param {*} x 
+ * @param {*} y 
+ * @returns an object with slope and a predict function
+ */
+
+function linearRegressionNoIntercept(x, y) {
+  
+    const n = x.length;
+  
+    // Calculate the sum of x*y and the sum of x*x.
+    let sumXY = 0;
+    let sumXSquared = 0;
+  
+    for (let i = 0; i < n; i++) {
+      sumXY += x[i] * y[i];
+      sumXSquared += x[i] * x[i];
+    }
+  
+    // Calculate the slope (beta).
+    const slope = sumXY / sumXSquared;
+  
+    // predicted y values based on the slope
+    let y_pre = x.map(xi => slope * xi);
+  
+    // Return the slope and the predict function.
+    return {
+      slope: slope,
+      y_pre: y_pre,
+};
+  }
+
+
 /**
  * Define the peaks object, to store peak parameters of a spectrum
  * and peak processing methods.
  */
-
 class cpeaks {
 
     constructor() {
@@ -549,4 +583,68 @@ class cpeaks {
         return peaks_tab;
     }
 
+    /**
+     * Function to run DOSY fitting on all peaks (pseudo 3D peak list only, with Z_A1, Z_A2, Z_A3 ... columns)
+     * This function will add a column "DOSY" to the peaks object, with the fitted DOSY value for each peak
+     */
+    run_dosy_fitting(gradients,scale_constant = 1.0) {
+        /**
+         * Get total # of Z_A1, Z_A2, Z_A3 ... columns, which must == gradients.length
+         */
+        let z_columns = this.column_headers.filter(header => header.startsWith('Z_A'));
+        if (z_columns.length !== gradients.length) {
+            console.error('Number of Z_A columns does not match the number of gradients');
+            return false;
+        }
+        /**
+         * Get a 2D array of Z_A values, each row is a peak, each column is a Z_A value. 
+         * The array should be row-major, for optimal performance in the fitting function
+         * Step 1, get column indexes of Z_A columns
+         */
+        let z_column_indexes = z_columns.map(header => this.column_headers.indexOf(header));
+        /**
+         * Step 2, get the Z_A values for each peak
+         */
+        for(var i = 0; i < this.columns[0].length; i++) {
+            let z_values = z_column_indexes.map(index => this.columns[index][i]);
+            /**
+             * Step 3, run the fitting function to get the DOSY value
+             */
+            let dosy_value = this.dosy_fitting(z_values, gradients);
+            /**
+             * Step 4, add the DOSY value to the peaks object
+             */
+            if (i === 0) {
+                this.column_headers.push('DOSY');
+                this.column_formats.push('%10.4f');
+                this.columns.push([]);
+            }
+            this.columns[this.column_headers.indexOf('DOSY')].push(-dosy_value.slope*scale_constant);
+        }
+        return true;
+    }
+
+    /**
+     * Dosy fitting function to calculate the DOSY value from the Z_A values and gradients
+     * I=I0*exp(-D*G^2), so D = -ln(I/I0)/G^2, so we can get D from a linear fit of -ln(I) vs G^2
+     */
+    dosy_fitting(z_values, gradients) {
+        /**
+         * Step 1, get the natural log of the Z_A values.
+         * z[0] is always 1.0, and z becomes smaller as the gradient increases
+         */
+        let ln_z = z_values.map(z => Math.log(z));
+        /**
+         * Step 2, get the square of the gradients
+         */
+        let g_squared = gradients.map(g => g * g);
+        /**
+         * Step 3, perform a linear fit of ln_z vs g_squared to get the slope while forcing the intercept to be 0
+         */
+        let result = linearRegressionNoIntercept(g_squared, ln_z);
+        /**
+         * Step 4, calculate the DOSY value from the slope
+         */
+        return result; //object with two properties: slope and y_pre
+    }
 };

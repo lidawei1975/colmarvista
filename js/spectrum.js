@@ -33,7 +33,7 @@ function find_max_min(data) {
 class spectrum {
     constructor() {
         this.spectrum_format = "ft2"; //ft2 is the default format
-        this.process_ppm_j_change = new Float32Array(512); //header of the spectrum, 512 float32 numbers
+        this.header = new Float32Array(512); //header of the spectrum, 512 float32 numbers
         this.raw_data = new Float32Array(0); //raw data, real real
         this.raw_data_ri = new Float32Array(0); //raw data for real (along indirect dimension) and imaginary (along indirect dimension) part
         this.raw_data_ir = new Float32Array(0); //raw data for imaginary (along indirect dimension) and real (along indirect dimension) part
