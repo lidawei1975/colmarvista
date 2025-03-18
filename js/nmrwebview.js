@@ -50,21 +50,15 @@ var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var fid_process_parameters; 
 var current_reprocess_spectrum_index = -1;
     
-// var acquisition_seq;
-// var neg_imaginary;
-// var apodization_direct;
-// var apodization_indirect;
-// var zf_direct;
-// var zf_indirect;
-// var phase_correction_direct_p0;
-// var phase_correction_direct_p1;
-// var auto_direct;
-// var phase_correction_indirect_p0;
-// var phase_correction_indirect_p1;
-// var auto_indirect;
-// var nuslist_as_string = '';
-// var extract_direct_from = 0.0;
-// var extract_direct_to = 1.0;
+/**
+ * Default var in peaks to color-map the peaks symbols
+ */
+var color_map_list = ['HEIGHT'];
+/**
+ * Corresponding color map limits for the color_map_list
+ * Save length of color_map_list.
+ */
+var color_map_limit = [[0,1]]; 
 
 
 
@@ -2819,6 +2813,13 @@ function init_plot(input) {
         main_plot.redraw_peaks();
     });
 
+    document.getElementById("peak_colormap").addEventListener('change', function (e) {
+        main_plot.peak_color_flag = e.target.value;
+        let index = e.target.selectedIndex;
+        if(index>0) {main_plot.peak_color_flag_limit = color_map_limit[index-1];} //index 0 is solid, not in the list
+        main_plot.redraw_peaks();
+    });
+
 };
 
 function show_cross_section(index) {
@@ -3953,33 +3954,25 @@ function show_hide_peaks(index,flag,b_show)
          */
         if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY')!==-1)
         {
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY']);
+
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'],'SOLID');
             /**
              * Insert ASS and DOSY into HTML select with ID labels
              */
-            update_label_select(['DOSY']);
+            update_label_select(['DOSY','HEIGHT']);
+            
+            color_map_list = ['HEIGHT','DOSY'];
+            color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT'),get_peak_limit(pseudo3d_fitted_peaks_object,'DOSY')];
+            update_colormap_select();
 
-            /**
-             * Get min and max of pseudo3d_fitted_peaks_object.column['DOSY']
-             */
-            let dosy_values = pseudo3d_fitted_peaks_object.get_column_by_header('DOSY');
-            let dosy_min = dosy_values[0];
-            let dosy_max = dosy_values[0];
-          
-            for (let i = 1; i < dosy_values.length; i++) {
-              if (dosy_values[i] < dosy_min) {
-                dosy_min = dosy_values[i];
-              }
-              if (dosy_values[i] > dosy_max) {
-                dosy_max = dosy_values[i];
-              }
-            }
-            // main_plot.set_color_map(dosy_min,dosy_max);
         }
         else
         {
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);    
-            update_label_select([]);
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
+            update_label_select(['HEIGHT']);
+            color_map_list = ['HEIGHT'];
+            color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT')];
+            update_colormap_select();
         }
     }
 
@@ -4006,14 +3999,19 @@ function show_hide_peaks(index,flag,b_show)
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
-        main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);
-        update_label_select(['INDEX']);
-        
+        main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
+        update_label_select(['INDEX','HEIGHT']);
+        color_map_list = ['HEIGHT'];
+        color_map_limit =[get_peak_limit( hsqc_spectra[index].picked_peaks_object,'HEIGHT')];
+        update_colormap_select();
     }
     else
     {
         current_spectrum_index_of_peaks = -1; // -1 means no spectrum is selected. flag is not important
         main_plot.remove_picked_peaks();
+        color_map_list=[];
+        color_map_limit=[];
+        update_colormap_select();
     }
     /**
      * There is no need to redraw the contour plot
@@ -4424,6 +4422,43 @@ function update_label_select(labels)
         option.text = labels[i];
         selectElement.add(option);
     }
+}
+
+function update_colormap_select()
+{
+    /**
+     * Remove all except 1st (which is Solid: means solid color, not colormap
+     */
+    let selectElement=document.getElementById('peak_colormap');
+    let i = selectElement.options.length-1;
+    while (i>0) {
+        selectElement.remove(i);
+        i--;
+    }
+    for(let i=0;i<color_map_list.length;i++)
+    {
+        const option = document.createElement("option");
+        option.value = color_map_list[i];
+        option.text = color_map_list[i];
+        selectElement.add(option);
+    }
+}
+
+function get_peak_limit(peak_object,header)
+{
+    let values = peak_object.get_column_by_header(header);
+    let min = values[0];
+    let max = values[0];
+  
+    for (let i = 1; i < values.length; i++) {
+      if (values[i] < min) {
+        min = values[i];
+      }
+      if (values[i] > max) {
+        max = values[i];
+      }
+    }
+    return [min,max];
 }
 
 /**
