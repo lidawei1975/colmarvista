@@ -852,12 +852,13 @@ $(document).ready(function () {
         let repulsive_force = parseFloat(document.getElementById("repulsive_force").value);
         let font_size = parseFloat(document.getElementById("peak_label_size").value);
         let color = document.getElementById("peak_color").value;
+        let labels = document.getElementById("labels").value;
 
         if (this.checked) {
-            main_plot.update_peak_labels(true,min_dis,max_dis,repulsive_force,font_size,color);
+            main_plot.update_peak_labels(true,min_dis,max_dis,repulsive_force,font_size,color,labels);
         }
         else {
-            main_plot.update_peak_labels(false,min_dis,max_dis,repulsive_force,font_size,color);
+            main_plot.update_peak_labels(false,min_dis,max_dis,repulsive_force,font_size,color,labels);
         }
     });
 
@@ -3954,6 +3955,11 @@ function show_hide_peaks(index,flag,b_show)
         {
             main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY']);
             /**
+             * Insert ASS and DOSY into HTML select with ID labels
+             */
+            update_label_select(['DOSY']);
+
+            /**
              * Get min and max of pseudo3d_fitted_peaks_object.column['DOSY']
              */
             let dosy_values = pseudo3d_fitted_peaks_object.get_column_by_header('DOSY');
@@ -3968,11 +3974,12 @@ function show_hide_peaks(index,flag,b_show)
                 dosy_max = dosy_values[i];
               }
             }
-            main_plot.set_color_map(dosy_min,dosy_max);
+            // main_plot.set_color_map(dosy_min,dosy_max);
         }
         else
         {
             main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);    
+            update_label_select([]);
         }
     }
 
@@ -4000,6 +4007,7 @@ function show_hide_peaks(index,flag,b_show)
             }
         }
         main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS']);
+        update_label_select(['INDEX']);
         
     }
     else
@@ -4395,6 +4403,27 @@ let maximal_values = []; // maximal value of each segment
 
     return noise_level;
 
+}
+
+function update_label_select(labels)        
+{
+    /**
+     * Remove all except 1st 
+     */
+    let selectElement=document.getElementById('labels');
+    let i = selectElement.options.length-1;
+    while (i>0) {
+        selectElement.remove(i);
+        i--;
+    }
+
+    for(let i=0;i<labels.length;i++)
+    {
+        const option = document.createElement("option");
+        option.value = labels[i];
+        option.text = labels[i];
+        selectElement.add(option);
+    }
 }
 
 /**

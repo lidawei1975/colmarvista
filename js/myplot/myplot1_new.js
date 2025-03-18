@@ -972,7 +972,7 @@ plotit.prototype.add_peaks = function (spectrum,flag,properties) {
  * Add peak labels to the plot. Only show the labels for the peaks that are visible
  * That is, this function need to be called after any zoom, pan, resize or contour level change to be valid
  */
-plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,font_size,color) {
+plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,font_size,color,label) {
     let self = this;
 
     self.font_size = font_size;
@@ -1132,7 +1132,28 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .attr('font-size',font_size)
         .style('fill', color)
         .text(function (d) {
-            return d.ASS;
+            if(typeof d[label] === "number")
+            {
+                if(Number.isInteger(d[label]) && d[label] < 1000 )
+                {
+                    return d[label].toFixed(0);
+                }
+                else if(d[label] > 1000)
+                {
+                    return d[label].toExponential(2);
+                }
+                else if(d[label] < 0.01)
+                {
+                    return d[label].toExponential(2);
+                }
+                else
+                {
+                    return d[label].toFixed(2);
+                }
+            }
+            else{
+                return d[label];
+            }
         })
         .attr('x', function (d) {
             return self.xRange(d.X_PPM);
