@@ -93,6 +93,27 @@ class spectrum {
         this.pseudo3d_children = [];
     };
 
+    /**
+     * Function to create a shallow copy of the spectrum object
+     * Keep all the properties, except header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii (Float32Array)
+     * And add new properties: header_length, raw_data_length, raw_data_ri_length, raw_data_ir_length, raw_data_ii_length
+     * which are the length of the corresponding Float32Array
+     */
+    create_shallow_copy_wo_float32() {
+        let new_spectrum = new Object();
+        for(var key in this) {
+            if (this.hasOwnProperty(key)) {
+                if (key === "header" || key === "raw_data" || key === "raw_data_ri" || key === "raw_data_ir" || key === "raw_data_ii") {
+                    new_spectrum[key + "_length"] = this[key].length;
+                }
+                else {
+                    new_spectrum[key] = this[key];
+                }
+            }
+        }
+        return new_spectrum;
+    };
+
 
     update_x_ppm_ref(x_ppm_ref) {
         let delta_ppm = x_ppm_ref - this.x_ppm_ref;

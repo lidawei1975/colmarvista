@@ -661,6 +661,29 @@ $(document).ready(function () {
         }
     });
 
+    /**
+     * Event listener for file input "load_file"
+     */
+    document.getElementById('load_file').addEventListener('change', function (e) {
+        let file = document.getElementById('load_file').files[0];
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function () {
+                /**
+                 * Read as array buffer
+                 */
+                loadBinaryAndJsonWithLength(reader.result);
+            };
+            reader.onerror = function (e) {
+                console.log("Error reading file");
+            };
+            /**
+             * Read as binary file
+             */
+            reader.readAsArrayBuffer(file);
+        }
+    });
+
 });
 
 
@@ -3321,6 +3344,52 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
 }
 
 /**
+ * Calculate contour and draw them when loading previous sessions. 
+ * Similar to draw_spectrum() but no need to update hsqc_spectra array (we loaded it)
+ */
+function draw_spectrum_from_loading()
+{
+    init_plot(hsqc_spectra[0]);
+
+    for(let i=0;i<hsqc_spectra.length;i++)
+    {
+    
+        /**
+         * Positive contour calculation for the spectrum
+         */
+        let spectrum_information = {
+            /**
+             * n_direct,n_indirect, and levels are required for contour calculation
+             */
+            n_direct: hsqc_spectra[i].n_direct,
+            n_indirect: hsqc_spectra[i].n_indirect,
+            levels: hsqc_spectra[i].levels,
+
+            /**
+             * These are flags to be send back to the main thread
+             * so that the main thread know which part to update
+             * @var spectrum_type: "full": all contour levels or "partial": new level added at the beginning
+             * @var spectrum_index: index of the spectrum in the hsqc_spectra array
+             * @var contour_sign: 0: positive contour, 1: negative contour
+             */
+            spectrum_type: "full",
+            spectrum_index: hsqc_spectra[i].spectrum_index,
+            spectrum_origin: hsqc_spectra[i].spectrum_origin,
+            contour_sign: 0
+        };
+        my_contour_worker.postMessage({ response_value: hsqc_spectra[i].raw_data, spectrum: spectrum_information });
+
+        /**
+         * Negative contour calculation for the spectrum
+         */
+        spectrum_information.contour_sign = 1;
+        spectrum_information.levels = hsqc_spectra[i].negative_levels;
+        my_contour_worker.postMessage({ response_value: hsqc_spectra[i].raw_data, spectrum: spectrum_information });
+    }
+}
+
+
+/**
  * Concat two float32 arrays into one
  * @returns the concatenated array
  */
@@ -4334,3 +4403,112 @@ function reprocess_spectrum(self,spectrum_index)
         document.getElementById("button_apply_ps").disabled = true;
     }
 }
+
+/**
+ * Onclick event from save button
+*/ 
+function save_to_file()
+{
+    /**
+     * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
+     * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
+     */
+    let hsqc_spectra_copy = [];
+    for(let i=0;i<hsqc_spectra.length;i++)
+    {
+        let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
+        hsqc_spectra_copy.push(spectrum_copy);
+    }
+
+    /**
+     * Step 2, prepare the binaryData, which is a concatenation of all 
+     *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
+     */
+    let totalLength = 0;
+    for(let i=0;i<hsqc_spectra.length;i++){
+        totalLength += hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length + hsqc_spectra[i].raw_data_ri.length + hsqc_spectra[i].raw_data_ir.length + hsqc_spectra[i].raw_data_ii.length;
+    }
+
+    const jsonString = JSON.stringify(hsqc_spectra_copy);
+    const jsonBytes = new TextEncoder().encode(jsonString);
+    const jsonLength = jsonBytes.length;
+
+    // Create a DataView to write the length as an Int32:
+    const lengthBuffer = new ArrayBuffer(4);
+    const lengthView = new DataView(lengthBuffer);
+    lengthView.setInt32(0, jsonLength, true); // true for little-endian
+
+    // Combine length, JSON, and binary data:
+    const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength*Float32Array.BYTES_PER_ELEMENT);
+    const combinedView = new Uint8Array(combinedBuffer);
+
+    combinedView.set(new Uint8Array(lengthBuffer), 0);
+    combinedView.set(jsonBytes, 4);
+    /**
+     * Step 3, copy all binary data into combinedView
+     */
+    let offset = 4 + jsonLength;
+    for(let i=0;i<hsqc_spectra.length;i++){
+        combinedView.set(new Uint8Array(hsqc_spectra[i].header.buffer), offset);
+        console.log('set header at offset ' + offset);
+        console.log(hsqc_spectra[i].header);
+        offset += hsqc_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
+        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data.buffer), offset);
+        offset += hsqc_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
+        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ri.buffer), offset);
+        offset += hsqc_spectra[i].raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
+        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ir.buffer), offset);
+        offset += hsqc_spectra[i].raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
+        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ii.buffer), offset);
+        offset += hsqc_spectra[i].raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+    }    
+
+    // Create Blob and download:
+    const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "colmarvista_save.bin";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+/**
+ * Async function to load hsqc_spectra from a file
+ */
+async function loadBinaryAndJsonWithLength(arrayBuffer) {
+    
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Read the length of the JSON data (first 4 bytes)
+    const jsonLength = new DataView(arrayBuffer).getInt32(0, true); // true for little-endian
+
+    // Extract the JSON data
+    const jsonBytes = uint8Array.slice(4, 4 + jsonLength);
+    const jsonString = new TextDecoder().decode(jsonBytes);
+    hsqc_spectra = JSON.parse(jsonString);
+
+    // Now we need to extract the binary data
+    let offset = 4 + jsonLength;
+    for(let i=0;i<hsqc_spectra.length;i++){
+        hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + 512 * Float32Array.BYTES_PER_ELEMENT));
+        console.log('load header at offset ' + offset);
+        console.log(hsqc_spectra[i].header);
+        offset += 512 * Float32Array.BYTES_PER_ELEMENT;
+        
+        hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
+
+        hsqc_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT;
+
+        hsqc_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT;
+
+        hsqc_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT;
+    }
+    draw_spectrum_from_loading();
+};
