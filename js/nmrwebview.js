@@ -4490,6 +4490,49 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     const jsonString = new TextDecoder().decode(jsonBytes);
     hsqc_spectra = JSON.parse(jsonString);
 
+    /**
+     * Reattach methods defined in spectrum.js to all hsqc_spectra objects
+     */
+    for(let i=0;i<hsqc_spectra.length;i++)
+    {
+        /**
+         * Loop all methods of class spectrum and attach them to the hsqc_spectra[i] object
+         */
+        let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
+        for(let j=0;j<spectrum_methods.length;j++)
+        {
+            if(spectrum_methods[j] !== 'constructor')
+            {
+                hsqc_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
+            }
+        }
+        /**
+         * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
+         */
+        if(hsqc_spectra[i].picked_peaks_object !== null)
+        {
+            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
+            for(let j=0;j<peaks_methods.length;j++)
+            {
+                if(peaks_methods[j] !== 'constructor')
+                {
+                    hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                }
+            }
+        }
+        if(hsqc_spectra[i].fitted_peaks_object !== null)
+        {
+            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
+            for(let j=0;j<peaks_methods.length;j++)
+            {
+                if(peaks_methods[j] !== 'constructor')
+                {
+                    hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                }
+            }
+        }
+    }
+
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
     for(let i=0;i<hsqc_spectra.length;i++){
