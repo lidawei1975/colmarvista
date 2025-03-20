@@ -3881,7 +3881,11 @@ function run_dosy()
     let dosy_gradient_text = document.getElementById("dosy_gradient").value;
     let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
     let gradients = dosy_gradient_text.split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
-    pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
+    let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
+    /**
+     * Let user know DOSY result is ready
+     */
+    document.getElementById("dosy_result").textContent = dosy_result.message;
 }
 
 /**
@@ -4463,6 +4467,11 @@ function save_to_file()
         hsqc_spectra_copy.push(spectrum_copy);
     }
 
+    let to_save = {
+        hsqc_spectra: hsqc_spectra_copy,
+        pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
+    };
+
     /**
      * Step 2, prepare the binaryData, which is a concatenation of all 
      *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
@@ -4472,7 +4481,7 @@ function save_to_file()
         totalLength += hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length + hsqc_spectra[i].raw_data_ri.length + hsqc_spectra[i].raw_data_ir.length + hsqc_spectra[i].raw_data_ii.length;
     }
 
-    const jsonString = JSON.stringify(hsqc_spectra_copy);
+    const jsonString = JSON.stringify(to_save);
     const jsonBytes = new TextEncoder().encode(jsonString);
     const jsonLength = jsonBytes.length;
 
@@ -4531,7 +4540,10 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     // Extract the JSON data
     const jsonBytes = uint8Array.slice(4, 4 + jsonLength);
     const jsonString = new TextDecoder().decode(jsonBytes);
-    hsqc_spectra = JSON.parse(jsonString);
+    let to_save = JSON.parse(jsonString);
+
+    hsqc_spectra = to_save.hsqc_spectra;
+    pseudo3d_fitted_peaks_object = to_save.pseudo3d_fitted_peaks_object;
 
     /**
      * Reattach methods defined in spectrum.js to all hsqc_spectra objects
@@ -4577,6 +4589,21 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 
     /**
+     * If pseudo3d_fitted_peaks_object is not null, we need to reattach methods as well
+     */
+    if(pseudo3d_fitted_peaks_object !== null )
+    {
+        let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
+        for(let j=0;j<peaks_methods.length;j++)
+        {
+            if(peaks_methods[j] !== 'constructor')
+            {
+                pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+            }
+        }
+    }
+
+    /**
      * Because we will re-calculate contour plot, we reset all visible to true
      */
     for(let i=0;i<hsqc_spectra.length;i++)
@@ -4605,4 +4632,18 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         offset += hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT;
     }
     draw_spectrum_from_loading();
+    /**
+     * process pseudo-3D buttons and dosy information
+     */
+    if(pseudo3d_fitted_peaks_object !== null)
+    {
+        if(pseudo3d_fitted_peaks_object.gradients !== null)
+        {
+            document.getElementById("dosy_gradient").value = pseudo3d_fitted_peaks_object.gradients.join(' ');
+            document.getElementById("dosy_rescale").value = pseudo3d_fitted_peaks_object.scale_constant;
+            document.getElementById("dosy_result").textContent = "Dosy result is available";
+        }
+        document.getElementById("button_download_fitted_peaks").disabled = false;
+        document.getElementById("show_pseudo3d_peaks").disabled = false;
+    }
 };

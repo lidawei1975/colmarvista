@@ -56,6 +56,8 @@ class cpeaks {
         this.column_formats = [];
         this.columns = [];
         this.manual_peak_index = 10000;
+        this.gradients = null;
+        this.scale_constant = 1.0;
     }
 
     /**
@@ -599,13 +601,23 @@ class cpeaks {
      * This function will add a column "DOSY" to the peaks object, with the fitted DOSY value for each peak
      */
     run_dosy_fitting(gradients,scale_constant = 1.0) {
+
+        /**
+         * Save gradients and scale constant as properties of the peaks object
+         * for future reference
+         */
+        this.gradients = gradients;
+        this.scale_constant = scale_constant;
+
         /**
          * Get total # of Z_A1, Z_A2, Z_A3 ... columns, which must == gradients.length
          */
         let z_columns = this.column_headers.filter(header => header.startsWith('Z_A'));
         if (z_columns.length !== gradients.length) {
-            console.error('Number of Z_A columns does not match the number of gradients');
-            return false;
+            return {
+                message: 'Number of Z_A columns does not match the number of gradients',
+                result: false
+            };
         }
         /**
          * Get a 2D array of Z_A values, each row is a peak, each column is a Z_A value. 
@@ -632,7 +644,10 @@ class cpeaks {
             }
             this.columns[this.column_headers.indexOf('DOSY')].push(-dosy_value.slope*scale_constant);
         }
-        return true;
+        return {
+            message: 'DOSY fitting completed successfully',
+            result: true,
+        };
     }
 
     /**
