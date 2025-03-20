@@ -1476,6 +1476,7 @@ function add_to_list(index) {
          * Also add an minimize button to the new spectrum div
          */
         let minimize_button = document.createElement("button");
+        minimize_button.id = "minimize-".concat(index);
         minimize_button.innerText = "-";
         minimize_button.onclick = function () { minimize_spectrum(this,index); };
         new_spectrum_div.appendChild(minimize_button);
@@ -2172,7 +2173,6 @@ function add_to_list(index) {
          */
         show_projection(index);
     }
-
 }
 
 my_contour_worker.onmessage = (e) => {
@@ -4574,6 +4574,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 }
             }
         }
+    }
+
+    /**
+     * Because we will re-calculate contour plot, we reset all visible to true
+     */
+    for(let i=0;i<hsqc_spectra.length;i++)
+    {
+        hsqc_spectra[i].visible = true;
     }
 
     // Now we need to extract the binary data
