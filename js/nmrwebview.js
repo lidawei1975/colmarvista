@@ -3880,7 +3880,7 @@ function run_dosy()
      */
     let dosy_gradient_text = document.getElementById("dosy_gradient").value;
     let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
-    let gradients = dosy_gradient_text.split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
+    let gradients = dosy_gradient_text.trim().split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
     let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
     /**
      * Let user know DOSY result is ready
