@@ -838,12 +838,11 @@ webassembly_worker.onmessage = function (e) {
          * when picked peaks are received, fitted peaks need to be reset
          */
         hsqc_spectra[e.data.spectrum_index].fitted_peaks_object = null;
+        
         /**
          * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
          */
-        document.getElementById("download_fitted_peaks-".concat(e.data.spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_index)).disabled = true;
+        disable_enable_fitted_peak_buttons(e.data.spectrum_index,0);
 
         /**
          * Need to save its scale and scale2 used to run deep picker
@@ -851,19 +850,9 @@ webassembly_worker.onmessage = function (e) {
          */
         hsqc_spectra[e.data.spectrum_index].scale = e.data.scale;
         hsqc_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
-        /**
-         * Enable the download peaks button
-         */
-        document.getElementById("download_peaks-".concat(e.data.spectrum_index)).disabled = false;
-        /**
-         * Enable peak picking (we disabled it when starting deep picker) and peak fitting buttons
-         */
-        document.getElementById("run_deep_picker-".concat(e.data.spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(e.data.spectrum_index)).disabled = false;
-        /**
-         * Enable, set it as unchecked then simulate a click event to show the peaks
-         */
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).disabled = false;
+        
+        disable_enable_peak_buttons(e.data.spectrum_index,1);
+
         document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
         document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
 
@@ -887,16 +876,9 @@ webassembly_worker.onmessage = function (e) {
         hsqc_spectra[e.data.spectrum_origin].fitted_peaks_object = peaks;
 
         /**
-         * Enable run deep picker and run voigt fitter buttons
-         */
-        document.getElementById("run_deep_picker-".concat(e.data.spectrum_origin)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(e.data.spectrum_origin)).disabled = false;
-
-        /**
          * Enable the download fitted peaks button and show the fitted peaks button
          */
-        document.getElementById("download_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
+        disable_enable_fitted_peak_buttons(e.data.spectrum_origin,1);
 
         /**
          * Uncheck the show_peaks checkbox then simulate a click event to show the peaks (with updated peaks from fitted_peaks)
@@ -3521,28 +3503,15 @@ function load_peak_list(spectrum_index)
             /**
              * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
              */
-            document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
-            document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
-            document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;
+            disable_enable_fitted_peak_buttons(spectrum_index,0);
             /**
              * When peaks are loaded, set default scale and scale2 for peak fitting
              */
             hsqc_spectra[spectrum_index].scale = 5.5;
             hsqc_spectra[spectrum_index].scale2 = 3.5;
 
-            /**
-             * Enable the download peaks button
-             */
-            document.getElementById("download_peaks-".concat(spectrum_index)).disabled = false;
-            /**
-             * Enable peak picking (we disabled it when starting deep picker) and peak fitting buttons
-             */
-            document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-            document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
-            /**
-             * Enable, set it as unchecked then simulate a click event to show the peaks
-             */
-            document.getElementById("show_peaks-".concat(spectrum_index)).disabled = false;
+            disable_enable_peak_buttons(spectrum_index,1);
+
             document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
             document.getElementById("show_peaks-".concat(spectrum_index)).click();
         }
@@ -3553,6 +3522,63 @@ function load_peak_list(spectrum_index)
     reader.readAsText(file);
 }
 
+/**
+ * Disable or enable buttons of download_peaks-, run_deep_picker-, run_voigt_fitter-, show_peaks-
+ */
+function disable_enable_peak_buttons(spectrum_index,flag)
+{
+    if(flag===0)
+    {
+        /**
+         * Disable the buttons to run deep picker and voigt fitter
+         */
+        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = true;
+        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = true;
+        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = true;
+        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
+        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
+        document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
+        document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
+    }
+    else if(flag===1)
+    {
+        /**
+         * Enable the buttons to run deep picker and voigt fitter
+         */
+        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
+        document.getElementById("show_peaks-".concat(spectrum_index)).disabled = false;
+    }
+}
+
+/**
+ * Disable or enable buttons for download_fitted_peaks and show_fitted_peaks
+ */
+function disable_enable_fitted_peak_buttons(spectrum_index,flag)
+{
+    if(flag==0)
+    {
+        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;   
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+    }
+    else if(flag==1)
+    {
+        document.getElementById("download_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
+        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
+        /**
+         * Enable run deep picker and run voigt fitter buttons (allow run again)
+         */
+        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_deep_picker-".concat(e.data.spectrum_origin)).disabled = false;
+        document.getElementById("run_voigt_fitter-".concat(e.data.spectrum_origin)).disabled = false;
+    }
+}
+
 
 /**
  * Call DEEP Picker to run peaks picking the spectrum
@@ -3560,12 +3586,8 @@ function load_peak_list(spectrum_index)
  */
 function run_DEEP_Picker(spectrum_index,flag)
 {
-    /**
-     * Disable the buttons to run deep picker and voigt fitter
-     */
-    document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
-    document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
-
+    disable_enable_peak_buttons(spectrum_index,0);
+    disable_enable_fitted_peak_buttons(spectrum_index,0);
 
     /**
      * Combine hsqc_spectra[0].raw_data and hsqc_spectra[0].header into one Float32Array
@@ -3620,8 +3642,8 @@ function run_Voigt_fitter(spectrum_index,flag)
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
-    document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
-    document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
+    disable_enable_peak_buttons(spectrum_index,0);
+    disable_enable_fitted_peak_buttons(spectrum_index,0);
 
     /**
      * Get maxround input field with ID "maxround-"+spectrum_index
