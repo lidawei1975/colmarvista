@@ -1443,7 +1443,11 @@ function minimize_spectrum(button,index)
 
 }
 
-
+/**
+ * Main function to add a new spectrum to the list (with all the buttons, etc)
+ * @param {*} index: spectrum index in hsqc_spectra
+ * IMPORTANT: This function is called AFTER contour is drawn
+ */
 function add_to_list(index) {
     let new_spectrum = hsqc_spectra[index];
     let new_spectrum_div_list = document.createElement("li");
@@ -1668,7 +1672,7 @@ function add_to_list(index) {
         
         /**
          * Add one buttons to call run_Voigt_fitter, with option 0,1, or 2
-         * Default is disabled
+         * Disabled (enabled) if hsqc_spectra[index].picked_peaks_object is empty (not empty)
          */
         let run_voigt_fitter_select = document.createElement("select");
         run_voigt_fitter_select.setAttribute("id", "run_voigt_fitter_select-".concat(index));
@@ -1708,11 +1712,13 @@ function add_to_list(index) {
             let option = parseInt(run_voigt_fitter_select.value);
             run_Voigt_fitter(index, option); 
         };
-        run_voigt_fitter_button0.disabled = true;
+        if(hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0)
+        {
+            run_voigt_fitter_button0.disabled = true;
+        }
         run_voigt_fitter_button0.setAttribute("id", "run_voigt_fitter-".concat(index));
         new_spectrum_div.appendChild(run_voigt_fitter_button0);
 
-       
 
         /**
          * Add a new line
@@ -1721,25 +1727,21 @@ function add_to_list(index) {
     }
 
     /**
-     * Add a download button to download the picked peaks. Default is disabled unless it is a reconstructed spectrum
+     * Add a download button to download the picked peaks. 
+     * Disabled (enabled) if hsqc_spectra[index].picked_peaks_object is empty (not empty)
      */
     let download_peaks_button = document.createElement("button");
     download_peaks_button.innerText = "Download picked peaks";
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000){
-        download_peaks_button.disabled = true;
-    }
     download_peaks_button.setAttribute("id", "download_peaks-".concat(index));
     download_peaks_button.onclick = function () { download_peaks(index,'picked'); };
     new_spectrum_div.appendChild(download_peaks_button);
 
     /**
-     * Add a download button to download the fitted peaks. Default is disabled unless it is a reconstructed spectrum
+     * Add a download button to download the fitted peaks.
+     * Disabled (enabled) if hsqc_spectra[index].fitted_peaks_object is empty (not empty)
      */
     let download_fitted_peaks_button = document.createElement("button");
     download_fitted_peaks_button.innerText = "Download fitted peaks";
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000){
-        download_fitted_peaks_button.disabled = true;
-    }
     download_fitted_peaks_button.setAttribute("id", "download_fitted_peaks-".concat(index));
     download_fitted_peaks_button.onclick = function () { download_peaks(index,'fitted'); };
     new_spectrum_div.appendChild(download_fitted_peaks_button);
@@ -1750,9 +1752,6 @@ function add_to_list(index) {
      */
     let show_peaks_checkbox = document.createElement("input");
     show_peaks_checkbox.setAttribute("type", "checkbox");
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000){
-        show_peaks_checkbox.disabled = true;
-    }
     show_peaks_checkbox.setAttribute("id", "show_peaks-".concat(index));
     show_peaks_checkbox.onclick = function (e) {
         /**
@@ -1776,9 +1775,6 @@ function add_to_list(index) {
      */
     let show_fitted_peaks_checkbox = document.createElement("input");
     show_fitted_peaks_checkbox.setAttribute("type", "checkbox");
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000){
-        show_fitted_peaks_checkbox.disabled = true;
-    }
     show_fitted_peaks_checkbox.setAttribute("id", "show_fitted_peaks-".concat(index));
     show_fitted_peaks_checkbox.onclick = function (e) {
         /**
@@ -1791,13 +1787,26 @@ function add_to_list(index) {
             show_hide_peaks(index,'fitted', false);
         }
     }
+
+    /**
+     * Disable the download or show picked or fitted peaks buttons, depending on the state of the picked or fitted peaks
+     */
+    if(hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0)
+    {
+        show_peaks_checkbox.disabled = true;
+        download_peaks_button.disabled = true;
+    }
+    if(hsqc_spectra[index].fitted_peaks_object === null || hsqc_spectra[index].fitted_peaks_object.column_headers.length === 0)
+    {
+        show_fitted_peaks_checkbox.disabled = true;
+        download_fitted_peaks_button.disabled = true;
+    }
+
     new_spectrum_div.appendChild(show_fitted_peaks_checkbox);
     let show_fitted_peaks_label = document.createElement("label");
     show_fitted_peaks_label.setAttribute("for", "show_fitted_peaks-".concat(index));
     show_fitted_peaks_label.innerText = "Show fitted peaks";
     new_spectrum_div.appendChild(show_fitted_peaks_label);
-
-
 
     /**
      * Add a new line
@@ -3527,7 +3536,7 @@ function load_peak_list(spectrum_index)
  */
 function disable_enable_peak_buttons(spectrum_index,flag)
 {
-    if(flag===0)
+    if(flag===0 || flag===2)
     {
         /**
          * Disable the buttons to run deep picker and voigt fitter
@@ -3537,8 +3546,11 @@ function disable_enable_peak_buttons(spectrum_index,flag)
         document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
+        if(flag===0)
+        {
+            document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
+            document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
+        }
     }
     else if(flag===1)
     {
@@ -3567,15 +3579,15 @@ function disable_enable_fitted_peak_buttons(spectrum_index,flag)
     }
     else if(flag==1)
     {
-        document.getElementById("download_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).disabled = false;
+        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
         /**
          * Enable run deep picker and run voigt fitter buttons (allow run again)
          */
         document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(e.data.spectrum_origin)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(e.data.spectrum_origin)).disabled = false;
+        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
+        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
     }
 }
 
@@ -3642,7 +3654,7 @@ function run_Voigt_fitter(spectrum_index,flag)
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
-    disable_enable_peak_buttons(spectrum_index,0);
+    disable_enable_peak_buttons(spectrum_index,2);
     disable_enable_fitted_peak_buttons(spectrum_index,0);
 
     /**
@@ -4531,7 +4543,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         /**
          * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
          */
-        if(hsqc_spectra[i].picked_peaks_object !== null)
+        if(hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0)
         {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
             for(let j=0;j<peaks_methods.length;j++)
@@ -4542,7 +4554,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 }
             }
         }
-        if(hsqc_spectra[i].fitted_peaks_object !== null)
+        if(hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0)
         {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
             for(let j=0;j<peaks_methods.length;j++)
