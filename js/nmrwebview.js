@@ -1459,6 +1459,15 @@ function add_to_list(index) {
     new_spectrum_div_list.id = "spectrum-".concat(index);
 
     /**
+     * If this is a removed spectrum, do not add it to the list
+     * this is required when user loads previously saved data, some spectra may be removed
+     */
+    if(new_spectrum.spectrum_origin === -3)
+    {
+        return;
+    }
+
+    /**
      * Add a draggable div to the new spectrum div, only if the spectrum is experimental
      */
     if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
@@ -4570,10 +4579,10 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
     for(let i=0;i<hsqc_spectra.length;i++){
-        hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + 512 * Float32Array.BYTES_PER_ELEMENT));
+        hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT));
         console.log('load header at offset ' + offset);
         console.log(hsqc_spectra[i].header);
-        offset += 512 * Float32Array.BYTES_PER_ELEMENT;
+        offset += hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT;
         
         hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
         offset += hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
