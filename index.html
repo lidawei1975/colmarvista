@@ -25,8 +25,18 @@
 
         <div id="section2">
             <div id="section21">
+
+                <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                    <label for="button_save" id="button_save_label">Save current session to a local file </label>
+                    <button id="button_save" onclick="save_to_file()">save</button>
+                    <br>
+                    <label id="load_file_label" for="load_file">Load previous session: </label>
+                    <input type="file" id="load_file">
+                    <br>
+                </div>
+
                 <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
-                    <span><p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time domain data for processing: <label class="information">(Console version >=3.0)</label></p></span>
+                    <span><p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time domain data for processing: <span class="information">(Console version >=3.0)</span></p></span>
                     <form id="fid_file_form" action="" enctype="multipart/form-data">
                         <div class="drop-area input-section" id="input_files">
                             <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file" name="fid_file"
@@ -38,7 +48,7 @@
                             <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist): </label>
                             <input type="file" name="nuslist_file" id="nuslist_file"><br>
 
-                            <label class="information"> You can also drag and drop Bruker folder (which contains required files here).</label><br>
+                            <span class="information"> You can also drag and drop Bruker folder (which contains required files here).</span><br>
                         </div>
 
                         <div class="input-section" id="input_options" > 
@@ -104,7 +114,7 @@
                             </span>
 
                             <span>
-                                <label for="poly">polynomial baseline correction at order </label>
+                                <label for="polynomial">polynomial baseline correction at order </label>
                                 <select name="polynomial" id="polynomial">
                                     <option value="-1">none</option>
                                     <option value="0">0</option>
@@ -147,8 +157,8 @@
                         <label for="userfile">Frequency domain spectral file (.ft2, .ucsf or .txt) </label><input type="file" multiple id="userfile"><br>
                         <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
                     </form>
-                    <label class="information"> You can also drag and drop spectral file(s) in nmrPipe format or folder
-                        contains them here.</label>
+                    <span class="information"> You can also drag and drop spectral file(s) in nmrPipe format or folder
+                        contains them here.</span>
                 </div>
 
                 <div id="pseudo3d_area" style=" Padding: 10px; width: 1200px; overflow: clip; height: 3rem;" class="drop-area-neighbor" >
@@ -165,14 +175,23 @@
                     <input type="checkbox" id="show_pseudo3d_peaks" disabled>
                     <label for="show_pseudo3d_peaks"> Show pseudo-3D fitting result</label>
                     <br>
-                    <label for="assignment">Upload an peak file with assignment information to be transferred to
+                    <label for="assignment_file">Upload an peak file with assignment information to be transferred to
                         pseudo-3D fitted peaks (.list): </label><input type="file" disabled
                         id="assignment_file"><br>
                     <br>
-                    <label class="information">Use this button to run pseudo-3D on all experimental spectra. The
+                    <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
+                    <div id="dosy_area" style="display:block;">
+                        <label for="dosy_gradient">DOSY gradient values (space separated): </label>
+                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520">
+                        <label for="dosy_rescale">Rescale factor: </label>
+                        <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
+                        <button id="button_run_dosy"  onclick="run_dosy()">Run DOSY fitting</button>
+                        <span id="dosy_result"></span>
+                    </div>
+                    <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
                         current showing peak list
                         will be used as the initial guess. You can download pseudo-3D fitting result after
-                        finished.</label>
+                        finished.</span>
                     </label>
                 </div>
 
@@ -199,15 +218,23 @@
                         <span id="pc_info"></span>
                         <br>
 
-                        <label for="peak_color">Peak color: </label>
-                        <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
+                        
                         <label for="peak_size">Peak size: </label>
                         <input type="number" id="peak_size" value="6" min="1" max="20">&nbsp;&nbsp;
                         <label for="peak_thickness">Thickness: </label>
                         <input type="number" id="peak_thickness" value="5" min="1" max="10">
+                        <lable for="peak_colormap">Color coding peak using </label>
+                        <select name="peak_colormap" id="peak_colormap">
+                            <option value="solid">Solid</option>
+                        </select>
+                        <label for="peak_color"> color </label>
+                        <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
                         <br>
                         <input type="checkbox" id="show_peak_label">
                         <label for="show_peak_label"> Show peak label</label>
+                        <select name="labels" id="labels">
+                            <option value="ASS">ASS</option>
+                        </select>
                         <label for="peak_label_size">Size: </label>
                         <input type="number" id="peak_label_size" value="24">
                         <label for="min_distance">Min peak-label distance: </label>
@@ -311,6 +338,7 @@
         <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
         <script type="text/javascript" src="js/peaks.js"></script>
         <script type="text/javascript" src="js/spectrum.js"></script>
+        <script type="text/javascript" src="js/file_drop.js"></script>
         <script type="text/javascript" src="js/nmrwebview.js"></script>
     </div>
 </body>

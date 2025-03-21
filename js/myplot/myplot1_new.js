@@ -53,6 +53,8 @@ function plotit(input) {
     this.allow_brush_to_remove = false; //default is false
 
     this.peak_color = "#FF0000"; //default color is red
+    this.peak_color_scale = d3.scaleSequential(d3.interpolateRdBu); //default color scale is Red-Blue. 
+    this.peak_color_flag = 'SOLID'; //default is solid, can be a color-map, depending on some peak properties
     this.peak_size = 6;
     this.peak_thickness = 5;
 
@@ -959,9 +961,11 @@ plotit.prototype.set_peak_level = function (level) {
 /**
  * Set peaks for the plot
  */
-plotit.prototype.add_peaks = function (spectrum,flag) {
+plotit.prototype.add_peaks = function (spectrum,flag,properties,peak_color_flag) {
     this.spectrum = spectrum;
     this.peak_flag = flag;
+    this.peak_properties = properties;
+    this.peak_color_flag = peak_color_flag;
     this.draw_peaks();
 }
 
@@ -969,7 +973,7 @@ plotit.prototype.add_peaks = function (spectrum,flag) {
  * Add peak labels to the plot. Only show the labels for the peaks that are visible
  * That is, this function need to be called after any zoom, pan, resize or contour level change to be valid
  */
-plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,font_size,color) {
+plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,font_size,color,label) {
     let self = this;
 
     self.font_size = font_size;
@@ -1129,7 +1133,28 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .attr('font-size',font_size)
         .style('fill', color)
         .text(function (d) {
-            return d.ASS;
+            if(typeof d[label] === "number")
+            {
+                if(Number.isInteger(d[label]) && d[label] < 1000 )
+                {
+                    return d[label].toFixed(0);
+                }
+                else if(d[label] > 1000)
+                {
+                    return d[label].toExponential(2);
+                }
+                else if(d[label] < 0.01)
+                {
+                    return d[label].toExponential(2);
+                }
+                else
+                {
+                    return d[label].toFixed(2);
+                }
+            }
+            else{
+                return d[label];
+            }
         })
         .attr('x', function (d) {
             return self.xRange(d.X_PPM);
@@ -1287,10 +1312,10 @@ plotit.prototype.draw_peaks = function () {
      */
     this.new_peaks;
     if(self.peak_flag === 'picked') {
-        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'])
+        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
     }
     else{
-        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'])
+        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
     }
     
     for(let i=0;i<self.new_peaks.length;i++)
@@ -1300,7 +1325,6 @@ plotit.prototype.draw_peaks = function () {
     
 
     
-
     /**
      * Draw peaks, red circles without fill
      */
@@ -1326,16 +1350,41 @@ plotit.prototype.draw_peaks = function () {
         })
         .attr("clip-path", "url(#clip)")
         .attr('r', self.peak_size)
-        .attr('stroke', self.peak_color)
+        .attr('stroke', function(){
+            return self.peak_color;
+        })
         .attr('fill', 'none')
         .attr('stroke-width', self.peak_thickness);
 };
+
+
 
 plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
         .attr('r', self.peak_size)
-        .attr('stroke', self.peak_color)
+        .attr('stroke', function(d){
+            if(self.peak_color_flag === "solid"){
+                return self.peak_color;
+            }
+            else {
+                if(d[self.peak_color_flag]>=self.peak_color_flag_limit[0] && d[self.peak_color_flag]<=self.peak_color_flag_limit[1])
+                {
+                    let scaled_value = (d[self.peak_color_flag] - self.peak_color_flag_limit[0]) / (self.peak_color_flag_limit[1] - self.peak_color_flag_limit[0]);
+                    return self.peak_color_scale(scaled_value);
+                }
+                else if(d[self.peak_color_flag] < self.peak_color_flag_limit[0])
+                {
+                    return self.peak_color_scale(0);
+                }
+                else // d[self.peak_color_flag] > self.peak_color_flag_limit[1]
+                {
+                    return self.peak_color_scale(1);
+                }
+                
+            }
+            
+        })
         .attr('visibility',function(d) {
             if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level)
             {

@@ -6,6 +6,22 @@
         {
             postMessage({remove_spectrum: e.data.remove_spectrum});
         }
+        else if(e.data.spectrum.levels.length === 0)
+        {
+            /**
+             * if levels are empty, we received an empty spectrum
+             * return an object will empty data
+             */
+            let workerResult = {};
+            workerResult.polygon_length = [];
+            workerResult.levels_length = [];
+            workerResult.spectrum_type = e.data.spectrum.spectrum_type;
+            workerResult.spectrum_index = e.data.spectrum.spectrum_index;
+            workerResult.contour_sign = e.data.spectrum.contour_sign;
+            workerResult.spectrum_origin = e.data.spectrum.spectrum_origin;
+            workerResult.points = new Float32Array([]);
+            postMessage(workerResult);
+        }
         else
         {
             postMessage({ message: "Calculating contour" });

@@ -33,7 +33,7 @@ function find_max_min(data) {
 class spectrum {
     constructor() {
         this.spectrum_format = "ft2"; //ft2 is the default format
-        this.process_ppm_j_change = new Float32Array(512); //header of the spectrum, 512 float32 numbers
+        this.header = new Float32Array(512); //header of the spectrum, 512 float32 numbers
         this.raw_data = new Float32Array(0); //raw data, real real
         this.raw_data_ri = new Float32Array(0); //raw data for real (along indirect dimension) and imaginary (along indirect dimension) part
         this.raw_data_ir = new Float32Array(0); //raw data for imaginary (along indirect dimension) and real (along indirect dimension) part
@@ -91,6 +91,27 @@ class spectrum {
          * pseudo3d_children will hold the indices of children spectra (other planes)
          */
         this.pseudo3d_children = [];
+    };
+
+    /**
+     * Function to create a shallow copy of the spectrum object
+     * Keep all the properties, except header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii (Float32Array)
+     * And add new properties: header_length, raw_data_length, raw_data_ri_length, raw_data_ir_length, raw_data_ii_length
+     * which are the length of the corresponding Float32Array
+     */
+    create_shallow_copy_wo_float32() {
+        let new_spectrum = new Object();
+        for(var key in this) {
+            if (this.hasOwnProperty(key)) {
+                if (key === "header" || key === "raw_data" || key === "raw_data_ri" || key === "raw_data_ir" || key === "raw_data_ii") {
+                    new_spectrum[key + "_length"] = this[key].length;
+                }
+                else {
+                    new_spectrum[key] = this[key];
+                }
+            }
+        }
+        return new_spectrum;
     };
 
 
