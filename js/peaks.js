@@ -525,6 +525,14 @@ class cpeaks {
         for (let i = 0; i < this.columns[0].length; i++) {
             let row = '';
             for (let j = 0; j < this.columns.length; j++) {
+
+                /**
+                 * If this.columns[j][i] is not a number, just set as 0
+                 */
+                if (this.columns[j][i] === null || isNaN(this.columns[j][i])) {
+                    this.columns[j][i] = 0;
+                }
+
                 /**
                  * Simulate a c++ sprintf function to format the value according to column_formats[j]
                  */
@@ -555,7 +563,7 @@ class cpeaks {
                      * Use toExponential to format the number to that many decimal places
                      */
                     let decimal_places = 6;  //default if not specified
-                    let number = this.column_formats[j].substring(1, this.columns[j][i].length - 1);
+                    let number = this.column_formats[j].substring(1, this.column_formats[j].length - 1);
                     if (number.includes('.')) {
                         decimal_places = number.split('.')[1];
                     }
