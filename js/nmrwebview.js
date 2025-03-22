@@ -60,8 +60,7 @@ var color_map_list = ['HEIGHT'];
  */
 var color_map_limit = [[0,1]]; 
 
-
-
+var inter_window_channel;
 
 /**
  * ft2 file drop processor
@@ -2535,9 +2534,32 @@ function init_plot(input) {
     input.horizontal = false;
     input.vertical = false;
 
+    /**
+     * When initializing the plot, we also initialize the BroadcastChannel
+     */
+    inter_window_channel = new BroadcastChannel('plot_ppm_region');
+    /**
+     * Listen to channel message from other windows
+     */
+    inter_window_channel.onmessage = (event) => {
+        /**
+         * Get plot_group number (from 1 to 10)
+         */
+        let peak_group = document.getElementById("plot_group").value;
+
+        if (event.data.type === 'zoom' && event.data.peak_group === peak_group) {
+            if(main_plot !== null)
+            {
+                main_plot.zoom_to(event.data.xscale, event.data.yscale);
+            }
+        }
+    }
+    input.inter_window_channel = inter_window_channel;
+
 
     main_plot = new plotit(input);
     main_plot.draw();
+
 
 
     /**
@@ -4647,3 +4669,5 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         document.getElementById("show_pseudo3d_peaks").disabled = false;
     }
 };
+
+

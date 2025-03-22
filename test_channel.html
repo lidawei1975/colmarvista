@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BroadcastChannel Example</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            text-align: center;
+        }
+        #sharedValue {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="sharedValue">Shared Variable: 0</div>
+    <button id="incrementButton">Increment Counter</button>
+
+    <script>
+        // Create a channel
+        const channel = new BroadcastChannel('mySharedVariable');
+
+        // Function to update the shared variable and send it to other tabs
+        function updateSharedVariable(newValue) {
+            sharedVariable = newValue;
+            channel.postMessage(newValue); // Send the new value to other tabs
+            updateUI(newValue);
+        }
+
+        // Initial value of the variable
+        let sharedVariable = 0;
+
+        // Function to update the UI
+        function updateUI(value) {
+            const sharedValueElement = document.getElementById('sharedValue');
+            if (sharedValueElement) {
+                sharedValueElement.textContent = `Shared Variable: ${value}`;
+            }
+        }
+
+        // Listen for messages on the channel
+        channel.onmessage = (event) => {
+            sharedVariable = event.data; // Update the variable with the received data
+            updateUI(event.data);    // Update the UI
+        };
+
+        // Example: Update the variable when the button is clicked
+        const incrementButton = document.getElementById('incrementButton');
+        if (incrementButton) {
+            incrementButton.addEventListener('click', () => {
+                sharedVariable++;
+                updateSharedVariable(sharedVariable);
+            });
+        }
+
+        //Initial UI update
+        updateUI(sharedVariable);
+    </script>
+</body>
+</html>

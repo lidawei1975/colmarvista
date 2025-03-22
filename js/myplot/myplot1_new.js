@@ -27,6 +27,8 @@ function plotit(input) {
     this.data1 = [];  //peaks that match compound
     this.data2 = [];  //remove it??
 
+    this.inter_window_channel = input.inter_window_channel; //for inter-window coupling
+
 
     this.left = -1000;
     this.righ = 1000;
@@ -366,7 +368,46 @@ plotit.prototype.brushend = function (e) {
     this.y_cross_section_plot.zoom_y(this.yscale);
 
     this.vis.select(".brush").call(this.brush.move, null);
+
+    this.send_scales_to_other_window();
 };
+
+plotit.prototype.send_scales_to_other_window = function () {
+
+    /**
+     * Get plot_group number (from 1 to 10)
+     */
+    let peak_group = document.getElementById("plot_group").value;
+
+    /**
+     * Send this.xscale and this.yscale through the channel to let other windows know
+     */
+        if(this.inter_window_channel) {
+            this.inter_window_channel.postMessage({
+                type: 'zoom',
+                peak_group: peak_group,
+                xscale: this.xscale,
+                yscale: this.yscale
+            });
+        }
+    }
+
+plotit.prototype.zoom_to = function (x_scale, y_scale) {
+    this.xscales.push(this.xscale);
+    this.yscales.push(this.yscale);
+    this.xscale = x_scale;
+    this.yscale = y_scale;
+    this.xRange.domain(this.xscale);
+    this.yRange.domain(this.yscale);
+    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+    this.contour_plot.drawScene();
+    this.reset_axis();
+    this.x_cross_section_plot.zoom_x(this.xscale);
+    this.y_cross_section_plot.zoom_y(this.yscale);
+    /**
+     * No need to send scales to other window, because this function is only called when receive a message from other window
+     */
+}
 
 plotit.prototype.zoom_x = function (x_ppm) {
     
@@ -384,6 +425,7 @@ plotit.prototype.zoom_x = function (x_ppm) {
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
     this.reset_axis();
+    this.send_scales_to_other_window();
 };
 
 plotit.prototype.zoom_y = function (y_ppm) {
@@ -401,6 +443,7 @@ plotit.prototype.zoom_y = function (y_ppm) {
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
     this.reset_axis();
+    this.send_scales_to_other_window();
 };
 
 
@@ -422,6 +465,7 @@ plotit.prototype.popzoom = function () {
         this.reset_axis();
         this.x_cross_section_plot.zoom_x(this.xscale);
         this.y_cross_section_plot.zoom_y(this.yscale);
+        this.send_scales_to_other_window();
     }
 };
 
@@ -473,6 +517,7 @@ plotit.prototype.zoomout = function () {
 
     this.x_cross_section_plot.zoom_x(this.xscale);
     this.y_cross_section_plot.zoom_y(this.yscale);
+    this.send_scales_to_other_window();
 };
 
 
