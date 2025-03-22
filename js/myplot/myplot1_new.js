@@ -373,12 +373,19 @@ plotit.prototype.brushend = function (e) {
 };
 
 plotit.prototype.send_scales_to_other_window = function () {
+
+    /**
+     * Get plot_group number (from 1 to 10)
+     */
+    let peak_group = document.getElementById("plot_group").value;
+
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
      */
         if(this.inter_window_channel) {
             this.inter_window_channel.postMessage({
                 type: 'zoom',
+                peak_group: peak_group,
                 xscale: this.xscale,
                 yscale: this.yscale
             });

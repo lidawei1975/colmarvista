@@ -2542,7 +2542,12 @@ function init_plot(input) {
      * Listen to channel message from other windows
      */
     inter_window_channel.onmessage = (event) => {
-        if (event.data.type === 'zoom') {
+        /**
+         * Get plot_group number (from 1 to 10)
+         */
+        let peak_group = document.getElementById("plot_group").value;
+
+        if (event.data.type === 'zoom' && event.data.peak_group === peak_group) {
             if(main_plot !== null)
             {
                 main_plot.zoom_to(event.data.xscale, event.data.yscale);

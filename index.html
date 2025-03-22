@@ -258,7 +258,10 @@
                     <div style = "display: flex; flex-direction: column; gap: 10px;"> 
                         <div style = "display: flex; flex-direction: row; gap: 10px;">   
                             <!-- Empty div with size 200*200 -->
-                            <div id="cross_section_empty" class="resizable_stack_invisible" style="width: 200px; height: 200px;"></div>
+                            <div id="cross_section_empty" class="resizable_stack_invisible" style="width: 200px; height: 200px;">
+                                <label for="plot_group">Plot group </span>
+                                <input type="number" id="plot_group" value="1" min="1" max="10">
+                            </div>
 
                             <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->
                             <div id="cross_section_x"  class="resizable_stack" style="position: relative; width:fit-content; height: fit-content;">
