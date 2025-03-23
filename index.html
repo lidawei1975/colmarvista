@@ -263,6 +263,16 @@
                                 <input type="number" id="plot_group" value="1" min="1" max="10">
                                 <br>
                                 <span class="information">Plots from different windows/tabs sync to the same ppm range if they have the same group number.</span>
+                                <br>
+                                <fieldset>
+                                    <input type="checkbox" id="enable_magnifying_glass">
+                                    <label for="magnifying_glass">Enable <img id="magnifying_glass" src="img/magnifying_glass_icon.png" alt="magnifying glass" width="20" height="20"> </label>
+                                    <br>
+                                    <label for="magnifying_glass_size">Size(%) </label>
+                                    <input type="number" id="magnifying_glass_size" value="40" min="10" max="40"><br>
+                                    <label for="magnifying_glass_ratio">Ratio </label>
+                                    <input type="number" id="magnifying_glass_ratio" value="10.0" min="2.0" max="30.0" step="1.0">
+                                </fieldset>
                             </div>
 
                             <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->

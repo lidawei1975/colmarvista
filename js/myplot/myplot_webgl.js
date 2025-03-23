@@ -254,7 +254,7 @@ class webgl_contour_plot {
      * IMPORTANT: Not meant to be called directly. 
      * Use drawScene() instead, because all webGl drawing needs to be done un-interrupted
      */
-    magnification_glass(cursor_position,magnifying_factor,magnification_glass_factor) {
+    magnification_glass(cursor_position,magnifying_factor,magnification_glass_size) {
         /**
          * Test magnification glass tool here.
          * At cursor_position (init is ppm), we will zoom in magnifying_factor
@@ -268,10 +268,10 @@ class webgl_contour_plot {
          * Step 2: set scissor test, covering the magnification glass area (at cursor_position in pixel, +- magnification_glass_factor*canvas size)
          * If the cursor is too close to the edge, we will adjust the scissor test area to fit the canvas
          */
-        let x_scissor = Math.max(0,x_pixel - magnification_glass_factor*this.gl.canvas.width/2);
-        let y_scissor = Math.max(0,y_pixel - magnification_glass_factor*this.gl.canvas.height/2);
-        let x_width_scissor = Math.min(this.gl.canvas.width,x_pixel + magnification_glass_factor*this.gl.canvas.width/2) - x_scissor;
-        let y_height_scissor = Math.min(this.gl.canvas.height,y_pixel + magnification_glass_factor*this.gl.canvas.height/2) - y_scissor;
+        let x_scissor = Math.max(0,x_pixel - magnification_glass_size*this.gl.canvas.width/2);
+        let y_scissor = Math.max(0,y_pixel - magnification_glass_size*this.gl.canvas.height/2);
+        let x_width_scissor = Math.min(this.gl.canvas.width,x_pixel + magnification_glass_size*this.gl.canvas.width/2) - x_scissor;
+        let y_height_scissor = Math.min(this.gl.canvas.height,y_pixel + magnification_glass_size*this.gl.canvas.height/2) - y_scissor;
 
         this.gl.enable(this.gl.SCISSOR_TEST);
         this.gl.scissor(x_scissor,y_scissor,x_width_scissor,y_height_scissor);

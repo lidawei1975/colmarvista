@@ -683,6 +683,38 @@ $(document).ready(function () {
         }
     });
 
+    /**
+     * Event listener for the checkbox enable_magnifying_glass
+     */
+    document.getElementById("enable_magnifying_glass").addEventListener('change', function () {
+        if (this.checked) {
+            enable_magnifying_glass(true);
+            /**
+             * Event listener for magnifying_glass_size and magnifying_glass_ratio
+             * when the checkbox is checked
+            */ 
+            document.getElementById("magnifying_glass_size").addEventListener('change',enable_magnifying_glass);
+            document.getElementById("magnifying_glass_ratio").addEventListener('change', enable_magnifying_glass);
+        }
+        else {
+            main_plot.enable_magnifying_glass(false);
+            /**
+             * Remove the event listener for magnifying_glass_size and magnifying_glass_ratio
+             */
+            document.getElementById("magnifying_glass_size").removeEventListener('change', enable_magnifying_glass);
+            document.getElementById("magnifying_glass_ratio").removeEventListener('change', enable_magnifying_glass);
+        }
+    });
+  
+    /**
+     * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio
+     */
+    function enable_magnifying_glass()
+    {   
+        let magnifying_glass_size = parseFloat(document.getElementById("magnifying_glass_size").value);
+        let magnifying_glass_ratio = parseFloat(document.getElementById("magnifying_glass_ratio").value);
+        main_plot.enable_magnifying_glass(true,magnifying_glass_ratio,magnifying_glass_size);
+    }
 });
 
 
