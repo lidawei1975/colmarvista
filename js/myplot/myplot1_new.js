@@ -622,6 +622,10 @@ plotit.prototype.draw = function () {
         if(self.timeout) {
             clearTimeout(self.timeout);
         }
+        if(self.timeout_magnify) {
+            clearTimeout(self.timeout_magnify);
+            self.contour_plot.drawScene(0,false,[0,0],5,0.4);
+        }
 
         /**
          * Get the spectral index of the current spectral data
@@ -660,6 +664,14 @@ plotit.prototype.draw = function () {
             document.getElementById("infor").innerHTML
                 = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Intensity: " + data_height.toExponential(2);
         }
+
+        self.timeout_magnify = setTimeout(function() {
+            let coordinates = [event.offsetX, event.offsetY];
+            let x_ppm = self.xRange.invert(coordinates[0]);
+            let y_ppm = self.yRange.invert(coordinates[1]);
+            console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
+            self.contour_plot.drawScene(0,true,[x_ppm,y_ppm],4,0.2);
+        }, 100);
 
         /**
          * Show tool tip only when mouse stops moving for 100ms
@@ -876,6 +888,10 @@ plotit.prototype.draw = function () {
             document.activeElement.blur();
             if(self.timeout) {
                 clearTimeout(self.timeout);
+            }
+            if(self.timeout_magnify) {
+                clearTimeout(self.timeout_magnify);
+                self.contour_plot.drawScene(0,false,[0,0],5,0.4);
             }
         });
     /**
