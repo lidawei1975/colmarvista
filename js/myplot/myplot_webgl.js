@@ -246,6 +246,160 @@ class webgl_contour_plot {
         if (flag == 1) {
             return this.gl.canvas.toDataURL();
         }
+
+        /**
+         * Test magnification glass tool here.
+         * At center, coverage 1/4 of the canvas (1/2 in each direction)
+         */
+        this.gl.enable(this.gl.SCISSOR_TEST);
+        this.gl.scissor(this.gl.canvas.width/4, this.gl.canvas.height/4, this.gl.canvas.width*3/4, this.gl.canvas.height*3/4);
+        this.gl.clearColor(1, 1, 1, 1); // set background color to white
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+
+        /**
+         * Get center ppm
+         */
+        let x_center = (this.x_ppm + this.x2_ppm)/2;
+        let y_center = (this.y_ppm + this.y2_ppm)/2;
+        /**
+         * Get new ppm range
+         */
+        let x_ppm_range_half = (this.x2_ppm - this.x_ppm)/4;
+        let y_ppm_range_half = (this.y2_ppm - this.y_ppm)/4;
+        let x_ppm_new = x_center - x_ppm_range_half;
+        let x2_ppm_new = x_center + x_ppm_range_half;
+        let y_ppm_new = y_center - y_ppm_range_half;
+        let y2_ppm_new = y_center + y_ppm_range_half;
+
+        this.setCamera(x_ppm_new, x2_ppm_new, y_ppm_new, y2_ppm_new);
+
+        /**
+         * Update the matrix according to the translation and scale defined in camera
+         * this also depends on setCamera_ppm() and setCamera() functions
+         */
+        const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+        const zoomScale_x = 1 / this.camera.zoom_x;
+        const zoomScale_y = 1 / this.camera.zoom_y;
+
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+        cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+        let viewMat = m3.inverse(cameraMat);
+        this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+
+        // Set the matrix. This matrix changes when zooming and panning
+        this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+        /**
+         * Draw the contour plot again, but only the center part
+         */
+        for(var nn=0;nn<number_of_spectra;nn++)
+        {
+            let n = this.spectral_order[nn];
+            /**
+             * setCamera first, using saved this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm
+             * and this.spec_information
+             */
+            let x = (x_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref)/this.spectral_information[n].x_ppm_step;
+            let x2 = (x2_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref)/this.spectral_information[n].x_ppm_step;
+            let y = (y_ppm_new - this.spectral_information[n].y_ppm_start  - this.spectral_information[n].y_ppm_ref)/this.spectral_information[n].y_ppm_step;
+            let y2 = (y2_ppm_new - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref)/this.spectral_information[n].y_ppm_step;
+            this.setCamera(x, x2, y, y2);
+
+            /**
+             * Update the matrix according to the translation and scale defined in camera
+             * this also depends on setCamera_ppm() and setCamera() functions
+             */
+            const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+            const zoomScale_x = 1 / this.camera.zoom_x;
+            const zoomScale_y = 1 / this.camera.zoom_y;
+
+            let cameraMat = m3.identity();
+            cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+            cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+            let viewMat = m3.inverse(cameraMat);
+            this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+
+            // Set the matrix. This matrix changes when zooming and panning
+            this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+
+            /**
+             * Draw the positive contour plot, one level at a time
+             */
+            if(hsqc_spectra[n].visible == true)
+            {
+                for(var m=this.contour_lbs[n]; m < this.levels_length[n].length; m++)
+                {
+                    let i_start = 0;
+                    if(m>0)
+                    {
+                        i_start = this.levels_length[n][m-1];
+                    }
+                    let i_stop = this.levels_length[n][m];
+                    /**
+                     * Draw the contour plot, one polygon at a time
+                     */
+                    for (var i = i_start; i < i_stop; i++)
+                    {   
+                        this.gl.uniform4fv(this.colorLocation, this.colors[n]);
+                        var primitiveType = this.gl.LINE_STRIP;
+                        let point_start = 0;
+                        if(i>0)
+                        {
+                            point_start = this.polygon_length[n][i-1];
+                        }
+                        let count = this.polygon_length[n][i] - point_start;
+                        let overlay_offset = this.points_start[n]/2;
+                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
+                    }
+                }
+            }
+
+            /**
+             * Draw the negative contour plot, one level at a time only if negative contour is available
+             */
+            if(n >= this.contour_lbs_negative.length )
+            {
+                continue;
+            }
+            if(hsqc_spectra[n].visible == true)
+            {
+                for(var m=this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++)
+                {
+                    let i_start = 0;
+                    if(m>0)
+                    {
+                        i_start = this.levels_length_negative[n][m-1];
+                    }
+                    let i_stop = this.levels_length_negative[n][m];
+                    /**
+                     * Draw the contour plot, one polygon at a time
+                     */
+                    for (var i = i_start; i < i_stop; i++)
+                    {   
+                        this.gl.uniform4fv(this.colorLocation, this.colors_negative[n]);
+                        var primitiveType = this.gl.LINE_STRIP;
+                        let point_start = 0;
+                        if(i>0)
+                        {
+                            point_start = this.polygon_length_negative[n][i-1];
+                        }
+                        let count = this.polygon_length_negative[n][i] - point_start;
+                        let overlay_offset = this.points_start_negative[n]/2;
+                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
+                    }
+                }
+            }
+        }
+        /**
+         * Disable the scissor test.
+         */
+        this.gl.disable(this.gl.SCISSOR_TEST);
+    
     };
  
     /**
