@@ -87,7 +87,19 @@ function plotit(input) {
 
     this.hline_ppm = null;
     this.vline_ppm = null;
+
+    this.magnifying_glass = false;
+    this.magnifying_glass_ratio = 4.0; //default is 2.0
+    this.magnifying_glass_size = 10; //default is 10% of the plot size
 };
+
+plotit.prototype.enable_magnifying_glass = function (flag,ratio, size) {
+    this.magnifying_glass = flag ? flag : false; //default is false
+    this.magnifying_glass_ratio = ratio ? ratio : 4.0; //default is 4.0
+    this.magnifying_glass_size = size ? size : 10; //default is 10% of the plot size
+};
+
+
 
 /**
  * Set a on call function for zoom event
@@ -622,6 +634,10 @@ plotit.prototype.draw = function () {
         if(self.timeout) {
             clearTimeout(self.timeout);
         }
+        if(self.timeout_magnify) {
+            clearTimeout(self.timeout_magnify);
+            self.contour_plot.drawScene(0,false,[0,0],5,0.4);
+        }
 
         /**
          * Get the spectral index of the current spectral data
@@ -659,6 +675,17 @@ plotit.prototype.draw = function () {
         else {
             document.getElementById("infor").innerHTML
                 = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Intensity: " + data_height.toExponential(2);
+        }
+
+
+        if(self.magnifying_glass == true){
+            self.timeout_magnify = setTimeout(function() {
+                let coordinates = [event.offsetX, event.offsetY];
+                let x_ppm = self.xRange.invert(coordinates[0]);
+                let y_ppm = self.yRange.invert(coordinates[1]);
+                console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
+                self.contour_plot.drawScene(0,true,[x_ppm,y_ppm],self.magnifying_glass_ratio,self.magnifying_glass_size/100.0);
+            }, 100);
         }
 
         /**
@@ -876,6 +903,10 @@ plotit.prototype.draw = function () {
             document.activeElement.blur();
             if(self.timeout) {
                 clearTimeout(self.timeout);
+            }
+            if(self.timeout_magnify) {
+                clearTimeout(self.timeout_magnify);
+                self.contour_plot.drawScene(0,false,[0,0],5,0.4);
             }
         });
     /**

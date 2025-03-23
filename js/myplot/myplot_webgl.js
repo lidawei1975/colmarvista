@@ -76,10 +76,6 @@ class webgl_contour_plot {
         // Turn on the attribute
         this.gl.enableVertexAttribArray(this.positionLocation);
 
-        /**
-         * Enable the scissor test.
-         */
-        this.gl.disable(this.gl.SCISSOR_TEST);
 
         // Bind the position buffer.
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
@@ -127,7 +123,7 @@ class webgl_contour_plot {
      * Draw the scene.
      * @param {number} flag - 0: draw the contour plot, 1: draw and return the image data
      */
-    drawScene(flag = 0) {
+    drawScene(flag = 0, flag_glass = false,center=[],mag_scale=10.0,mag_size=0.2 ) {
 
 
         this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
@@ -243,10 +239,153 @@ class webgl_contour_plot {
             }
         }
 
+        if (flag_glass == true) {
+            this.magnification_glass(center,mag_scale,mag_size);
+        }
+
         if (flag == 1) {
             return this.gl.canvas.toDataURL();
         }
+        return;
     };
+
+    /**
+     * Magnification glass tool
+     * IMPORTANT: Not meant to be called directly. 
+     * Use drawScene() instead, because all webGl drawing needs to be done un-interrupted
+     */
+    magnification_glass(cursor_position,magnifying_factor,magnification_glass_size) {
+        /**
+         * Test magnification glass tool here.
+         * At cursor_position (init is ppm), we will zoom in magnifying_factor
+         */
+        /**
+         * Step 1: get canvas location in pixel from ppm (cursor_position)
+         */
+        let x_pixel = (cursor_position[0] - this.x_ppm)*this.gl.canvas.width/ (this.x2_ppm - this.x_ppm);
+        let y_pixel = (cursor_position[1] - this.y_ppm)*this.gl.canvas.height/ (this.y2_ppm - this.y_ppm);
+        /**
+         * Step 2: set scissor test, covering the magnification glass area (at cursor_position in pixel, +- magnification_glass_factor*canvas size)
+         * If the cursor is too close to the edge, we will adjust the scissor test area to fit the canvas
+         */
+        let x_scissor = Math.max(0,x_pixel - magnification_glass_size*this.gl.canvas.width/2);
+        let y_scissor = Math.max(0,y_pixel - magnification_glass_size*this.gl.canvas.height/2);
+        let x_width_scissor = Math.min(this.gl.canvas.width,x_pixel + magnification_glass_size*this.gl.canvas.width/2) - x_scissor;
+        let y_height_scissor = Math.min(this.gl.canvas.height,y_pixel + magnification_glass_size*this.gl.canvas.height/2) - y_scissor;
+
+        this.gl.enable(this.gl.SCISSOR_TEST);
+        this.gl.scissor(x_scissor,y_scissor,x_width_scissor,y_height_scissor);
+        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to white
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+
+        /**
+         * Step 3, get new ppm range, centered at cursor_position and zoom in by a factor of magnifying_factor
+         * keep in mind this.x_ppm > this.x2_ppm and this.y_ppm > this.y2_ppm (NMR convention)
+         */
+        let x_ppm_new = cursor_position[0] + (this.x_ppm - cursor_position[0]) / magnifying_factor;
+        let x2_ppm_new = cursor_position[0] +  (this.x2_ppm - cursor_position[0]) / magnifying_factor; 
+        let y_ppm_new =  cursor_position[1] + (this.y_ppm - cursor_position[1]) / magnifying_factor;
+        let y2_ppm_new =  cursor_position[1] +  (this.y2_ppm - cursor_position[1]) / magnifying_factor;
+        console.log(x_ppm_new,x2_ppm_new,y_ppm_new,y2_ppm_new);
+
+        /**
+         * Draw the contour plot again, but only the center part
+         */
+        let number_of_spectra = this.levels_length.length;
+        for (var nn = 0; nn < number_of_spectra; nn++) {
+            let n = this.spectral_order[nn];
+            /**
+             * setCamera first, using saved this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm
+             * and this.spec_information
+             */
+            let x = (x_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
+            let x2 = (x2_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
+            let y = (y_ppm_new - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
+            let y2 = (y2_ppm_new - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
+            this.setCamera(x, x2, y, y2);
+
+            /**
+             * Update the matrix according to the translation and scale defined in camera
+             * this also depends on setCamera_ppm() and setCamera() functions
+             */
+            const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+            const zoomScale_x = 1 / this.camera.zoom_x;
+            const zoomScale_y = 1 / this.camera.zoom_y;
+
+            let cameraMat = m3.identity();
+            cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+            cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+            let viewMat = m3.inverse(cameraMat);
+            this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+
+            // Set the matrix. This matrix changes when zooming and panning
+            this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+
+            /**
+             * Draw the positive contour plot, one level at a time
+             */
+            if (hsqc_spectra[n].visible == true) {
+                for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
+                    let i_start = 0;
+                    if (m > 0) {
+                        i_start = this.levels_length[n][m - 1];
+                    }
+                    let i_stop = this.levels_length[n][m];
+                    /**
+                     * Draw the contour plot, one polygon at a time
+                     */
+                    for (var i = i_start; i < i_stop; i++) {
+                        this.gl.uniform4fv(this.colorLocation, this.colors[n]);
+                        var primitiveType = this.gl.LINE_STRIP;
+                        let point_start = 0;
+                        if (i > 0) {
+                            point_start = this.polygon_length[n][i - 1];
+                        }
+                        let count = this.polygon_length[n][i] - point_start;
+                        let overlay_offset = this.points_start[n] / 2;
+                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
+                    }
+                }
+            }
+
+            /**
+             * Draw the negative contour plot, one level at a time only if negative contour is available
+             */
+            if (n >= this.contour_lbs_negative.length) {
+                continue;
+            }
+            if (hsqc_spectra[n].visible == true) {
+                for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
+                    let i_start = 0;
+                    if (m > 0) {
+                        i_start = this.levels_length_negative[n][m - 1];
+                    }
+                    let i_stop = this.levels_length_negative[n][m];
+                    /**
+                     * Draw the contour plot, one polygon at a time
+                     */
+                    for (var i = i_start; i < i_stop; i++) {
+                        this.gl.uniform4fv(this.colorLocation, this.colors_negative[n]);
+                        var primitiveType = this.gl.LINE_STRIP;
+                        let point_start = 0;
+                        if (i > 0) {
+                            point_start = this.polygon_length_negative[n][i - 1];
+                        }
+                        let count = this.polygon_length_negative[n][i] - point_start;
+                        let overlay_offset = this.points_start_negative[n] / 2;
+                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
+                    }
+                }
+            }
+        }
+        /**
+         * Disable the scissor test.
+         */
+        this.gl.disable(this.gl.SCISSOR_TEST);
+    }
  
     /**
      * Directly set this.camera position by calling this function.
