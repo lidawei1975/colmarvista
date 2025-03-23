@@ -249,11 +249,11 @@ class webgl_contour_plot {
 
         /**
          * Test magnification glass tool here.
-         * At center, coverage 1/4 of the canvas (1/2 in each direction)
+         * At center, coverage 1/16 of the canvas (1/4 in each direction)
          */
         this.gl.enable(this.gl.SCISSOR_TEST);
-        this.gl.scissor(this.gl.canvas.width/4, this.gl.canvas.height/4, this.gl.canvas.width*3/4, this.gl.canvas.height*3/4);
-        this.gl.clearColor(1, 1, 1, 1); // set background color to white
+        this.gl.scissor(this.gl.canvas.width*3/8, this.gl.canvas.height*3/8, this.gl.canvas.width/4, this.gl.canvas.height/4);
+        this.gl.clearColor(0, 1, 1, 0.5); // set background color to white
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
 
@@ -265,8 +265,8 @@ class webgl_contour_plot {
         /**
          * Get new ppm range
          */
-        let x_ppm_range_half = (this.x2_ppm - this.x_ppm)/4;
-        let y_ppm_range_half = (this.y2_ppm - this.y_ppm)/4;
+        let x_ppm_range_half = (this.x2_ppm - this.x_ppm)/8;
+        let y_ppm_range_half = (this.y2_ppm - this.y_ppm)/8;
         let x_ppm_new = x_center - x_ppm_range_half;
         let x2_ppm_new = x_center + x_ppm_range_half;
         let y_ppm_new = y_center - y_ppm_range_half;
