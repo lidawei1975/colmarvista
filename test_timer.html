@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Countdown Timer</title>
+<style>
+  #timerCanvas {
+    border: 1px solid black;
+  }
+</style>
+</head>
+<body>
+  <label for="durationInput">Set Duration (seconds):</label>
+  <input type="number" id="durationInput" value="60">
+  <button id="setButton">Set</button>
+  <canvas id="timerCanvas" width="200" height="200"></canvas>
+  <script>
+    const durationInput = document.getElementById('durationInput');
+    const setButton = document.getElementById('setButton');
+    const canvas = document.getElementById('timerCanvas');
+    const ctx = canvas.getContext('2d');
+    let duration = parseInt(durationInput.value);
+    let remainingTime = duration;
+    let timerInterval;
+
+    function drawCircle(percent) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2, 80, 0, 2 * Math.PI);
+      ctx.strokeStyle = 'lightgray';
+      ctx.lineWidth = 10;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2, 80, -Math.PI / 2, (-Math.PI / 2) + (2 * Math.PI * percent), false);
+      ctx.strokeStyle = 'steelblue';
+      ctx.lineWidth = 10;
+      ctx.stroke();
+      ctx.font = '24px Arial';
+      ctx.fillStyle = 'black';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(remainingTime, canvas.width / 2, canvas.height / 2);
+    }
+
+    function updateTimer() {
+      if (remainingTime > 0) {
+        remainingTime--;
+        const percent = (duration - remainingTime) / duration;
+        drawCircle(percent);
+      } else {
+        clearInterval(timerInterval);
+        drawCircle(1);
+        alert('Time is up!');
+      }
+    }
+    function startTimer() {
+        clearInterval(timerInterval);
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    setButton.addEventListener('click', () => {
+      duration = parseInt(durationInput.value);
+      remainingTime = duration;
+      startTimer();
+    });
+
+    drawCircle(0);
+    startTimer();
+  </script>
+</body>
+</html>
