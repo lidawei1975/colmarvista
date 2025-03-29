@@ -527,9 +527,11 @@ class cpeaks {
             for (let j = 0; j < this.columns.length; j++) {
 
                 /**
-                 * If this.columns[j][i] is not a number, just set as 0
+                 * If this.columns[j][i] is null
+                 * or is a number and is NaN, set it to 0
                  */
-                if (this.columns[j][i] === null || isNaN(this.columns[j][i])) {
+                if (this.columns[j][i] === null || (typeof this.columns[j][i] === 'number' && isNaN(this.columns[j][i])))
+                {
                     this.columns[j][i] = 0;
                 }
 
