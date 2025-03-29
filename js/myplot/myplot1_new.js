@@ -1440,7 +1440,7 @@ plotit.prototype.redraw_peaks = function () {
     self.vis.selectAll('.peak')
         .attr('r', self.peak_size)
         .attr('stroke', function(d){
-            if(self.peak_color_flag === "solid"){
+            if(self.peak_color_flag === "SOLID"){
                 return self.peak_color;
             }
             else {
