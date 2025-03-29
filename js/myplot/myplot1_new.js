@@ -677,7 +677,7 @@ plotit.prototype.draw = function () {
             let coordinates = [event.offsetX, event.offsetY];
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
-            console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
+            // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
             self.contour_plot.drawScene(0, true, [x_ppm, y_ppm], self.magnifying_glass_ratio, self.magnifying_glass_size / 100.0);
         }
 
