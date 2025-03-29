@@ -93,6 +93,12 @@ class webgl_contour_plot {
         this.gl.vertexAttribPointer(this.positionLocation, size, type, normalize, stride, offset);
 
         this.polygon_length = [];
+
+        /**
+         * Flag to determine where to put magnified region.
+         */
+        this.magnification_region_x = 0; //0: left, 1: right
+        this.magnification_region_y = 1; //0: bottom, 1: top
     };
 
     /**
@@ -266,20 +272,45 @@ class webgl_contour_plot {
         let y_pixel = (cursor_position[1] - this.y_ppm)*this.gl.canvas.height/ (this.y2_ppm - this.y_ppm);
 
         /**
-         * Get magnification glass view center ppm
+         * If x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width  < 0, 
+         * move viewing area to the right of the cursor
          */
-        let x_ppm_center =  -0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
-        let y_ppm_center =  +0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
+        if (x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width < 0) {
+            this.magnification_region_x = 1;
+        }
+        if(x_pixel + 1.1 * magnification_glass_size * this.gl.canvas.width > this.gl.canvas.width){
+            this.magnification_region_x = 0;
+        }
+        if (y_pixel - 1.1 * magnification_glass_size * this.gl.canvas.height < 0) {
+            this.magnification_region_y = 1;
+        }
+        if (y_pixel + 1.1 * magnification_glass_size * this.gl.canvas.height > this.gl.canvas.height) {
+            this.magnification_region_y = 0;
+        }
 
         /**
-         * Step 2: set scissor test, 
-         * Move the magnification glass viewing area to the left top of current cursor position
-         * If the cursor is too close to the edge, we will adjust the scissor test area to fit the canvas
+         * Get magnification glass view center ppm
          */
-        let x_scissor = x_pixel - magnification_glass_size*this.gl.canvas.width*1.1;
-        let y_scissor = y_pixel + magnification_glass_size*this.gl.canvas.height*0.1;
+        let x_ppm_center,y_ppm_center,x_scissor,y_scissor;
         let x_width_scissor = magnification_glass_size*this.gl.canvas.width;
         let y_height_scissor = magnification_glass_size*this.gl.canvas.height;
+
+        if(this.magnification_region_x == 0){
+            x_ppm_center =  -0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel - magnification_glass_size*this.gl.canvas.width*1.1;
+        }
+        else{
+            x_ppm_center =  +0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel + magnification_glass_size*this.gl.canvas.width*0.1;
+        }
+        if(this.magnification_region_y == 0){
+            y_ppm_center =  -0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel - magnification_glass_size*this.gl.canvas.height*1.1;
+        }
+        else{
+            y_ppm_center =  +0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel + magnification_glass_size*this.gl.canvas.height*0.1;
+        }
 
         this.gl.enable(this.gl.SCISSOR_TEST);
         this.gl.scissor(x_scissor,y_scissor,x_width_scissor,y_height_scissor);
