@@ -208,6 +208,8 @@
 
                     <div>
                         <strong>Control:</strong>
+                        <label for="plot_group">Plot group </label>
+                        <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="resetzoom()">Reset all Zoom</button>,
                         <button onclick="popzoom()">Zoom Back</button>,
                         <button onclick="zoomout()">Zoom out 120%</button>
@@ -259,12 +261,17 @@
                         <div style = "display: flex; flex-direction: row; gap: 10px;">   
                             <!-- Empty div with size 200*200 -->
                             <div id="cross_section_empty" class="resizable_stack_invisible" style="width: 200px; height: 200px;">
-                                <label for="plot_group">Plot group </span>
-                                <input type="number" id="plot_group" value="1" min="1" max="10">
-                                <br>
-                                <span class="information">Plots from different windows/tabs sync to the same ppm range if they have the same group number.</span>
+                                
+                                <fieldset>
+                                    <legend>Select cross section</legend>
+                                    <input type="checkbox" id="pause_cursor" checked>
+                                    <label for="pause_cursor"> Pause the cursor</label>
+                                    <input type="checkbox" id="right_click" checked>
+                                    <label for="right_click"> Right click</label>
+                                </fieldset>
                                 <br>
                                 <fieldset>
+                                    <legend>Magnifying glass</legend>
                                     <input type="checkbox" id="enable_magnifying_glass">
                                     <label for="magnifying_glass">Enable <img id="magnifying_glass" src="img/magnifying_glass_icon.png" alt="magnifying glass" width="20" height="20"> </label>
                                     <br>
