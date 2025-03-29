@@ -553,8 +553,32 @@ class cpeaks {
                      * Use toFixed to format the number to that many decimal places
                      */
                     let num = this.column_formats[j].substring(1, this.column_formats[j].length - 1);
-                    let decimal_places = parseInt(num.split('.')[1]);
-                    let width = parseInt(num.split('.')[0]);
+                    let decimal_places = 3;
+                    let width = 6;
+                    /**
+                     * num could be 7.3, or 7, or empty
+                     */
+                    if (num.includes('.')) {
+                        decimal_places = parseInt(num.split('.')[1]);
+                        width = parseInt(num.split('.')[0]);
+                    }
+                    else if(num.length === 0) {
+                        /**
+                         * If format is %f, set default to 6.3f decimal places
+                         */
+                        decimal_places = 3;
+                        width = 6;
+                    }
+                    else{
+                        /**
+                         * If format is %7f, set decimal to 7-3, but must >=1
+                         */
+                        width = parseInt(num);
+                        decimal_places = width - 3;
+                        if (decimal_places < 1) {
+                            decimal_places = 1;
+                        }
+                    }
                     row += this.columns[j][i].toFixed(decimal_places).padStart(width, ' ');
                 }
                 else if (this.column_formats[j].includes('e')) {
