@@ -705,6 +705,18 @@ $(document).ready(function () {
             document.getElementById("magnifying_glass_ratio").removeEventListener('change', enable_magnifying_glass);
         }
     });
+
+    /**
+     * Event listener for the checkbox "pause_cursor"
+     */
+    document.getElementById("pause_cursor").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.cross_line_pause_flag = true;
+        }
+        else {
+            main_plot.cross_line_pause_flag = false;
+        }
+    });
   
     /**
      * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio
