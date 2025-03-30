@@ -717,6 +717,18 @@ $(document).ready(function () {
             main_plot.cross_line_pause_flag = false;
         }
     });
+
+    /**
+     * Event listener for the checkbox "right_click"
+     */
+    document.getElementById("right_click").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.allow_right_click(true);
+        }
+        else {
+            main_plot.allow_right_click(false);
+        }
+    });
   
     /**
      * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio

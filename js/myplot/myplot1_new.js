@@ -634,7 +634,7 @@ plotit.prototype.draw = function () {
      */
     this.vis.on("mousemove", function (event) {
 
-        if(self.cross_line_timeout) {
+        if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
         }
 
@@ -660,17 +660,17 @@ plotit.prototype.draw = function () {
         let signal_to_noise = 0.0; //default value if out of range
         if (x_pos >= 0 && x_pos < hsqc_spectra[spe_index].n_direct && y_pos >= 0 && y_pos < hsqc_spectra[spe_index].n_indirect) {
             data_height = hsqc_spectra[spe_index].raw_data[y_pos * hsqc_spectra[spe_index].n_direct + x_pos];
-            signal_to_noise = data_height/hsqc_spectra[spe_index].noise_level;
+            signal_to_noise = data_height / hsqc_spectra[spe_index].noise_level;
         }
 
-        if(self.hline_ppm !== null && self.vline_ppm !== null) {
+        if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
-            document.getElementById("infor").innerHTML 
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2)+ " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
-                + "x: " +  x_distance.toFixed(3) + " ppm  " + (x_distance*hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz" 
-                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance*hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
+            document.getElementById("infor").innerHTML
+                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                + "x: " + x_distance.toFixed(3) + " ppm  " + (x_distance * hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz"
+                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance * hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
         }
         else {
             document.getElementById("infor").innerHTML
@@ -690,23 +690,29 @@ plotit.prototype.draw = function () {
          * Show h and v line only when mouse stops moving for 2.5 seconds
          * if pause on cursor is true
          */
-        if(self.cross_line_pause_flag == true) {
-            self.cross_line_timeout = setTimeout(function() {
+        if (self.cross_line_pause_flag == true) {
+            self.cross_line_timeout = setTimeout(function () {
                 self.setup_cross_line(event);
             }, 2500);
         }
-    })
-        .on("mouseleave", function (d) {
-            tooldiv.style.opacity = 0.0;
-            document.activeElement.blur();
-            if(self.cross_line_timeout) {
-                clearTimeout(self.cross_line_timeout);
-            }
-            /**
-             * Clear the magnifying glass
-             */
-            self.contour_plot.drawScene(0,false,[0,0],5,0.4);
-        });
+    });
+    this.vis.on("mouseleave", function (d) {
+        tooldiv.style.opacity = 0.0;
+        document.activeElement.blur();
+        if (self.cross_line_timeout) {
+            clearTimeout(self.cross_line_timeout);
+        }
+        /**
+         * Clear the magnifying glass
+         */
+        self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+    });
+
+    /**
+     * Allow right click to set cross section by default
+     */
+    this.allow_right_click(true);
+
     /**
      * Draw contour on the canvas, which is a background layer
      */
@@ -1433,6 +1439,21 @@ plotit.prototype.draw_peaks = function () {
         })
         .attr('fill', 'none')
         .attr('stroke-width', self.peak_thickness);
+};
+
+plotit.prototype.allow_right_click = function(flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.on('contextmenu', function (event) {
+            event.preventDefault();
+            self.setup_cross_line(event);
+        });
+    }
+    else {
+        self.vis.on('contextmenu', function(event) {
+            event.preventDefault();
+        });
+    }
 };
 
 
