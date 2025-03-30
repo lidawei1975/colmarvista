@@ -705,6 +705,30 @@ $(document).ready(function () {
             document.getElementById("magnifying_glass_ratio").removeEventListener('change', enable_magnifying_glass);
         }
     });
+
+    /**
+     * Event listener for the checkbox "pause_cursor"
+     */
+    document.getElementById("pause_cursor").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.cross_line_pause_flag = true;
+        }
+        else {
+            main_plot.cross_line_pause_flag = false;
+        }
+    });
+
+    /**
+     * Event listener for the checkbox "right_click"
+     */
+    document.getElementById("right_click").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.allow_right_click(true);
+        }
+        else {
+            main_plot.allow_right_click(false);
+        }
+    });
   
     /**
      * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio
@@ -2583,6 +2607,14 @@ function init_plot(input) {
             if(main_plot !== null)
             {
                 main_plot.zoom_to(event.data.xscale, event.data.yscale);
+            }
+        }
+
+        if(event.data.type === 'cross_line' && event.data.peak_group === peak_group)
+        {
+            if(main_plot !== null)
+            {
+                main_plot.setup_cross_line_from_ppm(event.data.x_ppm,event.data.y_ppm);
             }
         }
     }

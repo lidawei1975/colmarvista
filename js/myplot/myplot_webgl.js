@@ -93,6 +93,12 @@ class webgl_contour_plot {
         this.gl.vertexAttribPointer(this.positionLocation, size, type, normalize, stride, offset);
 
         this.polygon_length = [];
+
+        /**
+         * Flag to determine where to put magnified region.
+         */
+        this.magnification_region_x = 0; //0: left, 1: right
+        this.magnification_region_y = 1; //0: bottom, 1: top
     };
 
     /**
@@ -264,30 +270,66 @@ class webgl_contour_plot {
          */
         let x_pixel = (cursor_position[0] - this.x_ppm)*this.gl.canvas.width/ (this.x2_ppm - this.x_ppm);
         let y_pixel = (cursor_position[1] - this.y_ppm)*this.gl.canvas.height/ (this.y2_ppm - this.y_ppm);
+
         /**
-         * Step 2: set scissor test, covering the magnification glass area (at cursor_position in pixel, +- magnification_glass_factor*canvas size)
-         * If the cursor is too close to the edge, we will adjust the scissor test area to fit the canvas
+         * If x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width  < 0, 
+         * move viewing area to the right of the cursor
          */
-        let x_scissor = Math.max(0,x_pixel - magnification_glass_size*this.gl.canvas.width/2);
-        let y_scissor = Math.max(0,y_pixel - magnification_glass_size*this.gl.canvas.height/2);
-        let x_width_scissor = Math.min(this.gl.canvas.width,x_pixel + magnification_glass_size*this.gl.canvas.width/2) - x_scissor;
-        let y_height_scissor = Math.min(this.gl.canvas.height,y_pixel + magnification_glass_size*this.gl.canvas.height/2) - y_scissor;
+        if (x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width < 0) {
+            this.magnification_region_x = 1;
+        }
+        if(x_pixel + 1.1 * magnification_glass_size * this.gl.canvas.width > this.gl.canvas.width){
+            this.magnification_region_x = 0;
+        }
+        if (y_pixel - 1.1 * magnification_glass_size * this.gl.canvas.height < 0) {
+            this.magnification_region_y = 1;
+        }
+        if (y_pixel + 1.1 * magnification_glass_size * this.gl.canvas.height > this.gl.canvas.height) {
+            this.magnification_region_y = 0;
+        }
+
+        /**
+         * Get magnification glass view center ppm
+         */
+        let x_ppm_center,y_ppm_center,x_scissor,y_scissor;
+        let x_width_scissor = magnification_glass_size*this.gl.canvas.width;
+        let y_height_scissor = magnification_glass_size*this.gl.canvas.height;
+
+        if(this.magnification_region_x == 0){
+            x_ppm_center =  -0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel - magnification_glass_size*this.gl.canvas.width*1.1;
+        }
+        else{
+            x_ppm_center =  +0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel + magnification_glass_size*this.gl.canvas.width*0.1;
+        }
+        if(this.magnification_region_y == 0){
+            y_ppm_center =  -0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel - magnification_glass_size*this.gl.canvas.height*1.1;
+        }
+        else{
+            y_ppm_center =  +0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel + magnification_glass_size*this.gl.canvas.height*0.1;
+        }
 
         this.gl.enable(this.gl.SCISSOR_TEST);
         this.gl.scissor(x_scissor,y_scissor,x_width_scissor,y_height_scissor);
-        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to white
+        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to Gray
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
+        // console.log("x_scissor: " + x_scissor + " y_scissor: " + y_scissor + " x_width_scissor: " + x_width_scissor + " y_height_scissor: " + y_height_scissor);
+        // console.log("x_ppm_center: " + x_ppm_center + " y_ppm_center: " + y_ppm_center);
 
         /**
          * Step 3, get new ppm range, centered at cursor_position and zoom in by a factor of magnifying_factor
          * keep in mind this.x_ppm > this.x2_ppm and this.y_ppm > this.y2_ppm (NMR convention)
          */
-        let x_ppm_new = cursor_position[0] + (this.x_ppm - cursor_position[0]) / magnifying_factor;
-        let x2_ppm_new = cursor_position[0] +  (this.x2_ppm - cursor_position[0]) / magnifying_factor; 
-        let y_ppm_new =  cursor_position[1] + (this.y_ppm - cursor_position[1]) / magnifying_factor;
-        let y2_ppm_new =  cursor_position[1] +  (this.y2_ppm - cursor_position[1]) / magnifying_factor;
-        console.log(x_ppm_new,x2_ppm_new,y_ppm_new,y2_ppm_new);
+        let x_ppm_new = cursor_position[0] + (this.x_ppm -x_ppm_center) / magnifying_factor;
+        let x2_ppm_new = cursor_position[0] +  (this.x2_ppm - x_ppm_center) / magnifying_factor; 
+        let y_ppm_new =  cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor;
+        let y2_ppm_new =  cursor_position[1] +  (this.y2_ppm - y_ppm_center) / magnifying_factor;
+
+        
 
         /**
          * Draw the contour plot again, but only the center part

@@ -87,6 +87,8 @@ function plotit(input) {
 
     this.hline_ppm = null;
     this.vline_ppm = null;
+    this.cross_line_timeout = null;
+    this.cross_line_pause_flag = document.getElementById("pause_on_cursor").checked;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
@@ -530,6 +532,7 @@ plotit.prototype.zoomout = function () {
     this.x_cross_section_plot.zoom_x(this.xscale);
     this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
+
 };
 
 
@@ -631,12 +634,8 @@ plotit.prototype.draw = function () {
      */
     this.vis.on("mousemove", function (event) {
 
-        if(self.timeout) {
-            clearTimeout(self.timeout);
-        }
-        if(self.timeout_magnify) {
-            clearTimeout(self.timeout_magnify);
-            self.contour_plot.drawScene(0,false,[0,0],5,0.4);
+        if (self.cross_line_timeout) {
+            clearTimeout(self.cross_line_timeout);
         }
 
         /**
@@ -648,7 +647,6 @@ plotit.prototype.draw = function () {
             return;
         }
 
-
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
@@ -659,256 +657,62 @@ plotit.prototype.draw = function () {
         let y_pos = Math.floor((y_ppm - hsqc_spectra[spe_index].y_ppm_ref - hsqc_spectra[spe_index].y_ppm_start) / hsqc_spectra[spe_index].y_ppm_step);
         let x_pos = Math.floor((x_ppm - hsqc_spectra[spe_index].x_ppm_ref - hsqc_spectra[spe_index].x_ppm_start) / hsqc_spectra[spe_index].x_ppm_step);
         let data_height = 0.0; //default value if out of range
+        let signal_to_noise = 0.0; //default value if out of range
         if (x_pos >= 0 && x_pos < hsqc_spectra[spe_index].n_direct && y_pos >= 0 && y_pos < hsqc_spectra[spe_index].n_indirect) {
             data_height = hsqc_spectra[spe_index].raw_data[y_pos * hsqc_spectra[spe_index].n_direct + x_pos];
+            signal_to_noise = data_height / hsqc_spectra[spe_index].noise_level;
         }
 
-        if(self.hline_ppm !== null && self.vline_ppm !== null) {
+        if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
-            document.getElementById("infor").innerHTML 
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2)+ " ppm, Inten: " + data_height.toExponential(2) + "<br>"
-                + "x: " +  x_distance.toFixed(3) + " ppm  " + (x_distance*hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz" 
-                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance*hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
+            document.getElementById("infor").innerHTML
+                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                + "x: " + x_distance.toFixed(3) + " ppm  " + (x_distance * hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz"
+                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance * hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
         }
         else {
             document.getElementById("infor").innerHTML
-                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Intensity: " + data_height.toExponential(2);
+                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
         }
 
 
-        if(self.magnifying_glass == true){
-            self.timeout_magnify = setTimeout(function() {
-                let coordinates = [event.offsetX, event.offsetY];
-                let x_ppm = self.xRange.invert(coordinates[0]);
-                let y_ppm = self.yRange.invert(coordinates[1]);
-                console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
-                self.contour_plot.drawScene(0,true,[x_ppm,y_ppm],self.magnifying_glass_ratio,self.magnifying_glass_size/100.0);
-            }, 100);
-        }
-
-        /**
-         * Show tool tip only when mouse stops moving for 100ms
-         */
-        self.timeout = setTimeout(function() {
-
+        if (self.magnifying_glass == true) {
             let coordinates = [event.offsetX, event.offsetY];
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
+            // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
+            self.contour_plot.drawScene(0, true, [x_ppm, y_ppm], self.magnifying_glass_ratio, self.magnifying_glass_size / 100.0);
+        }
 
+        /**
+         * Show h and v line only when mouse stops moving for 2.5 seconds
+         * if pause on cursor is true
+         */
+        if (self.cross_line_pause_flag == true) {
+            self.cross_line_timeout = setTimeout(function () {
+                self.setup_cross_line(event);
+            }, 2500);
+        }
+    });
+    this.vis.on("mouseleave", function (d) {
+        tooldiv.style.opacity = 0.0;
+        document.activeElement.blur();
+        if (self.cross_line_timeout) {
+            clearTimeout(self.cross_line_timeout);
+        }
+        /**
+         * Clear the magnifying glass
+         */
+        self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+    });
 
-            let x_ppm_start = hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref;
-            let x_ppm_end = x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct;
-            let y_ppm_start = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref;
-            let y_ppm_end = y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect;
+    /**
+     * Allow right click to set cross section by default
+     */
+    this.allow_right_click(document.getElementById("right_click").checked);
 
-            /**
-             * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
-             * This line is subject to zoom, pan, resize, etc
-             */
-            self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-            self.vis.selectAll(".hline").remove();
-            self.vis.append("path")
-                .attr("class", "hline")
-                .attr("clip-path", "url(#clip)")
-                .attr("d", self.lineFunc(self.hline_data))
-                .attr("stroke-width", 1)
-                .attr("stroke", "green");
-
-            /**
-             * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
-             * This line is subject to zoom, pan, resize, etc
-             */
-            self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-            self.vis.selectAll(".vline").remove();
-            self.vis.append("path")
-                .attr("class", "vline")
-                .attr("clip-path", "url(#clip)")
-                .attr("d", self.lineFunc(self.vline_data))
-                .attr("stroke-width", 1)
-                .attr("stroke", "green");
-
-            /**
-             * Keep a copy of the current hline,vline ppm values
-             */
-            self.hline_ppm = y_ppm;
-            self.vline_ppm = x_ppm;
-            
-
-            if(self.b_show_cross_section)
-            {
-                /**
-                 * Show cross section along x-axis (direct dimension).
-                 * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
-                 * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                 * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                 */
-                let currect_vis_x_ppm_start = self.xscale[0];
-                let currect_vis_x_ppm_end = self.xscale[1];
-
-                /**
-                 * However, currect_vis_x_ppm_start and currect_vis_x_ppm_end must both 
-                 * be within the range of hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 */
-                if(currect_vis_x_ppm_start > hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref) {
-                    currect_vis_x_ppm_start = hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref;
-                }
-                if(currect_vis_x_ppm_end < hsqc_spectra[spe_index].x_ppm_start +hsqc_spectra[spe_index].x_ppm_ref + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct) {
-                    currect_vis_x_ppm_end = hsqc_spectra[spe_index].x_ppm_start+hsqc_spectra[spe_index].x_ppm_ref + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct;
-                }
-
-                let y_pos = Math.floor((y_ppm - hsqc_spectra[spe_index].y_ppm_ref - hsqc_spectra[spe_index].y_ppm_start)/hsqc_spectra[spe_index].y_ppm_step);
-
-                /**
-                 * if y_pos is out of range, do nothing and return
-                 */
-                if(y_pos > 0 && y_pos< hsqc_spectra[spe_index].n_indirect)
-                {
-                    /**
-                     * Get ppm values for the data, which is an array stats from hsqc_spectra[spe_index].x_ppm_start + x_pos_start * hsqc_spectra[spe_index].x_ppm_step
-                     * to hsqc_spectra[spe_index].x_ppm_start + x_pos_end * hsqc_spectra[spe_index].x_ppm_step
-                     */
-                    let data_ppm = [];
-                    for(let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                        data_ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
-                    }
-
-                    /**
-                     * Get the data from hsqc_spectra[spe_index].raw_data, at row y_pos, from column x_pos_start to x_pos_end
-                     */
-                    let data_height = hsqc_spectra[spe_index].raw_data.slice(y_pos *  hsqc_spectra[spe_index].n_direct, (y_pos+1) *  hsqc_spectra[spe_index].n_direct );
-                    let data_height_i = [];
-                    /**
-                     * If hsqc_spectra[spe_index].raw_data_ri is not empty 
-                     *  then use it to get the data_height_i
-                     * if hsqc_spectra[spe_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
-                     */
-                    if( hsqc_spectra[spe_index].raw_data_ri.length > 0 && (hsqc_spectra[spe_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1))
-                    {
-                        data_height_i = hsqc_spectra[spe_index].raw_data_ri.slice(y_pos *  hsqc_spectra[spe_index].n_direct , (y_pos+1) *  hsqc_spectra[spe_index].n_direct );
-                    }
-                    
-                    /**
-                     * Get the maximum and minimum of the data_height
-                     */
-                    let data_max = 0.0;
-                    let data_min = 0.0;
-                    for(let i = 0; i < data_ppm.length; i++) {
-                        if(data_height[i] > data_max) {
-                            data_max = data_height[i];
-                        }
-                        if(data_height[i] < data_min) {
-                            data_min = data_height[i];
-                        }
-                    }
-                    /**
-                     * Draw cross section line plot on the cross_section_svg_x
-                     */
-                    self.x_cross_section_plot.zoom(self.xscale,[data_min, data_max]);
-                    self.x_cross_section_plot.update_data([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref,hsqc_spectra[spe_index].x_ppm_step,hsqc_spectra[spe_index].n_direct],
-                        [data_ppm,data_height,data_height_i]);
-                }
-           
-                /**
-                 * Show cross section along y-axis (indirect dimension).
-                 * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
-                 * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                 * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                 */
-                let currect_vis_y_ppm_start = self.yscale[0];
-                let currect_vis_y_ppm_end = self.yscale[1];
-
-                /**
-                 * However, currect_vis_y_ppm_start and currect_vis_y_ppm_end must both 
-                 * be within the range of hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 */
-                if(currect_vis_y_ppm_start > hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref) {
-                    currect_vis_y_ppm_start = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref;
-                }
-                if(currect_vis_y_ppm_end < hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect) {
-                    currect_vis_y_ppm_end = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect;
-                }
-
-                let x_pos = Math.floor((x_ppm - hsqc_spectra[spe_index].x_ppm_ref - hsqc_spectra[spe_index].x_ppm_start)/hsqc_spectra[spe_index].x_ppm_step);
-
-                /**
-                 * if x_pos is out of range, do nothing and return
-                 */
-                if(x_pos >=0 && x_pos < hsqc_spectra[spe_index].n_direct) {
-                     /**
-                     * Get ppm values for the data, which is an array stats from hsqc_spectra[spe_index].y_ppm_start + y_pos_start * hsqc_spectra[spe_index].y_ppm_step
-                     * to hsqc_spectra[spe_index].y_ppm_start + y_pos_end * hsqc_spectra[spe_index].y_ppm_step
-                     */
-                     let data_ppm = [];
-                     for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                         data_ppm.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
-                     }
-
-                    /**
-                     * Get the data from hsqc_spectra[spe_index].raw_data, at column x_pos, from row y_pos_start to y_pos_end
-                     * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                     * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                     * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                     * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                     */
-                    let data_height = [];
-                    for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                        data_height.push(hsqc_spectra[spe_index].raw_data[i *  hsqc_spectra[spe_index].n_direct + x_pos]);
-                    }
-                    let data_height_i = [];
-                    /**
-                     * If hsqc_spectra[spe_index].raw_data_ir is not empty 
-                     * then use it to get the data_height_i
-                     * if hsqc_spectra[spe_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
-                     */
-                    if( hsqc_spectra[spe_index].raw_data_ir.length > 0 && (hsqc_spectra[spe_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1))
-                    {
-                        for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++){
-                            data_height_i.push(hsqc_spectra[spe_index].raw_data_ir[i *  hsqc_spectra[spe_index].n_direct + x_pos]);
-                        }
-                    }
-                   
-                    /**
-                     * Get max and min of data_height
-                     */
-                    let data_max = 0.0;
-                    let data_min = 0.0;
-                    for(let i = 0; i < data_ppm.length; i++) {
-                        if(data_height[i] > data_max) {
-                            data_max = data_height[i];
-                        }
-                        if(data_height[i] < data_min) {
-                            data_min = data_height[i];
-                        }
-                    }
-                    /**
-                     * Draw cross section line plot on the cross_section_svg_y
-                     */
-                    self.y_cross_section_plot.zoom([data_min, data_max],self.yscale);
-                    self.y_cross_section_plot.update_data([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],
-                        [data_ppm,data_height,data_height_i]);
-                }
-
-            } //end of vertical
-
-        }, 2500);
-    })
-        .on("mouseleave", function (d) {
-            tooldiv.style.opacity = 0.0;
-            document.activeElement.blur();
-            if(self.timeout) {
-                clearTimeout(self.timeout);
-            }
-            if(self.timeout_magnify) {
-                clearTimeout(self.timeout_magnify);
-                self.contour_plot.drawScene(0,false,[0,0],5,0.4);
-            }
-        });
     /**
      * Draw contour on the canvas, which is a background layer
      */
@@ -918,6 +722,226 @@ plotit.prototype.draw = function () {
         self.show_projection();    
     }
 };
+
+plotit.prototype.setup_cross_line = function (event)
+{
+    let self = this;
+    let coordinates = [event.offsetX, event.offsetY];
+    let x_ppm = self.xRange.invert(coordinates[0]);
+    let y_ppm = self.yRange.invert(coordinates[1]);
+        /**
+     * Send the cross line to other window
+     */
+    if(this.inter_window_channel) {
+        this.inter_window_channel.postMessage({
+            type: 'cross_line',
+            y_ppm: y_ppm,
+            x_ppm: x_ppm,
+            peak_group: document.getElementById("plot_group").value
+        });
+    }
+    self.setup_cross_line_from_ppm(x_ppm, y_ppm);
+}
+
+plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm)
+{
+    let self = this;
+
+    let x_ppm_start = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref;
+    let x_ppm_end = x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct;
+    let y_ppm_start = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref;
+    let y_ppm_end = y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect;
+
+    /**
+     * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
+     * This line is subject to zoom, pan, resize, etc
+     */
+    self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
+    self.vis.selectAll(".hline").remove();
+    self.vis.append("path")
+        .attr("class", "hline")
+        .attr("clip-path", "url(#clip)")
+        .attr("d", self.lineFunc(self.hline_data))
+        .attr("stroke-width", 1)
+        .attr("stroke", "green");
+
+    /**
+     * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
+     * This line is subject to zoom, pan, resize, etc
+     */
+    self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
+    self.vis.selectAll(".vline").remove();
+    self.vis.append("path")
+        .attr("class", "vline")
+        .attr("clip-path", "url(#clip)")
+        .attr("d", self.lineFunc(self.vline_data))
+        .attr("stroke-width", 1)
+        .attr("stroke", "green");
+
+    /**
+     * Keep a copy of the current hline,vline ppm values
+     */
+    self.hline_ppm = y_ppm;
+    self.vline_ppm = x_ppm;
+
+
+    if (self.b_show_cross_section)
+    {
+        /**
+         * Show cross section along x-axis (direct dimension).
+         * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
+         * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
+         * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
+         * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+         * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+         */
+        let current_vis_x_ppm_start = self.xscale[0];
+        let current_vis_x_ppm_end = self.xscale[1];
+
+        /**
+         * However, current_vis_x_ppm_start and current_vis_x_ppm_end must both 
+         * be within the range of hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+         */
+        if (current_vis_x_ppm_start > hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref) {
+            current_vis_x_ppm_start = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref;
+        }
+        if (current_vis_x_ppm_end < hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct) {
+            current_vis_x_ppm_end = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct;
+        }
+
+        let y_pos = Math.floor((y_ppm - hsqc_spectra[self.current_spectral_index].y_ppm_ref - hsqc_spectra[self.current_spectral_index].y_ppm_start) / hsqc_spectra[self.current_spectral_index].y_ppm_step);
+
+        /**
+         * if y_pos is out of range, do nothing and return
+         */
+        if (y_pos > 0 && y_pos < hsqc_spectra[self.current_spectral_index].n_indirect) {
+            /**
+             * Get ppm values for the data, which is an array stats from hsqc_spectra[self.current_spectral_index].x_ppm_start + x_pos_start * hsqc_spectra[self.current_spectral_index].x_ppm_step
+             * to hsqc_spectra[self.current_spectral_index].x_ppm_start + x_pos_end * hsqc_spectra[self.current_spectral_index].x_ppm_step
+             */
+            let data_ppm = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_direct; i++) {
+                data_ppm.push(hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + i * hsqc_spectra[self.current_spectral_index].x_ppm_step);
+            }
+
+            /**
+             * Get the data from hsqc_spectra[self.current_spectral_index].raw_data, at row y_pos, from column x_pos_start to x_pos_end
+             */
+            let data_height = hsqc_spectra[self.current_spectral_index].raw_data.slice(y_pos * hsqc_spectra[self.current_spectral_index].n_direct, (y_pos + 1) * hsqc_spectra[self.current_spectral_index].n_direct);
+            let data_height_i = [];
+            /**
+             * If hsqc_spectra[self.current_spectral_index].raw_data_ri is not empty 
+             *  then use it to get the data_height_i
+             * if hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
+             */
+            if (hsqc_spectra[self.current_spectral_index].raw_data_ri.length > 0 && (hsqc_spectra[self.current_spectral_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1)) {
+                data_height_i = hsqc_spectra[self.current_spectral_index].raw_data_ri.slice(y_pos * hsqc_spectra[self.current_spectral_index].n_direct, (y_pos + 1) * hsqc_spectra[self.current_spectral_index].n_direct);
+            }
+
+            /**
+             * Get the maximum and minimum of the data_height
+             */
+            let data_max = 0.0;
+            let data_min = 0.0;
+            for (let i = 0; i < data_ppm.length; i++) {
+                if (data_height[i] > data_max) {
+                    data_max = data_height[i];
+                }
+                if (data_height[i] < data_min) {
+                    data_min = data_height[i];
+                }
+            }
+            /**
+             * Draw cross section line plot on the cross_section_svg_x
+             */
+            self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
+            self.x_cross_section_plot.update_data([hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref, hsqc_spectra[self.current_spectral_index].x_ppm_step, hsqc_spectra[self.current_spectral_index].n_direct],
+                [data_ppm, data_height, data_height_i]);
+        }
+
+        /**
+         * Show cross section along y-axis (indirect dimension).
+         * 1. Find the closest point in the data hsqc_spectra[self.current_spectral_index].raw_data (1D Float32 array with size hsqc_spectra[self.current_spectral_index].n_direct*hsqc_spectra[self.current_spectral_index].n_indirect)
+         * Along direct dimension, ppm are from hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+         * Along indirect dimension, ppm are from hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+         * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+         * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+         */
+        let current_vis_y_ppm_start = self.yscale[0];
+        let current_vis_y_ppm_end = self.yscale[1];
+
+        /**
+         * However, current_vis_y_ppm_start and current_vis_y_ppm_end must both 
+         * be within the range of hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+         */
+        if (current_vis_y_ppm_start > hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref) {
+            current_vis_y_ppm_start = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref;
+        }
+        if (current_vis_y_ppm_end < hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect) {
+            current_vis_y_ppm_end = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect;
+        }
+
+        let x_pos = Math.floor((x_ppm - hsqc_spectra[self.current_spectral_index].x_ppm_ref - hsqc_spectra[self.current_spectral_index].x_ppm_start) / hsqc_spectra[self.current_spectral_index].x_ppm_step);
+
+        /**
+         * if x_pos is out of range, do nothing and return
+         */
+        if (x_pos >= 0 && x_pos < hsqc_spectra[self.current_spectral_index].n_direct)
+        {
+            /**
+             * Get ppm values for the data, which is an array stats from hsqc_spectra[self.current_spectral_index].y_ppm_start + y_pos_start * hsqc_spectra[self.current_spectral_index].y_ppm_step
+             * to hsqc_spectra[self.current_spectral_index].y_ppm_start + y_pos_end * hsqc_spectra[self.current_spectral_index].y_ppm_step
+             */
+            let data_ppm = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                data_ppm.push(hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + i * hsqc_spectra[self.current_spectral_index].y_ppm_step);
+            }
+
+            /**
+             * Get the data from hsqc_spectra[self.current_spectral_index].raw_data, at column x_pos, from row y_pos_start to y_pos_end
+             * Along direct dimension, ppm are from hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+             * Along indirect dimension, ppm are from hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+             * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+             * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+             */
+            let data_height = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                data_height.push(hsqc_spectra[self.current_spectral_index].raw_data[i * hsqc_spectra[self.current_spectral_index].n_direct + x_pos]);
+            }
+            let data_height_i = [];
+            /**
+             * If hsqc_spectra[self.current_spectral_index].raw_data_ir is not empty 
+             * then use it to get the data_height_i
+             * if hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
+             */
+            if (hsqc_spectra[self.current_spectral_index].raw_data_ir.length > 0 && (hsqc_spectra[self.current_spectral_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1)) {
+                for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                    data_height_i.push(hsqc_spectra[self.current_spectral_index].raw_data_ir[i * hsqc_spectra[self.current_spectral_index].n_direct + x_pos]);
+                }
+            }
+
+            /**
+             * Get max and min of data_height
+             */
+            let data_max = 0.0;
+            let data_min = 0.0;
+            for (let i = 0; i < data_ppm.length; i++) {
+                if (data_height[i] > data_max) {
+                    data_max = data_height[i];
+                }
+                if (data_height[i] < data_min) {
+                    data_min = data_height[i];
+                }
+            }
+            /**
+             * Draw cross section line plot on the cross_section_svg_y
+             */
+            self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
+            self.y_cross_section_plot.update_data([hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref, hsqc_spectra[self.current_spectral_index].y_ppm_step, hsqc_spectra[self.current_spectral_index].n_indirect],
+                [data_ppm, data_height, data_height_i]);
+        }
+    } //end of show cross section
+} //end of cross section
 
 plotit.prototype.get_phase_correction = function () {
     let self = this;
@@ -1431,6 +1455,21 @@ plotit.prototype.draw_peaks = function () {
         })
         .attr('fill', 'none')
         .attr('stroke-width', self.peak_thickness);
+};
+
+plotit.prototype.allow_right_click = function(flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.on('contextmenu', function (event) {
+            event.preventDefault();
+            self.setup_cross_line(event);
+        });
+    }
+    else {
+        self.vis.on('contextmenu', function(event) {
+            event.preventDefault();
+        });
+    }
 };
 
 
