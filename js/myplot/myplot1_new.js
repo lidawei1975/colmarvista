@@ -654,8 +654,10 @@ plotit.prototype.draw = function () {
         let y_pos = Math.floor((y_ppm - hsqc_spectra[spe_index].y_ppm_ref - hsqc_spectra[spe_index].y_ppm_start) / hsqc_spectra[spe_index].y_ppm_step);
         let x_pos = Math.floor((x_ppm - hsqc_spectra[spe_index].x_ppm_ref - hsqc_spectra[spe_index].x_ppm_start) / hsqc_spectra[spe_index].x_ppm_step);
         let data_height = 0.0; //default value if out of range
+        let signal_to_noise = 0.0; //default value if out of range
         if (x_pos >= 0 && x_pos < hsqc_spectra[spe_index].n_direct && y_pos >= 0 && y_pos < hsqc_spectra[spe_index].n_indirect) {
             data_height = hsqc_spectra[spe_index].raw_data[y_pos * hsqc_spectra[spe_index].n_direct + x_pos];
+            signal_to_noise = data_height/hsqc_spectra[spe_index].noise_level;
         }
 
         if(self.hline_ppm !== null && self.vline_ppm !== null) {
@@ -663,13 +665,13 @@ plotit.prototype.draw = function () {
             let y_distance = y_ppm - self.hline_ppm;
 
             document.getElementById("infor").innerHTML 
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2)+ " ppm, Inten: " + data_height.toExponential(2) + "<br>"
+                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2)+ " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                 + "x: " +  x_distance.toFixed(3) + " ppm  " + (x_distance*hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz" 
                 + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance*hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
         }
         else {
             document.getElementById("infor").innerHTML
-                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Intensity: " + data_height.toExponential(2);
+                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
         }
 
 
