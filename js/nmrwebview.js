@@ -2609,6 +2609,14 @@ function init_plot(input) {
                 main_plot.zoom_to(event.data.xscale, event.data.yscale);
             }
         }
+
+        if(event.data.type === 'cross_line' && event.data.peak_group === peak_group)
+        {
+            if(main_plot !== null)
+            {
+                main_plot.setup_cross_line_from_ppm(event.data.x_ppm,event.data.y_ppm);
+            }
+        }
     }
     input.inter_window_channel = inter_window_channel;
 
