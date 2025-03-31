@@ -88,7 +88,7 @@ function plotit(input) {
     this.hline_ppm = null;
     this.vline_ppm = null;
     this.cross_line_timeout = null;
-    this.cross_line_pause_flag = document.getElementById("pause_on_cursor").checked;
+    this.cross_line_pause_flag = document.getElementById("pause_cursor").checked;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
