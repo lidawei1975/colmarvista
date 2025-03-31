@@ -1165,6 +1165,52 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         return force;
     }
 
+    function boundary_force()
+    {
+        let nodes;
+        var strength = 10.0;
+
+        /**
+         * Require all nodes to avoid all peaks. Brute force method
+         * @param {*} alpha 
+         */
+        function force(alpha)
+        {
+            for (let j=0;j<nodes.length;j++)
+            {
+                let node = nodes[j];
+                /**
+                 * if node is out of boundary, then apply a force to move it back
+                 */
+                if(node.x < self.MARGINS.left)
+                {
+                    node.vx += strength * alpha;
+                }
+                if(node.x > self.WIDTH - self.MARGINS.right)
+                {
+                    node.vx -= strength * alpha;
+                }
+                if(node.y < self.MARGINS.top)
+                {
+                    node.vy += strength * alpha;
+                }
+                if(node.y > self.HEIGHT - self.MARGINS.bottom)
+                {
+                    node.vy -= strength * alpha;
+                }
+            }
+        }
+
+        function strength(_) {
+            if (!arguments.length) return strength;
+            strength = _;
+            return force;
+        }
+
+        force.initialize = _ => nodes = _;
+        return force;
+    }
+
     /**
      * Get a subset of peaks that are visible. 
      * shallow copy of self.new_peaks
@@ -1321,6 +1367,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .force("inter_collide", d3.forceCollide().radius(40).strength(1).iterations(1))
         .force('exclude',d3.forceManyBody().strength(-10))
         .force("avoid", avoid_peaks())
+        .force("boundary", boundary_force())
         .stop();
     ;
 
