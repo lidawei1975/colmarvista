@@ -4,8 +4,6 @@
  * @param {*} input 
  */
 function plotit(input) {
-    this.show_peak = 1;
-
 
     this.xscales = new Array();
     this.yscales = new Array();
@@ -1508,10 +1506,72 @@ plotit.prototype.draw_peaks = function () {
         .attr('stroke', function(){
             return self.peak_color;
         })
-        .attr('fill', 'none')
+        .attr('fill', function(){
+            return self.peak_color;
+        })
         .attr('stroke-width', self.peak_thickness);
 };
 
+/**
+ * Function to allow clicking on peaks, to pop up a window with peak information
+ * @param {boolean} flag: true to allow clicking on peaks, false to disable
+ * 
+ */
+plotit.prototype.allow_hover_on_peaks = function (flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.selectAll('.peak').on('mouseover', function (event,d) {
+            /**
+             * Show a window with peak information
+             * 1. get current cursor position (relative to the window, not the plot)
+             */
+            let x = event.clientX + 20;
+            let y = event.clientY + 20;
+            /**
+             * Move the div #peak_information_div to the cursor position as absolute position
+             * set display to block. 
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            
+            peak_information_div.style.left = x + 'px';
+            peak_information_div.style.top = y + 'px';
+             /**
+             * Fill the div with peak information
+             */
+             let peak_information = '';
+             for(let key in d)
+             {
+                 peak_information += key + ': ' + d[key] + '<br>';
+             }
+             peak_information_div.innerHTML = peak_information;
+            /**
+             * If x is close to the right edge of the window, move the div to the left
+             */
+            if(x + peak_information_div.offsetWidth > window.innerWidth)
+            {
+                x = x - peak_information_div.offsetWidth;
+            }
+            peak_information_div.style.display = 'block';
+        })
+        .on('mouseout', function () {
+            /**
+             * Hide the div #peak_information_div
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            peak_information_div.style.display = 'none';
+        });
+    }
+    else {
+        self.vis.selectAll('.peak').on('mouseover', null);
+        self.vis.selectAll('.peak').on('mouseout', null);
+    }
+};
+
+/**
+ * Function to allow right click on plot to set up cross line location
+ * @param {*} flag: true to allow right click, false to disable.
+ * For both case, we will disable the default right click menu
+ */
 plotit.prototype.allow_right_click = function(flag) {
     let self = this;
     if(flag === true) {
@@ -1528,7 +1588,11 @@ plotit.prototype.allow_right_click = function(flag) {
 };
 
 
-
+/**
+ * Redraw peaks on the plot.
+ * Only update peak color, size, thickness, and visibility
+ * Will not change the peak position
+ */
 plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
@@ -1564,7 +1628,10 @@ plotit.prototype.redraw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr('fill', 'none')
+        .attr('fill', function(){
+            return self.peak_color;
+            // return 'none';
+        })
         .attr('stroke-width', self.peak_thickness);
 }
 
