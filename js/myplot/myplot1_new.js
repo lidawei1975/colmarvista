@@ -1169,6 +1169,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     {
         let nodes;
         var strength = 10.0;
+        var buffer = 30.0;
 
         /**
          * Require all nodes to avoid all peaks. Brute force method
@@ -1181,22 +1182,23 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
                 let node = nodes[j];
                 /**
                  * if node is out of boundary, then apply a force to move it back
+                 * Linear soft core repulsion with a buffer of 10 pixels
                  */
-                if(node.x < self.MARGINS.left)
+                if(node.x < self.MARGINS.left + buffer)
                 {
-                    node.vx += strength * alpha;
+                    node.vx -= strength * alpha * (node.x - self.MARGINS.left - buffer);
                 }
-                if(node.x > self.WIDTH - self.MARGINS.right)
+                if(node.x > self.WIDTH - self.MARGINS.right - buffer)
                 {
-                    node.vx -= strength * alpha;
+                    node.vx -= strength * alpha * (node.x - self.WIDTH + self.MARGINS.right +buffer);
                 }
-                if(node.y < self.MARGINS.top)
+                if(node.y < self.MARGINS.top + buffer)
                 {
-                    node.vy += strength * alpha;
+                    node.vy -= strength * alpha * (node.y - self.MARGINS.top - buffer);
                 }
-                if(node.y > self.HEIGHT - self.MARGINS.bottom)
+                if(node.y > self.HEIGHT - self.MARGINS.bottom - buffer)
                 {
-                    node.vy -= strength * alpha;
+                    node.vy -= strength * alpha * (node.y - self.HEIGHT + self.MARGINS.bottom + buffer);
                 }
             }
         }
@@ -1204,6 +1206,12 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         function strength(_) {
             if (!arguments.length) return strength;
             strength = _;
+            return force;
+        }
+
+        function buffer(_) {
+            if (!arguments.length) return buffer;
+            buffer = _;
             return force;
         }
 
