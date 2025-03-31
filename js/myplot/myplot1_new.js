@@ -1165,6 +1165,60 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         return force;
     }
 
+    function boundary_force()
+    {
+        let nodes;
+        var strength = 10.0;
+        var buffer = 30.0;
+
+        /**
+         * Require all nodes to avoid all peaks. Brute force method
+         * @param {*} alpha 
+         */
+        function force(alpha)
+        {
+            for (let j=0;j<nodes.length;j++)
+            {
+                let node = nodes[j];
+                /**
+                 * if node is out of boundary, then apply a force to move it back
+                 * Linear soft core repulsion with a buffer of 10 pixels
+                 */
+                if(node.x < self.MARGINS.left + buffer)
+                {
+                    node.vx -= strength * alpha * (node.x - self.MARGINS.left - buffer);
+                }
+                if(node.x > self.WIDTH - self.MARGINS.right - buffer)
+                {
+                    node.vx -= strength * alpha * (node.x - self.WIDTH + self.MARGINS.right +buffer);
+                }
+                if(node.y < self.MARGINS.top + buffer)
+                {
+                    node.vy -= strength * alpha * (node.y - self.MARGINS.top - buffer);
+                }
+                if(node.y > self.HEIGHT - self.MARGINS.bottom - buffer)
+                {
+                    node.vy -= strength * alpha * (node.y - self.HEIGHT + self.MARGINS.bottom + buffer);
+                }
+            }
+        }
+
+        function strength(_) {
+            if (!arguments.length) return strength;
+            strength = _;
+            return force;
+        }
+
+        function buffer(_) {
+            if (!arguments.length) return buffer;
+            buffer = _;
+            return force;
+        }
+
+        force.initialize = _ => nodes = _;
+        return force;
+    }
+
     /**
      * Get a subset of peaks that are visible. 
      * shallow copy of self.new_peaks
@@ -1321,6 +1375,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .force("inter_collide", d3.forceCollide().radius(40).strength(1).iterations(1))
         .force('exclude',d3.forceManyBody().strength(-10))
         .force("avoid", avoid_peaks())
+        .force("boundary", boundary_force())
         .stop();
     ;
 
