@@ -303,6 +303,10 @@ class spectrum {
         this.header[24] = 2; //direct dimension is the second dimension
         this.header[25] = 1; //indirect dimension is the first dimension
 
+        
+        this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
+        this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
+
         /**
          * Suppose filed strength is 850 along direct dimension
          * and indirection dimension obs is 85.0
@@ -668,11 +672,15 @@ class spectrum {
         this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
         this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
         this.header[221] = 0; // not transposed
+        this.header[9] = 2; // # of dimensions
         this.header[56] = 1; //real data along both dimensions
         this.header[55] = 1; //real data along both dimensions
 
         this.header[24] = 2; //direct dimension is the second dimension
         this.header[25] = 1; //indirect dimension is the first dimension
+
+        this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
+        this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
 
         /**
          * Suppose filed strength is 850 along direct dimension
