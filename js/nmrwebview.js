@@ -4770,3 +4770,36 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 };
 
 
+function test()
+{
+    const data = [
+        { x: 1, y: 5 },
+        { x: 2, y: 7 },
+        { x: 3, y: 9 },
+        { x: 4, y: 11 },
+        { x: 5, y: 13 },
+        { x: 6, y: 15 },
+        { x: 7, y: 17 },
+        { x: 8, y: 19 },
+        { x: 9, y: 21 },
+        { x: 10, y: 23 },
+      ];
+
+      const data2 =[ {x: 1, y: 5},{x:10,y:23}];
+
+      /**
+       * Remove (if any) previous drawing
+       */
+      document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+
+  
+      const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+        width: 400,
+        height: 300,
+        xLabel: 'Plane',
+        yLabel: 'Value',
+      });
+
+      plot.draw_scatter(data);
+      plot.draw_line(data2);
+}

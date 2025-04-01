@@ -1535,22 +1535,9 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             
             peak_information_div.style.left = x + 'px';
             peak_information_div.style.top = y + 'px';
-             /**
-             * Fill the div with peak information
-             */
-             let peak_information = '';
-             for(let key in d)
-             {
-                 peak_information += key + ': ' + d[key] + '<br>';
-             }
-             peak_information_div.innerHTML = peak_information;
-            /**
-             * If x is close to the right edge of the window, move the div to the left
-             */
-            if(x + peak_information_div.offsetWidth > window.innerWidth)
-            {
-                x = x - peak_information_div.offsetWidth;
-            }
+            
+            test();
+
             peak_information_div.style.display = 'block';
         })
         .on('mouseout', function () {
