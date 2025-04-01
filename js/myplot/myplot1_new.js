@@ -4,8 +4,6 @@
  * @param {*} input 
  */
 function plotit(input) {
-    this.show_peak = 1;
-
 
     this.xscales = new Array();
     this.yscales = new Array();
@@ -57,8 +55,8 @@ function plotit(input) {
     this.peak_color = "#FF0000"; //default color is red
     this.peak_color_scale = d3.scaleSequential(d3.interpolateRdBu); //default color scale is Red-Blue. 
     this.peak_color_flag = 'SOLID'; //default is solid, can be a color-map, depending on some peak properties
-    this.peak_size = 6;
-    this.peak_thickness = 5;
+    this.peak_size = 4;
+    this.peak_thickness = 1;
 
     this.font_size = 24; //default font size is 24 for peak labels
 
@@ -1508,10 +1506,93 @@ plotit.prototype.draw_peaks = function () {
         .attr('stroke', function(){
             return self.peak_color;
         })
-        .attr('fill', 'none')
+        .attr('fill', function(){
+            return self.peak_color;
+        })
         .attr('stroke-width', self.peak_thickness);
 };
 
+/**
+ * Function to allow clicking on peaks, to pop up a window with peak information
+ * @param {boolean} flag: true to allow clicking on peaks, false to disable
+ * 
+ */
+plotit.prototype.allow_hover_on_peaks = function (flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.selectAll('.peak').on('mouseover', function (event,d) {
+            /**
+             * Show a window with peak information
+             * 1. get current cursor position (relative to the window, not the plot)
+             */
+            let x = event.clientX + 20;
+            let y = event.clientY + 20;
+            /**
+             * Move the div #peak_information_div to the cursor position as absolute position
+             * set display to block. 
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            
+            peak_information_div.style.left = x + 'px';
+            peak_information_div.style.top = y + 'px';
+            
+            /**
+             * Generate a data array of {x,y} pair for the fitting plot where
+             * x is this.pseudo3d_plane_value
+             * y is d[this.pseudo3d_plane_y_value]
+             */
+            let data = [];
+            for(let i=0;i<self.pseudo3d_plane_value.length; i++) {
+                let y_value = Math.log(d[self.pseudo3d_plane_y_value[i]]);
+                if (typeof y_value !== "undefined") {
+                    data.push({ x: self.pseudo3d_plane_value[i], y: y_value });
+                }
+            }
+
+            let slope = d.DOSY * self.pseudo3d_slope_factor; // slope of the line, negative because DOSY is in ms and we want to plot it in log scale
+        
+            const data2 =[
+                {x: 0, y: 0},
+                {x:data[data.length - 1].x, y: slope*data[data.length - 1].x} // line end point
+            ];
+        
+              /**
+               * Remove (if any) previous drawing
+               */
+              document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+        
+          
+              const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+                width: 400,
+                height: 300,
+                xLabel: self.pseudo3d_x_label,
+                yLabel: self.pseudo3d_y_label,
+              });
+        
+              plot.draw_scatter(data);
+              plot.draw_line(data2);
+
+            peak_information_div.style.display = 'block';
+        })
+        .on('mouseout', function () {
+            /**
+             * Hide the div #peak_information_div
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            peak_information_div.style.display = 'none';
+        });
+    }
+    else {
+        self.vis.selectAll('.peak').on('mouseover', null);
+        self.vis.selectAll('.peak').on('mouseout', null);
+    }
+};
+
+/**
+ * Function to allow right click on plot to set up cross line location
+ * @param {*} flag: true to allow right click, false to disable.
+ * For both case, we will disable the default right click menu
+ */
 plotit.prototype.allow_right_click = function(flag) {
     let self = this;
     if(flag === true) {
@@ -1528,7 +1609,11 @@ plotit.prototype.allow_right_click = function(flag) {
 };
 
 
-
+/**
+ * Redraw peaks on the plot.
+ * Only update peak color, size, thickness, and visibility
+ * Will not change the peak position
+ */
 plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
@@ -1564,7 +1649,10 @@ plotit.prototype.redraw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr('fill', 'none')
+        .attr('fill', function(){
+            return self.peak_color;
+            // return 'none';
+        })
         .attr('stroke-width', self.peak_thickness);
 }
 

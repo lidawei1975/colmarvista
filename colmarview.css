@@ -205,6 +205,16 @@
             display: inline;
         }
 
+        .popup_div {
+            display: none;
+            position: fixed;
+            top: 0px;
+            left: 0px;
+            background-color: rgb(208, 206, 206);
+            z-index: 1001;
+            opacity: 0.80;
+          }
+
         table {
             border-collapse: collapse;
             border: 2px solid rgb(140 140 140);
