@@ -1683,6 +1683,19 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(peak_list_input);
 
         /**
+         * Add a "remove t1 noise" checkbox to remove t1 noise from the spectrum when run DEEP picker
+         */
+        let remove_t1_noise_checkbox = document.createElement("input");
+        remove_t1_noise_checkbox.setAttribute("type", "checkbox");
+        remove_t1_noise_checkbox.setAttribute("id", "remove_t1_noise-".concat(index));
+        remove_t1_noise_checkbox.checked = false; // Default
+        let remove_t1_noise_label = document.createElement("label");
+        remove_t1_noise_label.setAttribute("for", "remove_t1_noise-".concat(index));
+        remove_t1_noise_label.innerText = " Remove T1 noise ";
+        new_spectrum_div.appendChild(remove_t1_noise_checkbox);
+        new_spectrum_div.appendChild(remove_t1_noise_label);
+
+        /**
          * Add a run_DEEP_Picker button to run DEEP picker. Default is enabled
          */
         let deep_picker_button = document.createElement("button");
@@ -3165,6 +3178,20 @@ function update_contour_color(e,index,flag) {
     {
         filename = hsqc_spectra[index].filename;
         /**
+         * if filename has no extension, add .ft2
+         */
+        if (!filename.match(/\.\w+$/)) {
+            filename += ".ft2";
+        }
+        /**
+         * If extension is not ft2, replace it with .ft2
+         */
+        else if( !filename.toLowerCase().endsWith('.ft2')) {
+            filename = filename.replace(/\.\w+$/, ".ft2");
+        }
+        
+
+        /**
          * generate a blob, which is hsqc_spectra[index].header + hsqc_spectra[index].raw_data
          * case 1: both are real
          */
@@ -3690,6 +3717,7 @@ function disable_enable_fitted_peak_buttons(spectrum_index,flag)
 /**
  * Call DEEP Picker to run peaks picking the spectrum
  * @param {int} spectrum_index: index of the spectrum in hsqc_spectra array
+ * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
 function run_DEEP_Picker(spectrum_index,flag)
 {
@@ -3701,8 +3729,8 @@ function run_DEEP_Picker(spectrum_index,flag)
      * Need to copy the header first, modify complex flag (doesn't hurt even when not necessary), then concatenate with raw_data
      */
     let header = new Float32Array(hsqc_spectra[spectrum_index].header);
-    header[55] = 1.0;
-    header[56] = 1.0;
+    header[55] = 1.0; //keep real part only
+    header[56] = 1.0; //keep real part only
     header[219] = hsqc_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, hsqc_spectra[spectrum_index].raw_data);
     /**
@@ -3722,6 +3750,12 @@ function run_DEEP_Picker(spectrum_index,flag)
     let scale2 = 0.6 * scale;
 
     /**
+     * Check checkbox for "remove_t1_noise-${spectrum_index}"
+     * set remove_t1_noise to "yes" or "no" based on the checkbox state
+     */
+    let remove_t1_noise = document.getElementById("remove_t1_noise-"+spectrum_index).checked ? "yes" : "no";
+
+    /**
      * Add title to textarea "log"
      */
     webassembly_worker.postMessage({
@@ -3731,11 +3765,12 @@ function run_DEEP_Picker(spectrum_index,flag)
         scale: scale,
         scale2: scale2,
         noise_level: noise_level,
+        remove_t1_noise: remove_t1_noise,
         flag: flag //0: DEEP Picker, 1: Simple Picker
     });
     /**
- * Let user know the processing is started
- */
+     * Let user know the processing is started
+     */
     document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
 
 }
