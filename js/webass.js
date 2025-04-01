@@ -623,7 +623,7 @@ onmessage = function (e) {
          */
         if(e.data.flag === 0)
         {
-            let content = ' -out peaks.json peaks.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
+            let content = ' -out peaks.json peaks.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2,' -t1_noise ',e.data.remove_t1_noise);
             Module['FS_createDataFile']('/', 'arguments_dp.txt', content, true, true, true);
         }
         else 
