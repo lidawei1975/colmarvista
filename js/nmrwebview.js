@@ -3927,8 +3927,37 @@ function show_hide_peaks(index,flag,b_show)
          */
         if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY')!==-1)
         {
+            /**
+             * Get all column_headers that starts with Z_A (such as Z_A0,Z_A1, ... )
+             */
+            let dosy_headers = pseudo3d_fitted_peaks_object.column_headers.filter(function(header) {
+                return header.startsWith('Z_A');
+            });
 
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'],'SOLID');
+            /**
+             * Make a header list
+             */
+            let header_list = ['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
+
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
+
+            /**
+             * For pseudo3D only, main_plot need to know the pseudo-3D plane 
+             * name: "Gradient"
+             * value: pseudo3d_fitted_peaks_object.gradients^2;
+             * y_value: dosy_headers
+             */
+
+            main_plot.pseudo3d_plane_name = "Gradient";
+            main_plot.pseudo3d_plane_value = pseudo3d_fitted_peaks_object.gradients.map(d => d*d);
+            main_plot.pseudo3d_plane_y_value = dosy_headers;
+            main_plot.pseudo3d_x_label = "Gradient^2";
+            main_plot.pseudo3d_y_label = "ln(Z)";
+            main_plot.pseudo3d_slope_factor = -1.0/pseudo3d_fitted_peaks_object.scale_constant;
+
+            main_plot.allow_hover_on_peaks(true);
+
+
             /**
              * Insert ASS and DOSY into HTML select with ID labels
              */
@@ -3946,6 +3975,7 @@ function show_hide_peaks(index,flag,b_show)
             color_map_list = ['HEIGHT'];
             color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT')];
             update_colormap_select();
+            main_plot.allow_hover_on_peaks(false);
         }
     }
 
@@ -3977,6 +4007,7 @@ function show_hide_peaks(index,flag,b_show)
         color_map_list = ['HEIGHT'];
         color_map_limit =[get_peak_limit( hsqc_spectra[index].picked_peaks_object,'HEIGHT')];
         update_colormap_select();
+        main_plot.allow_hover_on_peaks(false);
     }
     else
     {
@@ -3985,6 +4016,7 @@ function show_hide_peaks(index,flag,b_show)
         color_map_list=[];
         color_map_limit=[];
         update_colormap_select();
+        main_plot.allow_hover_on_peaks(false);
     }
     /**
      * There is no need to redraw the contour plot
@@ -4769,37 +4801,3 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 };
 
-
-function test()
-{
-    const data = [
-        { x: 1, y: 5 },
-        { x: 2, y: 7 },
-        { x: 3, y: 9 },
-        { x: 4, y: 11 },
-        { x: 5, y: 13 },
-        { x: 6, y: 15 },
-        { x: 7, y: 17 },
-        { x: 8, y: 19 },
-        { x: 9, y: 21 },
-        { x: 10, y: 23 },
-      ];
-
-      const data2 =[ {x: 1, y: 5},{x:10,y:23}];
-
-      /**
-       * Remove (if any) previous drawing
-       */
-      document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
-
-  
-      const plot = new fitting_plot('#pseudo3d_fitting_plot', {
-        width: 400,
-        height: 300,
-        xLabel: 'Plane',
-        yLabel: 'Value',
-      });
-
-      plot.draw_scatter(data);
-      plot.draw_line(data2);
-}
