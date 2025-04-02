@@ -4801,3 +4801,16 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 };
 
+
+function test()
+{
+    const myData = [
+        { name: 'John Doe', age: 30, city: 'New York' },
+        { name: 'Jane Smith', age: 25, city: 'Los Angeles' },
+        { name: 'Peter Jones', age: 40, city: 'Chicago' }
+      ];
+      
+      createTable_from_peak(hsqc_spectra[0].picked_peaks_object, 'peak_area','peak_table');
+
+      new Tablesort(document.getElementById('peak_table'));
+}
