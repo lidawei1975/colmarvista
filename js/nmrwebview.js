@@ -4802,15 +4802,80 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 };
 
 
-function test()
-{
-    const myData = [
-        { name: 'John Doe', age: 30, city: 'New York' },
-        { name: 'Jane Smith', age: 25, city: 'Los Angeles' },
-        { name: 'Peter Jones', age: 40, city: 'Chicago' }
-      ];
-      
-      createTable_from_peak(hsqc_spectra[0].picked_peaks_object, 'peak_area','peak_table');
+function test() {
+    /**
+     * Step 1, clear current peak_table.
+     * Get peak_area's all table children and remove them
+     */
+    let peak_area = document.getElementById('peak_area');
+    let tables = peak_area.getElementsByTagName('table');
 
-      new Tablesort(document.getElementById('peak_table'));
+    if(tables.length > 0)
+    {
+        tables.forEach(element => {
+            peak_area.removeChild(element);
+        });
+    }
+
+
+    createTable_from_peak(hsqc_spectra[0].picked_peaks_object, 'peak_area', 'peak_table');
+    // let table = document.getElementById('peak_table');
+    // table.addEventListener('click', (event) => {
+    //     const row = event.target.closest('tr'); // Find the closest 'tr' element
+
+    //     if (row) {
+    //         // Row was clicked!
+    //         const rowIndex = row.rowIndex; // Get the row index
+    //         console.log('Row clicked:', rowIndex);
+    //         // Add your logic here (e.g., display data, navigate, etc.)
+    //     }
+    // });
+    // scrollToTableRow('peak_table',48);
+    new Tablesort(document.getElementById('peak_table'));
+}
+
+/**
+ * Search text from all fields of the peak_table
+ * scrollToTableRow if found and highlight the row with yellow background color then remove it after 3 seconds
+ */
+function search_peak()
+{
+    let input = document.getElementById("peak_search_text").value;
+    let filter = input.toUpperCase();
+    let table = document.getElementById("peak_table");
+    let tr = table.getElementsByTagName("tr");
+    let found = false;
+    let index;
+    for (let i = 0; i < tr.length; i++)
+    {
+        let td = tr[i].getElementsByTagName("td");
+        if (td.length > 0)
+        {
+            let j;
+            for(j=0;j<td.length;j++)
+            {
+                let t = td[j];
+                if (t) {
+                    txtValue = t.textContent || t.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        tr[i].style.backgroundColor = "yellow";
+                        index = i;
+                        break;
+                    }
+                }
+            }
+            if(found)
+            {
+                break;
+            }
+        }
+    }
+    if(found)
+    {
+        scrollToTableRow('peak_table',index);
+        setTimeout(function(){
+            tr[index].style.backgroundColor = "";
+        },5000);
+    }
 }
