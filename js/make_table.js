@@ -19,12 +19,20 @@ function createTable_from_peak(peak, table) {
 
     if (peak.columns.length === 0 || peak.columns[0].length === 0) return; // Handle empty data
 
-    // Create table headers
+    /**
+     * Create table headers from the peak.column_headers array
+     * Keep the index of the column_headers of "ASS"
+     */
     const headers = peak.column_headers; //an array of strings
-    headers.forEach(headerText => {
+    let ass_index;
+    headers.forEach((headerText,ndx) => {
         const header = document.createElement("th");
         header.textContent = headerText;
         thead_row.appendChild(header);
+        if(headerText ==="ASS")
+        {
+            ass_index = ndx;
+        }
     });
     thead.appendChild(thead_row);
 
@@ -39,6 +47,13 @@ function createTable_from_peak(peak, table) {
         headers.forEach((headerText, j) => {
             const cell = document.createElement("td");
             cell.textContent = peak.columns[j][i];
+            /**
+             * For the column of "ASS", add a class property to it. 
+             */
+            if(j == ass_index)
+            {
+                cell.classList.add("editable_cell"); 
+            }
             row.appendChild(cell);
         });
         tbody.appendChild(row);

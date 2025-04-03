@@ -4916,9 +4916,41 @@ function table_click_handler(event) {
              */
             return;
         }
+        /**
+         * Get the clicked cell. If classes of the cell includes "editable_cell", convert it to input
+         * to update the value.
+         */
+        let cell = event.target.closest('td');
+        if (cell && cell.classList.contains("editable_cell")) {
+            const originalText = cell.textContent;
+            const input = document.createElement('input');
+            input.value = originalText;
+
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+
+            input.addEventListener('blur', handleEdit);
+            input.addEventListener('keydown', (e)=>{
+            if (e.key === 'Enter'){
+                handleEdit(e);
+            }
+            });
+
+            function handleEdit(event) {
+                const newText = event.target.value;
+                cell.textContent = newText;
+                //Here you can also update your data source if needed.
+            }
+        }
+        
+        /**
+         * Zoom to the peak, using the first column of the row to get the peak index
+         */
         let peak_index = parseInt(tds[0].innerText);
         console.log('peak_index:', peak_index);
         zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+        
     }
 };
 
