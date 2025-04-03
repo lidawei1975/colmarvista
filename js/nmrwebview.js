@@ -4804,6 +4804,38 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 };
 
+function zoom_to_peak(index)
+{
+    let peaks_object;
+    if (current_spectrum_index_of_peaks === -1) {
+        return;
+    }
+    else if (current_spectrum_index_of_peaks === -2) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+    }
+    else {
+        if (current_flag_of_peaks === 'picked') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object;
+        }
+        else if (current_flag_of_peaks === 'fitted') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
+        }
+    }
+
+    /**
+     * Get the peak position (column X_PPM and Y_PPM)
+     */
+    let x_ppm = peaks_object.get_column_by_header('X_PPM')[index];
+    let y_ppm = peaks_object.get_column_by_header('Y_PPM')[index];
+
+    let x_ppm_scale = [x_ppm + 0.5, x_ppm - 0.5];
+    let y_ppm_scale = [y_ppm + 5, y_ppm - 5];
+
+    main_plot.zoom_to(x_ppm_scale, y_ppm_scale);
+
+}
+
+
 function remove_peak_table() {
     let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
@@ -4873,12 +4905,20 @@ function show_peak_table() {
 
 function table_click_handler(event) {
     const row = event.target.closest('tr'); // Find the closest 'tr' element
-
     if (row) {
         // Row was clicked!
-        const rowIndex = row.rowIndex; // Get the row index
-        console.log('Row clicked:', rowIndex);
-        // Add your logic here (e.g., display data, navigate, etc.)
+        let tds = row.getElementsByTagName("td");
+        if(tds.length < 1)
+        {
+            /**
+             * If the clicked row has no td elements, do nothing
+             * (such as the header row)
+             */
+            return;
+        }
+        let peak_index = parseInt(tds[0].innerText);
+        console.log('peak_index:', peak_index);
+        zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
     }
 };
 
@@ -4925,5 +4965,20 @@ function search_peak()
         setTimeout(function(){
             tr[index].style.backgroundColor = "";
         },5000);
+        /**
+         * Ask main_plot to zoom to the peak
+         * Notice that index is the row index, we need to get the peak index from the table
+         */
+        if(index>0){
+            /**
+             * When user sort tables by column,
+             * Row index is not the same as peak index
+             * We need to get the peak index from the table
+             */
+            let td = tr[index].getElementsByTagName("td");
+            let peak_index = parseInt(td[0].innerText);
+            zoom_to_peak(peak_index-1);
+        }
     }
-}
+};
+
