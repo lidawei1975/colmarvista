@@ -3915,6 +3915,7 @@ function show_hide_peaks(index,flag,b_show)
     {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = 'fitted';
+        show_peak_table();
         /**
          * flag is always 'fitted' for pseudo 3D peaks.
          * First define a dummy hsqc_spectrum object. When flag is fitted, main_plot will only use fitted_peaks of the spectrum
@@ -3983,6 +3984,7 @@ function show_hide_peaks(index,flag,b_show)
     {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = flag;
+        show_peak_table();
 
         /**
          * Get current lowest contour level of the spectrum
@@ -4017,6 +4019,7 @@ function show_hide_peaks(index,flag,b_show)
         color_map_limit=[];
         update_colormap_select();
         main_plot.allow_hover_on_peaks(false);
+        remove_peak_table();
     }
     /**
      * There is no need to redraw the contour plot
@@ -4801,38 +4804,83 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 };
 
+function remove_peak_table() {
+    let peak_area = document.getElementById('peak_area');
+    let table = peak_area.getElementsByTagName('table')[0];
 
-function test() {
+    /**
+     * Remove all children from the table
+     */
+    table.removeEventListener('click', table_click_handler);
+    while (table.firstChild) {
+        table.removeChild(table.firstChild);
+    }
+}
+
+
+function show_peak_table() {
     /**
      * Step 1, clear current peak_table.
      * Get peak_area's all table children and remove them
      */
     let peak_area = document.getElementById('peak_area');
-    let tables = peak_area.getElementsByTagName('table');
+    let table = peak_area.getElementsByTagName('table')[0];
 
-    if(tables.length > 0)
-    {
-        tables.forEach(element => {
-            peak_area.removeChild(element);
-        });
+    let peaks_object;
+    if (current_spectrum_index_of_peaks === -1) {
+        return;
+    }
+    else if (current_spectrum_index_of_peaks === -2) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+    }
+    else {
+        if (current_flag_of_peaks === 'picked') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object;
+        }
+        else if (current_flag_of_peaks === 'fitted') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
+        }
     }
 
 
-    createTable_from_peak(hsqc_spectra[0].picked_peaks_object, 'peak_area', 'peak_table');
-    // let table = document.getElementById('peak_table');
-    // table.addEventListener('click', (event) => {
-    //     const row = event.target.closest('tr'); // Find the closest 'tr' element
+    /**
+     * Remove old event listener
+     */
+    table.removeEventListener('click', table_click_handler);
+    /**
+     * Remove all children from the table
+     */
+    while (table.firstChild) {
+        table.removeChild(table.firstChild);
+    }
 
-    //     if (row) {
-    //         // Row was clicked!
-    //         const rowIndex = row.rowIndex; // Get the row index
-    //         console.log('Row clicked:', rowIndex);
-    //         // Add your logic here (e.g., display data, navigate, etc.)
-    //     }
-    // });
-    // scrollToTableRow('peak_table',48);
-    new Tablesort(document.getElementById('peak_table'));
+    /**
+     * Create a new table from peaks_object
+     * all children of the table will be replaced
+     * @param peaks_object: the peaks object to be displayed
+     * @param table: the HTML table element to be replaced
+     */
+    createTable_from_peak(peaks_object, table);
+    new Tablesort(table); //make all rows sortable
+
+
+    /**
+     * Add new event listener
+     * This will call table_click_handler when a row is clicked
+     */
+    table.addEventListener('click', table_click_handler);
 }
+
+function table_click_handler(event) {
+    const row = event.target.closest('tr'); // Find the closest 'tr' element
+
+    if (row) {
+        // Row was clicked!
+        const rowIndex = row.rowIndex; // Get the row index
+        console.log('Row clicked:', rowIndex);
+        // Add your logic here (e.g., display data, navigate, etc.)
+    }
+};
 
 /**
  * Search text from all fields of the peak_table

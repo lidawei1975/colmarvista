@@ -1,64 +1,14 @@
-function createTable(data, containerId, tableId) {
-    const container = document.getElementById(containerId);
-    if (!container) {
-        console.error(`Container with ID "${containerId}" not found.`);
-        return;
-    }
 
-    const table = document.createElement('table');
-    table.id = tableId;
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-
-
-    const thead = document.createElement("thead");
-    const tbody = document.createElement("tbody");
-    const thead_row = document.createElement("tr");
-
-    if (data.length === 0) return; // Handle empty data
-
-    // Create table headers
-    const headers = Object.keys(data[0]);
-    headers.forEach(headerText => {
-        const header = document.createElement("th");
-        header.textContent = headerText;
-        thead_row.appendChild(header);
-    });
-    thead.appendChild(thead_row);
-
-    // Create table rows
-    data.forEach(rowData => {
-        const row = document.createElement("tr");
-        headers.forEach(headerText => {
-            const cell = document.createElement("td");
-            cell.textContent = rowData[headerText];
-            row.appendChild(cell);
-        });
-        tbody.appendChild(row);
-    });
-
-    table.appendChild(thead);
-    table.appendChild(tbody);
-
-    container.appendChild(table);
-};
 
 /**
  * Create a table from a cpeaks object
  * @param {*} peak: a cpeaks object (defined in peaks.js)  
- * @param {*} containerId: the ID of the container element
- * @param {*} tableId: the ID of the table element
+ * @param {*} table: the HTML table elements to be filled
+
  * @returns 
  */
-function createTable_from_peak(peak, containerId, tableId) {
-    const container = document.getElementById(containerId);
-    if (!container) {
-        console.error(`Container with ID "${containerId}" not found.`);
-        return;
-    }
-
-    const table = document.createElement('table');
-    table.id = tableId;
+function createTable_from_peak(peak, table) {
+   
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
 
@@ -97,8 +47,6 @@ function createTable_from_peak(peak, containerId, tableId) {
 
     table.appendChild(thead);
     table.appendChild(tbody);
-
-    container.appendChild(table);
 };
 
 function scrollToTableRow(tableId, rowIndex) {
