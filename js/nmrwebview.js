@@ -4806,21 +4806,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
 function zoom_to_peak(index)
 {
-    let peaks_object;
-    if (current_spectrum_index_of_peaks === -1) {
-        return;
-    }
-    else if (current_spectrum_index_of_peaks === -2) {
-        peaks_object = pseudo3d_fitted_peaks_object;
-    }
-    else {
-        if (current_flag_of_peaks === 'picked') {
-            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object;
-        }
-        else if (current_flag_of_peaks === 'fitted') {
-            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
-        }
-    }
+    let peaks_object = get_current_peak_object();
 
     /**
      * Get the peak position (column X_PPM and Y_PPM)
@@ -4849,15 +4835,7 @@ function remove_peak_table() {
     }
 }
 
-
-function show_peak_table() {
-    /**
-     * Step 1, clear current peak_table.
-     * Get peak_area's all table children and remove them
-     */
-    let peak_area = document.getElementById('peak_area');
-    let table = peak_area.getElementsByTagName('table')[0];
-
+function get_current_peak_object(){
     let peaks_object;
     if (current_spectrum_index_of_peaks === -1) {
         return;
@@ -4873,7 +4851,18 @@ function show_peak_table() {
             peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
         }
     }
+    return peaks_object;
+}
 
+
+function show_peak_table() {
+    /**
+     * Step 1, clear current peak_table.
+     * Get peak_area's all table children and remove them
+     */
+    let peak_area = document.getElementById('peak_area');
+    let table = peak_area.getElementsByTagName('table')[0];
+    let peaks_object = get_current_peak_object();
 
     /**
      * Remove old event listener
@@ -4940,7 +4929,14 @@ function table_click_handler(event) {
             function handleEdit(event) {
                 const newText = event.target.value;
                 cell.textContent = newText;
-                //Here you can also update your data source if needed.
+                /**
+                 * Need to update the peaks_object as well
+                 */
+                let peak_index = parseInt(tds[0].innerText);
+                let peaks_object = get_current_peak_object();
+                if(peak_index>0){
+                    peaks_object.set_column_row_value('ASS',peak_index-1,newText);
+                }
             }
         }
         

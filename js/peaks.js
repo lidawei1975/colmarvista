@@ -298,8 +298,9 @@ class cpeaks {
 
         /**
          * Check column_formats[index] to determine the type of the column, must be float or integer
+         * unless operation is set (which is allowed for any type of column)
          */
-        if (this.column_formats[index].includes('s')) {
+        if( operation !== "set" && this.column_formats[index].includes('s')) {
             return false;
         }
 
@@ -311,22 +312,39 @@ class cpeaks {
             this.columns[index] = this.columns[index].map(x => x * value);
         } else if (operation === 'div') {
             this.columns[index] = this.columns[index].map(x => x / value);
-        } else {
+        } 
+        else if (operation === 'set') {
+            this.columns[index] = this.columns[index].map(x => value);
+        }
+        else {
             return false;
         }
         return true;
     }
 
     /**
-     * Get values from a column, as an array
+     * Set a value in a column by column header name and at a specific index (row)
+     * This work for both numbers and strings
      */
-    get_column(column_header_name) {
+    set_column_row_value(column_header_name, index, value) {
+        let column_index = this.column_headers.indexOf(column_header_name);
+        if (column_index === -1) {
+            return false;
+        }
+        this.columns[column_index][index] = value;
+        return true;
+    }
+
+    /**
+     * Get a column as a array, using colomn header name
+     */
+    get_column_by_header(column_header_name) {
         let index = this.column_headers.indexOf(column_header_name);
         if (index === -1) {
             return [];
         }
         return this.columns[index];
-    };
+    }
 
     /**
      * Copy all data from another peaks object
@@ -358,16 +376,7 @@ class cpeaks {
         return result;
     }
 
-    /**
-     * Get a column as a array, using colomn header name
-     */
-    get_column_by_header(column_header_name) {
-        let index = this.column_headers.indexOf(column_header_name);
-        if (index === -1) {
-            return [];
-        }
-        return this.columns[index];
-    }
+
 
     /**
      * Filter a column by a range of values
