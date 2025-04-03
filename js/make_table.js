@@ -21,17 +21,25 @@ function createTable_from_peak(peak, table) {
 
     /**
      * Create table headers from the peak.column_headers array
-     * Keep the index of the column_headers of "ASS"
+     * 1. Keep the index of the column_headers of "ASS"
+     * 2. Keep a array of all selected column headers (exclude X1,X3,Y1,Y3,POINTER)
      */
+    const excluded_headers = ["X1", "X3", "Y1", "Y3", "POINTER"]; // Headers to exclude
+    let selected_headers = [];
     const headers = peak.column_headers; //an array of strings
     let ass_index;
     headers.forEach((headerText,ndx) => {
-        const header = document.createElement("th");
-        header.textContent = headerText;
-        thead_row.appendChild(header);
-        if(headerText ==="ASS")
+
+        if(excluded_headers.includes(headerText) === false)
         {
-            ass_index = ndx;
+            const header = document.createElement("th");
+            header.textContent = headerText;
+            thead_row.appendChild(header);
+            if(headerText ==="ASS")
+            {
+                ass_index = ndx;
+            }
+            selected_headers.push(ndx);
         }
     });
     thead.appendChild(thead_row);
@@ -44,22 +52,22 @@ function createTable_from_peak(peak, table) {
     const num_rows = peak.columns[0].length;
     for (let i = 0; i < num_rows; i++) {
         const row = document.createElement("tr");
-        headers.forEach((headerText, j) => {
+        for(let j=0;j<selected_headers.length;j++)
+        {
             const cell = document.createElement("td");
-            cell.textContent = peak.columns[j][i];
+            cell.textContent = peak.columns[selected_headers[j]][i];
             /**
              * For the column of "ASS", add a class property to it. 
              */
-            if(j == ass_index)
+            if(selected_headers[j] == ass_index)
             {
                 cell.classList.add("editable_cell"); 
             }
             row.appendChild(cell);
-        });
+        };
         tbody.appendChild(row);
     }
    
-
     table.appendChild(thead);
     table.appendChild(tbody);
 };
