@@ -24,7 +24,7 @@ function createTable_from_peak(peak, table) {
      * 1. Keep the index of the column_headers of "ASS"
      * 2. Keep a array of all selected column headers (exclude X1,X3,Y1,Y3,POINTER)
      */
-    const excluded_headers = ["X1", "X3", "Y1", "Y3", "POINTER"]; // Headers to exclude
+    const excluded_headers = ["X1", "X3", "Y1", "Y3", "POINTER",'DHEIGHT','X_AXIS','Y_AXIS','CLUSTID']; // Headers to exclude
     let selected_headers = [];
     const headers = peak.column_headers; //an array of strings
     let ass_index;
@@ -55,7 +55,13 @@ function createTable_from_peak(peak, table) {
         for(let j=0;j<selected_headers.length;j++)
         {
             const cell = document.createElement("td");
-            cell.textContent = peak.columns[selected_headers[j]][i];
+
+            /**
+             * We will format the value using format
+             */
+            let text = peak.format_value(peak.columns[selected_headers[j]][i],peak.column_formats[selected_headers[j]]);
+
+            cell.textContent = text;
             /**
              * For the column of "ASS", add a class property to it. 
              */

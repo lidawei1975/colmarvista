@@ -523,6 +523,86 @@ class cpeaks {
         return true;
     }
 
+
+    /**
+     * An helper function to generate string from value, according to saved format string
+     */
+    format_value(value, format) {
+        if (format.includes('s')) {
+            return value.toString();
+        }
+        else if (format.includes('d')) {
+            let num = parseInt(format.substring(1,format.length - 1));
+            return value.toFixed(0).padStart(num, ' ');
+        }
+        else if (format.includes('f')) {
+            /**
+             * Get number of decimal places from column_formats[j].
+             * First get %5.3f to 5.3
+             * Use toFixed to format the number to that many decimal places
+            */
+            let num = format.substring(1, format.length - 1);
+            let decimal_places = 3;
+            let width = 6;
+            /**
+             * num could be 7.3, or 7, or empty
+             */
+            if (num.includes('.')) {
+                decimal_places = parseInt(num.split('.')[1]);
+                width = parseInt(num.split('.')[0]);
+            }
+            else if (num.length === 0) {
+                /**
+                 * If format is %f, set default to 6.3f decimal places
+                 */
+                decimal_places = 3;
+                width = 6;
+            }
+            else {
+                /**
+                 * If format is %7f, set decimal to 7-3, but must >=1
+                 */
+                width = parseInt(num);
+                decimal_places = width - 3;
+                if (decimal_places < 1) {
+                    decimal_places = 1;
+                }
+            }
+            return value.toFixed(decimal_places).padStart(width, ' ');
+        }
+        else if (format.includes('e')) {
+            /**
+             * Get number of decimal places from column_formats[j]
+             * Use toExponential to format the number to that many decimal places
+             */
+            let decimal_places = 3;  //default if not specified
+            let number = format.substring(1, format.length - 1);
+            if (number.includes('.')) {
+                decimal_places = number.split('.')[1];
+            }
+            let str = value.toExponential(decimal_places);
+            /**
+             * Per C++ sprintf, if there is only single digit after the e+ or e-, add a zero
+             */
+            if (str.includes('e+')) {
+                let num = str.split('e+')[1];
+                if (num.length === 1) {
+                    str = str.replace('e+', 'e+0');
+                }
+            }
+            if (str.includes('e-')) {
+                let num = str.split('e-')[1];
+                if (num.length === 1) {
+                    str = str.replace('e-', 'e-0');
+                }
+            }
+            return str;
+        }
+        else {
+            return value.toString();
+        }
+    }
+
     /**
      * Class method to save the peaks object as a peaks.tab file (nmrPipe format)
      */
