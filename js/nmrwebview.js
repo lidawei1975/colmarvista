@@ -3938,7 +3938,7 @@ function show_hide_peaks(index,flag,b_show)
             /**
              * Make a header list
              */
-            let header_list = ['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
+            let header_list = ['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
 
             main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
 
@@ -3971,7 +3971,7 @@ function show_hide_peaks(index,flag,b_show)
         }
         else
         {
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
             update_label_select(['HEIGHT']);
             color_map_list = ['HEIGHT'];
             color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT')];
@@ -4004,7 +4004,7 @@ function show_hide_peaks(index,flag,b_show)
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
-        main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
+        main_plot.add_peaks(hsqc_spectra[index],flag,['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
         update_label_select(['INDEX','HEIGHT']);
         color_map_list = ['HEIGHT'];
         color_map_limit =[get_peak_limit( hsqc_spectra[index].picked_peaks_object,'HEIGHT')];
@@ -4952,16 +4952,26 @@ function table_click_handler(event) {
                 let peaks_object = get_current_peak_object();
                 if(peak_index>0){
                     peaks_object.set_column_row_value('ASS',peak_index-1,newText);
+                    /**
+                     * Need to ask main_plot to update as well.
+                     * Because main_plot.new_peaks is a copy of peaks_object
+                     */
+                    if(main_plot !== null)
+                    {
+                        main_plot.update_peak_ass_property(peak_index,newText);
+                    }
                 }
             }
         }
-        
-        /**
-         * Zoom to the peak, using the first column of the row to get the peak index
-         */
-        let peak_index = parseInt(tds[0].innerText);
-        console.log('peak_index:', peak_index);
-        zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+        else
+        {
+            /**
+             * Zoom to the peak, using the first column of the row to get the peak index
+             */
+            let peak_index = parseInt(tds[0].innerText);
+            console.log('peak_index:', peak_index);
+            zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+        }
         
     }
 };

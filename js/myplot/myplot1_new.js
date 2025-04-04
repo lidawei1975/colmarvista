@@ -58,6 +58,9 @@ function plotit(input) {
     this.peak_size = 4;
     this.peak_thickness = 1;
 
+    this.new_peaks = []; //a deep copy of peaks from one spectrum, 
+    this.visible_peaks = []; //visible peaks in the current plot, used for peak labels
+    this.$peaks_text_svg = null; //svg element for peak labels
     this.font_size = 24; //default font size is 24 for peak labels
 
     /**
@@ -1065,6 +1068,77 @@ plotit.prototype.add_peaks = function (spectrum,flag,properties,peak_color_flag)
     this.peak_properties = properties;
     this.peak_color_flag = peak_color_flag;
     this.draw_peaks();
+};
+
+/**
+ * This function is called when the user changed ASS column of the shown peak object to update this.new_peaks
+ * @param {int} index: index of the peak
+ * @param {string} assignment: new assignment
+ * @returns 
+ */
+plotit.prototype.update_peak_ass_property = function(index,assignment)
+{
+    let self = this;
+    for (let i = 0; i < self.new_peaks.length; i++) {
+        const obj = self.new_peaks[i];
+    
+        if (obj && obj['INDEX'] == index) {
+          obj['ASS'] = assignment;
+        }
+    }
+
+    /**
+     * Need to update this.visible_peaks as well, which is a deep copy of sub array of this.new_peaks
+     * note: it is possible this.visible_peaks does NOT include index
+     */
+    for(let i=0; i < self.visible_peaks.length; i++)
+    {
+        const obj = self.visible_peaks[i];
+        if (obj && obj['INDEX'] == index) {
+            obj['ASS'] = assignment;
+          }
+    }
+
+    /**
+     * Update text on the plot
+     */
+    if(this.$peaks_text_svg !== null)
+    {
+        this.$peaks_text_svg
+        .text(function (d) {
+            if(typeof d[self.text_label] === "number")
+            {
+                if(Number.isInteger(d[self.text_label]) && d[self.text_label] < 1000 )
+                {
+                    return d[self.text_label].toFixed(0);
+                }
+                else if(d[self.text_label] > 1000)
+                {
+                    return d[self.text_label].toExponential(2);
+                }
+                else if(d[self.text_label] < 0.01)
+                {
+                    return d[self.text_label].toExponential(2);
+                }
+                else
+                {
+                    return d[self.text_label].toFixed(2);
+                }
+            }
+            else{
+                return d[self.text_label];
+            }
+        })
+        .attr('dx', function (d) {
+            /**
+             * Save the text width to d.text_width. to be used in the tick function
+             * to update line position
+             */
+            d.text_width = this.getComputedTextLength();
+            return -this.getComputedTextLength()/2;
+        });
+    }
+   
 }
 
 /**
@@ -1075,6 +1149,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     let self = this;
 
     self.font_size = font_size;
+    self.text_label = label;
 
     /**
      * In case of new simulation, stop the old one
@@ -1245,6 +1320,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
 
     self.vis.selectAll('.peak_text').remove();
     self.vis.selectAll('.peak_line').remove();
+    self.$peaks_text_svg = null;
 
     if(flag==false)
     {
@@ -1277,7 +1353,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             self.sim.alpha(1.0).alphaMin(0.1).restart();
         });
 
-    this.peaks_text_svg = self.vis.selectAll('.peak_text')
+    this.$peaks_text_svg = self.vis.selectAll('.peak_text')
         .data(self.visible_peaks)
         .enter()
         .append('text')
@@ -1320,7 +1396,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
      * Update pos using dx,dy and save text length (width) to visible_peaks as well
      * to be used in drawing of line
      */
-    this.peaks_text_svg
+    this.$peaks_text_svg
         .attr('dx', function (d) {
             /**
              * Save the text width to d.text_width. to be used in the tick function
@@ -1336,7 +1412,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     /**
      * Also add a line between peak and peak_text
      */
-    this.peak_line_svg = self.vis.selectAll('.peak_line')
+    this.$peak_line_svg = self.vis.selectAll('.peak_line')
         .data(self.visible_peaks)
         .enter()
         .append('line')
@@ -1362,7 +1438,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         })
         .attr("clip-path", "url(#clip)");
     
-    self.peaks_text_svg.call(peak_text_drag);
+    self.$peaks_text_svg.call(peak_text_drag);
 
     /**
      * Add a force simulation
@@ -1380,7 +1456,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
 
     this.sim.on("tick", () => {
         console.log(this.sim.alpha());
-        self.peaks_text_svg
+        self.$peaks_text_svg
             .attr("x", d => d.x)
             .attr("y", d => d.y)
             .attr('dx', function (d) {
@@ -1398,7 +1474,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             peak.Y_TEXT_PPM = self.yRange.invert(peak.y);
         });
 
-        self.peak_line_svg
+        self.$peak_line_svg
         .attr('x1', function (d) {
             if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
             {
@@ -1463,7 +1539,6 @@ plotit.prototype.draw_peaks = function () {
     /**
      * Filter peaks based on peak level
      */
-    this.new_peaks;
     if(self.peak_flag === 'picked') {
         this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
     }
@@ -1477,11 +1552,10 @@ plotit.prototype.draw_peaks = function () {
     }
     
 
-    
     /**
      * Draw peaks, red circles without fill
      */
-    this.peaks_svg=self.vis.selectAll('.peak')
+    this.$peaks_svg=self.vis.selectAll('.peak')
         .data(self.new_peaks)
         .enter()
         .append('circle')
@@ -1690,8 +1764,6 @@ plotit.prototype.allow_peak_dragging = function (flag) {
             data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
         }
 
-
-
         /**
          * Update the peak in the picked peaks
          */
@@ -1702,7 +1774,7 @@ plotit.prototype.allow_peak_dragging = function (flag) {
 
     });
 
-    if(flag===true){
+    if(flag===true && self.peak_flag === 'picked') {
         self.vis.selectAll('.peak').call(self.peak_drag);
     }
     else{
@@ -1717,7 +1789,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
 
     let self = this;
 
-    if(flag === true) {
+    if(flag === true  && self.peak_flag === 'picked') {
         self.vis.on('click', function (event) {
             let coordinates = d3.pointer(event);
             let x_ppm = self.xRange.invert(coordinates[0]);
