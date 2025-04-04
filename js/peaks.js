@@ -44,7 +44,6 @@ class cpeaks {
         this.column_headers = []; // column headers, string array
         this.column_formats = []; // column formats, string array
         this.columns = []; // columns, array of arrays (arrays have same length, but different types)
-        this.manual_peak_index = 10000; // index for manual peaks
     };
 
     /**
@@ -55,7 +54,6 @@ class cpeaks {
         this.column_headers = [];
         this.column_formats = [];
         this.columns = [];
-        this.manual_peak_index = 10000;
         this.gradients = null;
         this.scale_constant = 1.0;
     }
@@ -153,6 +151,28 @@ class cpeaks {
                 }
             });
         });
+
+        /**
+         * Replace values corresponding to column_header with row index + 1
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            this.columns[index_column] = this.columns[index_column].map((value, index) => index + 1);
+        }
+        else {
+             /**
+             * Add a column_headers at the beginning, "INDEX", column_formats is "%5d"
+             * and column values is 1,2,3,4
+             */
+            this.column_headers.unshift("INDEX");
+            this.column_formats.unshift("%5d");
+            let index_array=[];
+            for(let i=0;i<this.columns[0].length;i++)
+            {
+                index_array.push(i);
+            }
+            this.columns.unshift(index_array);
+        }
     };
 
     /**
@@ -439,6 +459,17 @@ class cpeaks {
                 }
             }
         }
+
+        /**
+         * Need to update the INDEX column
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            for (let i = 0; i < this.columns[index_column].length; i++) {
+                this.columns[index_column][i] = i + 1;
+            }
+        }
+
         return true;
     }
 
@@ -447,18 +478,23 @@ class cpeaks {
      * @param {number} index - the index of the row to be removed
      */
     remove_row(index) {
-        let index_index = this.column_headers.indexOf('INDEX');
-        if (index_index === -1) {
+        if(index < 0 || index >= this.columns[0].length) {
             return false;
         }
-        let row_index = this.columns[index_index].indexOf(index);
-        if (row_index === -1) {
-            return false;
+        for(let i = 0; i < this.columns.length; i++) {
+            this.columns[i].splice(index, 1);
         }
-        for (let i = 0; i < this.columns.length; i++) {
-            this.columns[i].splice(row_index, 1);
+
+        /**
+         * Also need to update the INDEX column
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            for(let i = index; i < this.columns[index_column].length; i++) {
+                this.columns[index_column][i] = i + 1;
+            }
         }
-        return true;
+        
     }
 
     /**
@@ -493,16 +529,10 @@ class cpeaks {
      * For string columns, set to the first value of the column
      */
     add_row(new_row) {
-        let index = this.column_headers.indexOf('INDEX');
-        if (index === -1) {
-            return false;
-        }
-        let new_index = this.manual_peak_index;
-        this.manual_peak_index += 1;
-        this.columns[index].push(new_index);
+        
         for (let i = 0; i < this.column_headers.length; i++) {
             if (this.column_headers[i] === 'INDEX') {
-                continue;
+                this.columns[i].push(this.columns[i].length + 1);
             }
             else if (this.column_headers[i] === 'X_PPM') {
                 this.columns[i].push(new_row.X_PPM);

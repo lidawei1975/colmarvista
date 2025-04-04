@@ -1686,28 +1686,19 @@ plotit.prototype.allow_peak_dragging = function (flag) {
         let y_pos= Math.floor((d.Y_PPM - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start)/self.spectrum.y_ppm_step);
         let x_pos = Math.floor((d.X_PPM - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start)/self.spectrum.x_ppm_step);
         let data_height = 0.0; //default value if out of range
-        if(x_pos>=0 && x_pos<self.spectrum.n_direct && y_pos>=0 && y_pos<self.spectrum.n_indirect) {
-            data_height = self.spectrum.raw_data[y_pos *  self.spectrum.n_direct + x_pos];
+        if (x_pos >= 0 && x_pos < self.spectrum.n_direct && y_pos >= 0 && y_pos < self.spectrum.n_indirect) {
+            data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
+        }
+
+
+
+        /**
+         * Update the peak in the picked peaks
+         */
+        if (self.peak_flag === 'picked') {
+            self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
         }
         
-        // if(data_height < self.peak_level) {
-        //     if(self.peak_flag === 'picked') {
-        //         /**
-        //          * Remove the peak from the picked peaks
-        //          */
-        //         self.spectrum.picked_peaks_object.remove_row(d.INDEX);
-        //     }
-        //     d3.select(this).remove();
-        // }
-        // else
-        {
-            /**
-             * Update the peak in the picked peaks
-             */
-            if(self.peak_flag === 'picked') {
-                self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
-            }
-        }
 
     });
 
