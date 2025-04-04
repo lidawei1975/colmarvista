@@ -4833,6 +4833,11 @@ function remove_peak_table() {
     while (table.firstChild) {
         table.removeChild(table.firstChild);
     }
+
+    /**
+     * Hide the peak_area
+     */
+    peak_area.style.display = "none";
 }
 
 function get_current_peak_object(){
@@ -4890,6 +4895,17 @@ function show_peak_table() {
      * This will call table_click_handler when a row is clicked
      */
     table.addEventListener('click', table_click_handler);
+
+    /**
+     * Show the peak_area. If its height is too larger > 600px, set it to 600px
+     */
+    peak_area.style.display = "block";
+    if (peak_area.clientHeight > 600) {
+        peak_area.style.height = "600px";
+    }
+    else {
+        peak_area.style.height = "auto";
+    }
 }
 
 function table_click_handler(event) {

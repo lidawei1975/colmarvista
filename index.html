@@ -360,10 +360,12 @@
                         </div>
                     </div>
 
-                    <div id="peak_area" class="resizable scroll" style="min-width: 400px; min-height: 300px">
-                        <button id="peak_search" onclick="search_peak()">Search</button>
-                        <input type="text" id="peak_search_text" placeholder="peak text">
-                        <label for="peak_search_text">from peak table</label><br>
+                    <div id="peak_area" class="resizable scroll" style="min-width: 400px; min-height: 300px; display: none;">
+                        <div id=" peak_area_header" class="header_sticky">
+                            <button id="peak_search" onclick="search_peak()">Search</button>
+                            <input type="text" id="peak_search_text" placeholder="peak text">
+                            <label for="peak_search_text">from peak table</label>
+                        </div>
                         <table id="peak_table">
                             <!-- table content will be managed by JS code -->
                         </table>

@@ -249,7 +249,15 @@ tfoot {
 
 div.resizable.scroll>table>thead {
     position: sticky;
+    top: 30px;
+    z-index: 1000;
+}
+
+.header_sticky {
+    position: sticky;
     top: 0px;
+    background-color: rgb(185, 188, 111);
+    z-index: 1000;
 }
 
 th,
