@@ -381,7 +381,7 @@ function scrollToTableRow(tableId, rowIndex) {
 
   ;(function(){
     var cleanNumber = function(i) {
-      return i.replace(/[^\-?0-9.]/g, '');
+      return i.replace(/[^\-?0-9,e.]/g, '');
     },
   
     compareNumber = function(a, b) {
@@ -395,7 +395,8 @@ function scrollToTableRow(tableId, rowIndex) {
     };
   
     Tablesort.extend('number', function(item) {
-      return item.match(/^[-+]?[£\x24Û¢´€]?\d+\s*([,\.]\d{0,2})/) || // Prefixed currency
+      return item.match(/^[+-]?(?=\.?\d)\d*(\.\d+)?([Ee][+-]?\d+)?$/) || // Number with exponent
+        item.match(/^[-+]?[£\x24Û¢´€]?\d+\s*([,\.]\d{0,2})/) || // Prefixed currency
         item.match(/^[-+]?\d+\s*([,\.]\d{0,2})?[£\x24Û¢´€]/) || // Suffixed currency
         item.match(/^[-+]?(\d)*-?([,\.]){0,1}-?(\d)+([E,e][\-+][\d]+)?%?$/); // Number
     }, function(a, b) {
