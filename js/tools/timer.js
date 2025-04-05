@@ -11,8 +11,10 @@ let startTime =0;
 var paused_time_start = 0;
 var stoppedTime = 0;
 
+var percent = 0;
 
-function drawCircle(percent) {
+
+function drawCircle() {
 
     const ctx = canvas.getContext('2d');
     const centerX = canvas.width / 2;
@@ -22,7 +24,7 @@ function drawCircle(percent) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, 2 * Math.PI);
-    if (percent > 0.8) {
+    if (percent > 0.75) {
         ctx.strokeStyle = 'red';
     }
     else {
@@ -69,11 +71,12 @@ function updateTimer() {
     remainingTime = duration - elapsedTime;
 
     if (remainingTime > 0) {
-        const percent = (duration - remainingTime) / duration;
-        drawCircle(percent);
+        percent = (duration - remainingTime) / duration;
+        drawCircle();
     } else {
         clearInterval(timerInterval);
-        drawCircle(1);
+        percent = 1;
+        drawCircle();
     }
 }
 function startTimer() {
@@ -116,5 +119,17 @@ $(document).ready(function () {
     });
 
 
-    drawCircle(0);
+    drawCircle();
+
+    const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const rect = entry.contentRect;
+            canvas.width = rect.width - 40;
+            canvas.height = rect.height - 40 ;
+            drawCircle();
+        }
+    });
+
+    let parentElement = canvas.parentElement;
+    resizeObserver.observe(parentElement);
 });

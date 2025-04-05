@@ -1,25 +1,39 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<title>Countdown Timer</title>
-<style>
-  #timerCanvas {
-    border: 1px solid black;
-  }
-</style>
+  <title>Countdown Timer</title>
+  <style>
+    #timerCanvas {
+      border: 1px solid black;
+    }
+    div.resizable {
+            border: 2px solid #40375f;
+            border-radius: 0.5rem;
+            padding: 20px;
+            resize: both;
+            overflow: hidden;
+            min-width: 400px;
+            min-height: 300px;
+        }
+  </style>
 </head>
+
 <body>
-  <canvas id="timerCanvas" width="600" height="600"></canvas>
-  
+  <div class="resizable" style="width: 800px; height: 800px;">
+    <canvas id="timerCanvas"></canvas>
+  </div>
+
   <div>
     <label for="durationInput">Set Duration (seconds):</label>
     <input type="number" id="durationInput" value="60">
     <button id="setButton">Set</button>
 
-    <button id="pauseButton" >Pause</button>
+    <button id="pauseButton">Pause</button>
     <button id="resumeButton">Resume</button>
   </div>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
   <script src="js/tools/timer.js"></script>
 </body>
+
 </html>
