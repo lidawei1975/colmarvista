@@ -705,6 +705,30 @@ $(document).ready(function () {
             document.getElementById("magnifying_glass_ratio").removeEventListener('change', enable_magnifying_glass);
         }
     });
+
+    /**
+     * Event listener for the checkbox "pause_cursor"
+     */
+    document.getElementById("pause_cursor").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.cross_line_pause_flag = true;
+        }
+        else {
+            main_plot.cross_line_pause_flag = false;
+        }
+    });
+
+    /**
+     * Event listener for the checkbox "right_click"
+     */
+    document.getElementById("right_click").addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.allow_right_click(true);
+        }
+        else {
+            main_plot.allow_right_click(false);
+        }
+    });
   
     /**
      * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio
@@ -1659,6 +1683,19 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(peak_list_input);
 
         /**
+         * Add a "remove t1 noise" checkbox to remove t1 noise from the spectrum when run DEEP picker
+         */
+        let remove_t1_noise_checkbox = document.createElement("input");
+        remove_t1_noise_checkbox.setAttribute("type", "checkbox");
+        remove_t1_noise_checkbox.setAttribute("id", "remove_t1_noise-".concat(index));
+        remove_t1_noise_checkbox.checked = false; // Default
+        let remove_t1_noise_label = document.createElement("label");
+        remove_t1_noise_label.setAttribute("for", "remove_t1_noise-".concat(index));
+        remove_t1_noise_label.innerText = " Remove T1 noise ";
+        new_spectrum_div.appendChild(remove_t1_noise_checkbox);
+        new_spectrum_div.appendChild(remove_t1_noise_label);
+
+        /**
          * Add a run_DEEP_Picker button to run DEEP picker. Default is enabled
          */
         let deep_picker_button = document.createElement("button");
@@ -2585,6 +2622,14 @@ function init_plot(input) {
                 main_plot.zoom_to(event.data.xscale, event.data.yscale);
             }
         }
+
+        if(event.data.type === 'cross_line' && event.data.peak_group === peak_group)
+        {
+            if(main_plot !== null)
+            {
+                main_plot.setup_cross_line_from_ppm(event.data.x_ppm,event.data.y_ppm);
+            }
+        }
     }
     input.inter_window_channel = inter_window_channel;
 
@@ -2627,6 +2672,11 @@ function init_plot(input) {
 
     document.getElementById("peak_thickness").addEventListener('change', function () {
         main_plot.peak_thickness = parseInt(this.value);
+        main_plot.redraw_peaks();
+    });
+
+    document.getElementById("filled_peaks").addEventListener('change', function (e) {
+        main_plot.filled_peaks = e.target.checked;
         main_plot.redraw_peaks();
     });
 
@@ -3132,6 +3182,20 @@ function update_contour_color(e,index,flag) {
     if(flag==='original')
     {
         filename = hsqc_spectra[index].filename;
+        /**
+         * if filename has no extension, add .ft2
+         */
+        if (!filename.match(/\.\w+$/)) {
+            filename += ".ft2";
+        }
+        /**
+         * If extension is not ft2, replace it with .ft2
+         */
+        else if( !filename.toLowerCase().endsWith('.ft2')) {
+            filename = filename.replace(/\.\w+$/, ".ft2");
+        }
+        
+
         /**
          * generate a blob, which is hsqc_spectra[index].header + hsqc_spectra[index].raw_data
          * case 1: both are real
@@ -3658,6 +3722,7 @@ function disable_enable_fitted_peak_buttons(spectrum_index,flag)
 /**
  * Call DEEP Picker to run peaks picking the spectrum
  * @param {int} spectrum_index: index of the spectrum in hsqc_spectra array
+ * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
 function run_DEEP_Picker(spectrum_index,flag)
 {
@@ -3669,8 +3734,8 @@ function run_DEEP_Picker(spectrum_index,flag)
      * Need to copy the header first, modify complex flag (doesn't hurt even when not necessary), then concatenate with raw_data
      */
     let header = new Float32Array(hsqc_spectra[spectrum_index].header);
-    header[55] = 1.0;
-    header[56] = 1.0;
+    header[55] = 1.0; //keep real part only
+    header[56] = 1.0; //keep real part only
     header[219] = hsqc_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, hsqc_spectra[spectrum_index].raw_data);
     /**
@@ -3690,6 +3755,12 @@ function run_DEEP_Picker(spectrum_index,flag)
     let scale2 = 0.6 * scale;
 
     /**
+     * Check checkbox for "remove_t1_noise-${spectrum_index}"
+     * set remove_t1_noise to "yes" or "no" based on the checkbox state
+     */
+    let remove_t1_noise = document.getElementById("remove_t1_noise-"+spectrum_index).checked ? "yes" : "no";
+
+    /**
      * Add title to textarea "log"
      */
     webassembly_worker.postMessage({
@@ -3699,11 +3770,12 @@ function run_DEEP_Picker(spectrum_index,flag)
         scale: scale,
         scale2: scale2,
         noise_level: noise_level,
+        remove_t1_noise: remove_t1_noise,
         flag: flag //0: DEEP Picker, 1: Simple Picker
     });
     /**
- * Let user know the processing is started
- */
+     * Let user know the processing is started
+     */
     document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
 
 }
@@ -3848,6 +3920,7 @@ function show_hide_peaks(index,flag,b_show)
     {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = 'fitted';
+        show_peak_table();
         /**
          * flag is always 'fitted' for pseudo 3D peaks.
          * First define a dummy hsqc_spectrum object. When flag is fitted, main_plot will only use fitted_peaks of the spectrum
@@ -3860,8 +3933,37 @@ function show_hide_peaks(index,flag,b_show)
          */
         if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY')!==-1)
         {
+            /**
+             * Get all column_headers that starts with Z_A (such as Z_A0,Z_A1, ... )
+             */
+            let dosy_headers = pseudo3d_fitted_peaks_object.column_headers.filter(function(header) {
+                return header.startsWith('Z_A');
+            });
 
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'],'SOLID');
+            /**
+             * Make a header list
+             */
+            let header_list = ['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
+
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
+
+            /**
+             * For pseudo3D only, main_plot need to know the pseudo-3D plane 
+             * name: "Gradient"
+             * value: pseudo3d_fitted_peaks_object.gradients^2;
+             * y_value: dosy_headers
+             */
+
+            main_plot.pseudo3d_plane_name = "Gradient";
+            main_plot.pseudo3d_plane_value = pseudo3d_fitted_peaks_object.gradients.map(d => d*d);
+            main_plot.pseudo3d_plane_y_value = dosy_headers;
+            main_plot.pseudo3d_x_label = "Gradient^2";
+            main_plot.pseudo3d_y_label = "ln(Z)";
+            main_plot.pseudo3d_slope_factor = -1.0/pseudo3d_fitted_peaks_object.scale_constant;
+
+            main_plot.allow_hover_on_peaks(true);
+
+
             /**
              * Insert ASS and DOSY into HTML select with ID labels
              */
@@ -3874,11 +3976,12 @@ function show_hide_peaks(index,flag,b_show)
         }
         else
         {
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
+            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
             update_label_select(['HEIGHT']);
             color_map_list = ['HEIGHT'];
             color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT')];
             update_colormap_select();
+            main_plot.allow_hover_on_peaks(false);
         }
     }
 
@@ -3886,6 +3989,7 @@ function show_hide_peaks(index,flag,b_show)
     {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = flag;
+        show_peak_table();
 
         /**
          * Get current lowest contour level of the spectrum
@@ -3905,11 +4009,12 @@ function show_hide_peaks(index,flag,b_show)
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
-        main_plot.add_peaks(hsqc_spectra[index],flag,['X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
+        main_plot.add_peaks(hsqc_spectra[index],flag,['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
         update_label_select(['INDEX','HEIGHT']);
         color_map_list = ['HEIGHT'];
         color_map_limit =[get_peak_limit( hsqc_spectra[index].picked_peaks_object,'HEIGHT')];
         update_colormap_select();
+        main_plot.allow_hover_on_peaks(false);
     }
     else
     {
@@ -3918,6 +4023,8 @@ function show_hide_peaks(index,flag,b_show)
         color_map_list=[];
         color_map_limit=[];
         update_colormap_select();
+        main_plot.allow_hover_on_peaks(false);
+        remove_peak_table();
     }
     /**
      * There is no need to redraw the contour plot
@@ -4702,4 +4809,235 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 };
 
+function zoom_to_peak(index)
+{
+    let peaks_object = get_current_peak_object();
+
+    /**
+     * Get the peak position (column X_PPM and Y_PPM)
+     */
+    let x_ppm = peaks_object.get_column_by_header('X_PPM')[index];
+    let y_ppm = peaks_object.get_column_by_header('Y_PPM')[index];
+
+    let x_ppm_scale = [x_ppm + 0.5, x_ppm - 0.5];
+    let y_ppm_scale = [y_ppm + 5, y_ppm - 5];
+
+    main_plot.zoom_to(x_ppm_scale, y_ppm_scale);
+
+}
+
+
+function remove_peak_table() {
+    let peak_area = document.getElementById('peak_area');
+    let table = peak_area.getElementsByTagName('table')[0];
+
+    /**
+     * Remove all children from the table
+     */
+    table.removeEventListener('click', table_click_handler);
+    while (table.firstChild) {
+        table.removeChild(table.firstChild);
+    }
+
+    /**
+     * Hide the peak_area
+     */
+    peak_area.style.display = "none";
+}
+
+function get_current_peak_object(){
+    let peaks_object;
+    if (current_spectrum_index_of_peaks === -1) {
+        return;
+    }
+    else if (current_spectrum_index_of_peaks === -2) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+    }
+    else {
+        if (current_flag_of_peaks === 'picked') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object;
+        }
+        else if (current_flag_of_peaks === 'fitted') {
+            peaks_object = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
+        }
+    }
+    return peaks_object;
+}
+
+
+function show_peak_table() {
+    /**
+     * Step 1, clear current peak_table.
+     * Get peak_area's all table children and remove them
+     */
+    let peak_area = document.getElementById('peak_area');
+    let table = peak_area.getElementsByTagName('table')[0];
+    let peaks_object = get_current_peak_object();
+
+    /**
+     * Remove old event listener
+     */
+    table.removeEventListener('click', table_click_handler);
+    /**
+     * Remove all children from the table
+     */
+    while (table.firstChild) {
+        table.removeChild(table.firstChild);
+    }
+
+    /**
+     * Create a new table from peaks_object
+     * all children of the table will be replaced
+     * @param peaks_object: the peaks object to be displayed
+     * @param table: the HTML table element to be replaced
+     */
+    createTable_from_peak(peaks_object, table);
+    new Tablesort(table); //make all rows sortable
+
+
+    /**
+     * Add new event listener
+     * This will call table_click_handler when a row is clicked
+     */
+    table.addEventListener('click', table_click_handler);
+
+    /**
+     * Show the peak_area. If its height is too larger > 600px, set it to 600px
+     */
+    peak_area.style.display = "block";
+    if (peak_area.clientHeight > 600) {
+        peak_area.style.height = "600px";
+    }
+    else {
+        peak_area.style.height = "auto";
+    }
+}
+
+function table_click_handler(event) {
+    const row = event.target.closest('tr'); // Find the closest 'tr' element
+    if (row) {
+        // Row was clicked!
+        let tds = row.getElementsByTagName("td");
+        if(tds.length < 1)
+        {
+            /**
+             * If the clicked row has no td elements, do nothing
+             * (such as the header row)
+             */
+            return;
+        }
+        /**
+         * Get the clicked cell. If classes of the cell includes "editable_cell", convert it to input
+         * to update the value.
+         */
+        let cell = event.target.closest('td');
+        if (cell && cell.classList.contains("editable_cell")) {
+            const originalText = cell.textContent;
+            const input = document.createElement('input');
+            input.value = originalText;
+
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+
+            input.addEventListener('blur', handleEdit);
+            input.addEventListener('keydown', (e)=>{
+            if (e.key === 'Enter'){
+                handleEdit(e);
+            }
+            });
+
+            function handleEdit(event) {
+                const newText = event.target.value;
+                cell.textContent = newText;
+                /**
+                 * Need to update the peaks_object as well
+                 */
+                let peak_index = parseInt(tds[0].innerText);
+                let peaks_object = get_current_peak_object();
+                if(peak_index>0){
+                    peaks_object.set_column_row_value('ASS',peak_index-1,newText);
+                    /**
+                     * Need to ask main_plot to update as well.
+                     * Because main_plot.new_peaks is a copy of peaks_object
+                     */
+                    if(main_plot !== null)
+                    {
+                        main_plot.update_peak_ass_property(peak_index,newText);
+                    }
+                }
+            }
+        }
+        else
+        {
+            /**
+             * Zoom to the peak, using the first column of the row to get the peak index
+             */
+            let peak_index = parseInt(tds[0].innerText);
+            console.log('peak_index:', peak_index);
+            zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+        }
+        
+    }
+};
+
+/**
+ * Search text from all fields of the peak_table
+ * scrollToTableRow if found and highlight the row with yellow background color then remove it after 3 seconds
+ */
+function search_peak()
+{
+    let input = document.getElementById("peak_search_text").value;
+    let filter = input.toUpperCase();
+    let table = document.getElementById("peak_table");
+    let tr = table.getElementsByTagName("tr");
+    let found = false;
+    let index;
+    for (let i = 0; i < tr.length; i++)
+    {
+        let td = tr[i].getElementsByTagName("td");
+        if (td.length > 0)
+        {
+            let j;
+            for(j=0;j<td.length;j++)
+            {
+                let t = td[j];
+                if (t) {
+                    txtValue = t.textContent || t.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        tr[i].style.backgroundColor = "yellow";
+                        index = i;
+                        break;
+                    }
+                }
+            }
+            if(found)
+            {
+                break;
+            }
+        }
+    }
+    if(found)
+    {
+        scrollToTableRow('peak_table',index);
+        setTimeout(function(){
+            tr[index].style.backgroundColor = "";
+        },5000);
+        /**
+         * Ask main_plot to zoom to the peak
+         * Notice that index is the row index, we need to get the peak index from the table
+         */
+        if(index>0){
+            /**
+             * When user sort tables by column,
+             * Row index is not the same as peak index
+             * We need to get the peak index from the table
+             */
+            let td = tr[index].getElementsByTagName("td");
+            let peak_index = parseInt(td[0].innerText);
+            zoom_to_peak(peak_index-1);
+        }
+    }
+};
 

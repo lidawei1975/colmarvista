@@ -44,7 +44,6 @@ class cpeaks {
         this.column_headers = []; // column headers, string array
         this.column_formats = []; // column formats, string array
         this.columns = []; // columns, array of arrays (arrays have same length, but different types)
-        this.manual_peak_index = 10000; // index for manual peaks
     };
 
     /**
@@ -55,7 +54,6 @@ class cpeaks {
         this.column_headers = [];
         this.column_formats = [];
         this.columns = [];
-        this.manual_peak_index = 10000;
         this.gradients = null;
         this.scale_constant = 1.0;
     }
@@ -153,6 +151,28 @@ class cpeaks {
                 }
             });
         });
+
+        /**
+         * Replace values corresponding to column_header with row index + 1
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            this.columns[index_column] = this.columns[index_column].map((value, index) => index + 1);
+        }
+        else {
+             /**
+             * Add a column_headers at the beginning, "INDEX", column_formats is "%5d"
+             * and column values is 1,2,3,4
+             */
+            this.column_headers.unshift("INDEX");
+            this.column_formats.unshift("%5d");
+            let index_array=[];
+            for(let i=0;i<this.columns[0].length;i++)
+            {
+                index_array.push(i);
+            }
+            this.columns.unshift(index_array);
+        }
     };
 
     /**
@@ -298,8 +318,9 @@ class cpeaks {
 
         /**
          * Check column_formats[index] to determine the type of the column, must be float or integer
+         * unless operation is set (which is allowed for any type of column)
          */
-        if (this.column_formats[index].includes('s')) {
+        if( operation !== "set" && this.column_formats[index].includes('s')) {
             return false;
         }
 
@@ -311,22 +332,39 @@ class cpeaks {
             this.columns[index] = this.columns[index].map(x => x * value);
         } else if (operation === 'div') {
             this.columns[index] = this.columns[index].map(x => x / value);
-        } else {
+        } 
+        else if (operation === 'set') {
+            this.columns[index] = this.columns[index].map(x => value);
+        }
+        else {
             return false;
         }
         return true;
     }
 
     /**
-     * Get values from a column, as an array
+     * Set a value in a column by column header name and at a specific index (row)
+     * This work for both numbers and strings
      */
-    get_column(column_header_name) {
+    set_column_row_value(column_header_name, index, value) {
+        let column_index = this.column_headers.indexOf(column_header_name);
+        if (column_index === -1) {
+            return false;
+        }
+        this.columns[column_index][index] = value;
+        return true;
+    }
+
+    /**
+     * Get a column as a array, using colomn header name
+     */
+    get_column_by_header(column_header_name) {
         let index = this.column_headers.indexOf(column_header_name);
         if (index === -1) {
             return [];
         }
         return this.columns[index];
-    };
+    }
 
     /**
      * Copy all data from another peaks object
@@ -358,16 +396,7 @@ class cpeaks {
         return result;
     }
 
-    /**
-     * Get a column as a array, using colomn header name
-     */
-    get_column_by_header(column_header_name) {
-        let index = this.column_headers.indexOf(column_header_name);
-        if (index === -1) {
-            return [];
-        }
-        return this.columns[index];
-    }
+
 
     /**
      * Filter a column by a range of values
@@ -430,6 +459,17 @@ class cpeaks {
                 }
             }
         }
+
+        /**
+         * Need to update the INDEX column
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            for (let i = 0; i < this.columns[index_column].length; i++) {
+                this.columns[index_column][i] = i + 1;
+            }
+        }
+
         return true;
     }
 
@@ -438,18 +478,23 @@ class cpeaks {
      * @param {number} index - the index of the row to be removed
      */
     remove_row(index) {
-        let index_index = this.column_headers.indexOf('INDEX');
-        if (index_index === -1) {
+        if(index < 0 || index >= this.columns[0].length) {
             return false;
         }
-        let row_index = this.columns[index_index].indexOf(index);
-        if (row_index === -1) {
-            return false;
+        for(let i = 0; i < this.columns.length; i++) {
+            this.columns[i].splice(index, 1);
         }
-        for (let i = 0; i < this.columns.length; i++) {
-            this.columns[i].splice(row_index, 1);
+
+        /**
+         * Also need to update the INDEX column
+         */
+        let index_column = this.column_headers.indexOf('INDEX');
+        if (index_column !== -1) {
+            for(let i = index; i < this.columns[index_column].length; i++) {
+                this.columns[index_column][i] = i + 1;
+            }
         }
-        return true;
+        
     }
 
     /**
@@ -484,16 +529,10 @@ class cpeaks {
      * For string columns, set to the first value of the column
      */
     add_row(new_row) {
-        let index = this.column_headers.indexOf('INDEX');
-        if (index === -1) {
-            return false;
-        }
-        let new_index = this.manual_peak_index;
-        this.manual_peak_index += 1;
-        this.columns[index].push(new_index);
+        
         for (let i = 0; i < this.column_headers.length; i++) {
             if (this.column_headers[i] === 'INDEX') {
-                continue;
+                this.columns[i].push(this.columns[i].length + 1);
             }
             else if (this.column_headers[i] === 'X_PPM') {
                 this.columns[i].push(new_row.X_PPM);
@@ -514,6 +553,86 @@ class cpeaks {
         return true;
     }
 
+
+    /**
+     * An helper function to generate string from value, according to saved format string
+     */
+    format_value(value, format) {
+        if (format.includes('s')) {
+            return value.toString();
+        }
+        else if (format.includes('d')) {
+            let num = parseInt(format.substring(1,format.length - 1));
+            return value.toFixed(0).padStart(num, ' ');
+        }
+        else if (format.includes('f')) {
+            /**
+             * Get number of decimal places from column_formats[j].
+             * First get %5.3f to 5.3
+             * Use toFixed to format the number to that many decimal places
+            */
+            let num = format.substring(1, format.length - 1);
+            let decimal_places = 3;
+            let width = 6;
+            /**
+             * num could be 7.3, or 7, or empty
+             */
+            if (num.includes('.')) {
+                decimal_places = parseInt(num.split('.')[1]);
+                width = parseInt(num.split('.')[0]);
+            }
+            else if (num.length === 0) {
+                /**
+                 * If format is %f, set default to 6.3f decimal places
+                 */
+                decimal_places = 3;
+                width = 6;
+            }
+            else {
+                /**
+                 * If format is %7f, set decimal to 7-3, but must >=1
+                 */
+                width = parseInt(num);
+                decimal_places = width - 3;
+                if (decimal_places < 1) {
+                    decimal_places = 1;
+                }
+            }
+            return value.toFixed(decimal_places).padStart(width, ' ');
+        }
+        else if (format.includes('e')) {
+            /**
+             * Get number of decimal places from column_formats[j]
+             * Use toExponential to format the number to that many decimal places
+             */
+            let decimal_places = 3;  //default if not specified
+            let number = format.substring(1, format.length - 1);
+            if (number.includes('.')) {
+                decimal_places = number.split('.')[1];
+            }
+            let str = value.toExponential(decimal_places);
+            /**
+             * Per C++ sprintf, if there is only single digit after the e+ or e-, add a zero
+             */
+            if (str.includes('e+')) {
+                let num = str.split('e+')[1];
+                if (num.length === 1) {
+                    str = str.replace('e+', 'e+0');
+                }
+            }
+            if (str.includes('e-')) {
+                let num = str.split('e-')[1];
+                if (num.length === 1) {
+                    str = str.replace('e-', 'e-0');
+                }
+            }
+            return str;
+        }
+        else {
+            return value.toString();
+        }
+    }
+
     /**
      * Class method to save the peaks object as a peaks.tab file (nmrPipe format)
      */
@@ -527,9 +646,11 @@ class cpeaks {
             for (let j = 0; j < this.columns.length; j++) {
 
                 /**
-                 * If this.columns[j][i] is not a number, just set as 0
+                 * If this.columns[j][i] is null
+                 * or is a number and is NaN, set it to 0
                  */
-                if (this.columns[j][i] === null || isNaN(this.columns[j][i])) {
+                if (this.columns[j][i] === null || (typeof this.columns[j][i] === 'number' && isNaN(this.columns[j][i])))
+                {
                     this.columns[j][i] = 0;
                 }
 
@@ -553,8 +674,32 @@ class cpeaks {
                      * Use toFixed to format the number to that many decimal places
                      */
                     let num = this.column_formats[j].substring(1, this.column_formats[j].length - 1);
-                    let decimal_places = parseInt(num.split('.')[1]);
-                    let width = parseInt(num.split('.')[0]);
+                    let decimal_places = 3;
+                    let width = 6;
+                    /**
+                     * num could be 7.3, or 7, or empty
+                     */
+                    if (num.includes('.')) {
+                        decimal_places = parseInt(num.split('.')[1]);
+                        width = parseInt(num.split('.')[0]);
+                    }
+                    else if(num.length === 0) {
+                        /**
+                         * If format is %f, set default to 6.3f decimal places
+                         */
+                        decimal_places = 3;
+                        width = 6;
+                    }
+                    else{
+                        /**
+                         * If format is %7f, set decimal to 7-3, but must >=1
+                         */
+                        width = parseInt(num);
+                        decimal_places = width - 3;
+                        if (decimal_places < 1) {
+                            decimal_places = 1;
+                        }
+                    }
                     row += this.columns[j][i].toFixed(decimal_places).padStart(width, ' ');
                 }
                 else if (this.column_formats[j].includes('e')) {

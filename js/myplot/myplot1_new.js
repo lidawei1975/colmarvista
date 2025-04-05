@@ -4,8 +4,6 @@
  * @param {*} input 
  */
 function plotit(input) {
-    this.show_peak = 1;
-
 
     this.xscales = new Array();
     this.yscales = new Array();
@@ -57,9 +55,13 @@ function plotit(input) {
     this.peak_color = "#FF0000"; //default color is red
     this.peak_color_scale = d3.scaleSequential(d3.interpolateRdBu); //default color scale is Red-Blue. 
     this.peak_color_flag = 'SOLID'; //default is solid, can be a color-map, depending on some peak properties
-    this.peak_size = 6;
-    this.peak_thickness = 5;
+    this.peak_size = 4;
+    this.peak_thickness = 1;
+    this.filled_peaks = true; //default is true, can be false if we want to show only the outline of the peaks
 
+    this.new_peaks = []; //a deep copy of peaks from one spectrum, 
+    this.visible_peaks = []; //visible peaks in the current plot, used for peak labels
+    this.$peaks_text_svg = null; //svg element for peak labels
     this.font_size = 24; //default font size is 24 for peak labels
 
     /**
@@ -87,6 +89,8 @@ function plotit(input) {
 
     this.hline_ppm = null;
     this.vline_ppm = null;
+    this.cross_line_timeout = null;
+    this.cross_line_pause_flag = document.getElementById("pause_cursor").checked;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
@@ -530,6 +534,7 @@ plotit.prototype.zoomout = function () {
     this.x_cross_section_plot.zoom_x(this.xscale);
     this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
+
 };
 
 
@@ -631,12 +636,8 @@ plotit.prototype.draw = function () {
      */
     this.vis.on("mousemove", function (event) {
 
-        if(self.timeout) {
-            clearTimeout(self.timeout);
-        }
-        if(self.timeout_magnify) {
-            clearTimeout(self.timeout_magnify);
-            self.contour_plot.drawScene(0,false,[0,0],5,0.4);
+        if (self.cross_line_timeout) {
+            clearTimeout(self.cross_line_timeout);
         }
 
         /**
@@ -648,7 +649,6 @@ plotit.prototype.draw = function () {
             return;
         }
 
-
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
@@ -659,256 +659,62 @@ plotit.prototype.draw = function () {
         let y_pos = Math.floor((y_ppm - hsqc_spectra[spe_index].y_ppm_ref - hsqc_spectra[spe_index].y_ppm_start) / hsqc_spectra[spe_index].y_ppm_step);
         let x_pos = Math.floor((x_ppm - hsqc_spectra[spe_index].x_ppm_ref - hsqc_spectra[spe_index].x_ppm_start) / hsqc_spectra[spe_index].x_ppm_step);
         let data_height = 0.0; //default value if out of range
+        let signal_to_noise = 0.0; //default value if out of range
         if (x_pos >= 0 && x_pos < hsqc_spectra[spe_index].n_direct && y_pos >= 0 && y_pos < hsqc_spectra[spe_index].n_indirect) {
             data_height = hsqc_spectra[spe_index].raw_data[y_pos * hsqc_spectra[spe_index].n_direct + x_pos];
+            signal_to_noise = data_height / hsqc_spectra[spe_index].noise_level;
         }
 
-        if(self.hline_ppm !== null && self.vline_ppm !== null) {
+        if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
-            document.getElementById("infor").innerHTML 
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2)+ " ppm, Inten: " + data_height.toExponential(2) + "<br>"
-                + "x: " +  x_distance.toFixed(3) + " ppm  " + (x_distance*hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz" 
-                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance*hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
+            document.getElementById("infor").innerHTML
+                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                + "x: " + x_distance.toFixed(3) + " ppm  " + (x_distance * hsqc_spectra[spe_index].frq1).toFixed(3) + " Hz"
+                + ", y: " + y_distance.toFixed(3) + " ppm  " + (y_distance * hsqc_spectra[spe_index].frq2).toFixed(3) + " Hz";
         }
         else {
             document.getElementById("infor").innerHTML
-                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Intensity: " + data_height.toExponential(2);
+                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
         }
 
 
-        if(self.magnifying_glass == true){
-            self.timeout_magnify = setTimeout(function() {
-                let coordinates = [event.offsetX, event.offsetY];
-                let x_ppm = self.xRange.invert(coordinates[0]);
-                let y_ppm = self.yRange.invert(coordinates[1]);
-                console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
-                self.contour_plot.drawScene(0,true,[x_ppm,y_ppm],self.magnifying_glass_ratio,self.magnifying_glass_size/100.0);
-            }, 100);
-        }
-
-        /**
-         * Show tool tip only when mouse stops moving for 100ms
-         */
-        self.timeout = setTimeout(function() {
-
+        if (self.magnifying_glass == true) {
             let coordinates = [event.offsetX, event.offsetY];
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
+            // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
+            self.contour_plot.drawScene(0, true, [x_ppm, y_ppm], self.magnifying_glass_ratio, self.magnifying_glass_size / 100.0);
+        }
 
+        /**
+         * Show h and v line only when mouse stops moving for 2.5 seconds
+         * if pause on cursor is true
+         */
+        if (self.cross_line_pause_flag == true) {
+            self.cross_line_timeout = setTimeout(function () {
+                self.setup_cross_line(event);
+            }, 2500);
+        }
+    });
+    this.vis.on("mouseleave", function (d) {
+        tooldiv.style.opacity = 0.0;
+        document.activeElement.blur();
+        if (self.cross_line_timeout) {
+            clearTimeout(self.cross_line_timeout);
+        }
+        /**
+         * Clear the magnifying glass
+         */
+        self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+    });
 
-            let x_ppm_start = hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref;
-            let x_ppm_end = x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct;
-            let y_ppm_start = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref;
-            let y_ppm_end = y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect;
+    /**
+     * Allow right click to set cross section by default
+     */
+    this.allow_right_click(document.getElementById("right_click").checked);
 
-            /**
-             * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
-             * This line is subject to zoom, pan, resize, etc
-             */
-            self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-            self.vis.selectAll(".hline").remove();
-            self.vis.append("path")
-                .attr("class", "hline")
-                .attr("clip-path", "url(#clip)")
-                .attr("d", self.lineFunc(self.hline_data))
-                .attr("stroke-width", 1)
-                .attr("stroke", "green");
-
-            /**
-             * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
-             * This line is subject to zoom, pan, resize, etc
-             */
-            self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-            self.vis.selectAll(".vline").remove();
-            self.vis.append("path")
-                .attr("class", "vline")
-                .attr("clip-path", "url(#clip)")
-                .attr("d", self.lineFunc(self.vline_data))
-                .attr("stroke-width", 1)
-                .attr("stroke", "green");
-
-            /**
-             * Keep a copy of the current hline,vline ppm values
-             */
-            self.hline_ppm = y_ppm;
-            self.vline_ppm = x_ppm;
-            
-
-            if(self.b_show_cross_section)
-            {
-                /**
-                 * Show cross section along x-axis (direct dimension).
-                 * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
-                 * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                 * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                 */
-                let currect_vis_x_ppm_start = self.xscale[0];
-                let currect_vis_x_ppm_end = self.xscale[1];
-
-                /**
-                 * However, currect_vis_x_ppm_start and currect_vis_x_ppm_end must both 
-                 * be within the range of hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 */
-                if(currect_vis_x_ppm_start > hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref) {
-                    currect_vis_x_ppm_start = hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref;
-                }
-                if(currect_vis_x_ppm_end < hsqc_spectra[spe_index].x_ppm_start +hsqc_spectra[spe_index].x_ppm_ref + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct) {
-                    currect_vis_x_ppm_end = hsqc_spectra[spe_index].x_ppm_start+hsqc_spectra[spe_index].x_ppm_ref + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct;
-                }
-
-                let y_pos = Math.floor((y_ppm - hsqc_spectra[spe_index].y_ppm_ref - hsqc_spectra[spe_index].y_ppm_start)/hsqc_spectra[spe_index].y_ppm_step);
-
-                /**
-                 * if y_pos is out of range, do nothing and return
-                 */
-                if(y_pos > 0 && y_pos< hsqc_spectra[spe_index].n_indirect)
-                {
-                    /**
-                     * Get ppm values for the data, which is an array stats from hsqc_spectra[spe_index].x_ppm_start + x_pos_start * hsqc_spectra[spe_index].x_ppm_step
-                     * to hsqc_spectra[spe_index].x_ppm_start + x_pos_end * hsqc_spectra[spe_index].x_ppm_step
-                     */
-                    let data_ppm = [];
-                    for(let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                        data_ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
-                    }
-
-                    /**
-                     * Get the data from hsqc_spectra[spe_index].raw_data, at row y_pos, from column x_pos_start to x_pos_end
-                     */
-                    let data_height = hsqc_spectra[spe_index].raw_data.slice(y_pos *  hsqc_spectra[spe_index].n_direct, (y_pos+1) *  hsqc_spectra[spe_index].n_direct );
-                    let data_height_i = [];
-                    /**
-                     * If hsqc_spectra[spe_index].raw_data_ri is not empty 
-                     *  then use it to get the data_height_i
-                     * if hsqc_spectra[spe_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
-                     */
-                    if( hsqc_spectra[spe_index].raw_data_ri.length > 0 && (hsqc_spectra[spe_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1))
-                    {
-                        data_height_i = hsqc_spectra[spe_index].raw_data_ri.slice(y_pos *  hsqc_spectra[spe_index].n_direct , (y_pos+1) *  hsqc_spectra[spe_index].n_direct );
-                    }
-                    
-                    /**
-                     * Get the maximum and minimum of the data_height
-                     */
-                    let data_max = 0.0;
-                    let data_min = 0.0;
-                    for(let i = 0; i < data_ppm.length; i++) {
-                        if(data_height[i] > data_max) {
-                            data_max = data_height[i];
-                        }
-                        if(data_height[i] < data_min) {
-                            data_min = data_height[i];
-                        }
-                    }
-                    /**
-                     * Draw cross section line plot on the cross_section_svg_x
-                     */
-                    self.x_cross_section_plot.zoom(self.xscale,[data_min, data_max]);
-                    self.x_cross_section_plot.update_data([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref,hsqc_spectra[spe_index].x_ppm_step,hsqc_spectra[spe_index].n_direct],
-                        [data_ppm,data_height,data_height_i]);
-                }
-           
-                /**
-                 * Show cross section along y-axis (indirect dimension).
-                 * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
-                 * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                 * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                 * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                 */
-                let currect_vis_y_ppm_start = self.yscale[0];
-                let currect_vis_y_ppm_end = self.yscale[1];
-
-                /**
-                 * However, currect_vis_y_ppm_start and currect_vis_y_ppm_end must both 
-                 * be within the range of hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                 */
-                if(currect_vis_y_ppm_start > hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref) {
-                    currect_vis_y_ppm_start = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref;
-                }
-                if(currect_vis_y_ppm_end < hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect) {
-                    currect_vis_y_ppm_end = hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect;
-                }
-
-                let x_pos = Math.floor((x_ppm - hsqc_spectra[spe_index].x_ppm_ref - hsqc_spectra[spe_index].x_ppm_start)/hsqc_spectra[spe_index].x_ppm_step);
-
-                /**
-                 * if x_pos is out of range, do nothing and return
-                 */
-                if(x_pos >=0 && x_pos < hsqc_spectra[spe_index].n_direct) {
-                     /**
-                     * Get ppm values for the data, which is an array stats from hsqc_spectra[spe_index].y_ppm_start + y_pos_start * hsqc_spectra[spe_index].y_ppm_step
-                     * to hsqc_spectra[spe_index].y_ppm_start + y_pos_end * hsqc_spectra[spe_index].y_ppm_step
-                     */
-                     let data_ppm = [];
-                     for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                         data_ppm.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
-                     }
-
-                    /**
-                     * Get the data from hsqc_spectra[spe_index].raw_data, at column x_pos, from row y_pos_start to y_pos_end
-                     * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
-                     * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
-                     * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
-                     * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
-                     */
-                    let data_height = [];
-                    for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                        data_height.push(hsqc_spectra[spe_index].raw_data[i *  hsqc_spectra[spe_index].n_direct + x_pos]);
-                    }
-                    let data_height_i = [];
-                    /**
-                     * If hsqc_spectra[spe_index].raw_data_ir is not empty 
-                     * then use it to get the data_height_i
-                     * if hsqc_spectra[spe_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
-                     */
-                    if( hsqc_spectra[spe_index].raw_data_ir.length > 0 && (hsqc_spectra[spe_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1))
-                    {
-                        for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++){
-                            data_height_i.push(hsqc_spectra[spe_index].raw_data_ir[i *  hsqc_spectra[spe_index].n_direct + x_pos]);
-                        }
-                    }
-                   
-                    /**
-                     * Get max and min of data_height
-                     */
-                    let data_max = 0.0;
-                    let data_min = 0.0;
-                    for(let i = 0; i < data_ppm.length; i++) {
-                        if(data_height[i] > data_max) {
-                            data_max = data_height[i];
-                        }
-                        if(data_height[i] < data_min) {
-                            data_min = data_height[i];
-                        }
-                    }
-                    /**
-                     * Draw cross section line plot on the cross_section_svg_y
-                     */
-                    self.y_cross_section_plot.zoom([data_min, data_max],self.yscale);
-                    self.y_cross_section_plot.update_data([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],
-                        [data_ppm,data_height,data_height_i]);
-                }
-
-            } //end of vertical
-
-        }, 2500);
-    })
-        .on("mouseleave", function (d) {
-            tooldiv.style.opacity = 0.0;
-            document.activeElement.blur();
-            if(self.timeout) {
-                clearTimeout(self.timeout);
-            }
-            if(self.timeout_magnify) {
-                clearTimeout(self.timeout_magnify);
-                self.contour_plot.drawScene(0,false,[0,0],5,0.4);
-            }
-        });
     /**
      * Draw contour on the canvas, which is a background layer
      */
@@ -918,6 +724,226 @@ plotit.prototype.draw = function () {
         self.show_projection();    
     }
 };
+
+plotit.prototype.setup_cross_line = function (event)
+{
+    let self = this;
+    let coordinates = [event.offsetX, event.offsetY];
+    let x_ppm = self.xRange.invert(coordinates[0]);
+    let y_ppm = self.yRange.invert(coordinates[1]);
+        /**
+     * Send the cross line to other window
+     */
+    if(this.inter_window_channel) {
+        this.inter_window_channel.postMessage({
+            type: 'cross_line',
+            y_ppm: y_ppm,
+            x_ppm: x_ppm,
+            peak_group: document.getElementById("plot_group").value
+        });
+    }
+    self.setup_cross_line_from_ppm(x_ppm, y_ppm);
+}
+
+plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm)
+{
+    let self = this;
+
+    let x_ppm_start = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref;
+    let x_ppm_end = x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct;
+    let y_ppm_start = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref;
+    let y_ppm_end = y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect;
+
+    /**
+     * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
+     * This line is subject to zoom, pan, resize, etc
+     */
+    self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
+    self.vis.selectAll(".hline").remove();
+    self.vis.append("path")
+        .attr("class", "hline")
+        .attr("clip-path", "url(#clip)")
+        .attr("d", self.lineFunc(self.hline_data))
+        .attr("stroke-width", 1)
+        .attr("stroke", "green");
+
+    /**
+     * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
+     * This line is subject to zoom, pan, resize, etc
+     */
+    self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
+    self.vis.selectAll(".vline").remove();
+    self.vis.append("path")
+        .attr("class", "vline")
+        .attr("clip-path", "url(#clip)")
+        .attr("d", self.lineFunc(self.vline_data))
+        .attr("stroke-width", 1)
+        .attr("stroke", "green");
+
+    /**
+     * Keep a copy of the current hline,vline ppm values
+     */
+    self.hline_ppm = y_ppm;
+    self.vline_ppm = x_ppm;
+
+
+    if (self.b_show_cross_section)
+    {
+        /**
+         * Show cross section along x-axis (direct dimension).
+         * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
+         * Along direct dimension, ppm are from hsqc_spectra[spe_index].x_ppm_start to hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_step * hsqc_spectra[spe_index].n_direct
+         * Along indirect dimension, ppm are from hsqc_spectra[spe_index].y_ppm_start to hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_step * hsqc_spectra[spe_index].n_indirect
+         * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+         * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+         */
+        let current_vis_x_ppm_start = self.xscale[0];
+        let current_vis_x_ppm_end = self.xscale[1];
+
+        /**
+         * However, current_vis_x_ppm_start and current_vis_x_ppm_end must both 
+         * be within the range of hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+         */
+        if (current_vis_x_ppm_start > hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref) {
+            current_vis_x_ppm_start = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref;
+        }
+        if (current_vis_x_ppm_end < hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct) {
+            current_vis_x_ppm_end = hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct;
+        }
+
+        let y_pos = Math.floor((y_ppm - hsqc_spectra[self.current_spectral_index].y_ppm_ref - hsqc_spectra[self.current_spectral_index].y_ppm_start) / hsqc_spectra[self.current_spectral_index].y_ppm_step);
+
+        /**
+         * if y_pos is out of range, do nothing and return
+         */
+        if (y_pos > 0 && y_pos < hsqc_spectra[self.current_spectral_index].n_indirect) {
+            /**
+             * Get ppm values for the data, which is an array stats from hsqc_spectra[self.current_spectral_index].x_ppm_start + x_pos_start * hsqc_spectra[self.current_spectral_index].x_ppm_step
+             * to hsqc_spectra[self.current_spectral_index].x_ppm_start + x_pos_end * hsqc_spectra[self.current_spectral_index].x_ppm_step
+             */
+            let data_ppm = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_direct; i++) {
+                data_ppm.push(hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref + i * hsqc_spectra[self.current_spectral_index].x_ppm_step);
+            }
+
+            /**
+             * Get the data from hsqc_spectra[self.current_spectral_index].raw_data, at row y_pos, from column x_pos_start to x_pos_end
+             */
+            let data_height = hsqc_spectra[self.current_spectral_index].raw_data.slice(y_pos * hsqc_spectra[self.current_spectral_index].n_direct, (y_pos + 1) * hsqc_spectra[self.current_spectral_index].n_direct);
+            let data_height_i = [];
+            /**
+             * If hsqc_spectra[self.current_spectral_index].raw_data_ri is not empty 
+             *  then use it to get the data_height_i
+             * if hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
+             */
+            if (hsqc_spectra[self.current_spectral_index].raw_data_ri.length > 0 && (hsqc_spectra[self.current_spectral_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1)) {
+                data_height_i = hsqc_spectra[self.current_spectral_index].raw_data_ri.slice(y_pos * hsqc_spectra[self.current_spectral_index].n_direct, (y_pos + 1) * hsqc_spectra[self.current_spectral_index].n_direct);
+            }
+
+            /**
+             * Get the maximum and minimum of the data_height
+             */
+            let data_max = 0.0;
+            let data_min = 0.0;
+            for (let i = 0; i < data_ppm.length; i++) {
+                if (data_height[i] > data_max) {
+                    data_max = data_height[i];
+                }
+                if (data_height[i] < data_min) {
+                    data_min = data_height[i];
+                }
+            }
+            /**
+             * Draw cross section line plot on the cross_section_svg_x
+             */
+            self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
+            self.x_cross_section_plot.update_data([hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_ref, hsqc_spectra[self.current_spectral_index].x_ppm_step, hsqc_spectra[self.current_spectral_index].n_direct],
+                [data_ppm, data_height, data_height_i]);
+        }
+
+        /**
+         * Show cross section along y-axis (indirect dimension).
+         * 1. Find the closest point in the data hsqc_spectra[self.current_spectral_index].raw_data (1D Float32 array with size hsqc_spectra[self.current_spectral_index].n_direct*hsqc_spectra[self.current_spectral_index].n_indirect)
+         * Along direct dimension, ppm are from hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+         * Along indirect dimension, ppm are from hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+         * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+         * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+         */
+        let current_vis_y_ppm_start = self.yscale[0];
+        let current_vis_y_ppm_end = self.yscale[1];
+
+        /**
+         * However, current_vis_y_ppm_start and current_vis_y_ppm_end must both 
+         * be within the range of hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+         */
+        if (current_vis_y_ppm_start > hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref) {
+            current_vis_y_ppm_start = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref;
+        }
+        if (current_vis_y_ppm_end < hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect) {
+            current_vis_y_ppm_end = hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect;
+        }
+
+        let x_pos = Math.floor((x_ppm - hsqc_spectra[self.current_spectral_index].x_ppm_ref - hsqc_spectra[self.current_spectral_index].x_ppm_start) / hsqc_spectra[self.current_spectral_index].x_ppm_step);
+
+        /**
+         * if x_pos is out of range, do nothing and return
+         */
+        if (x_pos >= 0 && x_pos < hsqc_spectra[self.current_spectral_index].n_direct)
+        {
+            /**
+             * Get ppm values for the data, which is an array stats from hsqc_spectra[self.current_spectral_index].y_ppm_start + y_pos_start * hsqc_spectra[self.current_spectral_index].y_ppm_step
+             * to hsqc_spectra[self.current_spectral_index].y_ppm_start + y_pos_end * hsqc_spectra[self.current_spectral_index].y_ppm_step
+             */
+            let data_ppm = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                data_ppm.push(hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref + i * hsqc_spectra[self.current_spectral_index].y_ppm_step);
+            }
+
+            /**
+             * Get the data from hsqc_spectra[self.current_spectral_index].raw_data, at column x_pos, from row y_pos_start to y_pos_end
+             * Along direct dimension, ppm are from hsqc_spectra[self.current_spectral_index].x_ppm_start to hsqc_spectra[self.current_spectral_index].x_ppm_start + hsqc_spectra[self.current_spectral_index].x_ppm_step * hsqc_spectra[self.current_spectral_index].n_direct
+             * Along indirect dimension, ppm are from hsqc_spectra[self.current_spectral_index].y_ppm_start to hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_step * hsqc_spectra[self.current_spectral_index].n_indirect
+             * So, x_ppm ==> x_ppm_start + x_ppm_step * x_pos, y_ppm ==> y_ppm_start + y_ppm_step * y_pos.
+             * So, x_pos = (x_ppm - x_ppm_start)/x_ppm_step, y_pos = (y_ppm - y_ppm_start)/y_ppm_step
+             */
+            let data_height = [];
+            for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                data_height.push(hsqc_spectra[self.current_spectral_index].raw_data[i * hsqc_spectra[self.current_spectral_index].n_direct + x_pos]);
+            }
+            let data_height_i = [];
+            /**
+             * If hsqc_spectra[self.current_spectral_index].raw_data_ir is not empty 
+             * then use it to get the data_height_i
+             * if hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 (from fid), also require current_reprocess_spectrum_index is not -1 
+             */
+            if (hsqc_spectra[self.current_spectral_index].raw_data_ir.length > 0 && (hsqc_spectra[self.current_spectral_index].spectrum_origin != -2 || current_reprocess_spectrum_index != -1)) {
+                for (let i = 0; i < hsqc_spectra[self.current_spectral_index].n_indirect; i++) {
+                    data_height_i.push(hsqc_spectra[self.current_spectral_index].raw_data_ir[i * hsqc_spectra[self.current_spectral_index].n_direct + x_pos]);
+                }
+            }
+
+            /**
+             * Get max and min of data_height
+             */
+            let data_max = 0.0;
+            let data_min = 0.0;
+            for (let i = 0; i < data_ppm.length; i++) {
+                if (data_height[i] > data_max) {
+                    data_max = data_height[i];
+                }
+                if (data_height[i] < data_min) {
+                    data_min = data_height[i];
+                }
+            }
+            /**
+             * Draw cross section line plot on the cross_section_svg_y
+             */
+            self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
+            self.y_cross_section_plot.update_data([hsqc_spectra[self.current_spectral_index].y_ppm_start + hsqc_spectra[self.current_spectral_index].y_ppm_ref, hsqc_spectra[self.current_spectral_index].y_ppm_step, hsqc_spectra[self.current_spectral_index].n_indirect],
+                [data_ppm, data_height, data_height_i]);
+        }
+    } //end of show cross section
+} //end of cross section
 
 plotit.prototype.get_phase_correction = function () {
     let self = this;
@@ -1043,6 +1069,77 @@ plotit.prototype.add_peaks = function (spectrum,flag,properties,peak_color_flag)
     this.peak_properties = properties;
     this.peak_color_flag = peak_color_flag;
     this.draw_peaks();
+};
+
+/**
+ * This function is called when the user changed ASS column of the shown peak object to update this.new_peaks
+ * @param {int} index: index of the peak
+ * @param {string} assignment: new assignment
+ * @returns 
+ */
+plotit.prototype.update_peak_ass_property = function(index,assignment)
+{
+    let self = this;
+    for (let i = 0; i < self.new_peaks.length; i++) {
+        const obj = self.new_peaks[i];
+    
+        if (obj && obj['INDEX'] == index) {
+          obj['ASS'] = assignment;
+        }
+    }
+
+    /**
+     * Need to update this.visible_peaks as well, which is a deep copy of sub array of this.new_peaks
+     * note: it is possible this.visible_peaks does NOT include index
+     */
+    for(let i=0; i < self.visible_peaks.length; i++)
+    {
+        const obj = self.visible_peaks[i];
+        if (obj && obj['INDEX'] == index) {
+            obj['ASS'] = assignment;
+          }
+    }
+
+    /**
+     * Update text on the plot
+     */
+    if(this.$peaks_text_svg !== null)
+    {
+        this.$peaks_text_svg
+        .text(function (d) {
+            if(typeof d[self.text_label] === "number")
+            {
+                if(Number.isInteger(d[self.text_label]) && d[self.text_label] < 1000 )
+                {
+                    return d[self.text_label].toFixed(0);
+                }
+                else if(d[self.text_label] > 1000)
+                {
+                    return d[self.text_label].toExponential(2);
+                }
+                else if(d[self.text_label] < 0.01)
+                {
+                    return d[self.text_label].toExponential(2);
+                }
+                else
+                {
+                    return d[self.text_label].toFixed(2);
+                }
+            }
+            else{
+                return d[self.text_label];
+            }
+        })
+        .attr('dx', function (d) {
+            /**
+             * Save the text width to d.text_width. to be used in the tick function
+             * to update line position
+             */
+            d.text_width = this.getComputedTextLength();
+            return -this.getComputedTextLength()/2;
+        });
+    }
+   
 }
 
 /**
@@ -1053,6 +1150,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     let self = this;
 
     self.font_size = font_size;
+    self.text_label = label;
 
     /**
      * In case of new simulation, stop the old one
@@ -1141,6 +1239,60 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         return force;
     }
 
+    function boundary_force()
+    {
+        let nodes;
+        var strength = 10.0;
+        var buffer = 30.0;
+
+        /**
+         * Require all nodes to avoid all peaks. Brute force method
+         * @param {*} alpha 
+         */
+        function force(alpha)
+        {
+            for (let j=0;j<nodes.length;j++)
+            {
+                let node = nodes[j];
+                /**
+                 * if node is out of boundary, then apply a force to move it back
+                 * Linear soft core repulsion with a buffer of 10 pixels
+                 */
+                if(node.x < self.MARGINS.left + buffer)
+                {
+                    node.vx -= strength * alpha * (node.x - self.MARGINS.left - buffer);
+                }
+                if(node.x > self.WIDTH - self.MARGINS.right - buffer)
+                {
+                    node.vx -= strength * alpha * (node.x - self.WIDTH + self.MARGINS.right +buffer);
+                }
+                if(node.y < self.MARGINS.top + buffer)
+                {
+                    node.vy -= strength * alpha * (node.y - self.MARGINS.top - buffer);
+                }
+                if(node.y > self.HEIGHT - self.MARGINS.bottom - buffer)
+                {
+                    node.vy -= strength * alpha * (node.y - self.HEIGHT + self.MARGINS.bottom + buffer);
+                }
+            }
+        }
+
+        function strength(_) {
+            if (!arguments.length) return strength;
+            strength = _;
+            return force;
+        }
+
+        function buffer(_) {
+            if (!arguments.length) return buffer;
+            buffer = _;
+            return force;
+        }
+
+        force.initialize = _ => nodes = _;
+        return force;
+    }
+
     /**
      * Get a subset of peaks that are visible. 
      * shallow copy of self.new_peaks
@@ -1169,6 +1321,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
 
     self.vis.selectAll('.peak_text').remove();
     self.vis.selectAll('.peak_line').remove();
+    self.$peaks_text_svg = null;
 
     if(flag==false)
     {
@@ -1201,13 +1354,15 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             self.sim.alpha(1.0).alphaMin(0.1).restart();
         });
 
-    this.peaks_text_svg = self.vis.selectAll('.peak_text')
+    this.$peaks_text_svg = self.vis.selectAll('.peak_text')
         .data(self.visible_peaks)
         .enter()
         .append('text')
         .attr('class', 'peak_text')
         .attr('font-size',font_size)
-        .style('fill', color)
+        .style('fill', function () {
+                return self.peak_color;
+        })
         .text(function (d) {
             if(typeof d[label] === "number")
             {
@@ -1244,7 +1399,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
      * Update pos using dx,dy and save text length (width) to visible_peaks as well
      * to be used in drawing of line
      */
-    this.peaks_text_svg
+    this.$peaks_text_svg
         .attr('dx', function (d) {
             /**
              * Save the text width to d.text_width. to be used in the tick function
@@ -1260,7 +1415,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     /**
      * Also add a line between peak and peak_text
      */
-    this.peak_line_svg = self.vis.selectAll('.peak_line')
+    this.$peak_line_svg = self.vis.selectAll('.peak_line')
         .data(self.visible_peaks)
         .enter()
         .append('line')
@@ -1286,7 +1441,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         })
         .attr("clip-path", "url(#clip)");
     
-    self.peaks_text_svg.call(peak_text_drag);
+    self.$peaks_text_svg.call(peak_text_drag);
 
     /**
      * Add a force simulation
@@ -1297,13 +1452,14 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .force("inter_collide", d3.forceCollide().radius(40).strength(1).iterations(1))
         .force('exclude',d3.forceManyBody().strength(-10))
         .force("avoid", avoid_peaks())
+        .force("boundary", boundary_force())
         .stop();
     ;
 
 
     this.sim.on("tick", () => {
         console.log(this.sim.alpha());
-        self.peaks_text_svg
+        self.$peaks_text_svg
             .attr("x", d => d.x)
             .attr("y", d => d.y)
             .attr('dx', function (d) {
@@ -1321,7 +1477,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             peak.Y_TEXT_PPM = self.yRange.invert(peak.y);
         });
 
-        self.peak_line_svg
+        self.$peak_line_svg
         .attr('x1', function (d) {
             if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
             {
@@ -1386,7 +1542,6 @@ plotit.prototype.draw_peaks = function () {
     /**
      * Filter peaks based on peak level
      */
-    this.new_peaks;
     if(self.peak_flag === 'picked') {
         this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
     }
@@ -1400,11 +1555,10 @@ plotit.prototype.draw_peaks = function () {
     }
     
 
-    
     /**
      * Draw peaks, red circles without fill
      */
-    this.peaks_svg=self.vis.selectAll('.peak')
+    this.$peaks_svg=self.vis.selectAll('.peak')
         .data(self.new_peaks)
         .enter()
         .append('circle')
@@ -1429,18 +1583,125 @@ plotit.prototype.draw_peaks = function () {
         .attr('stroke', function(){
             return self.peak_color;
         })
-        .attr('fill', 'none')
+        .attr('fill', function () {
+            if (self.filled_peaks === true) {
+                return self.peak_color;
+            }
+            else {
+                return 'none';
+            }
+        })
         .attr('stroke-width', self.peak_thickness);
 };
 
+/**
+ * Function to allow clicking on peaks, to pop up a window with peak information
+ * @param {boolean} flag: true to allow clicking on peaks, false to disable
+ * 
+ */
+plotit.prototype.allow_hover_on_peaks = function (flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.selectAll('.peak').on('mouseover', function (event,d) {
+            /**
+             * Show a window with peak information
+             * 1. get current cursor position (relative to the window, not the plot)
+             */
+            let x = event.clientX + 20;
+            let y = event.clientY + 20;
+            /**
+             * Move the div #peak_information_div to the cursor position as absolute position
+             * set display to block. 
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            
+            peak_information_div.style.left = x + 'px';
+            peak_information_div.style.top = y + 'px';
+            
+            /**
+             * Generate a data array of {x,y} pair for the fitting plot where
+             * x is this.pseudo3d_plane_value
+             * y is d[this.pseudo3d_plane_y_value]
+             */
+            let data = [];
+            for(let i=0;i<self.pseudo3d_plane_value.length; i++) {
+                let y_value = Math.log(d[self.pseudo3d_plane_y_value[i]]);
+                if (typeof y_value !== "undefined") {
+                    data.push({ x: self.pseudo3d_plane_value[i], y: y_value });
+                }
+            }
+
+            let slope = d.DOSY * self.pseudo3d_slope_factor; // slope of the line, negative because DOSY is in ms and we want to plot it in log scale
+        
+            const data2 =[
+                {x: 0, y: 0},
+                {x:data[data.length - 1].x, y: slope*data[data.length - 1].x} // line end point
+            ];
+        
+              /**
+               * Remove (if any) previous drawing
+               */
+              document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+        
+          
+              const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+                width: 400,
+                height: 300,
+                xLabel: self.pseudo3d_x_label,
+                yLabel: self.pseudo3d_y_label,
+              });
+        
+              plot.draw_scatter(data);
+              plot.draw_line(data2);
+
+            peak_information_div.style.display = 'block';
+        })
+        .on('mouseout', function () {
+            /**
+             * Hide the div #peak_information_div
+             */
+            let peak_information_div = document.getElementById('peak_information_div');
+            peak_information_div.style.display = 'none';
+        });
+    }
+    else {
+        self.vis.selectAll('.peak').on('mouseover', null);
+        self.vis.selectAll('.peak').on('mouseout', null);
+    }
+};
+
+/**
+ * Function to allow right click on plot to set up cross line location
+ * @param {*} flag: true to allow right click, false to disable.
+ * For both case, we will disable the default right click menu
+ */
+plotit.prototype.allow_right_click = function(flag) {
+    let self = this;
+    if(flag === true) {
+        self.vis.on('contextmenu', function (event) {
+            event.preventDefault();
+            self.setup_cross_line(event);
+        });
+    }
+    else {
+        self.vis.on('contextmenu', function(event) {
+            event.preventDefault();
+        });
+    }
+};
 
 
+/**
+ * Redraw peaks on the plot.
+ * Only update peak color, size, thickness, and visibility
+ * Will not change the peak position
+ */
 plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
         .attr('r', self.peak_size)
         .attr('stroke', function(d){
-            if(self.peak_color_flag === "solid"){
+            if(self.peak_color_flag === "SOLID"){
                 return self.peak_color;
             }
             else {
@@ -1470,7 +1731,14 @@ plotit.prototype.redraw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr('fill', 'none')
+        .attr('fill', function () {
+            if (self.filled_peaks === true) {
+                return self.peak_color;
+            }
+            else {
+                return 'none';
+            }
+        })
         .attr('stroke-width', self.peak_thickness);
 }
 
@@ -1504,32 +1772,21 @@ plotit.prototype.allow_peak_dragging = function (flag) {
         let y_pos= Math.floor((d.Y_PPM - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start)/self.spectrum.y_ppm_step);
         let x_pos = Math.floor((d.X_PPM - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start)/self.spectrum.x_ppm_step);
         let data_height = 0.0; //default value if out of range
-        if(x_pos>=0 && x_pos<self.spectrum.n_direct && y_pos>=0 && y_pos<self.spectrum.n_indirect) {
-            data_height = self.spectrum.raw_data[y_pos *  self.spectrum.n_direct + x_pos];
+        if (x_pos >= 0 && x_pos < self.spectrum.n_direct && y_pos >= 0 && y_pos < self.spectrum.n_indirect) {
+            data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
+        }
+
+        /**
+         * Update the peak in the picked peaks
+         */
+        if (self.peak_flag === 'picked') {
+            self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
         }
         
-        // if(data_height < self.peak_level) {
-        //     if(self.peak_flag === 'picked') {
-        //         /**
-        //          * Remove the peak from the picked peaks
-        //          */
-        //         self.spectrum.picked_peaks_object.remove_row(d.INDEX);
-        //     }
-        //     d3.select(this).remove();
-        // }
-        // else
-        {
-            /**
-             * Update the peak in the picked peaks
-             */
-            if(self.peak_flag === 'picked') {
-                self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
-            }
-        }
 
     });
 
-    if(flag===true){
+    if(flag===true && self.peak_flag === 'picked') {
         self.vis.selectAll('.peak').call(self.peak_drag);
     }
     else{
@@ -1544,7 +1801,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
 
     let self = this;
 
-    if(flag === true) {
+    if(flag === true  && self.peak_flag === 'picked') {
         self.vis.on('click', function (event) {
             let coordinates = d3.pointer(event);
             let x_ppm = self.xRange.invert(coordinates[0]);
