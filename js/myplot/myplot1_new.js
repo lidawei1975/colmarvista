@@ -57,6 +57,7 @@ function plotit(input) {
     this.peak_color_flag = 'SOLID'; //default is solid, can be a color-map, depending on some peak properties
     this.peak_size = 4;
     this.peak_thickness = 1;
+    this.filled_peaks = true; //default is true, can be false if we want to show only the outline of the peaks
 
     this.new_peaks = []; //a deep copy of peaks from one spectrum, 
     this.visible_peaks = []; //visible peaks in the current plot, used for peak labels
@@ -1359,7 +1360,9 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .append('text')
         .attr('class', 'peak_text')
         .attr('font-size',font_size)
-        .style('fill', color)
+        .style('fill', function () {
+                return self.peak_color;
+        })
         .text(function (d) {
             if(typeof d[label] === "number")
             {
@@ -1580,8 +1583,13 @@ plotit.prototype.draw_peaks = function () {
         .attr('stroke', function(){
             return self.peak_color;
         })
-        .attr('fill', function(){
-            return self.peak_color;
+        .attr('fill', function () {
+            if (self.filled_peaks === true) {
+                return self.peak_color;
+            }
+            else {
+                return 'none';
+            }
         })
         .attr('stroke-width', self.peak_thickness);
 };
@@ -1723,9 +1731,13 @@ plotit.prototype.redraw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr('fill', function(){
-            return self.peak_color;
-            // return 'none';
+        .attr('fill', function () {
+            if (self.filled_peaks === true) {
+                return self.peak_color;
+            }
+            else {
+                return 'none';
+            }
         })
         .attr('stroke-width', self.peak_thickness);
 }

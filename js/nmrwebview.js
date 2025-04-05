@@ -2675,6 +2675,11 @@ function init_plot(input) {
         main_plot.redraw_peaks();
     });
 
+    document.getElementById("filled_peaks").addEventListener('change', function (e) {
+        main_plot.filled_peaks = e.target.checked;
+        main_plot.redraw_peaks();
+    });
+
     document.getElementById("peak_colormap").addEventListener('change', function (e) {
         main_plot.peak_color_flag = e.target.value;
         let index = e.target.selectedIndex;

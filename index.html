@@ -252,6 +252,8 @@
                             <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
                             <label for="peak_thickness">Thickness: </label>
                             <input type="number" id="peak_thickness" value="1" min="1" max="10">
+                            <input type="checkbox" id="filled_peaks" checked>
+                            <label for="filled_peaks"> Filled peaks</label>
                             <lable for="peak_colormap">Color coding peak using </label>
                                 <select name="peak_colormap" id="peak_colormap">
                                     <option value="SOLID">Solid</option>
@@ -362,9 +364,9 @@
 
                     <div id="peak_area" class="resizable scroll" style="min-width: 400px; min-height: 300px; display: none;">
                         <div id=" peak_area_header" class="header_sticky">
-                            <button id="peak_search" onclick="search_peak()">Search</button>
+                            <label for="peak_search_text">Search in peaks </label>
                             <input type="text" id="peak_search_text" placeholder="peak text">
-                            <label for="peak_search_text">from peak table</label>
+                            <button id="peak_search" onclick="search_peak()">Search</button>
                         </div>
                         <table id="peak_table">
                             <!-- table content will be managed by JS code -->
