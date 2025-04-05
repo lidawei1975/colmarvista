@@ -1,8 +1,8 @@
-const durationInput = document.getElementById('durationInput');
+
 const canvas = document.getElementById('timerCanvas');
-const ctx = canvas.getContext('2d');
 
 var duration;
+var redPercent = 0.25; // turn red when the remaining time is less than 25% of the total time
 var remainingTime;
 
 let timerInterval;
@@ -24,7 +24,7 @@ function drawCircle() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, 2 * Math.PI);
-    if (percent > 0.75) {
+    if (percent > 1 - redPercent/100.0) {
         ctx.strokeStyle = 'red';
     }
     else {
@@ -99,23 +99,44 @@ $(document).ready(function () {
     const setButton = document.getElementById('setButton');
     const pauseButton = document.getElementById('pauseButton');
     const resumeButton = document.getElementById('resumeButton');
+    const durationInput = document.getElementById('durationInput');
+    const redPercentInput = document.getElementById('redPercentInput');
 
     duration = parseInt(durationInput.value);
     remainingTime = duration;
 
     setButton.addEventListener('click', () => {
         duration = parseInt(durationInput.value);
+        redPercent = parseFloat(redPercentInput.value);
         remainingTime = duration; //unit is seconds
         startTime = Date.now();
+        paused_time_start = 0;
+        stoppedTime = 0;
+        percent = 0;
+        drawCircle();
         startTimer();
+        /**
+         * Enable pause buttons after setting the timer.
+         */
+        pauseButton.disabled = false;
     });
 
     pauseButton.addEventListener('click', () => {
         stopTimer();
+        /**
+         * Disable pause button and enable resume button after pausing the timer.
+         */
+        pauseButton.disabled = true;
+        resumeButton.disabled = false;
     });
 
     resumeButton.addEventListener('click', () => {
         resumeTimer();
+        /**
+         * Disable resume button and enable pause button after resuming the timer.
+         */
+        resumeButton.disabled = true;
+        pauseButton.disabled = false;
     });
 
 
@@ -132,4 +153,9 @@ $(document).ready(function () {
 
     let parentElement = canvas.parentElement;
     resizeObserver.observe(parentElement);
+
+    /**
+     * Enable set button after JS is loaded.
+     */
+    setButton.disabled = false;
 });
