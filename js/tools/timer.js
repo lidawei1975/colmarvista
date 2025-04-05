@@ -3,33 +3,39 @@ const canvas = document.getElementById('timerCanvas');
 const ctx = canvas.getContext('2d');
 
 var duration;
-var duration_initial; 
 var remainingTime;
 
 let timerInterval;
-let startTime = Date.now();
+let startTime =0;
 
-var paused_time = 0;
+var paused_time_start = 0;
+var stoppedTime = 0;
 
 
 function drawCircle(percent) {
+
+    const ctx = canvas.getContext('2d');
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radius = Math.min(centerX, centerY) * 0.8; // Adjust radius as needed
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, 80, 0, 2 * Math.PI);
+    ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, 2 * Math.PI);
     if (percent > 0.8) {
         ctx.strokeStyle = 'red';
     }
     else {
         ctx.strokeStyle = 'steelblue';
     }
-    ctx.lineWidth = 10;
+    ctx.lineWidth = radius/5;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, 80, -Math.PI / 2, (-Math.PI / 2) + (2 * Math.PI * percent), false);
+    ctx.arc(canvas.width / 2, canvas.height / 2, radius, -Math.PI / 2, (-Math.PI / 2) + (2 * Math.PI * percent), false);
     ctx.strokeStyle = 'lightgray';
-    ctx.lineWidth = 10;
+    ctx.lineWidth =  radius/5;
     ctx.stroke();
-    ctx.font = '24px Arial';
+    ctx.font = parseInt(radius/3).toString().concat('px Arial');
     ctx.fillStyle = 'black';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -58,12 +64,12 @@ function updateTimer() {
     */
     let currentTime = Date.now();
     // Calculate the elapsed time since the timer started
-    let elapsedTime = Math.floor((currentTime - startTime) / 1000);
+    let elapsedTime = Math.floor((currentTime - stoppedTime - startTime) / 1000);
 
     remainingTime = duration - elapsedTime;
 
     if (remainingTime > 0) {
-        const percent = (duration - remainingTime) / duration_initial;
+        const percent = (duration - remainingTime) / duration;
         drawCircle(percent);
     } else {
         clearInterval(timerInterval);
@@ -76,13 +82,13 @@ function startTimer() {
 }
 
 function stopTimer() {
-    paused_time = remainingTime;
+    paused_time_start = Date.now();
     clearInterval(timerInterval);
 }
 
 function resumeTimer() {
-    duration = paused_time;
-    startTimer();
+    stoppedTime += Date.now() - paused_time_start;
+    timerInterval = setInterval(updateTimer, 1000);
 }
 
 $(document).ready(function () {
@@ -96,7 +102,6 @@ $(document).ready(function () {
 
     setButton.addEventListener('click', () => {
         duration = parseInt(durationInput.value);
-        duration_initial = duration;
         remainingTime = duration; //unit is seconds
         startTime = Date.now();
         startTimer();
