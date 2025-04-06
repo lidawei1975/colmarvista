@@ -1,21 +1,4 @@
 
-/**
- * Find max and min of a Float32Array
- */
-function find_max_min(data) {
-    let max = data[0];
-    let min = data[0];
-    for (let i = 1; i < data.length; i++) {
-        if (data[i] > max) {
-            max = data[i];
-        }
-        if (data[i] < min) {
-            min = data[i];
-        }
-    }
-    return [max, min];
-}
-
 
 /**
  * Define a spectrum class to hold all spectrum information
@@ -91,6 +74,8 @@ class spectrum {
          * pseudo3d_children will hold the indices of children spectra (other planes)
          */
         this.pseudo3d_children = [];
+
+        this.mathTool  = new ldwmath();
     };
 
     /**
@@ -722,12 +707,12 @@ class spectrum {
         /**
      * Get median of abs(z). If data_size is > 1024*1024, we will sample 1024*1024 points by stride
      */
-        this.noise_level = estimate_noise_level(this.n_direct, this.n_indirect, this.raw_data);
+        this.noise_level = this.mathTool.estimate_noise_level(this.n_direct, this.n_indirect, this.raw_data);
 
         /**
          * Get max and min of z (z is sorted)
          */
-        [this.spectral_max, this.spectral_min] = find_max_min(this.raw_data);
+        [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
         /**
          * raw_data is row major, size is  n_indirect (rows) * n_direct (columns).
@@ -755,8 +740,8 @@ class spectrum {
         /**
          * Get max,min of the projection
          */
-        [this.projection_direct_max, this.projection_direct_min] = find_max_min(this.projection_direct);
-        [this.projection_indirect_max, this.projection_indirect_min] = find_max_min(this.projection_indirect);
+        [this.projection_direct_max, this.projection_direct_min] = this.mathTool.find_max_min(this.projection_direct);
+        [this.projection_indirect_max, this.projection_indirect_min] = this.mathTool.find_max_min(this.projection_indirect);
 
         /**
          * In case of reconstructed spectrum from fitting or from NUS, noise_level is usually 0.
