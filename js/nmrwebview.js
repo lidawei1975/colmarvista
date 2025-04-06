@@ -3132,6 +3132,16 @@ function update_contour_slider(e,index,flag) {
          * Update the current lowest shown level in main_plot
          */
         main_plot.contour_lbs_negative[index] = level - 1;
+        /**
+         * Update peaks only if current index is the same as current spectrum index of peaks
+         * and current spectrum has picked peaks and is visible
+         */
+        if(current_spectrum_index_of_peaks === index )
+        {
+            let level_negative = hsqc_spectra[index].negative_levels[main_plot.contour_lbs_negative[index]];
+            main_plot.set_peak_level_negative(level_negative);
+            main_plot.redraw_peaks();
+        }
     }
 
     main_plot.redraw_contour();
@@ -3996,6 +4006,8 @@ function show_hide_peaks(index,flag,b_show)
          */
         let level = hsqc_spectra[index].levels[main_plot.contour_lbs[index]];
         main_plot.set_peak_level(level);
+        let level_negative = hsqc_spectra[index].negative_levels[main_plot.contour_lbs_negative[index]];
+        main_plot.set_peak_level_negative(level_negative);
 
         if(flag === 'picked')
         {
