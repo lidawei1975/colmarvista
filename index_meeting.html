@@ -5,14 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conference Program</title>
     <style>
-        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .day {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+        .day h2 {
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            color: #2c3e50; /* Darker heading color */
+        }
+        .session {
+            margin-bottom: 20px;
+        }
         .session table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
         }
         .session table, .session th, .session td {
-            border: 1px solid #ddd;
             padding: 12px; /* Increased padding for better readability */
             text-align: left;
         }
@@ -23,7 +50,16 @@
         .session td {
             vertical-align: top; /* Align text to the top of the cell */
         }
-        
+        h3 {
+            margin-bottom: 10px;
+            color: #3498db; /* Blue color for session title */
+        }
+        @media (max-width: 600px) {
+            .session table {
+                display: block;
+                overflow-x: auto;
+            }
+        }
     </style>
 </head>
 <body>
@@ -38,10 +74,10 @@
             </div>
             <div class="session">
                 <h3>Session 1 (Performance Hall, Ohio Union)</h3>
-                <table>
+                <table style="border: 1px solid #ddd;">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th style="min-width: 150px;">Time</th>
                             <th>Speaker</th>
                             <th>Title</th>
                         </tr>
@@ -103,10 +139,10 @@
             </div>
             <div class="session">
                 <h3>Session 2 (Performance Hall, Ohio Union)</h3>
-                <table>
+                <table style="border: 1px solid #ddd;">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th style="min-width: 150px;">Time</th>
                             <th>Speaker</th>
                             <th>Title</th>
                         </tr>
@@ -170,10 +206,10 @@
             <h2>Friday, May 16, 2025</h2>
             <div class="session">
                 <h3>Session 1 (Performance Hall, Ohio Union)</h3>
-                <table>
+                <table style="border: 1px solid #ddd;">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th style="min-width: 150px;">Time</th>
                             <th>Speaker</th>
                             <th>Title</th>
                         </tr>
@@ -245,10 +281,10 @@
             </div>
             <div class="session">
                 <h3>Session 2 (Performance Hall, Ohio Union)</h3>
-                <table>
+                <table style="border: 1px solid #ddd;">
                     <thead>
                         <tr>
-                            <th>Time</th>
+                            <th style="min-width: 150px;">Time</th>
                             <th>Speaker</th>
                             <th>Title</th>
                         </tr>
