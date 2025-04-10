@@ -3132,6 +3132,16 @@ function update_contour_slider(e,index,flag) {
          * Update the current lowest shown level in main_plot
          */
         main_plot.contour_lbs_negative[index] = level - 1;
+        /**
+         * Update peaks only if current index is the same as current spectrum index of peaks
+         * and current spectrum has picked peaks and is visible
+         */
+        if(current_spectrum_index_of_peaks === index )
+        {
+            let level_negative = hsqc_spectra[index].negative_levels[main_plot.contour_lbs_negative[index]];
+            main_plot.set_peak_level_negative(level_negative);
+            main_plot.redraw_peaks();
+        }
     }
 
     main_plot.redraw_contour();
@@ -3751,8 +3761,11 @@ function run_DEEP_Picker(spectrum_index,flag)
      */
     let noise_level = hsqc_spectra[spectrum_index].noise_level;
     let level = hsqc_spectra[spectrum_index].levels[main_plot.contour_lbs[spectrum_index]];
+    let level_negative = hsqc_spectra[spectrum_index].negative_levels[main_plot.contour_lbs_negative[spectrum_index]];
     let scale = level / noise_level;
     let scale2 = 0.6 * scale;
+    let scale_negative = Math.abs(level_negative) / noise_level;
+    let scale2_negative = 0.6 * scale_negative;
 
     /**
      * Check checkbox for "remove_t1_noise-${spectrum_index}"
@@ -3769,6 +3782,8 @@ function run_DEEP_Picker(spectrum_index,flag)
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
+        scale_negative: scale_negative,
+        scale2_negative: scale2_negative,
         noise_level: noise_level,
         remove_t1_noise: remove_t1_noise,
         flag: flag //0: DEEP Picker, 1: Simple Picker
@@ -3996,6 +4011,8 @@ function show_hide_peaks(index,flag,b_show)
          */
         let level = hsqc_spectra[index].levels[main_plot.contour_lbs[index]];
         main_plot.set_peak_level(level);
+        let level_negative = hsqc_spectra[index].negative_levels[main_plot.contour_lbs_negative[index]];
+        main_plot.set_peak_level_negative(level_negative);
 
         if(flag === 'picked')
         {
@@ -4316,109 +4333,6 @@ function download_log()
     a.remove();
 }
 
-
-function median(values) 
-{
-    if (values.length === 0) {
-      throw new Error('Input array is empty');
-    }
-  
-    // Sorting values, preventing original array
-    // from being mutated.
-    values = [...values].sort((a, b) => a - b);
-  
-    const half = Math.floor(values.length / 2);
-  
-    return (values.length % 2
-      ? values[half]
-      : (values[half - 1] + values[half]) / 2
-    );
-  
-}
-
-/**
- * Estimate noise level of a spectrum.
- * Calculate RMSD of each 32*32 segment, and get the median value
- * @param {*} xdim: x dimension of the spectrum
- * @param {*} ydim: y dimension of the spectrum
- * @param {Float32Array} spect: the spectrum data, row major. y*xdim + x to access the element at (x,y)
- * @returns 
- */
-function estimate_noise_level(xdim,ydim,spect)
-{
-    let n_segment_x = Math.floor(xdim / 32);
-let n_segment_y = Math.floor(ydim / 32);
-
-let variances = [];      // variance of each segment
-let maximal_values = []; // maximal value of each segment
-
-    /**
-     * loop through each segment, and calculate variance
-     */
-    for (let i = 0; i < n_segment_x; i++) {
-        for (let j = 0; j < n_segment_y; j++) {
-            let t = [];
-            for (let m = 0; m < 32; m++) {
-                for (let n = 0; n < 32; n++) {
-                    t.push(spect[(j * 32 + m) * xdim + i * 32 + n]);
-                }
-            }
-
-            /**
-             * calculate variance of this segment. Subtract the mean value of this segment first
-             * also calculate the max value of this segment
-             */
-            let max_of_t = 0.0;
-            let mean_of_t = 0.0;
-            for (let k = 0; k < t.length; k++) {
-                mean_of_t += t[k];
-                if (Math.abs(t[k]) > max_of_t) {
-                    max_of_t = Math.abs(t[k]);
-                }
-            }
-            mean_of_t /= t.length;
-
-            let variance_of_t = 0.0;
-            for (let k = 0; k < t.length; k++) {
-                variance_of_t += (t[k] - mean_of_t) * (t[k] - mean_of_t);
-            }
-            variance_of_t /= t.length;
-            variances.push(variance_of_t);
-            maximal_values.push(max_of_t);
-        }
-    }
-
-    /**
-     * Sort the variances and get the median value
-     */
-    let variances_sorted = [...variances]; // Copy of variances array
-    variances_sorted.sort((a, b) => a - b); // Sort in ascending order
-    let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-    console.log("Noise level is " + noise_level + " using variance estimation.");
-
-    /**
-     * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
-     * Also remove the corresponding variance as well
-     */
-    for (let i = maximal_values.length - 1; i >= 0; i--) {
-        if (maximal_values[i] > 10.0 * noise_level) {
-            maximal_values.splice(i, 1);  // Remove the element at index i
-            variances.splice(i, 1);       // Remove corresponding variance
-        }
-    }
-
-    /**
-     * Sort the variances again and get the new median value
-     */
-    variances_sorted = [...variances];  // Copy the updated variances array
-    variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
-    noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-
-    console.log("Final noise level is estimated to be " + noise_level);
-
-    return noise_level;
-
-}
 
 function update_label_select(labels)        
 {

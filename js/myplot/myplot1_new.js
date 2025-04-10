@@ -49,6 +49,7 @@ function plotit(input) {
     this.spectral_order = [];
 
     this.peak_level = 0.0;
+    this.peak_level_negative = 0.0;
 
     this.allow_brush_to_remove = false; //default is false
 
@@ -1060,6 +1061,10 @@ plotit.prototype.set_peak_level = function (level) {
     this.peak_level = level;
 }
 
+plotit.prototype.set_peak_level_negative = function (level) {
+    this.peak_level_negative = level;
+}
+
 /**
  * Set peaks for the plot
  */
@@ -1302,7 +1307,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             && d.X_PPM >= self.xscale[1]
             && d.Y_PPM <= self.yscale[0]
             && d.Y_PPM >= self.yscale[1]
-            && (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level);
+            && (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative);
     });
 
     /**
@@ -1570,7 +1575,7 @@ plotit.prototype.draw_peaks = function () {
             return self.yRange(d.Y_PPM);
         })
         .attr('visibility',function(d) {
-            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level)
+            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level || d.HEIGHT < self.peak_level_negative)
             {
                 return "visible";
             }
@@ -1723,7 +1728,7 @@ plotit.prototype.redraw_peaks = function () {
             
         })
         .attr('visibility',function(d) {
-            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level)
+            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level || d.HEIGHT < self.peak_level_negative)
             {
                 return "visible";
             }
@@ -1820,7 +1825,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
                 Y_PPM: y_ppm,
                 HEIGHT: data_height,
             };
-            if(self.spectrum != null && new_peak.HEIGHT > self.peak_level)
+            if(self.spectrum != null && (new_peak.HEIGHT > self.peak_level || new_peak.HEIGHT < self.peak_level_negative))
             {
                 self.spectrum.picked_peaks_object.add_row(new_peak);
                 self.draw_peaks();
