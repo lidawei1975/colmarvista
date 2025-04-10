@@ -3761,8 +3761,11 @@ function run_DEEP_Picker(spectrum_index,flag)
      */
     let noise_level = hsqc_spectra[spectrum_index].noise_level;
     let level = hsqc_spectra[spectrum_index].levels[main_plot.contour_lbs[spectrum_index]];
+    let level_negative = hsqc_spectra[spectrum_index].negative_levels[main_plot.contour_lbs_negative[spectrum_index]];
     let scale = level / noise_level;
     let scale2 = 0.6 * scale;
+    let scale_negative = Math.abs(level_negative) / noise_level;
+    let scale2_negative = 0.6 * scale_negative;
 
     /**
      * Check checkbox for "remove_t1_noise-${spectrum_index}"
@@ -3779,6 +3782,8 @@ function run_DEEP_Picker(spectrum_index,flag)
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
+        scale_negative: scale_negative,
+        scale2_negative: scale2_negative,
         noise_level: noise_level,
         remove_t1_noise: remove_t1_noise,
         flag: flag //0: DEEP Picker, 1: Simple Picker
