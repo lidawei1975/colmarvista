@@ -71,8 +71,40 @@ class fitting_plot {
   
       this.g.append('g').call(this.yAxis);
   
+      /**
+       * Draw two additional rect on top of the scatter points to represent the standard deviation.
+       * only if y_std is available.
+       */
+      if (data[0].y_std != null) {
+        this.g
+        .selectAll('rect.error_top')
+          .data(data)
+          .enter()
+          .append('rect')
+          .attr('x', (d) => this.xScale(d.x)-3)
+          .attr('y', (d) => this.yScale(d.y+d.y_std)-3)
+          .attr('width', 6)
+          .attr('height', 6)
+          .attr('fill', 'red');
+
+        this.g
+          .selectAll('rect.error_bottom')
+          .data(data)
+          .enter()
+          .append('rect')
+          .attr('x', (d) => this.xScale(d.x)-3)
+          .attr('y', (d) => this.yScale(d.y-d.y_std)-3)
+          .attr('width', 6)
+          .attr('height', 6)
+          .attr('fill', 'red');
+      }
+
+      /**
+       * Draw the scatter points later
+       * so that it will cover the error rects if they overlap (error is very small).
+       */
       this.g
-        .selectAll('circle')
+        .selectAll('circle.center')
         .data(data)
         .enter()
         .append('circle')
@@ -80,6 +112,7 @@ class fitting_plot {
         .attr('cy', (d) => this.yScale(d.y))
         .attr('r', 5)
         .attr('fill', this.scatterColor);
+
   
       this.g
         .append('text')
@@ -103,8 +136,6 @@ class fitting_plot {
      * @param {Array<{ x: number, y: number }>} data - The data points.
      */
     draw_line(data) {
-   
-  
         const lineGenerator = d3
         .line()
         .x((d) =>  this.xScale(d.x)) // Access the x-coordinate from each data point
@@ -118,9 +149,5 @@ class fitting_plot {
         .attr('stroke', this.linearColor)
         .attr('stroke-width', 2)
         .attr('fill', 'none'); // Ensure the path is not filled
-
-
-
-      
     }
   }

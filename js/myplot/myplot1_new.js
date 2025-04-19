@@ -1606,8 +1606,8 @@ plotit.prototype.draw_peaks = function () {
  */
 plotit.prototype.allow_hover_on_peaks = function (flag) {
     let self = this;
-    if(flag === true) {
-        self.vis.selectAll('.peak').on('mouseover', function (event,d) {
+    if (flag === true) {
+        self.vis.selectAll('.peak').on('mouseover', function (event, d) {
             /**
              * Show a window with peak information
              * 1. get current cursor position (relative to the window, not the plot)
@@ -1619,45 +1619,104 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * set display to block. 
              */
             let peak_information_div = document.getElementById('peak_information_div');
-            
+
             peak_information_div.style.left = x + 'px';
             peak_information_div.style.top = y + 'px';
-            
+
+            /**
+             * self.pseudo3d_plane_y_value is something line Z_A0, Z_A1, Z_A2 ....
+             * and Z_A1_STD, Z_A2_STD, Z_A3_STD .... (no Z_A0_STD!)
+             * Separate them into two arrays
+             * self.pseudo3d_plane_y_value is the first one
+             * self.pseudo3d_plane_y_std_value is the second one
+             */
+            let pseudo3d_plane_y_value = [];
+            let pseudo3d_plane_y_std_value = [];
+            for (let i = 0; i < self.pseudo3d_plane_y_value.length; i++) {
+                if (self.pseudo3d_plane_y_value[i].endsWith('_STD')) {
+                    pseudo3d_plane_y_std_value.push(self.pseudo3d_plane_y_value[i]);
+                }
+                else {
+                    pseudo3d_plane_y_value.push(self.pseudo3d_plane_y_value[i]);
+                }
+            }
+
+
             /**
              * Generate a data array of {x,y} pair for the fitting plot where
              * x is this.pseudo3d_plane_value
              * y is d[this.pseudo3d_plane_y_value]
              */
-            let data = [];
-            for(let i=0;i<self.pseudo3d_plane_value.length; i++) {
-                let y_value = Math.log(d[self.pseudo3d_plane_y_value[i]]);
-                if (typeof y_value !== "undefined") {
+            
+            let data =[];
+            if(pseudo3d_plane_y_std_value.length === pseudo3d_plane_y_value.length -1)
+            {
+                data = [{
+                    x: 0,
+                    y: Math.log(d[pseudo3d_plane_y_value[0]]),
+                    y_std: 0,
+                }];
+                for (let i = 1; i < self.pseudo3d_plane_value.length; i++) {
+                    let y_value = Math.log(d[pseudo3d_plane_y_value[i]]);
+                    let y_value_std = Math.log(d[pseudo3d_plane_y_value[i]]+d[pseudo3d_plane_y_std_value[i-1]]) - y_value;
+                    data.push({ x: self.pseudo3d_plane_value[i], y: y_value, y_std: y_value_std });
+                }
+            }
+            /**
+             * Else, there is no STD value. 
+             */
+            else
+            {
+                data = [{
+                    x: 0,
+                    y: Math.log(d[pseudo3d_plane_y_value[0]]),
+                }];
+                for (let i = 1; i < self.pseudo3d_plane_value.length; i++) {
+                    let y_value = Math.log(d[pseudo3d_plane_y_value[i]]);
                     data.push({ x: self.pseudo3d_plane_value[i], y: y_value });
                 }
             }
 
             let slope = d.DOSY * self.pseudo3d_slope_factor; // slope of the line, negative because DOSY is in ms and we want to plot it in log scale
-        
-            const data2 =[
-                {x: 0, y: 0},
-                {x:data[data.length - 1].x, y: slope*data[data.length - 1].x} // line end point
+
+            const data2 = [
+                { x: 0, y: 0 },
+                { x: data[data.length - 1].x, y: slope * data[data.length - 1].x } // line end point
             ];
-        
-              /**
-               * Remove (if any) previous drawing
-               */
-              document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
-        
-          
-              const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+
+
+            /**
+             * Remove (if any) previous drawing
+             */
+            document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+
+
+            const plot = new fitting_plot('#pseudo3d_fitting_plot', {
                 width: 400,
                 height: 300,
                 xLabel: self.pseudo3d_x_label,
                 yLabel: self.pseudo3d_y_label,
-              });
-        
-              plot.draw_scatter(data);
-              plot.draw_line(data2);
+            });
+
+            plot.draw_scatter(data);
+            plot.draw_line(data2);
+
+            /**
+           * If d.DOSY_STD is defined, then add two lines with slope = (d.DOSY+-d.DOSY_STD) * self.pseudo3d_slope_factor
+           */
+            if (typeof d.DOSY_STD !== "undefined") {
+                const data3 = [
+                    { x: 0, y: 0 },
+                    { x: data[data.length - 1].x, y: (slope + d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                ];
+                const data4 = [
+                    { x: 0, y: 0 },
+                    { x: data[data.length - 1].x, y: (slope - d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                ];
+                plot.draw_line(data3);
+                plot.draw_line(data4);
+            }
+
 
             peak_information_div.style.display = 'block';
         })

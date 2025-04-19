@@ -3976,6 +3976,14 @@ function show_hide_peaks(index,flag,b_show)
              */
             let header_list = ['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
 
+            /**
+             * If with error estimation, add DOSY_STD 
+             */
+            if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY_STD')!=-1)
+            {
+                header_list.push('DOSY_STD');
+            }
+
             main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
 
             /**
@@ -4075,6 +4083,18 @@ function run_dosy()
     let dosy_gradient_text = document.getElementById("dosy_gradient").value;
     let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
     let gradients = dosy_gradient_text.trim().split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
+
+    /**
+     * If size of gradients !== # of Z_A* field of pseudo3d_fitted_peaks_object
+     */
+    if(gradients.length !== pseudo3d_fitted_peaks_object.column_headers.filter(function(header) {
+        return header.startsWith('Z_A') && !header.endsWith('_STD');
+    }).length)
+    {
+        alert("Number of gradients must be equal to number of Z_A* fields in the peak list");
+        return;
+    }
+
     let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
 
     /**
@@ -4087,10 +4107,18 @@ function run_dosy()
 
     /**
      * Run error estimation on pseudo3d_fitted_peaks_error (calcualte RMSD of selected columns from pseudo3d_fitted_peaks_error)
+     * Pre-step: Add Z_A1, Z_A2, Z_A3, upto Z_A{n} to pseudo3d_fitted_peaks_error, where n is the number of gradients - 1
+     * then add DOSY column to the end
      */
+    let selected_columns = [];
+    for(let i=1;i<gradients.length;i++)
+    {
+        selected_columns.push('Z_A'+i);
+    }
+    selected_columns.push('DOSY');
 
     dosy_error_est = new cpeaks();
-    dosy_error_est.error_estimate(pseudo3d_fitted_peaks_error,['DOSY']);
+    dosy_error_est.error_estimate(pseudo3d_fitted_peaks_error,selected_columns);
 
     /**
      * Attach the error estimation to the pseudo3d_fitted_peaks_object
