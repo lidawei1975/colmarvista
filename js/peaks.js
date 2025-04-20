@@ -396,6 +396,20 @@ class cpeaks {
         return result;
     }
 
+    /**
+     * Get an array of arrays of selected columns
+     * result[column_index][row_index]
+     * @param {string[]} column_header_names - the column header names to be selected
+     */
+    get_selected_column_values(column_header_names) {
+        let indexes = column_header_names.map(header => this.column_headers.indexOf(header));
+        let result = [];
+        for (let i = 0; i < indexes.length; i++) {
+            result.push(this.columns[indexes[i]]);
+        }
+        return result;
+    }
+
 
 
     /**
@@ -765,13 +779,23 @@ class cpeaks {
         /**
          * Get total # of Z_A1, Z_A2, Z_A3 ... columns, which must == gradients.length
          */
-        let z_columns = this.column_headers.filter(header => header.startsWith('Z_A'));
+        let z_columns = this.column_headers.filter(header => header.startsWith('Z_A') && !header.endsWith('_STD'));
         if (z_columns.length !== gradients.length) {
             return {
                 message: 'Number of Z_A columns does not match the number of gradients',
                 result: false
             };
         }
+        /**
+         * If previous DOSY column exists, remove it
+         */
+        let dosy_index = this.column_headers.indexOf('DOSY');
+        if (dosy_index !== -1) {
+            this.column_headers.splice(dosy_index, 1);
+            this.column_formats.splice(dosy_index, 1);
+            this.columns.splice(dosy_index, 1);
+        }
+
         /**
          * Get a 2D array of Z_A values, each row is a peak, each column is a Z_A value. 
          * The array should be row-major, for optimal performance in the fitting function
@@ -825,5 +849,118 @@ class cpeaks {
          * Step 4, calculate the DOSY value from the slope
          */
         return result; //object with two properties: slope and y_pre
+    };
+
+
+    /**
+     * Run error estimate from an array of cpeaks objects (all have same column headers and same number of rows)
+     * on selected columns only
+     * @param {object[]} peaks_array - array of cpeaks objects
+     * @param {string[]} column_header_names - array of column header names to be selected
+     */
+    error_estimate(peaks_array, column_header_names) {
+        /**
+         * Check if all peaks_array have the same column headers and same number of rows
+         */
+        if (peaks_array.length === 0) {
+            return {
+                message: 'No peaks array provided',
+                result: false
+            };
+        }
+        let num_rows = peaks_array[0].columns[0].length;
+        for (let i = 1; i < peaks_array.length; i++) {
+            if (peaks_array[i].columns[0].length !== num_rows) {
+                return {
+                    message: 'Number of rows in peaks array do not match',
+                    result: false
+                };
+            }
+        }
+        /**
+         * Get the selected columns from each peaks object
+         */
+        let selected_columns = [];
+        for (let i = 0; i < peaks_array.length; i++) {
+            selected_columns.push(peaks_array[i].get_selected_column_values(column_header_names));
+        }
+
+        /**
+         * selected_columns is an array of array of array 
+         * selected_columns[error_run_index][column_index][peak_index]
+         * We need to get the std of each column for each peak
+         * That is, std_result[column_index][peak_index]
+         */
+        let std_result = [];
+        for (let i = 0; i < selected_columns[0].length; i++)
+        {
+            let std_result_column = [];
+            for (let j = 0; j < selected_columns[0][i].length; j++)
+            {
+                let sum = 0;
+                for (let k = 0; k < selected_columns.length; k++)
+                {
+                    sum += selected_columns[k][i][j];
+                }
+                let mean = sum / selected_columns.length;
+                let sum_sq = 0;
+                for (let k = 0; k < selected_columns.length; k++)
+                {
+                    sum_sq += Math.pow(selected_columns[k][i][j] - mean, 2);
+                }
+                let std = Math.sqrt(sum_sq / (selected_columns.length - 1));
+                std_result_column.push(std);
+            }
+            std_result.push(std_result_column);
+        }
+     
+
+        /**
+         * Add a new column to this object with the std values for column_header_names 
+         */
+        for(let i=0;i<column_header_names.length;i++)
+        {
+            let new_header_name = column_header_names[i] + '_STD';
+            let new_format = peaks_array[0].column_formats[peaks_array[0].column_headers.indexOf(column_header_names[i])]; //same format as the original column
+            this.column_headers.push(new_header_name);
+            this.column_formats.push(new_format);
+            this.columns.push(std_result[i]);
+        }
+
+        return {
+            message: 'Error estimate completed successfully',
+            result: true,
+        };
+    };
+
+    /**
+     * append_columns to this peaks object
+     * @param {object} new_peak - the peaks object to be appended
+     */
+    append_columns(new_peak) {
+        this.column_formats = this.column_formats.concat(new_peak.column_formats);
+        this.column_headers = this.column_headers.concat(new_peak.column_headers);
+        this.columns = this.columns.concat(new_peak.columns);
+        return {
+            message: 'Columns appended successfully',
+            result: true,
+        };
+    };
+
+    /**
+     * Remove all columns that are error (end with _STD)
+     */
+    remove_error_columns(){
+        let error_columns = this.column_headers.filter(header => header.endsWith('_STD'));
+        for (let i = 0; i < error_columns.length; i++) {
+            let index = this.column_headers.indexOf(error_columns[i]);
+            this.column_headers.splice(index, 1);
+            this.column_formats.splice(index, 1);
+            this.columns.splice(index, 1);
+        }
+        return {
+            message: 'Error columns removed successfully',
+            result: true,
+        };
     }
 };

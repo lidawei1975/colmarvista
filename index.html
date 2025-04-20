@@ -189,6 +189,8 @@
                             onclick="minimize_pseudo3d_area(this)">+</button>Pseudo-3D fitting tool</p>
                     <label for="max_round">Max round of pseudo-3D fitting: </label>
                     <input type="number" id="max_round" value="50" min="1" max="1000">
+                    <input type="checkbox" id="with_error">
+                    <label for="with_error"> with MC based error estimation</label>
                     <button id="button_run_pseudo3d_gaussian" disabled onclick="run_pseudo3d(1)">Run Gaussian
                         pseudo-3D fitting of all spectra</button>
                     <button id="button_run_pseudo3d_voigt" disabled onclick="run_pseudo3d(0)">Run Voigt pseudo-3D
@@ -294,7 +296,7 @@
 
                                     <fieldset>
                                         <legend>Select cross section</legend>
-                                        <input type="checkbox" id="pause_cursor" checked>
+                                        <input type="checkbox" id="pause_cursor" >
                                         <label for="pause_cursor"> Pause the cursor</label>
                                         <input type="checkbox" id="right_click" checked>
                                         <label for="right_click"> Right click</label>

@@ -43,6 +43,7 @@ var current_spectrum_index_of_peaks = -1; //index of the spectrum that is curren
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
+var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
 
 /**
  * For FID re-processing. Saved file data
@@ -766,9 +767,13 @@ function run_pseudo3d(flag) {
     }
 
     /**
-     * Get input field "max_round" value (number type)
+     * Get input number "max_round" value (number type)
      */
     let max_round = parseInt(document.getElementById("max_round").value);
+    /**
+     * Get input checkbox "with_error" checked: true or false
+     */
+    let with_error = document.getElementById("with_error").checked;
 
     /**
      * Check all spectra, collect the ones that are experimental
@@ -820,6 +825,7 @@ function run_pseudo3d(flag) {
         scale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
         flag: flag, //0: voigt, 1: Gaussian
         maxround: max_round,
+        with_error: with_error,
     });
 }
 
@@ -1127,6 +1133,17 @@ webassembly_worker.onmessage = function (e) {
         console.log("Pseudo 3D fitted peaks received");
         pseudo3d_fitted_peaks_object = new cpeaks();
         pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.pseudo3d_fitted_peaks_tab);
+
+        /**
+         * Process e.data.fitted_err (array of fitted_peaks_tab) and put them into pseudo3d_fitted_peaks_error
+         */
+        pseudo3d_fitted_peaks_error = []; //clear the previous fitted peaks error
+        for(let i=0;i<e.data.fitted_err.length;i++)
+        {
+            let peaks = new cpeaks();
+            peaks.process_peaks_tab(e.data.fitted_err[i]);
+            pseudo3d_fitted_peaks_error.push(peaks);
+        }
 
         /**
          * Enable the download fitted peaks button and show the fitted peaks button
@@ -3960,6 +3977,14 @@ function show_hide_peaks(index,flag,b_show)
              */
             let header_list = ['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
 
+            /**
+             * If with error estimation, add DOSY_STD 
+             */
+            if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY_STD')!=-1)
+            {
+                header_list.push('DOSY_STD');
+            }
+
             main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
 
             /**
@@ -4059,7 +4084,50 @@ function run_dosy()
     let dosy_gradient_text = document.getElementById("dosy_gradient").value;
     let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
     let gradients = dosy_gradient_text.trim().split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
+
+    /**
+     * If size of gradients !== # of Z_A* field of pseudo3d_fitted_peaks_object
+     */
+    if(gradients.length !== pseudo3d_fitted_peaks_object.column_headers.filter(function(header) {
+        return header.startsWith('Z_A') && !header.endsWith('_STD');
+    }).length)
+    {
+        alert("Number of gradients must be equal to number of Z_A* fields in the peak list");
+        return;
+    }
+
     let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
+
+    /**
+     * If pseudo3d_fitted_peaks_error is not empty, run dosy on them as well
+     */
+    for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+    {
+        pseudo3d_fitted_peaks_error[i].run_dosy_fitting(gradients,dosy_rescale);
+    }
+
+    /**
+     * Run error estimation on pseudo3d_fitted_peaks_error (calcualte RMSD of selected columns from pseudo3d_fitted_peaks_error)
+     * Pre-step: Add Z_A1, Z_A2, Z_A3, upto Z_A{n} to pseudo3d_fitted_peaks_error, where n is the number of gradients - 1
+     * then add DOSY column to the end
+     */
+    let selected_columns = [];
+    for(let i=1;i<gradients.length;i++)
+    {
+        selected_columns.push('Z_A'+i);
+    }
+    selected_columns.push('DOSY');
+
+    dosy_error_est = new cpeaks();
+    dosy_error_est.error_estimate(pseudo3d_fitted_peaks_error,selected_columns);
+
+    /**
+     * Attach the error estimation to the pseudo3d_fitted_peaks_object.
+     * But first, remove previous _STD columns
+     */
+    pseudo3d_fitted_peaks_object.remove_error_columns();
+    pseudo3d_fitted_peaks_object.append_columns(dosy_error_est);
+
     /**
      * Let user know DOSY result is ready
      */
@@ -4545,6 +4613,7 @@ function save_to_file()
     let to_save = {
         hsqc_spectra: hsqc_spectra_copy,
         pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
+        pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
     };
 
     /**
@@ -4619,6 +4688,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     hsqc_spectra = to_save.hsqc_spectra;
     pseudo3d_fitted_peaks_object = to_save.pseudo3d_fitted_peaks_object;
+    pseudo3d_fitted_peaks_error = to_save.pseudo3d_fitted_peaks_error;
 
     /**
      * Reattach methods defined in spectrum.js to all hsqc_spectra objects
@@ -4674,6 +4744,10 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             if(peaks_methods[j] !== 'constructor')
             {
                 pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+                {
+                    pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                }
             }
         }
     }

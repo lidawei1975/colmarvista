@@ -771,8 +771,16 @@ onmessage = function (e) {
          * Write a file named "arguments_pseudo_3D.txt" to the virtual file system
          * save -noise_level, -scale and -scale2
          */
-        let content = ' -v 0 -recon no -peak_in peaks.tab -out fitted.tab fitted.json -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
+        let content = ' -v 0 -recon no -peak_in peaks.tab -out fitted.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
         content = content.concat(' -maxround ', e.data.maxround);
+
+        /**
+         * If with_error is true, add -n_err 10 to the content
+         */
+        if (e.data.with_error === true) {
+            content = content.concat(' -n_err 10 ');
+        }
+
         /**
          * If flag is 0, add -method voigt to the content
          * else add -method gaussian
@@ -814,17 +822,27 @@ onmessage = function (e) {
         }
 
         let peaks_tab = FS.readFile('fitted.tab', { encoding: 'utf8' });
-        let peaks_json = FS.readFile('fitted.json', { encoding: 'utf8' });
         FS.unlink('fitted.tab');
-        FS.unlink('fitted.json');
+
+        /**
+         * If e.data.with_error is true, we also need to read and send back the following files:
+         * fitted_err_0.tab fitted_err_1.tab fitted_err_2.tab ... fitted_err_9.tab (because -n_err 10)
+         */
+        let fitted_err = [];
+        if (e.data.with_error === true) {
+            for (let i = 0; i < 10; i++) {
+                fitted_err.push(FS.readFile('fitted_err_'.concat(i, '.tab'), { encoding: 'utf8' }));
+                FS.unlink('fitted_err_'.concat(i, '.tab'));
+            }
+        }
 
         /**
          * Read the file recon_voigt_hsqc.ft2 
          */
         postMessage({
             webassembly_job: e.data.webassembly_job,
-            pseudo3d_fitted_peaks_json: peaks_json, 
             pseudo3d_fitted_peaks_tab: peaks_tab, //peaks_tab is a very long string with multiple lines (in nmrPipe tab format)
+            fitted_err: fitted_err,
         });
     }
 
