@@ -1606,6 +1606,8 @@ plotit.prototype.draw_peaks = function () {
  */
 plotit.prototype.allow_hover_on_peaks = function (flag) {
     let self = this;
+    let timeout_id = null;
+
     if (flag === true) {
         self.vis.selectAll('.peak').on('mouseover', function (event, d) {
             /**
@@ -1719,13 +1721,16 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
 
 
             peak_information_div.style.display = 'block';
+            clearTimeout(timeout_id); // clear the timeout if any
         })
         .on('mouseout', function () {
             /**
-             * Hide the div #peak_information_div
+             * Hide the div #peak_information_div after 5 seconds
              */
-            let peak_information_div = document.getElementById('peak_information_div');
-            peak_information_div.style.display = 'none';
+            timeout_id=setTimeout(function () {
+                let peak_information_div = document.getElementById('peak_information_div');
+                peak_information_div.style.display = 'none';
+            }, 5000);
         });
     }
     else {
