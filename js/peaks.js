@@ -779,13 +779,23 @@ class cpeaks {
         /**
          * Get total # of Z_A1, Z_A2, Z_A3 ... columns, which must == gradients.length
          */
-        let z_columns = this.column_headers.filter(header => header.startsWith('Z_A'));
+        let z_columns = this.column_headers.filter(header => header.startsWith('Z_A') && !header.endsWith('_STD'));
         if (z_columns.length !== gradients.length) {
             return {
                 message: 'Number of Z_A columns does not match the number of gradients',
                 result: false
             };
         }
+        /**
+         * If previous DOSY column exists, remove it
+         */
+        let dosy_index = this.column_headers.indexOf('DOSY');
+        if (dosy_index !== -1) {
+            this.column_headers.splice(dosy_index, 1);
+            this.column_formats.splice(dosy_index, 1);
+            this.columns.splice(dosy_index, 1);
+        }
+
         /**
          * Get a 2D array of Z_A values, each row is a peak, each column is a Z_A value. 
          * The array should be row-major, for optimal performance in the fitting function
@@ -933,6 +943,23 @@ class cpeaks {
         this.columns = this.columns.concat(new_peak.columns);
         return {
             message: 'Columns appended successfully',
+            result: true,
+        };
+    };
+
+    /**
+     * Remove all columns that are error (end with _STD)
+     */
+    remove_error_columns(){
+        let error_columns = this.column_headers.filter(header => header.endsWith('_STD'));
+        for (let i = 0; i < error_columns.length; i++) {
+            let index = this.column_headers.indexOf(error_columns[i]);
+            this.column_headers.splice(index, 1);
+            this.column_formats.splice(index, 1);
+            this.columns.splice(index, 1);
+        }
+        return {
+            message: 'Error columns removed successfully',
             result: true,
         };
     }

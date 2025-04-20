@@ -1137,6 +1137,7 @@ webassembly_worker.onmessage = function (e) {
         /**
          * Process e.data.fitted_err (array of fitted_peaks_tab) and put them into pseudo3d_fitted_peaks_error
          */
+        pseudo3d_fitted_peaks_error = []; //clear the previous fitted peaks error
         for(let i=0;i<e.data.fitted_err.length;i++)
         {
             let peaks = new cpeaks();
@@ -4121,8 +4122,10 @@ function run_dosy()
     dosy_error_est.error_estimate(pseudo3d_fitted_peaks_error,selected_columns);
 
     /**
-     * Attach the error estimation to the pseudo3d_fitted_peaks_object
+     * Attach the error estimation to the pseudo3d_fitted_peaks_object.
+     * But first, remove previous _STD columns
      */
+    pseudo3d_fitted_peaks_object.remove_error_columns();
     pseudo3d_fitted_peaks_object.append_columns(dosy_error_est);
 
     /**
