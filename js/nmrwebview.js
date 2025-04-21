@@ -4744,9 +4744,12 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             if(peaks_methods[j] !== 'constructor')
             {
                 pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
-                for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+                if(typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error !== null)
                 {
-                    pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+                    {
+                        pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    }
                 }
             }
         }

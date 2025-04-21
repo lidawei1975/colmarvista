@@ -572,6 +572,16 @@ class cpeaks {
      * An helper function to generate string from value, according to saved format string
      */
     format_value(value, format) {
+
+        if (value === null || value === undefined) {
+            if(format.includes('s')){
+                value = 'n.a.';
+            }
+            else {
+                value = 0;
+            }
+        }
+
         if (format.includes('s')) {
             return value.toString();
         }
