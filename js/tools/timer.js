@@ -94,6 +94,31 @@ function resumeTimer() {
     timerInterval = setInterval(updateTimer, 1000);
 }
 
+function getLengthOfTimeString(timeString) {
+    const regex = /(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i;
+
+    let totalSeconds = 600; // 10 minutes as default
+
+    /**
+     * If timeString contains only numbers, assume it's in seconds.
+     */
+    if (/^\d+$/.test(timeString)) {
+        totalSeconds = parseInt(timeString);
+        return totalSeconds;
+    }
+
+    const match = timeString.match(regex);
+    if (match && (match[1] || match[2] || match[3])) {
+        let hours = match[1] || 0;
+        let minutes = match[2] || 0;
+        let seconds = match[3] || 0;
+        totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds);
+    } else {
+        console.log("No match");
+    }
+    return totalSeconds;
+}
+
 $(document).ready(function () {
 
     const setButton = document.getElementById('setButton');
@@ -102,11 +127,13 @@ $(document).ready(function () {
     const durationInput = document.getElementById('durationInput');
     const redPercentInput = document.getElementById('redPercentInput');
 
-    duration = parseInt(durationInput.value);
+    duration = getLengthOfTimeString(durationInput.value);
     remainingTime = duration;
 
     setButton.addEventListener('click', () => {
-        duration = parseInt(durationInput.value);
+
+        duration = getLengthOfTimeString(durationInput.value);
+
         redPercent = parseFloat(redPercentInput.value);
         remainingTime = duration; //unit is seconds
         startTime = Date.now();
