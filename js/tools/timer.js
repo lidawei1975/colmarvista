@@ -2,7 +2,8 @@
 const canvas = document.getElementById('timerCanvas');
 
 var duration;
-var redPercent = 0.25; // turn red when the remaining time is less than 25% of the total time
+var redPercent = 0.2; // turn red when the remaining time is less than 20% of the total time
+var yellowPercent = 0.3; // turn yellow when the remaining time is less than 30% of the total time
 var remainingTime;
 
 let timerInterval;
@@ -24,8 +25,11 @@ function drawCircle() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, 2 * Math.PI);
-    if (percent > 1 - redPercent/100.0) {
+    if (percent > 1 - redPercent) {
         ctx.strokeStyle = 'red';
+    }
+    else if (percent > 1 - yellowPercent) {
+        ctx.strokeStyle = 'orange';
     }
     else {
         ctx.strokeStyle = 'steelblue';
@@ -94,6 +98,31 @@ function resumeTimer() {
     timerInterval = setInterval(updateTimer, 1000);
 }
 
+function getLengthOfTimeString(timeString) {
+    const regex = /(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i;
+
+    let totalSeconds = 600; // 10 minutes as default
+
+    /**
+     * If timeString contains only numbers, assume it's in seconds.
+     */
+    if (/^\d+$/.test(timeString)) {
+        totalSeconds = parseInt(timeString);
+        return totalSeconds;
+    }
+
+    const match = timeString.match(regex);
+    if (match && (match[1] || match[2] || match[3])) {
+        let hours = match[1] || 0;
+        let minutes = match[2] || 0;
+        let seconds = match[3] || 0;
+        totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds);
+    } else {
+        console.log("No match");
+    }
+    return totalSeconds;
+}
+
 $(document).ready(function () {
 
     const setButton = document.getElementById('setButton');
@@ -102,12 +131,15 @@ $(document).ready(function () {
     const durationInput = document.getElementById('durationInput');
     const redPercentInput = document.getElementById('redPercentInput');
 
-    duration = parseInt(durationInput.value);
+    duration = getLengthOfTimeString(durationInput.value);
     remainingTime = duration;
 
     setButton.addEventListener('click', () => {
-        duration = parseInt(durationInput.value);
-        redPercent = parseFloat(redPercentInput.value);
+
+        duration = getLengthOfTimeString(durationInput.value);
+
+        redPercent = getLengthOfTimeString(durationRed.value)/duration;
+        yellowPercent = getLengthOfTimeString(durationYellow.value)/duration;
         remainingTime = duration; //unit is seconds
         startTime = Date.now();
         paused_time_start = 0;
