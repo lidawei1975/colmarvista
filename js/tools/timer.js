@@ -2,7 +2,8 @@
 const canvas = document.getElementById('timerCanvas');
 
 var duration;
-var redPercent = 0.25; // turn red when the remaining time is less than 25% of the total time
+var redPercent = 0.2; // turn red when the remaining time is less than 20% of the total time
+var yellowPercent = 0.3; // turn yellow when the remaining time is less than 30% of the total time
 var remainingTime;
 
 let timerInterval;
@@ -24,8 +25,11 @@ function drawCircle() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, 2 * Math.PI);
-    if (percent > 1 - redPercent/100.0) {
+    if (percent > 1 - redPercent) {
         ctx.strokeStyle = 'red';
+    }
+    else if (percent > 1 - yellowPercent) {
+        ctx.strokeStyle = 'orange';
     }
     else {
         ctx.strokeStyle = 'steelblue';
@@ -134,7 +138,8 @@ $(document).ready(function () {
 
         duration = getLengthOfTimeString(durationInput.value);
 
-        redPercent = parseFloat(redPercentInput.value);
+        redPercent = getLengthOfTimeString(durationRed.value)/duration;
+        yellowPercent = getLengthOfTimeString(durationYellow.value)/duration;
         remainingTime = duration; //unit is seconds
         startTime = Date.now();
         paused_time_start = 0;
