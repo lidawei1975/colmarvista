@@ -49,6 +49,8 @@ class spectrum {
          */
         this.spectrum_origin = -4;
 
+        this.reconstructed_indices = []; //array of reconstructed spectra indices.
+
         this.spectrum_index = -1; //index of the spectrum in the hsqc_spectra array. integer and >=0
 
         /**

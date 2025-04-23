@@ -3337,12 +3337,22 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
     {
         /**
          * New spectrum from ft2, set its index (current length of the spectral array) and color
+         * It is also possible this is a reconstructed spectrum from peak fitting
          */
         spectrum_index = hsqc_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
         result_spectra[0].spectrum_color = color_list[(spectrum_index*2) % color_list.length];
         result_spectra[0].spectrum_color_negative = color_list[(spectrum_index*2+1) % color_list.length];
         hsqc_spectra.push(result_spectra[0]);
+
+        /**
+         * If result_spectra[0].spectrum_origin >=0, it means this is a reconstructed spectrum
+         * we update the original spectrum's reconstructed_indices
+         */
+        if(result_spectra[0].spectrum_origin >=0)
+        {
+            hsqc_spectra[result_spectra[0].spectrum_origin].reconstructed_indices.push(spectrum_index);
+        }
     }
     else if(b_from_fid === true && b_reprocess === false)
     {
@@ -4217,6 +4227,15 @@ function remove_spectrum(index)
     hsqc_spectra[index].header = new Float32Array();
     hsqc_spectra[index].levels = [];
     hsqc_spectra[index].negative_levels = [];
+    /**
+     * Remove this spectrum from its original spectrum's reconstructed_indices
+     */
+    if(hsqc_spectra[index].spectrum_origin >= 0)
+    {
+        let origin_index = hsqc_spectra[index].spectrum_origin;
+        hsqc_spectra[origin_index].reconstructed_indices.splice(hsqc_spectra[origin_index].reconstructed_indices.indexOf(index), 1);
+    }
+
     hsqc_spectra[index].spectrum_origin = -3; // -3 means the spectrum is removed
     hsqc_spectra[index].picked_peaks_object = null;
     hsqc_spectra[index].fitted_peaks_object = null;
