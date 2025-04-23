@@ -2032,7 +2032,7 @@ function add_to_list(index) {
     contour_color_label.innerText = "Color: ";
     let contour_color_input = document.createElement("input");
     contour_color_input.setAttribute("type", "color");
-    contour_color_input.setAttribute("value", rgbToHex(new_spectrum.spectrum_color));
+    contour_color_input.setAttribute("value", new_spectrum.spectrum_color);
     contour_color_input.setAttribute("id", "contour_color-".concat(index));
     contour_color_input.addEventListener("change", (e) => { update_contour_color(e, index, 0); });
     new_spectrum_div.appendChild(contour_color_label);
@@ -3375,8 +3375,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
             {
                 const new_spectrum_index = hsqc_spectra.length;
                 result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_color = color_list[(new_spectrum_index*2) % color_list.length];
-                result_spectra[i].spectrum_color_negative = color_list[(new_spectrum_index*2+1) % color_list.length];
+                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length];
+                result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index*2+1) % color_list.length]);
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
                 hsqc_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
                 hsqc_spectra.push(result_spectra[i]);

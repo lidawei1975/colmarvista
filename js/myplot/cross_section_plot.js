@@ -473,7 +473,7 @@ class cross_section_plot {
      * Function to add additional experimental (reconstructed) spectrum
      * @param {*} data: [ppm, real_data]
      */
-    add_data(data) {
+    add_data(data,data_color) {
 
         var self = this;
 
@@ -490,6 +490,13 @@ class cross_section_plot {
             }
         }
 
+        /**
+         * Convert data_color from [r,g,b,a] (from 0 to 1) to hex string like rgb(255, 0, 0). skip alpha value
+         */
+        if (data_color.length >= 3) {
+            data_color = "rgb(" + data_color[0]*255 + "," + data_color[1]*255 + "," + data_color[2]*255 + ")";
+        }
+
         this.data_reconstructed_array.push(this.data_reconstructed);
         let current_data_index = this.data_reconstructed_array.length - 1;
 
@@ -500,8 +507,8 @@ class cross_section_plot {
             .attr("clip-path", "url(#clip" + this.orientation + ")")
             .attr("class", "line_reconstructed_"+current_data_index.toString())
             .attr("fill", "none")
-            .style("stroke", "blue")
-            .style("stroke-width", this.exp_line_width)
+            .attr("stroke", data_color)
+            .attr("stroke-width", this.exp_line_width)
             .attr("d", this.line(self.data_reconstructed));
 
         this.redraw();

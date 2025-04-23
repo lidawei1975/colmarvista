@@ -889,7 +889,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             else
             {
                 self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
-                self.x_cross_section_plot.add_data([data_ppm, data_height]);
+                self.x_cross_section_plot.add_data([data_ppm, data_height],hsqc_spectra[spectrum_index].spectrum_color);
             }
         }
 
@@ -978,7 +978,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             else
             {
                 self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
-                self.y_cross_section_plot.add_data([data_ppm, data_height]);
+                self.y_cross_section_plot.add_data([data_ppm, data_height],hsqc_spectra[spectrum_index].spectrum_color);
             }
         }
     } //end of show cross section
@@ -1022,7 +1022,7 @@ plotit.prototype.show_projection = function () {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
             self.x_cross_section_plot.zoom(self.xscale,[hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm,hsqc_spectra[spe_index].projection_direct]);
+            self.x_cross_section_plot.add_data([ppm,hsqc_spectra[spe_index].projection_direct],hsqc_spectra[spe_index].spectrum_color);
 
 
             /**
@@ -1034,7 +1034,7 @@ plotit.prototype.show_projection = function () {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
             self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max],self.yscale);
-            self.y_cross_section_plot.add_data([ppm2,hsqc_spectra[spe_index].projection_indirect]);
+            self.y_cross_section_plot.add_data([ppm2,hsqc_spectra[spe_index].projection_indirect],hsqc_spectra[spe_index].spectrum_color);
         }
     }   
 }
