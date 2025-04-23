@@ -9,6 +9,7 @@ class cross_section_plot {
         this.original_data = []; //experimental spectrum before phase correction
         this.data_strided = []; //experimental spectrum that will be plotted at current zoom level and pan position, shallow copy of this.data
         this.parent_plot = parent_plot; //parent plot object
+        this.data_reconstructed_array = []; //reconstructed spectrum, with phase correction applied.
     }
 
     /**
@@ -453,14 +454,28 @@ class cross_section_plot {
         this.redraw();
     }
 
+    clear_data() {
+
+        this.vis.selectAll(".line_exp").remove();
+        this.vis.selectAll(".line_exp_g").remove();
+
+        this.line_exp = null;
+
+        for(let i=0;i<this.data_reconstructed_array.length;i++)
+        {
+            this.vis.selectAll(".line_reconstructed_"+i.toString()).remove();
+            this.vis.selectAll(".line_reconstructed_g_"+i.toString()).remove();
+        }
+        this.data_reconstructed_array = [];
+    }
+
     /**
      * Function to add additional experimental (reconstructed) spectrum
      * @param {*} data: [ppm, real_data]
      */
     add_data(data) {
 
-        this.vis.selectAll(".line_reconstructed").remove();
-        this.vis.selectAll(".line_reconstructed_g").remove();
+        var self = this;
 
         this.data_reconstructed = new Array(data[0].length);
 
@@ -475,13 +490,15 @@ class cross_section_plot {
             }
         }
 
-        var self = this;
+        this.data_reconstructed_array.push(this.data_reconstructed);
+        let current_data_index = this.data_reconstructed_array.length - 1;
 
-        this.line_reconstructed = this.vis.append("g")
-            .attr("class", "line_reconstructed_g")
+
+        this.vis.append("g")
+            .attr("class", "line_reconstructed_g_"+current_data_index.toString())
             .append("path")
             .attr("clip-path", "url(#clip" + this.orientation + ")")
-            .attr("class", "line_reconstructed")
+            .attr("class", "line_reconstructed_"+current_data_index.toString())
             .attr("fill", "none")
             .style("stroke", "blue")
             .style("stroke-width", this.exp_line_width)
@@ -640,8 +657,11 @@ class cross_section_plot {
         if (this.line_exp) {
             this.line_exp.attr("d", this.line(this.data)).style("stroke-width", self.exp_line_width);
         }
-        if (this.line_reconstructed) {
-            this.line_reconstructed.attr("d", this.line(this.data_reconstructed)).style("stroke-width", self.exp_line_width);
+        if (this.data_reconstructed_array.length > 0)
+        {
+            for (var i = 0; i < this.data_reconstructed_array.length; i++){
+                this.vis.selectAll(".line_reconstructed_"+i.toString()).attr("d", this.line(this.data_reconstructed_array[i])).style("stroke-width", self.exp_line_width);
+            }
         }
         this.Axis_element.call(this.Axis);
 

@@ -740,6 +740,20 @@ $(document).ready(function () {
         let magnifying_glass_ratio = parseFloat(document.getElementById("magnifying_glass_ratio").value);
         main_plot.enable_magnifying_glass(true,magnifying_glass_ratio,magnifying_glass_size);
     }
+
+    /**
+     * Add event listener for radio group "select_plot_1d"
+     */
+    document.querySelectorAll('input[name="select_plot_1d"]').forEach(function (elem) {
+        elem.addEventListener('change', function (event) {
+            if (event.target.value === 'projection') {
+                show_projection();
+            }
+            else if (event.target.value === 'cross_section') {
+                show_cross_section();
+            }
+        });
+    });
 });
 
 
@@ -1627,37 +1641,7 @@ function add_to_list(index) {
         ref_indirect_input.setAttribute("value", "0.0");
         ref_indirect_input.onblur = function () { adjust_ref(index, 1); };
         new_spectrum_div.appendChild(ref_indirect_label);
-        new_spectrum_div.appendChild(ref_indirect_input);
-
-
-        /**
-         * Add 3 radio buttons to select:
-         * 1. show cross section
-         * 2. show projection (default, checked)
-         * and a new line
-         */
-        let show_cross_section_radio = document.createElement("input");
-        show_cross_section_radio.setAttribute("type", "radio");
-        show_cross_section_radio.setAttribute("id", "show_cross_section-".concat(index));   
-        show_cross_section_radio.setAttribute("name", "show-".concat(index));
-        show_cross_section_radio.onclick = function () { show_cross_section(index); };
-        let show_cross_section_label = document.createElement("label");
-        show_cross_section_label.setAttribute("for", "show_cross_section-".concat(index));
-        show_cross_section_label.innerText = " Cross section ";
-        new_spectrum_div.appendChild(show_cross_section_radio);
-        new_spectrum_div.appendChild(show_cross_section_label);
-
-        let show_projection_radio = document.createElement("input");
-        show_projection_radio.setAttribute("type", "radio");
-        show_projection_radio.setAttribute("id", "show_projection-".concat(index));
-        show_projection_radio.setAttribute("name", "show-".concat(index));
-        show_projection_radio.checked = true;
-        show_projection_radio.onclick = function () { show_projection(index); };
-        let show_projection_label = document.createElement("label");
-        show_projection_label.setAttribute("for", "show_projection-".concat(index));
-        show_projection_label.innerText = " Projection ";
-        new_spectrum_div.appendChild(show_projection_radio);
-        new_spectrum_div.appendChild(show_projection_label);
+        new_spectrum_div.appendChild(ref_indirect_input); 
     }
 
 
@@ -2256,7 +2240,7 @@ function add_to_list(index) {
         /**
          * For experimental spectrum, switch default to show projection
          */
-        show_projection(index);
+        show_projection();
     }
 }
 
@@ -2706,64 +2690,17 @@ function init_plot(input) {
 
 };
 
-function show_cross_section(index) {
-    uncheck_all_1d_except(index);
-    main_plot.current_spectral_index = index;
+function show_cross_section() {
     main_plot.b_show_cross_section = true;
     main_plot.b_show_projection = false;
-    /**
-     * when showing cross section and image data of hsqc_spectra[index] is not null
-     * and  current spectrum is from a ft2 file
-     * Enable button_apply_ps button
-     */
-    if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
-    {
-        document.getElementById("automatic_pc").disabled = false;
-        document.getElementById("button_apply_ps").disabled = false;
-    }
-    else
-    {
-        document.getElementById("button_apply_ps").disabled = true;
-        document.getElementById("automatic_pc").disabled = true;
-    }
-
 }
 
-function show_projection(index) {
-    uncheck_all_1d_except(index);
-    main_plot.current_spectral_index = index;
+function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
     main_plot.show_projection();
     document.getElementById("button_apply_ps").disabled = true;
     document.getElementById("automatic_pc").disabled = true;
-}
-
-function uncheck_all_1d_except(index) {
-
-    /**
-     * It is possible hsqc_spectra.length > main_plot.levels_length.length
-     * (main_plot.levels_length.length === total # of all "spectrum-".concat(i) HTML elements)
-     */
-    let total_number_of_spectra = hsqc_spectra.length;
-    if(main_plot.levels_length.length < total_number_of_spectra)
-    {
-        total_number_of_spectra = main_plot.levels_length.length;
-    }
-
-    for(let i=0;i<total_number_of_spectra;i++)
-    {   
-        /**
-         * Only if this is not the current spectrum and
-         * this is NOT a reconstructed spectrum or removed spectrum
-         * we uncheck the checkbox
-         */
-        if(i!==index && (hsqc_spectra[i].spectrum_origin ==-2 || hsqc_spectra[i].spectrum_origin ==-1 || hsqc_spectra[i].spectrum_origin >= 10000)) {
-            document.getElementById("show_cross_section".concat("-").concat(i)).checked = false;
-            document.getElementById("show_projection".concat("-").concat(i)).checked = false;
-            document.getElementById("spectrum-".concat(i)).style.backgroundColor = "white";
-        }
-    }
 }
 
 
@@ -4566,9 +4503,6 @@ function reprocess_spectrum(self,spectrum_index)
         /**
          * Switch to cross section mode for current spectrum by simulating a click event
          */
-        document.getElementById("show_cross_section".concat("-").concat(spectrum_index)).click();
-        // document.getElementById("show_cross_section".concat("-").concat(spectrum_index)).checked = true;
-        // document.getElementById("show_projection".concat("-").concat(spectrum_index)).checked = false;
         current_reprocess_spectrum_index = spectrum_index;
 
 

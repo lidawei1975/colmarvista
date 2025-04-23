@@ -45,7 +45,7 @@ class spectrum {
          * -2: experimental spectrum from fid, 
          * -1: experimental spectrum uploaded,  
          * n(n>=0 and n<10000): reconstructed from experimental spectrum n
-         * n(n>=10000): pseudo 3D spectrum, whose first plane spectrum is n-1000
+         * n(n>=10000): pseudo 3D spectrum, whose first plane spectrum is n-10000
          */
         this.spectrum_origin = -4;
 
