@@ -744,7 +744,15 @@ plotit.prototype.setup_cross_line = function (event)
         });
     }
     self.setup_cross_line_from_ppm_p1(x_ppm, y_ppm,self.current_spectral_index);
-    self.setup_cross_line_from_ppm(x_ppm, y_ppm,self.current_spectral_index);
+    self.setup_cross_line_from_ppm(x_ppm, y_ppm,self.current_spectral_index,0);
+    /**
+     * Add lines for 1st reconstructed spectrum
+     */
+    if(hsqc_spectra[self.current_spectral_index].reconstructed_indices.length > 0) {
+        for(let i=0;i<hsqc_spectra[self.current_spectral_index].reconstructed_indices.length;i++) {
+            self.setup_cross_line_from_ppm(x_ppm, y_ppm,hsqc_spectra[self.current_spectral_index].reconstructed_indices[i],1);
+        }
+    }
 }
 
 plotit.prototype.setup_cross_line_from_ppm_p1 = function (x_ppm, y_ppm, spectrum_index)
@@ -789,7 +797,7 @@ plotit.prototype.setup_cross_line_from_ppm_p1 = function (x_ppm, y_ppm, spectrum
     self.vline_ppm = x_ppm;
 }
 
-plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index)
+plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_additional_line)
 {
     let self = this;
 
@@ -862,9 +870,15 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             /**
              * Draw cross section line plot on the cross_section_svg_x
              */
-            self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
-            self.x_cross_section_plot.update_data([hsqc_spectra[spectrum_index].x_ppm_start + hsqc_spectra[spectrum_index].x_ppm_ref, hsqc_spectra[spectrum_index].x_ppm_step, hsqc_spectra[spectrum_index].n_direct],
-                [data_ppm, data_height, data_height_i]);
+            if(flag_additional_line == 0) {
+                self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
+                self.x_cross_section_plot.update_data([hsqc_spectra[spectrum_index].x_ppm_start + hsqc_spectra[spectrum_index].x_ppm_ref, hsqc_spectra[spectrum_index].x_ppm_step, hsqc_spectra[spectrum_index].n_direct],
+                    [data_ppm, data_height, data_height_i]);
+            }
+            else
+            {
+                self.x_cross_section_plot.add_data([data_ppm, data_height]);
+            }
         }
 
         /**
@@ -944,9 +958,16 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             /**
              * Draw cross section line plot on the cross_section_svg_y
              */
-            self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
-            self.y_cross_section_plot.update_data([hsqc_spectra[spectrum_index].y_ppm_start + hsqc_spectra[spectrum_index].y_ppm_ref, hsqc_spectra[spectrum_index].y_ppm_step, hsqc_spectra[spectrum_index].n_indirect],
-                [data_ppm, data_height, data_height_i]);
+            if(flag_additional_line ==0)
+            {
+                self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
+                self.y_cross_section_plot.update_data([hsqc_spectra[spectrum_index].y_ppm_start + hsqc_spectra[spectrum_index].y_ppm_ref, hsqc_spectra[spectrum_index].y_ppm_step, hsqc_spectra[spectrum_index].n_indirect],
+                    [data_ppm, data_height, data_height_i]);
+            }
+            else
+            {
+                self.y_cross_section_plot.add_data([data_ppm, data_height]);
+            }
         }
     } //end of show cross section
 } //end of cross section
