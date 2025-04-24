@@ -1632,18 +1632,7 @@ function add_to_list(index) {
             /**
              * Un-highlight the current spectrum in the list
              */
-            if(main_plot.current_spectral_index>=0 && main_plot.current_spectral_index < hsqc_spectra.length)
-            {
-                let current_spectrum_div0 = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
-                if (current_spectrum_div0) {
-                    current_spectrum_div0.querySelector("div").style.backgroundColor = "white";
-                }
-            }
-            main_plot.current_spectral_index = index;
-            /**
-             * Highlight the current spectrum in the list
-             */
-            document.getElementById("spectrum-".concat(main_plot.current_spectral_index)).querySelector("div").style.backgroundColor = "lightblue";
+            set_current_spectrum(index);
             /**
              * If this new spectrum has no imaginary part, disable auto phase correction button
              */
@@ -3961,7 +3950,9 @@ function show_hide_peaks(index,flag,b_show)
         document.getElementById("show_pseudo3d_peaks").checked = false;
     }
 
-
+    /**
+     * -2 means pseudo 3D peaks
+     */
     if(index==-2 && b_show)
     {
         current_spectrum_index_of_peaks = index;
@@ -4042,6 +4033,7 @@ function show_hide_peaks(index,flag,b_show)
     else if(b_show)
     {
         current_spectrum_index_of_peaks = index;
+        set_current_spectrum(index);
         current_flag_of_peaks = flag;
         show_peak_table();
 
@@ -4571,11 +4563,7 @@ function reprocess_spectrum(self,spectrum_index)
          * Switch to cross section mode for current spectrum by simulating a click event
          */
         current_reprocess_spectrum_index = spectrum_index;
-        if(main_plot.current_spectral_index !== spectrum_index)
-        {
-            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
-            main_plot.current_spectral_index = spectrum_index;
-        }
+        set_current_spectrum(spectrum_index);
 
 
         /**
@@ -5057,3 +5045,13 @@ function search_peak()
     }
 };
 
+function set_current_spectrum(spectrum_index)
+{
+    if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+        if (main_plot.current_spectral_index !== spectrum_index) {
+            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+        }
+    }
+    main_plot.current_spectral_index = spectrum_index;
+    document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+}
