@@ -1604,7 +1604,47 @@ function add_to_list(index) {
          * The new DIV will have the following children:
          * A original index (which is different from the index in the list, because of the order change by drag and drop)
          */
-        new_spectrum_div.appendChild(document.createTextNode("Original index: ".concat(index.toString(), ", ")));
+        let span_for_index = document.createElement("span");
+        let original_index_node = document.createTextNode("Original index: ".concat(index.toString(), ", "));
+        span_for_index.appendChild(original_index_node);
+        new_spectrum_div.appendChild(span_for_index);
+        /**
+         * make this one the default selected spectrum
+         */
+        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+
+            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+            if (current_spectrum_div) {
+                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+            }
+        }
+        main_plot.current_spectral_index = index;
+        /**
+         * Highlight the current spectrum in the list
+         */
+        new_spectrum_div.style.backgroundColor = "lightblue";
+        
+
+        /**
+         * Add a onclick function to the new spectrum div to set the current spectrum index
+         */
+        span_for_index.onclick = function () {
+            /**
+             * Un-highlight the current spectrum in the list
+             */
+            if(main_plot.current_spectral_index>=0 && main_plot.current_spectral_index < hsqc_spectra.length)
+            {
+                let current_spectrum_div0 = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+                if (current_spectrum_div0) {
+                    current_spectrum_div0.querySelector("div").style.backgroundColor = "white";
+                }
+            }
+            main_plot.current_spectral_index = index;
+            /**
+             * Highlight the current spectrum in the list
+             */
+            document.getElementById("spectrum-".concat(main_plot.current_spectral_index)).querySelector("div").style.backgroundColor = "lightblue";
+        }
         /**
          * Add filename as a text node
          */

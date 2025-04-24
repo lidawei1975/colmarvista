@@ -441,7 +441,7 @@ class cross_section_plot {
      * @param {*} data0 
      * @param {*} ppm 
      */
-    update_data0(data0,ppm) {
+    update_ppm(data0,ppm,index) {
 
         this.ppm_start = data0[0];
         this.ppm_step = data0[1];
@@ -449,7 +449,7 @@ class cross_section_plot {
 
         for(let i=0;i<this.data.length;i++)
         {
-            this.data[i][0] = ppm[i];
+            this.data_reconstructed_array[index][i][0] = ppm[i];
         }
         this.redraw();
     }
