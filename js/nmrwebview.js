@@ -2733,11 +2733,20 @@ function init_plot(input) {
 function show_cross_section() {
     main_plot.b_show_cross_section = true;
     main_plot.b_show_projection = false;
+    /**
+     * If current spectrum has imaginary part, we will enable automatic phase correction
+     */
+    const index = main_plot.current_spectral_index;
+    if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
+    {
+        document.getElementById("automatic_pc").disabled = false;
+    }
 }
 
 function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
+    document.getElementById("automatic_pc").disabled = true;
     main_plot.show_projection();
 }
 
