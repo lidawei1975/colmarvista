@@ -1644,6 +1644,17 @@ function add_to_list(index) {
              * Highlight the current spectrum in the list
              */
             document.getElementById("spectrum-".concat(main_plot.current_spectral_index)).querySelector("div").style.backgroundColor = "lightblue";
+            /**
+             * If this new spectrum has no imaginary part, disable auto phase correction button
+             */
+            if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
+            {
+                document.getElementById("automatic_pc").disabled = false;
+            }
+            else
+            {
+                document.getElementById("automatic_pc").disabled = true;
+            }
         }
         /**
          * Add filename as a text node
@@ -2740,6 +2751,14 @@ function show_cross_section() {
     if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
     {
         document.getElementById("automatic_pc").disabled = false;
+        /**
+         * If there is only one spectrum, we will also enable apply phase correction,
+         * because we allow manual phase correction in this case.
+         */
+        if(hsqc_spectra.length === 1)
+        {
+            document.getElementById("button_apply_ps").disabled = false;
+        }
     }
 }
 
@@ -2747,6 +2766,7 @@ function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
     document.getElementById("automatic_pc").disabled = true;
+    document.getElementById("button_apply_ps").disabled = true;
     main_plot.show_projection();
 }
 

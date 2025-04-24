@@ -785,7 +785,7 @@ plotit.prototype.setup_cross_line = function (event)
     /**
      * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
      */
-    if(self.b_show_cross_section && (hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && current_reprocess_spectrum_index == self.current_spectral_index)
+    if(self.b_show_cross_section && (hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && ( current_reprocess_spectrum_index == self.current_spectral_index || hsqc_spectra.length==1))
     {
         self.setup_cross_line_from_ppm(x_ppm, y_ppm,self.current_spectral_index,1/**flag for phase correction */);
     }
