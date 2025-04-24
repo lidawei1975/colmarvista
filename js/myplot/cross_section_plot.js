@@ -491,10 +491,14 @@ class cross_section_plot {
         }
 
         /**
-         * Convert data_color from [r,g,b,a] (from 0 to 1) to hex string like rgb(255, 0, 0). skip alpha value
+         * Convert data_color from hex string '#435F77' to a string like rgb(255, 0, 0). skip alpha value
          */
-        if (data_color.length >= 3) {
-            data_color = "rgb(" + data_color[0]*255 + "," + data_color[1]*255 + "," + data_color[2]*255 + ")";
+        if (data_color[0] === '#') {
+            data_color = data_color.substring(1);
+            var r = parseInt(data_color.substring(0, 2), 16);
+            var g = parseInt(data_color.substring(2, 4), 16);
+            var b = parseInt(data_color.substring(4, 6), 16);
+            data_color = "rgb(" + r + "," + g + "," + b + ")";
         }
 
         this.data_reconstructed_array.push(this.data_reconstructed);

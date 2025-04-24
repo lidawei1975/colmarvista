@@ -2187,7 +2187,7 @@ function add_to_list(index) {
     contour_color_label_negative.innerText = "Color: ";
     let contour_color_input_negative = document.createElement("input");
     contour_color_input_negative.setAttribute("type", "color");
-    contour_color_input_negative.setAttribute("value", rgbToHex(new_spectrum.spectrum_color_negative));
+    contour_color_input_negative.setAttribute("value", new_spectrum.spectrum_color_negative);
     contour_color_input_negative.setAttribute("id", "contour_color_negative-".concat(index));
     contour_color_input_negative.addEventListener("change", (e) => { update_contour_color(e, index, 1); });
     new_spectrum_div.appendChild(contour_color_label_negative);
@@ -2284,7 +2284,7 @@ my_contour_worker.onmessage = (e) => {
              */
             main_plot.levels_length.push(e.data.levels_length);
             main_plot.polygon_length.push(e.data.polygon_length);
-            main_plot.colors.push(hsqc_spectra[e.data.spectrum_index].spectrum_color);
+            main_plot.colors.push(hexToRgb(hsqc_spectra[e.data.spectrum_index].spectrum_color));
 
             /**
              * Default contour level is 0, when total_number_of_experimental_spectra <=5
@@ -2344,7 +2344,7 @@ my_contour_worker.onmessage = (e) => {
              */
             main_plot.levels_length_negative.push(e.data.levels_length);
             main_plot.polygon_length_negative.push(e.data.polygon_length);
-            main_plot.colors_negative.push(hsqc_spectra[e.data.spectrum_index].spectrum_color_negative);
+            main_plot.colors_negative.push(hexToRgb(hsqc_spectra[e.data.spectrum_index].spectrum_color_negative));
 
             if(total_number_of_experimental_spectra <= 4){
                 main_plot.contour_lbs_negative.push(0);
@@ -3278,8 +3278,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          */
         spectrum_index = hsqc_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
-        result_spectra[0].spectrum_color = color_list[(spectrum_index*2) % color_list.length];
-        result_spectra[0].spectrum_color_negative = color_list[(spectrum_index*2+1) % color_list.length];
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
+        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
         hsqc_spectra.push(result_spectra[0]);
 
         /**
@@ -3301,8 +3301,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
         for(let i=0;i<result_spectra.length;i++)
         {
             result_spectra[i].spectrum_index = hsqc_spectra.length;
-            result_spectra[i].spectrum_color = color_list[(result_spectra[i].spectrum_index*2) % color_list.length];
-            result_spectra[i].spectrum_color_negative = color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length];
+            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index*2) % color_list.length]);
+            result_spectra[i].spectrum_color_negative =  rgbToHex(color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length]);
 
             /**
              * For spectrum from fid, we need to include all FID files and processing parameters in the result_spectra object
@@ -3330,8 +3330,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          */
         spectrum_index = result_spectra[0].spectrum_index;
         result_spectra[0].fid_process_parameters = fid_process_parameters;
-        result_spectra[0].spectrum_color = color_list[(spectrum_index*2) % color_list.length];
-        result_spectra[0].spectrum_color_negative = color_list[(spectrum_index*2+1) % color_list.length];
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
+        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
         hsqc_spectra[spectrum_index] = result_spectra[0];
 
         /**
@@ -3375,7 +3375,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
             {
                 const new_spectrum_index = hsqc_spectra.length;
                 result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length];
+                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length]);
                 result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index*2+1) % color_list.length]);
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
                 hsqc_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
