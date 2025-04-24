@@ -2739,8 +2739,6 @@ function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
     main_plot.show_projection();
-    document.getElementById("button_apply_ps").disabled = true;
-    document.getElementById("automatic_pc").disabled = true;
 }
 
 
@@ -4521,7 +4519,7 @@ function reprocess_spectrum(self,spectrum_index)
         /**
          * Set hsqc_spectra[spectrum_index] as the current spectrum
          */
-        document.getElementById("spectrum-" + spectrum_index).style.backgroundColor = "lightblue";
+        document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
         document.getElementById("input_options").style.backgroundColor = "lightblue";
         /**
          * Change button text to "Quit reprocessing"
@@ -4544,6 +4542,11 @@ function reprocess_spectrum(self,spectrum_index)
          * Switch to cross section mode for current spectrum by simulating a click event
          */
         current_reprocess_spectrum_index = spectrum_index;
+        if(main_plot.current_spectral_index !== spectrum_index)
+        {
+            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+            main_plot.current_spectral_index = spectrum_index;
+        }
 
 
         /**

@@ -529,9 +529,11 @@ class cross_section_plot {
         /**
          * Remove old experimental spectrum, including "g" element and "path" element
          */
-        this.vis.selectAll(".line_exp").remove();
-        this.vis.selectAll(".line_exp_g").remove();
+        this.clear_data();
 
+        /**
+         * These are required for phase correction
+         */
         this.ppm_start = data0[0];
         this.ppm_step = data0[1];
         this.ppm_size = data0[2];

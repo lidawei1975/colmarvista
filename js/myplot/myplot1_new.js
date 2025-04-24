@@ -785,7 +785,7 @@ plotit.prototype.setup_cross_line = function (event)
     /**
      * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
      */
-    if((hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && current_reprocess_spectrum_index == self.current_spectral_index)
+    if(self.b_show_cross_section && (hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && current_reprocess_spectrum_index == self.current_spectral_index)
     {
         self.setup_cross_line_from_ppm(x_ppm, y_ppm,self.current_spectral_index,1/**flag for phase correction */);
     }
@@ -793,7 +793,7 @@ plotit.prototype.setup_cross_line = function (event)
      * else, show cross section of all spectra (except removed spectra)
      * Loop through all spectra and show cross section
      */
-    else
+    else if(self.b_show_cross_section)
     {
         this.x_cross_section_plot.clear_data();  
         this.y_cross_section_plot.clear_data(); 
@@ -1090,7 +1090,7 @@ plotit.prototype.update_cross_section = function (spe_index,flag) {
             {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],ppm2,spe_index);
+            this.y_cross_section_plot.update_ppmselect_plot_1d([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],ppm2,spe_index);
         }
     }
 };
