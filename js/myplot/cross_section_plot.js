@@ -10,6 +10,7 @@ class cross_section_plot {
         this.data_strided = []; //experimental spectrum that will be plotted at current zoom level and pan position, shallow copy of this.data
         this.parent_plot = parent_plot; //parent plot object
         this.data_reconstructed_array = []; //reconstructed spectrum, with phase correction applied.
+        this.data_reconstructed_spectra_indices = []; //reconstructed spectrum's index in the hsqc_spectra array
     }
 
     /**
@@ -467,6 +468,7 @@ class cross_section_plot {
             this.vis.selectAll(".line_reconstructed_g_"+i.toString()).remove();
         }
         this.data_reconstructed_array = [];
+        this.data_reconstructed_spectra_indices = [];
     }
 
     /**
@@ -504,6 +506,7 @@ class cross_section_plot {
         }
 
         this.data_reconstructed_array.push(this.data_reconstructed);
+        this.data_reconstructed_spectra_indices.push(spectrum_index);
         let current_data_index = this.data_reconstructed_array.length - 1;
 
 
@@ -681,9 +684,9 @@ class cross_section_plot {
             for (var i = 0; i < this.data_reconstructed_array.length; i++){
                 this.vis.selectAll(".line_reconstructed_"+i.toString())
                     .attr("d", this.line(this.data_reconstructed_array[i]))
-                    .style("stroke", hsqc_spectra[i].spectrum_color)
+                    .style("stroke", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].spectrum_color)
                     .style("stroke-width", self.exp_line_width)
-                    .style("display", hsqc_spectra[i].visible ? "block" : "none");
+                    .style("display", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].visible ? "block" : "none");
             }
         }
         this.Axis_element.call(this.Axis);

@@ -4268,6 +4268,7 @@ function remove_spectrum(index)
     }
 
     hsqc_spectra[index].spectrum_origin = -3; // -3 means the spectrum is removed
+    hsqc_spectra[index].visible = false; // set visible to false
     hsqc_spectra[index].picked_peaks_object = null;
     hsqc_spectra[index].fitted_peaks_object = null;
 
