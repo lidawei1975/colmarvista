@@ -473,7 +473,9 @@ class cross_section_plot {
      * Function to add additional experimental (reconstructed) spectrum
      * @param {*} data: [ppm, real_data]
      */
-    add_data(data,data_color) {
+    add_data(data,spectrum_index) {
+
+        let data_color = hsqc_spectra[spectrum_index].spectrum_color;
 
         var self = this;
 
@@ -512,6 +514,10 @@ class cross_section_plot {
             .attr("class", "line_reconstructed_"+current_data_index.toString())
             .attr("fill", "none")
             .attr("stroke", data_color)
+            /**
+             * set style.display to "none" to hide the line if hsqc_spectra[spectrum_index].visible is false
+             */
+            .style("display", hsqc_spectra[spectrum_index].visible ? "block" : "none")
             .attr("stroke-width", this.exp_line_width)
             .attr("d", this.line(self.data_reconstructed));
 
@@ -673,7 +679,11 @@ class cross_section_plot {
         if (this.data_reconstructed_array.length > 0)
         {
             for (var i = 0; i < this.data_reconstructed_array.length; i++){
-                this.vis.selectAll(".line_reconstructed_"+i.toString()).attr("d", this.line(this.data_reconstructed_array[i])).style("stroke-width", self.exp_line_width);
+                this.vis.selectAll(".line_reconstructed_"+i.toString())
+                    .attr("d", this.line(this.data_reconstructed_array[i]))
+                    .style("stroke", hsqc_spectra[i].spectrum_color)
+                    .style("stroke-width", self.exp_line_width)
+                    .style("display", hsqc_spectra[i].visible ? "block" : "none");
             }
         }
         this.Axis_element.call(this.Axis);

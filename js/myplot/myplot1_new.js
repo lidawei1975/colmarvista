@@ -889,7 +889,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             else
             {
                 self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
-                self.x_cross_section_plot.add_data([data_ppm, data_height],hsqc_spectra[spectrum_index].spectrum_color);
+                self.x_cross_section_plot.add_data([data_ppm, data_height],spectrum_index);
             }
         }
 
@@ -978,7 +978,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             else
             {
                 self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
-                self.y_cross_section_plot.add_data([data_ppm, data_height],hsqc_spectra[spectrum_index].spectrum_color);
+                self.y_cross_section_plot.add_data([data_ppm, data_height],spectrum_index);
             }
         }
     } //end of show cross section
@@ -1022,7 +1022,7 @@ plotit.prototype.show_projection = function () {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
             self.x_cross_section_plot.zoom(self.xscale,[hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm,hsqc_spectra[spe_index].projection_direct],hsqc_spectra[spe_index].spectrum_color);
+            self.x_cross_section_plot.add_data([ppm,hsqc_spectra[spe_index].projection_direct],spe_index);
 
 
             /**
@@ -1034,9 +1034,21 @@ plotit.prototype.show_projection = function () {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
             self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max],self.yscale);
-            self.y_cross_section_plot.add_data([ppm2,hsqc_spectra[spe_index].projection_indirect],hsqc_spectra[spe_index].spectrum_color);
+            self.y_cross_section_plot.add_data([ppm2,hsqc_spectra[spe_index].projection_indirect],spe_index);
         }
     }   
+}
+
+plotit.prototype.redraw_1d = function()
+{
+    if(this.x_cross_section_plot !== null)
+    {
+        this.x_cross_section_plot.redraw();
+    }
+    if(this.y_cross_section_plot !== null)
+    {
+        this.y_cross_section_plot.redraw();
+    }
 }
 
 plotit.prototype.redraw_contour = function ()
@@ -1090,7 +1102,7 @@ plotit.prototype.update_cross_section = function (spe_index,flag) {
             {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            this.y_cross_section_plot.update_ppmselect_plot_1d([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],ppm2,spe_index);
+            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],ppm2,spe_index);
         }
     }
 };

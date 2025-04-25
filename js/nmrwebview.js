@@ -1504,9 +1504,6 @@ function minimize_spectrum(button,index)
                 hsqc_spectra[i].visible = false;
             }
         }
-
-
-        main_plot.redraw_contour();
     }
     else
     {
@@ -1524,9 +1521,9 @@ function minimize_spectrum(button,index)
                 hsqc_spectra[i].visible = true;
             }
         }
-        main_plot.redraw_contour();
     }
-
+    main_plot.redraw_contour();
+    main_plot.redraw_1d();
 }
 
 /**
@@ -3185,6 +3182,7 @@ function update_contour_color(e,index,flag) {
      */
     
     main_plot.redraw_contour();
+    main_plot.redraw_1d();
 }
 
 
