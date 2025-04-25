@@ -770,9 +770,20 @@ onmessage = function (e) {
         /**
          * Write a file named "arguments_pseudo_3D.txt" to the virtual file system
          * save -noise_level, -scale and -scale2
+         * "-recon yes -folder . " means save recon files in the current folder
          */
-        let content = ' -v 0 -recon no -peak_in peaks.tab -out fitted.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
+        let content = ' -v 0 -peak_in peaks.tab -out fitted.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
         content = content.concat(' -maxround ', e.data.maxround);
+
+        /**
+         * If with_recon is true, add -recon yes to the content
+         */
+        if (e.data.with_recon === true) {
+            content = content.concat(' -recon yes -recon yes -folder . ');
+        }
+        else {
+            content = content.concat(' -recon no ');
+        }
 
         /**
          * If with_error is true, add -n_err 10 to the content
@@ -837,12 +848,38 @@ onmessage = function (e) {
         }
 
         /**
+         * Read all recon files and send them back to the main script
+         */
+        let recon_files = [];
+        if (e.data.with_recon === true) 
+        {   
+            /**
+             * Recon file name depends on the flag
+             */
+            let recon_file_name_part;
+            if (e.data.flag === 0) {
+                recon_file_name_part = 'voigt_test';
+            }
+            else {
+                recon_file_name_part = 'gaussian_test';
+            }
+
+            for (let i = 0; i < e.data.all_files.length; i++) {
+                recon_files.push(FS.readFile('recon_'.concat(recon_file_name_part,i + 1, '.ft2'), { encoding: 'binary' }));
+                FS.unlink('recon_'.concat(recon_file_name_part,i + 1, '.ft2'));
+                FS.unlink('diff_'.concat(recon_file_name_part,i + 1, '.ft2'));
+            }
+        }
+
+        /**
          * Read the file recon_voigt_hsqc.ft2 
          */
         postMessage({
             webassembly_job: e.data.webassembly_job,
             pseudo3d_fitted_peaks_tab: peaks_tab, //peaks_tab is a very long string with multiple lines (in nmrPipe tab format)
             fitted_err: fitted_err,
+            recon_files: recon_files, //recon_files is a list of binary files. empty if with_recon is false
+            all_spectra_indices: e.data.all_spectra_indices, //pass through the all_spectra_indices
         });
     }
 

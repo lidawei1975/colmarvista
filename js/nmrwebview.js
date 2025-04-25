@@ -788,6 +788,10 @@ function run_pseudo3d(flag) {
      * Get input checkbox "with_error" checked: true or false
      */
     let with_error = document.getElementById("with_error").checked;
+    /**
+     * Get input checkbox "with_recon" checked: true or false
+     */
+    let with_recon = document.getElementById("with_recon").checked;
 
     /**
      * Check all spectra, collect the ones that are experimental
@@ -796,6 +800,7 @@ function run_pseudo3d(flag) {
      * Convert to Uint8Array to be transferred to the worker: let data_uint8 = new Uint8Array(data.buffer);
      */
     let all_files = [];
+    let all_spectra_indices = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (hsqc_spectra[i].spectrum_origin === -1 || hsqc_spectra[i].spectrum_origin === -2 || hsqc_spectra[i].spectrum_origin>=10000) {
             let data = new Float32Array(hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length);
@@ -813,6 +818,7 @@ function run_pseudo3d(flag) {
             data.set(hsqc_spectra[i].raw_data, hsqc_spectra[i].header.length);
             let data_uint8 = new Uint8Array(data.buffer);
             all_files.push(data_uint8);
+            all_spectra_indices.push(i);
         }
     }
 
@@ -834,12 +840,14 @@ function run_pseudo3d(flag) {
         webassembly_job: "pseudo3d_fitting",
         initial_peaks: initial_peaks,
         all_files: all_files,
+        all_spectra_indices: all_spectra_indices, //indices of the spectra in hsqc_spectra
         noise_level: hsqc_spectra[current_spectrum_index_of_peaks].noise_level,
         scale: hsqc_spectra[current_spectrum_index_of_peaks].scale,
         scale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
         flag: flag, //0: voigt, 1: Gaussian
         maxround: max_round,
         with_error: with_error,
+        with_recon: with_recon,
     });
 }
 
@@ -1185,6 +1193,35 @@ webassembly_worker.onmessage = function (e) {
          */
         document.getElementById("show_pseudo3d_peaks").checked = false;
         document.getElementById("show_pseudo3d_peaks").click();
+
+        /**
+         * Process all reconstructed spectra.
+         * e.data.recon_files is empty if no with_recon is selected when running pseudo 3D fitting
+         */
+        for(let i=0;i<e.data.recon_files.length;i++)
+        {
+            let arrayBuffer = new Uint8Array(e.data.recon_files[i]).buffer;
+            let result_spectrum_name = "pseudo3d-recon-".concat((i).toString(),".ft2");
+            let result_spectrum = new spectrum();
+            result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.all_spectra_indices[i]);
+            
+            result_spectrum.scale = e.data.scale;
+            result_spectrum.scale2 = e.data.scale2;
+
+            /**
+             * Replace its header with the header of the original spectrum
+             * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
+             */
+            result_spectrum.header = hsqc_spectra[e.data.all_spectra_indices[i]].header;
+            result_spectrum.noise_level = hsqc_spectra[e.data.all_spectra_indices[i]].noise_level;
+            result_spectrum.levels = hsqc_spectra[e.data.all_spectra_indices[i]].levels;
+            result_spectrum.negative_levels = hsqc_spectra[e.data.all_spectra_indices[i]].negative_levels;
+            result_spectrum.spectral_max = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_max;
+            result_spectrum.spectral_min = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_min;
+
+            draw_spectrum([result_spectrum],false/**from fid */,false/**re-process of fid or ft2 */);
+        }
+
 
         /**
          * Clear the processing message
