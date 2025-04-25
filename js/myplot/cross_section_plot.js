@@ -9,6 +9,8 @@ class cross_section_plot {
         this.original_data = []; //experimental spectrum before phase correction
         this.data_strided = []; //experimental spectrum that will be plotted at current zoom level and pan position, shallow copy of this.data
         this.parent_plot = parent_plot; //parent plot object
+        this.data_reconstructed_array = []; //reconstructed spectrum, with phase correction applied.
+        this.data_reconstructed_spectra_indices = []; //reconstructed spectrum's index in the hsqc_spectra array
     }
 
     /**
@@ -440,7 +442,7 @@ class cross_section_plot {
      * @param {*} data0 
      * @param {*} ppm 
      */
-    update_data0(data0,ppm) {
+    update_ppm(data0,ppm,index) {
 
         this.ppm_start = data0[0];
         this.ppm_step = data0[1];
@@ -448,10 +450,84 @@ class cross_section_plot {
 
         for(let i=0;i<this.data.length;i++)
         {
-            this.data[i][0] = ppm[i];
+            this.data_reconstructed_array[index][i][0] = ppm[i];
         }
         this.redraw();
     }
+
+    clear_data() {
+
+        this.vis.selectAll(".line_exp").remove();
+        this.vis.selectAll(".line_exp_g").remove();
+
+        this.line_exp = null;
+
+        for(let i=0;i<this.data_reconstructed_array.length;i++)
+        {
+            this.vis.selectAll(".line_reconstructed_"+i.toString()).remove();
+            this.vis.selectAll(".line_reconstructed_g_"+i.toString()).remove();
+        }
+        this.data_reconstructed_array = [];
+        this.data_reconstructed_spectra_indices = [];
+    }
+
+    /**
+     * Function to add additional experimental (reconstructed) spectrum
+     * @param {*} data: [ppm, real_data]
+     */
+    add_data(data,spectrum_index) {
+
+        let data_color = hsqc_spectra[spectrum_index].spectrum_color;
+
+        var self = this;
+
+        this.data_reconstructed = new Array(data[0].length);
+
+        if (this.orientation === "horizontal") {
+            for (var i = 0; i < data[0].length; i++) {
+                this.data_reconstructed[i] = [data[0][i], data[1][i]];
+            }
+        }
+        else if (this.orientation === "vertical") {
+            for (var i = 0; i < data[0].length; i++) {
+                this.data_reconstructed[i] = [data[1][i], data[0][i]];
+            }
+        }
+
+        /**
+         * Convert data_color from hex string '#435F77' to a string like rgb(255, 0, 0). skip alpha value
+         */
+        if (data_color[0] === '#') {
+            data_color = data_color.substring(1);
+            var r = parseInt(data_color.substring(0, 2), 16);
+            var g = parseInt(data_color.substring(2, 4), 16);
+            var b = parseInt(data_color.substring(4, 6), 16);
+            data_color = "rgb(" + r + "," + g + "," + b + ")";
+        }
+
+        this.data_reconstructed_array.push(this.data_reconstructed);
+        this.data_reconstructed_spectra_indices.push(spectrum_index);
+        let current_data_index = this.data_reconstructed_array.length - 1;
+
+
+        this.vis.append("g")
+            .attr("class", "line_reconstructed_g_"+current_data_index.toString())
+            .append("path")
+            .attr("clip-path", "url(#clip" + this.orientation + ")")
+            .attr("class", "line_reconstructed_"+current_data_index.toString())
+            .attr("fill", "none")
+            .attr("stroke", data_color)
+            /**
+             * set style.display to "none" to hide the line if hsqc_spectra[spectrum_index].visible is false
+             */
+            .style("display", hsqc_spectra[spectrum_index].visible ? "block" : "none")
+            .attr("stroke-width", this.exp_line_width)
+            .attr("d", this.line(self.data_reconstructed));
+
+        this.redraw();
+    };
+        
+
 
     /**
      * Function to update the experimental spectrum
@@ -462,9 +538,11 @@ class cross_section_plot {
         /**
          * Remove old experimental spectrum, including "g" element and "path" element
          */
-        this.vis.selectAll(".line_exp").remove();
-        this.vis.selectAll(".line_exp_g").remove();
+        this.clear_data();
 
+        /**
+         * These are required for phase correction
+         */
         this.ppm_start = data0[0];
         this.ppm_step = data0[1];
         this.ppm_size = data0[2];
@@ -539,7 +617,6 @@ class cross_section_plot {
             .attr("class", "line_exp_g")
             .append("path")
             .attr("clip-path", "url(#clip" + this.orientation + ")")
-            .data(data)
             .attr("class", "line_exp")
             .attr("fill", "none")
             .style("stroke", "black")
@@ -602,6 +679,16 @@ class cross_section_plot {
         if (this.line_exp) {
             this.line_exp.attr("d", this.line(this.data)).style("stroke-width", self.exp_line_width);
         }
+        if (this.data_reconstructed_array.length > 0)
+        {
+            for (var i = 0; i < this.data_reconstructed_array.length; i++){
+                this.vis.selectAll(".line_reconstructed_"+i.toString())
+                    .attr("d", this.line(this.data_reconstructed_array[i]))
+                    .style("stroke", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].spectrum_color)
+                    .style("stroke-width", self.exp_line_width)
+                    .style("display", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].visible ? "block" : "none");
+            }
+        }
         this.Axis_element.call(this.Axis);
 
         /**
@@ -613,6 +700,7 @@ class cross_section_plot {
                 .attr("y1", this.y(0))
                 .attr("x2", this.x.range()[1])
                 .attr("y2", this.y(0));
+
         }
         else //vertical
         {

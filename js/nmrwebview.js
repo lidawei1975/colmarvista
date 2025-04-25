@@ -740,6 +740,20 @@ $(document).ready(function () {
         let magnifying_glass_ratio = parseFloat(document.getElementById("magnifying_glass_ratio").value);
         main_plot.enable_magnifying_glass(true,magnifying_glass_ratio,magnifying_glass_size);
     }
+
+    /**
+     * Add event listener for radio group "select_plot_1d"
+     */
+    document.querySelectorAll('input[name="select_plot_1d"]').forEach(function (elem) {
+        elem.addEventListener('change', function (event) {
+            if (event.target.value === 'projection') {
+                show_projection();
+            }
+            else if (event.target.value === 'cross_section') {
+                show_cross_section();
+            }
+        });
+    });
 });
 
 
@@ -774,6 +788,10 @@ function run_pseudo3d(flag) {
      * Get input checkbox "with_error" checked: true or false
      */
     let with_error = document.getElementById("with_error").checked;
+    /**
+     * Get input checkbox "with_recon" checked: true or false
+     */
+    let with_recon = document.getElementById("with_recon").checked;
 
     /**
      * Check all spectra, collect the ones that are experimental
@@ -782,6 +800,7 @@ function run_pseudo3d(flag) {
      * Convert to Uint8Array to be transferred to the worker: let data_uint8 = new Uint8Array(data.buffer);
      */
     let all_files = [];
+    let all_spectra_indices = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (hsqc_spectra[i].spectrum_origin === -1 || hsqc_spectra[i].spectrum_origin === -2 || hsqc_spectra[i].spectrum_origin>=10000) {
             let data = new Float32Array(hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length);
@@ -799,6 +818,7 @@ function run_pseudo3d(flag) {
             data.set(hsqc_spectra[i].raw_data, hsqc_spectra[i].header.length);
             let data_uint8 = new Uint8Array(data.buffer);
             all_files.push(data_uint8);
+            all_spectra_indices.push(i);
         }
     }
 
@@ -820,12 +840,14 @@ function run_pseudo3d(flag) {
         webassembly_job: "pseudo3d_fitting",
         initial_peaks: initial_peaks,
         all_files: all_files,
+        all_spectra_indices: all_spectra_indices, //indices of the spectra in hsqc_spectra
         noise_level: hsqc_spectra[current_spectrum_index_of_peaks].noise_level,
         scale: hsqc_spectra[current_spectrum_index_of_peaks].scale,
         scale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
         flag: flag, //0: voigt, 1: Gaussian
         maxround: max_round,
         with_error: with_error,
+        with_recon: with_recon,
     });
 }
 
@@ -1173,6 +1195,35 @@ webassembly_worker.onmessage = function (e) {
         document.getElementById("show_pseudo3d_peaks").click();
 
         /**
+         * Process all reconstructed spectra.
+         * e.data.recon_files is empty if no with_recon is selected when running pseudo 3D fitting
+         */
+        for(let i=0;i<e.data.recon_files.length;i++)
+        {
+            let arrayBuffer = new Uint8Array(e.data.recon_files[i]).buffer;
+            let result_spectrum_name = "pseudo3d-recon-".concat((i).toString(),".ft2");
+            let result_spectrum = new spectrum();
+            result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.all_spectra_indices[i]);
+            
+            result_spectrum.scale = e.data.scale;
+            result_spectrum.scale2 = e.data.scale2;
+
+            /**
+             * Replace its header with the header of the original spectrum
+             * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
+             */
+            result_spectrum.header = hsqc_spectra[e.data.all_spectra_indices[i]].header;
+            result_spectrum.noise_level = hsqc_spectra[e.data.all_spectra_indices[i]].noise_level;
+            result_spectrum.levels = hsqc_spectra[e.data.all_spectra_indices[i]].levels;
+            result_spectrum.negative_levels = hsqc_spectra[e.data.all_spectra_indices[i]].negative_levels;
+            result_spectrum.spectral_max = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_max;
+            result_spectrum.spectral_min = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_min;
+
+            draw_spectrum([result_spectrum],false/**from fid */,false/**re-process of fid or ft2 */);
+        }
+
+
+        /**
          * Clear the processing message
          */
         document.getElementById("webassembly_message").innerText = "";
@@ -1490,9 +1541,6 @@ function minimize_spectrum(button,index)
                 hsqc_spectra[i].visible = false;
             }
         }
-
-
-        main_plot.redraw_contour();
     }
     else
     {
@@ -1510,9 +1558,9 @@ function minimize_spectrum(button,index)
                 hsqc_spectra[i].visible = true;
             }
         }
-        main_plot.redraw_contour();
     }
-
+    main_plot.redraw_contour();
+    main_plot.redraw_1d();
 }
 
 /**
@@ -1590,7 +1638,47 @@ function add_to_list(index) {
          * The new DIV will have the following children:
          * A original index (which is different from the index in the list, because of the order change by drag and drop)
          */
-        new_spectrum_div.appendChild(document.createTextNode("Original index: ".concat(index.toString(), ", ")));
+        let span_for_index = document.createElement("span");
+        let original_index_node = document.createTextNode("Original index: ".concat(index.toString(), ", "));
+        span_for_index.appendChild(original_index_node);
+        new_spectrum_div.appendChild(span_for_index);
+        /**
+         * make this one the default selected spectrum
+         */
+        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+
+            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+            if (current_spectrum_div) {
+                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+            }
+        }
+        main_plot.current_spectral_index = index;
+        /**
+         * Highlight the current spectrum in the list
+         */
+        new_spectrum_div.style.backgroundColor = "lightblue";
+        
+
+        /**
+         * Add a onclick function to the new spectrum div to set the current spectrum index
+         */
+        span_for_index.onclick = function () {
+            /**
+             * Un-highlight the current spectrum in the list
+             */
+            set_current_spectrum(index);
+            /**
+             * If this new spectrum has no imaginary part, disable auto phase correction button
+             */
+            if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
+            {
+                document.getElementById("automatic_pc").disabled = false;
+            }
+            else
+            {
+                document.getElementById("automatic_pc").disabled = true;
+            }
+        }
         /**
          * Add filename as a text node
          */
@@ -1627,37 +1715,7 @@ function add_to_list(index) {
         ref_indirect_input.setAttribute("value", "0.0");
         ref_indirect_input.onblur = function () { adjust_ref(index, 1); };
         new_spectrum_div.appendChild(ref_indirect_label);
-        new_spectrum_div.appendChild(ref_indirect_input);
-
-
-        /**
-         * Add 3 radio buttons to select:
-         * 1. show cross section
-         * 2. show projection (default, checked)
-         * and a new line
-         */
-        let show_cross_section_radio = document.createElement("input");
-        show_cross_section_radio.setAttribute("type", "radio");
-        show_cross_section_radio.setAttribute("id", "show_cross_section-".concat(index));   
-        show_cross_section_radio.setAttribute("name", "show-".concat(index));
-        show_cross_section_radio.onclick = function () { show_cross_section(index); };
-        let show_cross_section_label = document.createElement("label");
-        show_cross_section_label.setAttribute("for", "show_cross_section-".concat(index));
-        show_cross_section_label.innerText = " Cross section ";
-        new_spectrum_div.appendChild(show_cross_section_radio);
-        new_spectrum_div.appendChild(show_cross_section_label);
-
-        let show_projection_radio = document.createElement("input");
-        show_projection_radio.setAttribute("type", "radio");
-        show_projection_radio.setAttribute("id", "show_projection-".concat(index));
-        show_projection_radio.setAttribute("name", "show-".concat(index));
-        show_projection_radio.checked = true;
-        show_projection_radio.onclick = function () { show_projection(index); };
-        let show_projection_label = document.createElement("label");
-        show_projection_label.setAttribute("for", "show_projection-".concat(index));
-        show_projection_label.innerText = " Projection ";
-        new_spectrum_div.appendChild(show_projection_radio);
-        new_spectrum_div.appendChild(show_projection_label);
+        new_spectrum_div.appendChild(ref_indirect_input); 
     }
 
 
@@ -2048,7 +2106,7 @@ function add_to_list(index) {
     contour_color_label.innerText = "Color: ";
     let contour_color_input = document.createElement("input");
     contour_color_input.setAttribute("type", "color");
-    contour_color_input.setAttribute("value", rgbToHex(new_spectrum.spectrum_color));
+    contour_color_input.setAttribute("value", new_spectrum.spectrum_color);
     contour_color_input.setAttribute("id", "contour_color-".concat(index));
     contour_color_input.addEventListener("change", (e) => { update_contour_color(e, index, 0); });
     new_spectrum_div.appendChild(contour_color_label);
@@ -2203,7 +2261,7 @@ function add_to_list(index) {
     contour_color_label_negative.innerText = "Color: ";
     let contour_color_input_negative = document.createElement("input");
     contour_color_input_negative.setAttribute("type", "color");
-    contour_color_input_negative.setAttribute("value", rgbToHex(new_spectrum.spectrum_color_negative));
+    contour_color_input_negative.setAttribute("value", new_spectrum.spectrum_color_negative);
     contour_color_input_negative.setAttribute("id", "contour_color_negative-".concat(index));
     contour_color_input_negative.addEventListener("change", (e) => { update_contour_color(e, index, 1); });
     new_spectrum_div.appendChild(contour_color_label_negative);
@@ -2256,7 +2314,7 @@ function add_to_list(index) {
         /**
          * For experimental spectrum, switch default to show projection
          */
-        show_projection(index);
+        show_projection();
     }
 }
 
@@ -2300,7 +2358,7 @@ my_contour_worker.onmessage = (e) => {
              */
             main_plot.levels_length.push(e.data.levels_length);
             main_plot.polygon_length.push(e.data.polygon_length);
-            main_plot.colors.push(hsqc_spectra[e.data.spectrum_index].spectrum_color);
+            main_plot.colors.push(hexToRgb(hsqc_spectra[e.data.spectrum_index].spectrum_color));
 
             /**
              * Default contour level is 0, when total_number_of_experimental_spectra <=5
@@ -2360,7 +2418,7 @@ my_contour_worker.onmessage = (e) => {
              */
             main_plot.levels_length_negative.push(e.data.levels_length);
             main_plot.polygon_length_negative.push(e.data.polygon_length);
-            main_plot.colors_negative.push(hsqc_spectra[e.data.spectrum_index].spectrum_color_negative);
+            main_plot.colors_negative.push(hexToRgb(hsqc_spectra[e.data.spectrum_index].spectrum_color_negative));
 
             if(total_number_of_experimental_spectra <= 4){
                 main_plot.contour_lbs_negative.push(0);
@@ -2706,64 +2764,33 @@ function init_plot(input) {
 
 };
 
-function show_cross_section(index) {
-    uncheck_all_1d_except(index);
-    main_plot.current_spectral_index = index;
+function show_cross_section() {
     main_plot.b_show_cross_section = true;
     main_plot.b_show_projection = false;
     /**
-     * when showing cross section and image data of hsqc_spectra[index] is not null
-     * and  current spectrum is from a ft2 file
-     * Enable button_apply_ps button
+     * If current spectrum has imaginary part, we will enable automatic phase correction
      */
+    const index = main_plot.current_spectral_index;
     if(hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1)
     {
         document.getElementById("automatic_pc").disabled = false;
-        document.getElementById("button_apply_ps").disabled = false;
-    }
-    else
-    {
-        document.getElementById("button_apply_ps").disabled = true;
-        document.getElementById("automatic_pc").disabled = true;
-    }
-
-}
-
-function show_projection(index) {
-    uncheck_all_1d_except(index);
-    main_plot.current_spectral_index = index;
-    main_plot.b_show_cross_section = false;
-    main_plot.b_show_projection = true;
-    main_plot.show_projection();
-    document.getElementById("button_apply_ps").disabled = true;
-    document.getElementById("automatic_pc").disabled = true;
-}
-
-function uncheck_all_1d_except(index) {
-
-    /**
-     * It is possible hsqc_spectra.length > main_plot.levels_length.length
-     * (main_plot.levels_length.length === total # of all "spectrum-".concat(i) HTML elements)
-     */
-    let total_number_of_spectra = hsqc_spectra.length;
-    if(main_plot.levels_length.length < total_number_of_spectra)
-    {
-        total_number_of_spectra = main_plot.levels_length.length;
-    }
-
-    for(let i=0;i<total_number_of_spectra;i++)
-    {   
         /**
-         * Only if this is not the current spectrum and
-         * this is NOT a reconstructed spectrum or removed spectrum
-         * we uncheck the checkbox
+         * If there is only one spectrum, we will also enable apply phase correction,
+         * because we allow manual phase correction in this case.
          */
-        if(i!==index && (hsqc_spectra[i].spectrum_origin ==-2 || hsqc_spectra[i].spectrum_origin ==-1 || hsqc_spectra[i].spectrum_origin >= 10000)) {
-            document.getElementById("show_cross_section".concat("-").concat(i)).checked = false;
-            document.getElementById("show_projection".concat("-").concat(i)).checked = false;
-            document.getElementById("spectrum-".concat(i)).style.backgroundColor = "white";
+        if(hsqc_spectra.length === 1)
+        {
+            document.getElementById("button_apply_ps").disabled = false;
         }
     }
+}
+
+function show_projection() {
+    main_plot.b_show_cross_section = false;
+    main_plot.b_show_projection = true;
+    document.getElementById("automatic_pc").disabled = true;
+    document.getElementById("button_apply_ps").disabled = true;
+    main_plot.show_projection();
 }
 
 
@@ -3192,6 +3219,7 @@ function update_contour_color(e,index,flag) {
      */
     
     main_plot.redraw_contour();
+    main_plot.redraw_1d();
 }
 
 
@@ -3337,12 +3365,22 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
     {
         /**
          * New spectrum from ft2, set its index (current length of the spectral array) and color
+         * It is also possible this is a reconstructed spectrum from peak fitting
          */
         spectrum_index = hsqc_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
-        result_spectra[0].spectrum_color = color_list[(spectrum_index*2) % color_list.length];
-        result_spectra[0].spectrum_color_negative = color_list[(spectrum_index*2+1) % color_list.length];
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
+        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
         hsqc_spectra.push(result_spectra[0]);
+
+        /**
+         * If result_spectra[0].spectrum_origin >=0, it means this is a reconstructed spectrum
+         * we update the original spectrum's reconstructed_indices
+         */
+        if(result_spectra[0].spectrum_origin >=0)
+        {
+            hsqc_spectra[result_spectra[0].spectrum_origin].reconstructed_indices.push(spectrum_index);
+        }
     }
     else if(b_from_fid === true && b_reprocess === false)
     {
@@ -3354,8 +3392,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
         for(let i=0;i<result_spectra.length;i++)
         {
             result_spectra[i].spectrum_index = hsqc_spectra.length;
-            result_spectra[i].spectrum_color = color_list[(result_spectra[i].spectrum_index*2) % color_list.length];
-            result_spectra[i].spectrum_color_negative = color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length];
+            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index*2) % color_list.length]);
+            result_spectra[i].spectrum_color_negative =  rgbToHex(color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length]);
 
             /**
              * For spectrum from fid, we need to include all FID files and processing parameters in the result_spectra object
@@ -3383,8 +3421,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          */
         spectrum_index = result_spectra[0].spectrum_index;
         result_spectra[0].fid_process_parameters = fid_process_parameters;
-        result_spectra[0].spectrum_color = color_list[(spectrum_index*2) % color_list.length];
-        result_spectra[0].spectrum_color_negative = color_list[(spectrum_index*2+1) % color_list.length];
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
+        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
         hsqc_spectra[spectrum_index] = result_spectra[0];
 
         /**
@@ -3428,8 +3466,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
             {
                 const new_spectrum_index = hsqc_spectra.length;
                 result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_color = color_list[(new_spectrum_index*2) % color_list.length];
-                result_spectra[i].spectrum_color_negative = color_list[(new_spectrum_index*2+1) % color_list.length];
+                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length]);
+                result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index*2+1) % color_list.length]);
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
                 hsqc_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
                 hsqc_spectra.push(result_spectra[i]);
@@ -3562,6 +3600,19 @@ function rgbToHex(rgb) {
  * Convert a hexadecimal string to an RGB array
  */
 function hexToRgb(hex) {
+
+    /**
+     * Backward compatibility for old hex color format
+     * In old version, hex might be [0,0,1,1] (rgba)
+     * then we return as [0,0, ]
+     */
+    if(hex.length === 4)
+    {
+        return hex;
+    }
+
+
+
     let r = parseInt(hex.substring(1, 3), 16) / 255;
     let g = parseInt(hex.substring(3, 5), 16) / 255;
     let b = parseInt(hex.substring(5, 7), 16) / 255;
@@ -3947,7 +3998,9 @@ function show_hide_peaks(index,flag,b_show)
         document.getElementById("show_pseudo3d_peaks").checked = false;
     }
 
-
+    /**
+     * -2 means pseudo 3D peaks
+     */
     if(index==-2 && b_show)
     {
         current_spectrum_index_of_peaks = index;
@@ -4028,6 +4081,7 @@ function show_hide_peaks(index,flag,b_show)
     else if(b_show)
     {
         current_spectrum_index_of_peaks = index;
+        set_current_spectrum(index);
         current_flag_of_peaks = flag;
         show_peak_table();
 
@@ -4217,7 +4271,17 @@ function remove_spectrum(index)
     hsqc_spectra[index].header = new Float32Array();
     hsqc_spectra[index].levels = [];
     hsqc_spectra[index].negative_levels = [];
+    /**
+     * Remove this spectrum from its original spectrum's reconstructed_indices
+     */
+    if(hsqc_spectra[index].spectrum_origin >= 0)
+    {
+        let origin_index = hsqc_spectra[index].spectrum_origin;
+        hsqc_spectra[origin_index].reconstructed_indices.splice(hsqc_spectra[origin_index].reconstructed_indices.indexOf(index), 1);
+    }
+
     hsqc_spectra[index].spectrum_origin = -3; // -3 means the spectrum is removed
+    hsqc_spectra[index].visible = false; // set visible to false
     hsqc_spectra[index].picked_peaks_object = null;
     hsqc_spectra[index].fitted_peaks_object = null;
 
@@ -4525,7 +4589,7 @@ function reprocess_spectrum(self,spectrum_index)
         /**
          * Set hsqc_spectra[spectrum_index] as the current spectrum
          */
-        document.getElementById("spectrum-" + spectrum_index).style.backgroundColor = "lightblue";
+        document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
         document.getElementById("input_options").style.backgroundColor = "lightblue";
         /**
          * Change button text to "Quit reprocessing"
@@ -4547,10 +4611,8 @@ function reprocess_spectrum(self,spectrum_index)
         /**
          * Switch to cross section mode for current spectrum by simulating a click event
          */
-        document.getElementById("show_cross_section".concat("-").concat(spectrum_index)).click();
-        // document.getElementById("show_cross_section".concat("-").concat(spectrum_index)).checked = true;
-        // document.getElementById("show_projection".concat("-").concat(spectrum_index)).checked = false;
         current_reprocess_spectrum_index = spectrum_index;
+        set_current_spectrum(spectrum_index);
 
 
         /**
@@ -5032,3 +5094,13 @@ function search_peak()
     }
 };
 
+function set_current_spectrum(spectrum_index)
+{
+    if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+        if (main_plot.current_spectral_index !== spectrum_index) {
+            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+        }
+    }
+    main_plot.current_spectral_index = spectrum_index;
+    document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+}
