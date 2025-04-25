@@ -3600,6 +3600,19 @@ function rgbToHex(rgb) {
  * Convert a hexadecimal string to an RGB array
  */
 function hexToRgb(hex) {
+
+    /**
+     * Backward compatibility for old hex color format
+     * In old version, hex might be [0,0,1,1] (rgba)
+     * then we return as [0,0, ]
+     */
+    if(hex.length === 4)
+    {
+        return hex;
+    }
+
+
+
     let r = parseInt(hex.substring(1, 3), 16) / 255;
     let g = parseInt(hex.substring(3, 5), 16) / 255;
     let b = parseInt(hex.substring(5, 7), 16) / 255;
