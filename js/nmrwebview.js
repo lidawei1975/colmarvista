@@ -170,7 +170,7 @@ $(document).ready(function () {
      */
     hsqc_spectra = [];
 
-
+    pseudo3d_fitted_peaks_error = [];
 
     /**
      * Initialize the big plot
@@ -4136,8 +4136,10 @@ function run_dosy()
      * Convert space(s) delimited string (From dosy_gradient) to array of floats
      */
     let dosy_gradient_text = document.getElementById("dosy_gradient").value;
+    let dosy_gradient_weight_text = document.getElementById("dosy_gradient_weight").value;
     let dosy_rescale = parseFloat(document.getElementById("dosy_rescale").value);
     let gradients = dosy_gradient_text.trim().split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
+    let weights = dosy_gradient_weight_text.trim().split(/\s+/).map(Number).filter(function (value) { return !isNaN(value); });
 
     /**
      * If size of gradients !== # of Z_A* field of pseudo3d_fitted_peaks_object
@@ -4150,14 +4152,17 @@ function run_dosy()
         return;
     }
 
-    let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,dosy_rescale);   
+    let dosy_result = pseudo3d_fitted_peaks_object.run_dosy_fitting(gradients,weights,dosy_rescale);   
 
     /**
      * If pseudo3d_fitted_peaks_error is not empty, run dosy on them as well
      */
-    for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+    if(typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error.length !== 0)
     {
-        pseudo3d_fitted_peaks_error[i].run_dosy_fitting(gradients,dosy_rescale);
+        for(let i=0;i<pseudo3d_fitted_peaks_error.length;i++)
+        {
+            pseudo3d_fitted_peaks_error[i].run_dosy_fitting(gradients,weights,dosy_rescale);
+        }
     }
 
     /**
@@ -4750,7 +4755,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     hsqc_spectra = to_save.hsqc_spectra;
     pseudo3d_fitted_peaks_object = to_save.pseudo3d_fitted_peaks_object;
-    pseudo3d_fitted_peaks_error = to_save.pseudo3d_fitted_peaks_error;
+    if(typeof to_save.pseudo3d_fitted_peaks_error === 'undefined')
+    {
+        pseudo3d_fitted_peaks_error = [];   
+    }
+    else
+    {
+        pseudo3d_fitted_peaks_error = to_save.pseudo3d_fitted_peaks_error;
+    }
 
     /**
      * Reattach methods defined in spectrum.js to all hsqc_spectra objects
