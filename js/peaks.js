@@ -3,10 +3,11 @@
  * Linear regression function to calculate the slope of a line, without intercept
  * @param {*} x 
  * @param {*} y 
+ * @param {*} w - weights for each point
  * @returns an object with slope and a predict function
  */
 
-function linearRegressionNoIntercept(x, y) {
+function linearRegressionNoIntercept(x,w,y) {
   
     const n = x.length;
   
@@ -15,8 +16,8 @@ function linearRegressionNoIntercept(x, y) {
     let sumXSquared = 0;
   
     for (let i = 0; i < n; i++) {
-      sumXY += x[i] * y[i];
-      sumXSquared += x[i] * x[i];
+      sumXY += x[i] * y[i] * w[i];
+      sumXSquared += x[i] * x[i] * w[i];
     }
   
     // Calculate the slope (beta).
@@ -29,7 +30,7 @@ function linearRegressionNoIntercept(x, y) {
     return {
       slope: slope,
       y_pre: y_pre,
-};
+    };
   }
 
 
@@ -777,7 +778,7 @@ class cpeaks {
      * Function to run DOSY fitting on all peaks (pseudo 3D peak list only, with Z_A1, Z_A2, Z_A3 ... columns)
      * This function will add a column "DOSY" to the peaks object, with the fitted DOSY value for each peak
      */
-    run_dosy_fitting(gradients,scale_constant = 1.0) {
+    run_dosy_fitting(gradients,weights,scale_constant = 1.0) {
 
         /**
          * Save gradients and scale constant as properties of the peaks object
@@ -820,7 +821,7 @@ class cpeaks {
             /**
              * Step 3, run the fitting function to get the DOSY value
              */
-            let dosy_value = this.dosy_fitting_core(z_values, gradients);
+            let dosy_value = this.dosy_fitting_core(z_values, weights,gradients);
             /**
              * Step 4, add the DOSY value to the peaks object
              */
@@ -841,7 +842,7 @@ class cpeaks {
      * Dosy fitting function to calculate the DOSY value from the Z_A values and gradients
      * I=I0*exp(-D*G^2), so D = -ln(I/I0)/G^2, so we can get D from a linear fit of -ln(I) vs G^2
      */
-    dosy_fitting_core(z_values, gradients) {
+    dosy_fitting_core(z_values,weights, gradients) {
         /**
          * Step 1, get the natural log of the Z_A values.
          * z[0] is always 1.0, and z becomes smaller as the gradient increases
@@ -854,7 +855,7 @@ class cpeaks {
         /**
          * Step 3, perform a linear fit of ln_z vs g_squared to get the slope while forcing the intercept to be 0
          */
-        let result = linearRegressionNoIntercept(g_squared, ln_z);
+        let result = linearRegressionNoIntercept(g_squared, weights,ln_z);
         /**
          * Step 4, calculate the DOSY value from the slope
          */
