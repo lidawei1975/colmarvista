@@ -187,8 +187,8 @@ $(document).ready(function () {
     const resizeObserver = new ResizeObserver(entries => {
         for (let entry of entries) {
             const rect = entry.contentRect;
-            canvas.width = rect.width - 40;
-            canvas.height = rect.height - 40 ;
+            canvas.width = rect.width;
+            canvas.height = rect.height;
             drawCircle();
         }
     });
