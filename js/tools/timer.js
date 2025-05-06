@@ -41,7 +41,7 @@ function drawCircle() {
     ctx.strokeStyle = 'lightgray';
     ctx.lineWidth =  radius/5;
     ctx.stroke();
-    ctx.font = parseInt(radius/3).toString().concat('px Arial');
+    ctx.font = parseInt(radius/2).toString().concat('px Arial');
     ctx.fillStyle = 'black';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -53,6 +53,15 @@ function drawCircle() {
 }
 
 function formatTime(seconds) {
+
+    /**
+     * Make sure second is a positive integer.
+     */
+    seconds = Math.floor(seconds);
+    if (seconds < 0) {
+        seconds = 0; // Set seconds to 0 if it's negative
+    }
+
     if (seconds <= 0) {
         return '00:00'; // Return 00:00 if the time is less than or equal to 0
     }
@@ -99,7 +108,8 @@ function resumeTimer() {
 }
 
 function getLengthOfTimeString(timeString) {
-    const regex = /(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i;
+    // const regex = /(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i;
+    const regex = /(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?/i;
 
     let totalSeconds = 600; // 10 minutes as default
 
@@ -107,7 +117,7 @@ function getLengthOfTimeString(timeString) {
      * If timeString contains only numbers, assume it's in seconds.
      */
     if (/^\d+$/.test(timeString)) {
-        totalSeconds = parseInt(timeString);
+        totalSeconds = parseFloat(timeString);
         return totalSeconds;
     }
 
@@ -116,7 +126,7 @@ function getLengthOfTimeString(timeString) {
         let hours = match[1] || 0;
         let minutes = match[2] || 0;
         let seconds = match[3] || 0;
-        totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds);
+        totalSeconds = parseFloat(hours) * 3600 + parseFloat(minutes) * 60 + parseFloat(seconds);
     } else {
         console.log("No match");
     }
@@ -177,8 +187,8 @@ $(document).ready(function () {
     const resizeObserver = new ResizeObserver(entries => {
         for (let entry of entries) {
             const rect = entry.contentRect;
-            canvas.width = rect.width - 40;
-            canvas.height = rect.height - 40 ;
+            canvas.width = rect.width;
+            canvas.height = rect.height;
             drawCircle();
         }
     });

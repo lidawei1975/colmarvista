@@ -5,7 +5,7 @@
   <title>Countdown Timer</title>
   <style>
     #timerCanvas {
-      border: 1px solid black;
+      border: none;
     }
     div.resizable {
             border: 2px solid #40375f;
@@ -22,11 +22,11 @@
 <body>
   <div class="resizable" style="width: 800px; height: 800px;">
     <canvas id="timerCanvas"></canvas>
-    <button id="pauseButton" disabled>Pause</button>
-    <button id="resumeButton" disabled>Resume</button>
   </div>
 
   <div>
+    <button id="pauseButton" disabled>Pause</button>
+    <button id="resumeButton" disabled>Resume</button>
     <label for="durationRed">Red:</label>
     <input type="text" id="durationRed" value="3m">
     <label for="durationYellow">Yellow:</label>
