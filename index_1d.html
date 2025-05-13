@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <title>COLMARvista</title>
+    <title>COLMARvista1D</title>
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" type="text/css" href="colmarview.css">
 </head>
@@ -30,7 +30,7 @@
             <div id="file_area" class="drop-area" style="width: 1200px;">
                 <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
                     domain spectra:</p>
-                <form id="ft2_file_form" action="" enctype="multipart/form-data">
+                <form id="ft1_file_form" action="" enctype="multipart/form-data">
                     <label for="userfile">Frequency domain spectral file (.ft1, .ucsf or .txt) </label><input
                         type="file" multiple id="userfile"><br>
                     <input type="submit" id="button_ft1_process" value="Upload and process spectra"></br>
@@ -97,17 +97,9 @@
 
 
                     <!-- This is the main plot -->
-                    <div id="vis_parent" class="resizable" style="position: relative; width: 1200px; height: 800px;">
-                        <div id="information_bar" class="tooltip"
-                            style="position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
-                            <span id="infor">Information</span>
-                        </div>
-                        <div id="canvas_parent" style="position: absolute; top: 0px; left: 0px; z-index: 1;">
-                            <canvas id="canvas1" style="border:0px;"></canvas>
-                        </div>
-
-                        <div id="svg_parent" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
-                            <svg id="visualization"></svg>
+                    <div id="vis_parent" class="resizable" style="clear: both">
+                        <div id="plot" class="resizable" style="display: none;">
+                            <!-- The SVG based plot will be generated here -->
                         </div>
                     </div>
 
@@ -169,6 +161,9 @@
     <script type="text/javascript" src="js/d3.7.min.js"></script>
     <script type="text/javascript" src="js/ldwmath.js"></script>
     <script type="text/javascript" src="js/file_drop.js"></script>
+    <script type="text/javascript" src="js/peaks.js"></script>
+    <script type="text/javascript" src="js/spectrum_1d.js"></script>
+    <script type="text/javascript" src="js/myplot/myplot_1d.js"></script>
     <script type="text/javascript" src="js/1d.js"></script>
     </div>
 </body>
