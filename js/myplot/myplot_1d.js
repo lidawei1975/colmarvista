@@ -103,7 +103,7 @@ class myplot_1d {
         this.min_d = lowest;
         this.max_d = highest;
 
-        this.vis = d3.select("#plot").insert("svg", ":first-child")
+        this.vis = d3.select("#plot_1d").insert("svg", ":first-child")
             .attr("id", "main_plot")
             .attr("xmlns", "http://www.w3.org/2000/svg")
             .attr("width", this.width)
@@ -953,5 +953,12 @@ class myplot_1d {
         }
         return [width / 2, height / 2];
     };
+
+    /**
+     * Return array of 2, ppm_start and ppm_end (ppm_start > ppm_end per NMR convention)
+     */
+    get_visible_region() {
+        return this.x.domain();
+    }
 
 };

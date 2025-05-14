@@ -308,6 +308,7 @@ class spectrum_1d {
         this.header = new Float32Array(arrayBuffer, 0, 512);
 
         this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
+        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
 
        
         /**
@@ -432,6 +433,7 @@ class spectrum_1d {
          * Keep original file name
          */
         this.filename = file_name;
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
     };

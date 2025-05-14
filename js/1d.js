@@ -15,7 +15,7 @@
 var webassembly_1d_worker;
 
 try {
-    webassembly_1d_worker = new Worker('./js/webass_1d.js');
+    webassembly_1d_worker = new Worker('./js/webass1d.js');
 }
 catch (err) {
     console.log(err);
@@ -458,7 +458,7 @@ webassembly_1d_worker.onmessage = function (e) {
     /**
      * If result is peaks
      */
-    else if (e.data.peaks) {
+    else if (e.data.webassembly_job === "peak_picker") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
@@ -482,9 +482,6 @@ webassembly_1d_worker.onmessage = function (e) {
         all_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
         
         disable_enable_peak_buttons(e.data.spectrum_index,1);
-
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
 
         /**
          * Clear the processing message
@@ -1147,7 +1144,7 @@ function add_to_list(index) {
 
     /**
      * Add a "Reprocess" button to the new spectrum_1d div if
-     * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 3D)
+     * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 2D)
      * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_ri or raw_data_ir is not empty
      */
     if(new_spectrum.spectrum_origin === -2)
@@ -1240,18 +1237,6 @@ function add_to_list(index) {
         ref_direct_input.onblur = function () { adjust_ref(index, 0); };
         new_spectrum_div.appendChild(ref_direct_label);
         new_spectrum_div.appendChild(ref_direct_input);
-
-        let ref_indirect_label = document.createElement("label");
-        ref_indirect_label.setAttribute("for", "ref2-".concat(index));
-        ref_indirect_label.innerText = " Ref indirect: ";
-        let ref_indirect_input = document.createElement("input");
-        ref_indirect_input.setAttribute("type", "text");
-        ref_indirect_input.setAttribute("id", "ref2-".concat(index));
-        ref_indirect_input.setAttribute("size", "4");
-        ref_indirect_input.setAttribute("value", "0.0");
-        ref_indirect_input.onblur = function () { adjust_ref(index, 1); };
-        new_spectrum_div.appendChild(ref_indirect_label);
-        new_spectrum_div.appendChild(ref_indirect_input); 
     }
 
 
@@ -1260,7 +1245,7 @@ function add_to_list(index) {
      * Allow download of from fid and from reconstructed spectrum
      */
     let download_button = document.createElement("button");
-    download_button.innerText = "Download ft2";
+    download_button.innerText = "Download ft1";
     download_button.onclick = function () { download_spectrum(index,'original'); };
     new_spectrum_div.appendChild(download_button);
     /**
@@ -1293,18 +1278,6 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(load_peak_list_label);
         new_spectrum_div.appendChild(peak_list_input);
 
-        /**
-         * Add a "remove t1 noise" checkbox to remove t1 noise from the spectrum when run DEEP picker
-         */
-        let remove_t1_noise_checkbox = document.createElement("input");
-        remove_t1_noise_checkbox.setAttribute("type", "checkbox");
-        remove_t1_noise_checkbox.setAttribute("id", "remove_t1_noise-".concat(index));
-        remove_t1_noise_checkbox.checked = false; // Default
-        let remove_t1_noise_label = document.createElement("label");
-        remove_t1_noise_label.setAttribute("for", "remove_t1_noise-".concat(index));
-        remove_t1_noise_label.innerText = " Remove T1 noise ";
-        new_spectrum_div.appendChild(remove_t1_noise_checkbox);
-        new_spectrum_div.appendChild(remove_t1_noise_label);
 
         /**
          * Add a run_DEEP_Picker button to run DEEP picker. Default is enabled
@@ -1315,17 +1288,7 @@ function add_to_list(index) {
         deep_picker_button.onclick = function () { run_DEEP_Picker(index,0); };
         new_spectrum_div.appendChild(deep_picker_button);
 
-        /**
-         * Add a run_Simple_Picker button to run simple picker. Default is enabled
-         */
-        let simple_picker_button = document.createElement("button");
-        simple_picker_button.setAttribute("id", "run_simple_picker-".concat(index));
-        simple_picker_button.innerText = "Simple Picker";
-        simple_picker_button.onclick = function () { run_DEEP_Picker(index,1); };
-        new_spectrum_div.appendChild(simple_picker_button);
-
-        new_spectrum_div.appendChild(document.createElement("br"));
-
+      
         /**
          * Add a combine_peak cutoff input filed with ID "combine_peak_cutoff-".concat(index)
          * run_Voigt_fitter() will read this value and send to wasm to combine peaks in the fitting
@@ -1369,7 +1332,7 @@ function add_to_list(index) {
         run_voigt_fitter_select_label.setAttribute("for", "run_voigt_fitter_select-".concat(index));
         run_voigt_fitter_select_label.innerText = " Peak profile: ";
         /**
-         * Add three options: Voigt, Gaussian, and Voigt_Lorentzian
+         * Add 2 options: Voigt, Gaussian
          */
         let voigt_option = document.createElement("option");
         voigt_option.setAttribute("value", "0");
@@ -1381,12 +1344,7 @@ function add_to_list(index) {
         gaussian_option.innerText = "Gaussian";
         run_voigt_fitter_select.appendChild(gaussian_option);
 
-        let voigt_lorentzian_option = document.createElement("option");
-        voigt_lorentzian_option.setAttribute("value", "2");
-        voigt_lorentzian_option.innerText = "Voigt_Lorentzian";
-        run_voigt_fitter_select.appendChild(voigt_lorentzian_option);
-        
-        
+       
         new_spectrum_div.appendChild(run_voigt_fitter_select_label);
         new_spectrum_div.appendChild(run_voigt_fitter_select);
 
@@ -1504,130 +1462,6 @@ function add_to_list(index) {
     
 
     /**
-     * Positive contour levels first
-     * A input text element with the lowest contour level for contour calculation, whose ID is "contour0-".concat(index)
-     */
-    let contour0_input_label = document.createElement("label");
-    contour0_input_label.setAttribute("for", "contour0-".concat(index));
-    contour0_input_label.innerText = "Lowest: ";
-    let contour0_input = document.createElement("input");
-    contour0_input.setAttribute("type", "text");
-    contour0_input.setAttribute("id", "contour0-".concat(index));
-    contour0_input.setAttribute("size", "8");
-    contour0_input.setAttribute("min",0.001);
-    contour0_input.setAttribute("value", new_spectrum.levels[0].toExponential(4));
-    new_spectrum_div.appendChild(contour0_input_label);
-    new_spectrum_div.appendChild(contour0_input);
-
-
-    let reduce_contour_button = document.createElement("button");
-    /**
-     * Create a text node with the text ">" and class rotate90
-     */
-    let textnode = document.createTextNode(">");
-    let textdiv = document.createElement("div");
-    textdiv.appendChild(textnode);
-    textdiv.classList.add("rotate90");
-
-    reduce_contour_button.appendChild(textdiv);
-    reduce_contour_button.onclick = function() { reduce_contour(index,0); };
-    reduce_contour_button.style.marginLeft = "1em";
-    reduce_contour_button.style.marginRight = "1em";
-    reduce_contour_button.setAttribute("id", "reduce_contour-".concat(index));
-    /**
-     * Add a tooltip to the button
-     */
-    reduce_contour_button.setAttribute("title", "Insert a new level, which is the current level divided by the logarithmic scale. This is more efficient than full recalculation.");
-    new_spectrum_div.appendChild(reduce_contour_button);
-
-
-
-    /**
-     * A input text element with the logarithmic scale for contour calculation, whose ID is "logarithmic_scale-".concat(index)
-     */
-    let logarithmic_scale_input_label = document.createElement("label");
-    logarithmic_scale_input_label.setAttribute("for", "logarithmic_scale-".concat(index));
-    logarithmic_scale_input_label.innerText = "Scale: ";
-    let logarithmic_scale_input = document.createElement("input");
-    logarithmic_scale_input.setAttribute("type", "text");
-    logarithmic_scale_input.setAttribute("id", "logarithmic_scale-".concat(index));
-    logarithmic_scale_input.setAttribute("value", "1.5");
-    logarithmic_scale_input.setAttribute("size", "3");
-    logarithmic_scale_input.setAttribute("min",1.05);
-    new_spectrum_div.appendChild(logarithmic_scale_input_label);
-    new_spectrum_div.appendChild(logarithmic_scale_input);
-
-    /**
-     * A button to update the contour plot with the new lowest level and logarithmic scale
-     */
-    let update_contour_button = document.createElement("button");
-    update_contour_button.innerText = "Recalculate";
-    update_contour_button.onclick = function() { update_contour0_or_logarithmic_scale(index,0); };
-    update_contour_button.setAttribute("title","Update the contour plot with the new lowest level and logarithmic scale. This process might be slow.");
-    update_contour_button.style.marginLeft = "1em";
-    update_contour_button.style.marginRight = "1em";
-    new_spectrum_div.appendChild(update_contour_button);
-
-    /**
-     * A input number element with the number of contour levels,for linear contour levels
-     * whose ID is "number_of_contours-".concat(index). Default value is 30
-     */
-    let number_of_contours_label = document.createElement("label");
-    number_of_contours_label.setAttribute("for", "number_of_contours-".concat(index));
-    number_of_contours_label.innerText = " # of linear contours: ";
-    let number_of_contours_input = document.createElement("input");
-    number_of_contours_input.setAttribute("type", "number"); 
-    number_of_contours_input.setAttribute("min", "10");
-    number_of_contours_input.setAttribute("max", "50");
-    number_of_contours_input.setAttribute("value", "30");
-    number_of_contours_input.setAttribute("id", "number_of_contours-".concat(index));
-    /**
-     * A button to update the contour plot with the new number of linear contour levels
-     */
-    let update_contour_button_linear = document.createElement("button");
-    update_contour_button_linear.innerText = "Recalculate";
-    update_contour_button_linear.onclick = function() { update_linear_scale(index,0); };
-    update_contour_button_linear.setAttribute("title","Update the contour plot with the new number of linear contour levels. This process might be slow.");
-    update_contour_button_linear.style.marginLeft = "1em";
-    update_contour_button_linear.style.marginRight = "1em";
-    new_spectrum_div.appendChild(number_of_contours_label);
-    new_spectrum_div.appendChild(number_of_contours_input);
-    new_spectrum_div.appendChild(update_contour_button_linear);
-
-    /**
-     * Add a new line and a slider for the contour level
-     * Add a event listener to update the contour level
-     */
-    let contour_slider = document.createElement("input");
-    contour_slider.setAttribute("type", "range");
-    contour_slider.setAttribute("id", "contour-slider-".concat(index));
-    contour_slider.setAttribute("min", "1");
-    contour_slider.setAttribute("max", all_spectra[index].levels.length.toString());
-    contour_slider.style.width = "10%";
-    contour_slider.addEventListener("input", (e) => { update_contour_slider(e, index, 'positive'); });
-    
-    /**
-     * A span element with the current contour level, whose ID is "contour_level-".concat(index)
-     */
-    let contour_level_span = document.createElement("span");
-    contour_level_span.setAttribute("id", "contour_level-".concat(index));
-    contour_level_span.classList.add("information");
-    
-    if(total_number_of_experimental_spectra<=4)
-    {
-        contour_slider.setAttribute("value", "1");
-        contour_level_span.innerText = new_spectrum.levels[0].toExponential(4);
-    }
-    else
-    {
-        contour_slider.setAttribute("value", (all_spectra[index].levels.length).toString());
-        contour_level_span.innerText = new_spectrum.levels[all_spectra[index].levels.length-1].toExponential(4);
-    }
-    new_spectrum_div.appendChild(contour_slider);
-    new_spectrum_div.appendChild(contour_level_span);
-
-
-    /**
      * Add some spaces
      */
     new_spectrum_div.appendChild(document.createTextNode("  "));
@@ -1653,155 +1487,6 @@ function add_to_list(index) {
      */
     new_spectrum_div.appendChild(document.createElement("br"));
 
-
-
-    /**
-     * Negative contour levels first
-     * A input text element with the lowest contour level for contour calculation
-     */
-    let contour0_input_label_negative = document.createElement("label");
-    contour0_input_label_negative.setAttribute("for", "contour0_negative-".concat(index));
-    contour0_input_label_negative.innerText = "Lowest: ";
-    let contour0_input_negative = document.createElement("input");
-    contour0_input_negative.setAttribute("type", "text");
-    contour0_input_negative.setAttribute("id", "contour0_negative-".concat(index));
-    contour0_input_negative.setAttribute("size", "8");
-    contour0_input_negative.setAttribute("min", 0.001);
-    contour0_input_negative.setAttribute("value", new_spectrum.negative_levels[0].toExponential(4));
-    new_spectrum_div.appendChild(contour0_input_label_negative);
-    new_spectrum_div.appendChild(contour0_input_negative);
-
-
-    let reduce_contour_button_negative = document.createElement("button");
-    /**
-     * Create a text node with the text ">" and class rotate90
-     */
-    let textnode_negative = document.createTextNode(">");
-    let textdiv_negative = document.createElement("div");
-    textdiv_negative.appendChild(textnode_negative);
-    textdiv_negative.classList.add("rotate90");
-
-    reduce_contour_button_negative.appendChild(textdiv_negative);
-    reduce_contour_button_negative.onclick = function () { reduce_contour(index, 1); };
-    reduce_contour_button_negative.style.marginLeft = "1em";
-    reduce_contour_button_negative.style.marginRight = "1em";
-    reduce_contour_button_negative.setAttribute("id", "reduce_contour_negative-".concat(index));
-    /**
-     * Add a tooltip to the button
-     */
-    reduce_contour_button_negative.setAttribute("title", "Insert a new level, which is the current level divided by the logarithmic scale. This is more efficient than full recalculation.");
-    new_spectrum_div.appendChild(reduce_contour_button_negative);
-
-
-
-    /**
-     * A input text element with the logarithmic scale for contour calculation, whose ID is "logarithmic_scale-".concat(index)
-     */
-    let logarithmic_scale_input_label_negative = document.createElement("label");
-    logarithmic_scale_input_label_negative.setAttribute("for", "logarithmic_scale_negative-".concat(index));
-    logarithmic_scale_input_label_negative.innerText = "Scale: ";
-    let logarithmic_scale_input_negative = document.createElement("input");
-    logarithmic_scale_input_negative.setAttribute("type", "text");
-    logarithmic_scale_input_negative.setAttribute("id", "logarithmic_scale_negative-".concat(index));
-    logarithmic_scale_input_negative.setAttribute("value", "1.5");
-    logarithmic_scale_input_negative.setAttribute("size", "3");
-    logarithmic_scale_input_negative.setAttribute("min", 1.05);
-    new_spectrum_div.appendChild(logarithmic_scale_input_label_negative);
-    new_spectrum_div.appendChild(logarithmic_scale_input_negative);
-
-    /**
-     * A button to update the contour plot with the new lowest level and logarithmic scale
-     */
-    let update_contour_button_negative = document.createElement("button");
-    update_contour_button_negative.innerText = "Recalculate";
-    update_contour_button_negative.onclick = function () { update_contour0_or_logarithmic_scale(index, 1); };
-    update_contour_button_negative.setAttribute("title", "Update the contour plot with the new lowest level and logarithmic scale. This process might be slow.");
-    update_contour_button_negative.style.marginLeft = "1em";
-    update_contour_button_negative.style.marginRight = "1em";
-    new_spectrum_div.appendChild(update_contour_button_negative);
-
-
-     /**
-     * A input number element with the number of negative contour levels,for linear contour levels
-     * whose ID is "number_of_negative_contours-".concat(index). Default value is 30
-     */
-    let number_of_negative_contours_label = document.createElement("label");
-    number_of_negative_contours_label.setAttribute("for", "number_of_negative_contours-".concat(index));
-    number_of_negative_contours_label.innerText = " # of linear contours: ";
-    let number_of_negative_contours_input = document.createElement("input");
-    number_of_negative_contours_input.setAttribute("type", "number");
-    number_of_negative_contours_input.setAttribute("min", "10");
-    number_of_negative_contours_input.setAttribute("max", "60");
-    number_of_negative_contours_input.setAttribute("value", "30");
-    number_of_negative_contours_input.setAttribute("id", "number_of_negative_contours-".concat(index));
-    /**
-     * A button to update the contour plot with the new number of linear contour levels
-     */
-    let update_contour_button_linear_negative = document.createElement("button");
-    update_contour_button_linear_negative.innerText = "Recalculate";
-    update_contour_button_linear_negative.onclick = function () { update_linear_scale(index, 1); };
-    update_contour_button_linear_negative.setAttribute("title", "Update the contour plot with the new number of linear contour levels. This process might be slow.");
-    update_contour_button_linear_negative.style.marginLeft = "1em";
-    update_contour_button_linear_negative.style.marginRight = "1em";
-    new_spectrum_div.appendChild(number_of_negative_contours_label);
-    new_spectrum_div.appendChild(number_of_negative_contours_input);
-    new_spectrum_div.appendChild(update_contour_button_linear_negative);
-
-
-    /**
-     * Add a new line and a slider for the contour level
-     * Add a event listener to update the contour level
-     */
-    let contour_slider_negative = document.createElement("input");
-    contour_slider_negative.setAttribute("type", "range");
-    contour_slider_negative.setAttribute("id", "contour-slider_negative-".concat(index));
-    contour_slider_negative.setAttribute("min", "1");
-    contour_slider_negative.setAttribute("max", all_spectra[index].negative_levels.length.toString());
-    contour_slider_negative.style.width = "10%";
-    contour_slider_negative.addEventListener("input", (e) => { update_contour_slider(e, index, 'negative'); });
-    
-
-    /**
-     * A span element with the current contour level, whose ID is "contour_level-".concat(index)
-     */
-    let contour_level_span_negative = document.createElement("span");
-    contour_level_span_negative.setAttribute("id", "contour_level_negative-".concat(index));
-    contour_level_span_negative.classList.add("information");
-
-    if(total_number_of_experimental_spectra<=4)
-    {
-        contour_slider_negative.setAttribute("value", "1");
-        contour_level_span_negative.innerText = new_spectrum.negative_levels[0].toExponential(4);
-    }
-    else
-    {
-        contour_slider_negative.setAttribute("value", (all_spectra[index].negative_levels.length).toString());
-        contour_level_span_negative.innerText = new_spectrum.negative_levels[all_spectra[index].negative_levels.length-1].toExponential(4);
-    }
-
-    new_spectrum_div.appendChild(contour_slider_negative);
-    new_spectrum_div.appendChild(contour_level_span_negative);
-
-    /**
-     * Add some spaces
-     */
-    new_spectrum_div.appendChild(document.createTextNode("  "));
-
-    /**
-     * A color picker element with the color of the contour plot, whose ID is "contour_color-".concat(index)
-     * Set the color of the picker to the color of the spectrum
-     * Also add an event listener to update the color of the contour plot
-     */
-    let contour_color_label_negative = document.createElement("label");
-    contour_color_label_negative.setAttribute("for", "contour_color_negative-".concat(index));
-    contour_color_label_negative.innerText = "Color: ";
-    let contour_color_input_negative = document.createElement("input");
-    contour_color_input_negative.setAttribute("type", "color");
-    contour_color_input_negative.setAttribute("value", new_spectrum.spectrum_color_negative);
-    contour_color_input_negative.setAttribute("id", "contour_color_negative-".concat(index));
-    contour_color_input_negative.addEventListener("change", (e) => { update_contour_color(e, index, 1); });
-    new_spectrum_div.appendChild(contour_color_label_negative);
-    new_spectrum_div.appendChild(contour_color_input_negative);
 
     /**
      * For experimental spectra:
@@ -1846,11 +1531,6 @@ function add_to_list(index) {
             document.getElementById("button_run_pseudo3d_gaussian").disabled = false;
             document.getElementById("button_run_pseudo3d_voigt").disabled = false;
         }
-
-        /**
-         * For experimental spectrum, switch default to show projection
-         */
-        show_projection();
     }
 }
 
@@ -2550,13 +2230,15 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
     {
         b_plot_initialized = true;
         main_plot = new myplot_1d(); //the plot object
-        document.getElementById("plot").style.display = "block"; //show the plot
-        document.getElementById("plot").style.width = "1200px";
-        document.getElementById("plot").style.height = "800px";
-        const cr = document.getElementById("plot").getBoundingClientRect();
+        document.getElementById("plot_1d").style.display = "block"; //show the plot
+        document.getElementById("plot_1d").style.width = "1200px";
+        document.getElementById("plot_1d").style.height = "800px";
+        const cr = document.getElementById("plot_1d").getBoundingClientRect();
         main_plot.init(cr.width, cr.height, result_spectra[0]);
-        plot_div_resize_observer.observe(document.getElementById("plot")); 
+        plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
+
+    add_to_list(0,b_from_fid,b_reprocess);
 
     for(let i=0;i<result_spectra.length;i++)
     {
@@ -2753,7 +2435,6 @@ function disable_enable_peak_buttons(spectrum_index,flag)
          */
         document.getElementById("download_peaks-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
         if(flag===0)
@@ -2769,7 +2450,6 @@ function disable_enable_peak_buttons(spectrum_index,flag)
          */
         document.getElementById("download_peaks-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
         document.getElementById("show_peaks-".concat(spectrum_index)).disabled = false;
@@ -2795,7 +2475,6 @@ function disable_enable_fitted_peak_buttons(spectrum_index,flag)
          * Enable run deep picker and run voigt fitter buttons (allow run again)
          */
         document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
         document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
     }
@@ -2819,6 +2498,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     let header = new Float32Array(all_spectra[spectrum_index].header);
     header[55] = 1.0; //keep real part only
     header[56] = 1.0; //keep real part only
+    header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
     /**
@@ -2833,19 +2513,11 @@ function run_DEEP_Picker(spectrum_index,flag)
      * and scale2 as 0.6 * scale
      */
     let noise_level = all_spectra[spectrum_index].noise_level;
-    let level = all_spectra[spectrum_index].levels[main_plot.contour_lbs[spectrum_index]];
-    let level_negative = all_spectra[spectrum_index].negative_levels[main_plot.contour_lbs_negative[spectrum_index]];
-    let scale = level / noise_level;
+    let scale = 5.5;
     let scale2 = 0.6 * scale;
-    let scale_negative = Math.abs(level_negative) / noise_level;
-    let scale2_negative = 0.6 * scale_negative;
+    let maxround = 10;
 
-    /**
-     * Check checkbox for "remove_t1_noise-${spectrum_index}"
-     * set remove_t1_noise to "yes" or "no" based on the checkbox state
-     */
-    let remove_t1_noise = document.getElementById("remove_t1_noise-"+spectrum_index).checked ? "yes" : "no";
-
+   
     /**
      * Add title to textarea "log"
      */
@@ -2855,11 +2527,8 @@ function run_DEEP_Picker(spectrum_index,flag)
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
-        scale_negative: scale_negative,
-        scale2_negative: scale2_negative,
         noise_level: noise_level,
-        remove_t1_noise: remove_t1_noise,
-        flag: flag //0: DEEP Picker, 1: Simple Picker
+        maxround: maxround,
     });
     /**
      * Let user know the processing is started
@@ -2885,16 +2554,12 @@ function run_Voigt_fitter(spectrum_index,flag)
      */
     let maxround = parseInt(document.getElementById("maxround-"+spectrum_index).value);
 
-    /**
-     * Get number input field with ID "combine_peak_cutoff-"+spectrum_index
-     */
-    let combine_peak_cutoff = parseFloat(document.getElementById("combine_peak_cutoff-"+spectrum_index).value);
-
+  
     /**
      * Get subset of the picked peaks (within visible region)
      * start < end from the get_visible_region function call
      */
-    [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+    [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
 
     /**
      * Get a copy of the picked peaks, so that we can filter it
@@ -2902,7 +2567,6 @@ function run_Voigt_fitter(spectrum_index,flag)
     let picked_peaks_copy = new cpeaks();
     picked_peaks_copy.copy_data(all_spectra[spectrum_index].picked_peaks_object);
     picked_peaks_copy.filter_by_column_range("X_PPM", x_ppm_visible_start, x_ppm_visible_end);
-    picked_peaks_copy.filter_by_column_range("Y_PPM", y_ppm_visible_start, y_ppm_visible_end);
 
     let picked_peaks_copy_tab = picked_peaks_copy.save_peaks_tab();
 
@@ -2915,6 +2579,7 @@ function run_Voigt_fitter(spectrum_index,flag)
     header[55] = 1.0;
     header[56] = 1.0;
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
+    header[99] = all_spectra[spectrum_index].n_direct; //size of direct dimension of the input spectrum
     /**
      * Also set 
      */
@@ -2929,9 +2594,8 @@ function run_Voigt_fitter(spectrum_index,flag)
         spectrum_data: data_uint8,
         picked_peaks: picked_peaks_copy_tab,
         spectrum_index: spectrum_index,
-        combine_peak_cutoff: combine_peak_cutoff,
         maxround: maxround,
-        flag: flag, //0: Voigt, 1: Gaussian, 2: Voigt_Lorentzian
+        flag: flag, //0: Voigt, 1: Gaussian
         scale: all_spectra[spectrum_index].scale,
         scale2: all_spectra[spectrum_index].scale2,
         noise_level: all_spectra[spectrum_index].noise_level
