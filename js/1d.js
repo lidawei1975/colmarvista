@@ -340,101 +340,6 @@ $(document).ready(function () {
 
 
 
-
-/**
- * When user click button to run pseudo 3D fitting
- */
-function run_pseudo3d(flag) {
-
-    /**
-     * Get initial peaks from current_spectrum_index_of_peaks and current_flag_of_peaks
-     */
-    if (current_spectrum_index_of_peaks === -1) {
-        alert("Please select a initial peak list to run pseudo 3D fitting");
-        return;
-    }
-
-    let initial_peaks;
-    if (current_flag_of_peaks === 'picked') {
-        initial_peaks = all_spectra[current_spectrum_index_of_peaks].picked_peaks_object.save_peaks_tab();
-    }
-    else {
-        initial_peaks = all_spectra[current_spectrum_index_of_peaks].fitted_peaks_object.save_peaks_tab();
-    }
-
-    /**
-     * Get input number "max_round" value (number type)
-     */
-    let max_round = parseInt(document.getElementById("max_round").value);
-    /**
-     * Get input checkbox "with_error" checked: true or false
-     */
-    let with_error = document.getElementById("with_error").checked;
-    /**
-     * Get input checkbox "with_recon" checked: true or false
-     */
-    let with_recon = document.getElementById("with_recon").checked;
-
-    /**
-     * Check all spectra, collect the ones that are experimental
-     * Save their header and raw data like this: 
-     * Combine all_spectra[index].raw_data and all_spectra[index].header into one Float32Array
-     * Convert to Uint8Array to be transferred to the worker: let data_uint8 = new Uint8Array(data.buffer);
-     */
-    let all_files = [];
-    let all_spectra_indices = [];
-    for (let i = 0; i < all_spectra.length; i++) {
-        if (all_spectra[i].spectrum_origin === -1 || all_spectra[i].spectrum_origin === -2 || all_spectra[i].spectrum_origin>=10000) {
-            let data = new Float32Array(all_spectra[i].header.length + all_spectra[i].raw_data.length);
-            let temp_header = new Float32Array(all_spectra[i].header);
-            /**
-             * Set temp_header to 1.0 to indicate it is real data (not complex data) because we only send raw_data (not raw_data_ri, ..)
-             */
-            if( temp_header[55] == 0.0 && temp_header[56] == 0.0)
-            {
-                temp_header[219] /= 2.0; //when both are complex, nmrPipe set 219 to 2 times true indirect size   
-            }
-            temp_header[55] = 1;
-            temp_header[56] = 1;
-            data.set(temp_header, 0);
-            data.set(all_spectra[i].raw_data, all_spectra[i].header.length);
-            let data_uint8 = new Uint8Array(data.buffer);
-            all_files.push(data_uint8);
-            all_spectra_indices.push(i);
-        }
-    }
-
-    /**
-     * Disable the download fitted peaks buttons to run pseudo 3D fitting
-     */
-    document.getElementById("button_run_pseudo3d_gaussian").disabled = true;
-    document.getElementById("button_run_pseudo3d_voigt").disabled = true;
-
-    /**
-     * Show the processing message to let user know the fitting is running
-     */
-    document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait...";
-
-    /**
-     * Send the initial peaks, all_files to the worker
-     */
-    webassembly_1d_worker.postMessage({
-        webassembly_job: "pseudo3d_fitting",
-        initial_peaks: initial_peaks,
-        all_files: all_files,
-        all_spectra_indices: all_spectra_indices, //indices of the spectra in all_spectra
-        noise_level: all_spectra[current_spectrum_index_of_peaks].noise_level,
-        scale: all_spectra[current_spectrum_index_of_peaks].scale,
-        scale2: all_spectra[current_spectrum_index_of_peaks].scale2,
-        flag: flag, //0: voigt, 1: Gaussian
-        maxround: max_round,
-        with_error: with_error,
-        with_recon: with_recon,
-    });
-}
-
-
-
 webassembly_1d_worker.onmessage = function (e) {
 
     /**
@@ -492,7 +397,7 @@ webassembly_1d_worker.onmessage = function (e) {
     /**
      * If result is fitted_peaks and recon_spectrum
      */
-    else if (e.data.fitted_peaks && e.data.recon_spectrum) {
+    else if (e.data.webassembly_job === "peak_fitter") { 
         console.log("Fitted peaks and recon_spectrum received");
 
         /**
@@ -547,7 +452,8 @@ webassembly_1d_worker.onmessage = function (e) {
          */
         result_spectrum.scale = e.data.scale;
         result_spectrum.scale2 = e.data.scale2;
-        draw_spectrum([result_spectrum],false/**from fid */,false/**re-process of fid or ft2 */);
+
+        all_spectra.push(result_spectrum);
 
         /**
          * Clear the processing message
@@ -555,246 +461,6 @@ webassembly_1d_worker.onmessage = function (e) {
         document.getElementById("webassembly_message").innerText = "";
     }
 
-    /**
-     * IF result is file_data and file_type is "direct", it is a hybrid spectrum
-     * (direct dimension only processing) from a NUS experiment
-     */
-    else if(e.data.file_data && e.data.file_type && e.data.file_type === 'direct')
-    {
-        /**
-         * Update direct dimension phase correction values
-         * from e.data.phasing_data
-         */
-        let current_phase_correction = e.data.phasing_data.split(/\s+/).map(Number);
-        document.getElementById("phase_correction_direct_p0").value = current_phase_correction[0];
-        document.getElementById("phase_correction_direct_p1").value = current_phase_correction[1];
-
-        /**
-         * Send e.data.file_data as Unit8Array to webass2 (smile) work to process it.
-         * Also need:
-         * nuslist file as a string
-         * apodization_direct as a string
-         * indirect phase correction p0 and p1 as numbers
-        */   
-        let arrayBuffer = new Uint8Array(e.data.file_data);
-
-        webassembly_worker2.postMessage({
-            spectrum_data: arrayBuffer,
-            nuslist_as_string: nuslist_as_string, //saved as global variable
-            apodization_direct: apodization_direct, //saved as global variable
-            phase_correction_indirect_p0: phase_correction_indirect_p0, 
-            phase_correction_indirect_p1: phase_correction_indirect_p1,
-            /**
-             * Pass the current spectrum index to the worker
-             */
-            spectrum_index: e.data.spectrum_index,
-            processing_flag: e.data.processing_flag,
-        });
-    }
-
-    /**
-     * If result is file_data and phasing_data, it is the frequency domain spectrum returned from the worker
-     * from the time domain spectrum
-     */
-    else if (e.data.file_data && e.data.file_type && (e.data.file_type ==='full' || e.data.file_type ==='indirect') && e.data.phasing_data) {
-
-        /**
-         * e.data.phasing_data is a string with 4 numbers separated by space(s)
-         * Firstly replace all space(s) with a single space
-         * Then convert it to an array of 4 numbers
-         */
-        let current_phase_correction = e.data.phasing_data.split(/\s+/).map(Number);
-
-         /**
-         * Fill HTML filed with id "phase_correction_direct_p0" and "phase_correction_direct_p1" with the first two numbers
-         * and "phase_correction_indirect_p0" and "phase_correction_indirect_p1" with the last two numbers
-         * IF these numbers are already filled (then send to the worker), they will be returned without change,
-         * that is, there is no need to fill them again, but won't hurt to fill them again (because they are the same)
-         */
-        if (e.data.file_type === 'full') {
-            document.getElementById("phase_correction_direct_p0").value = current_phase_correction[0];
-            document.getElementById("phase_correction_direct_p1").value = current_phase_correction[1];
-            document.getElementById("phase_correction_indirect_p0").value = current_phase_correction[2];
-            document.getElementById("phase_correction_indirect_p1").value = current_phase_correction[3];
-            /**
-             * In case of full, also need to update apodization_indirect because auto phase correction may change it
-             */
-            apodization_indirect = e.data.apodization_indirect;
-            document.getElementById("apodization_indirect").value = apodization_indirect;
-
-            /**
-             * Save the phase correction values to fid_process_parameters
-             */
-            fid_process_parameters.phase_correction_direct_p0 = current_phase_correction[0];
-            fid_process_parameters.phase_correction_direct_p1 = current_phase_correction[1];
-            fid_process_parameters.phase_correction_indirect_p0 = current_phase_correction[2];
-            fid_process_parameters.phase_correction_indirect_p1 = current_phase_correction[3];
-            fid_process_parameters.apodization_indirect = apodization_indirect;
-        }
-        
-        /**
-         * Determine whether this is a re-process or a new process
-         * if b_reprocess is true, we will replace the current spectrum
-         * if b_reprocess is false, we will add the spectrum to the all_spectra array
-         * Both are done in draw_spectrum function
-         */
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
-        let result_spectrum = new spectrum_1d();
-        result_spectrum.process_ft_file(arrayBuffer,"from_fid.ft2",-2);
-        let b_reprocess = e.data.processing_flag == 1 ? true : false;
-        
-        result_spectrum.spectrum_index = e.data.spectrum_index; //only used when reprocess
-        let result_spectra = [result_spectrum];
-        
-
-        /**
-         * Process additional ft2 files (send back from webass worker) in case of pseudo 3D processing
-         */
-        for(let i=0;i<e.data.pseudo3d_files.length;i++)
-        {
-            let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
-            let result_spectrum = new spectrum_1d();
-            result_spectrum.process_ft_file(arrayBuffer,"pseudo3d-".concat((i+1).toString(),".ft2"),-4);
-            result_spectra.push(result_spectrum);
-        }
-        draw_spectrum(result_spectra,true/**from fid */,b_reprocess,e.data.pseudo3d_children);
-
-        /**
-         * Clear the processing message
-         */
-        document.getElementById("webassembly_message").innerText = "";
-        /**
-         * Unselect auto phase correction
-         */
-        document.getElementById("auto_direct").checked = false;
-        document.getElementById("auto_indirect").checked = false;
-    }
-
-    /**
-     * Only file_data and phase_correction. it is a phase corrected spectrum
-     */
-    else if (e.data.file_data && e.data.spectrum_name)
-    {
-        console.log("Phase corrected spectrum received");
-        document.getElementById("webassembly_message").innerText = "";
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
-        let result_spectrum = new spectrum_1d();
-        result_spectrum.process_ft_file(arrayBuffer,e.data.spectrum_name,-1);
-        result_spectrum.spectrum_index = e.data.spectrum_index;
-        draw_spectrum([result_spectrum],false/**from fid */,true/**re-process of fid or ft2 */);
-        /**
-         * If e.data.b_auto is true. This is an automatic phase correction run. We need to update
-         * html element "pc_info" with the e.data.phase_correction (trim ending newline if it exists)
-         */
-        if(e.data.automatic_pc)
-        {
-            document.getElementById("pc_info").innerText =  "Phase correction: " + e.data.phase_correction.trim();
-        }
-    }
-
-    /**
-     * If result is pseudo3d_fitted_peaks, it is from the pseudo 3D fitting
-     */
-    else if (e.data.pseudo3d_fitted_peaks_tab) {
-        console.log("Pseudo 3D fitted peaks received");
-        pseudo3d_fitted_peaks_object = new cpeaks();
-        pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.pseudo3d_fitted_peaks_tab);
-
-        /**
-         * Process e.data.fitted_err (array of fitted_peaks_tab) and put them into pseudo2d_fitted_peaks_error
-         */
-        pseudo2d_fitted_peaks_error = []; //clear the previous fitted peaks error
-        for(let i=0;i<e.data.fitted_err.length;i++)
-        {
-            let peaks = new cpeaks();
-            peaks.process_peaks_tab(e.data.fitted_err[i]);
-            pseudo2d_fitted_peaks_error.push(peaks);
-        }
-
-        /**
-         * Enable the download fitted peaks button and show the fitted peaks button
-         */
-        document.getElementById("button_download_fitted_peaks").disabled = false;
-        document.getElementById("show_pseudo3d_peaks").disabled = false;
-
-        /**
-         * Uncheck all other show peaks checkboxes
-         */
-        for(let i=0;i<all_spectra.length;i++)
-        {
-            /**
-             * -3 means removed spectrum, all DOM element for removed spectrum is also removed
-             */
-            if(all_spectra[i].spectrum_origin !== -3)
-            {
-                document.getElementById("show_peaks-".concat(i)).checked = false;
-                document.getElementById("show_fitted_peaks-".concat(i)).checked = false;
-            }
-        }
-
-        /**
-         * Uncheck the show_peaks checkbox then simulate a click event to show the peaks (with updated peaks from fitted_peaks)
-         */
-        document.getElementById("show_pseudo3d_peaks").checked = false;
-        document.getElementById("show_pseudo3d_peaks").click();
-
-        /**
-         * Process all reconstructed spectra.
-         * e.data.recon_files is empty if no with_recon is selected when running pseudo 3D fitting
-         */
-        for(let i=0;i<e.data.recon_files.length;i++)
-        {
-            let arrayBuffer = new Uint8Array(e.data.recon_files[i]).buffer;
-            let result_spectrum_name = "pseudo3d-recon-".concat((i).toString(),".ft2");
-            let result_spectrum = new spectrum_1d();
-            result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.all_spectra_indices[i]);
-            
-            result_spectrum.scale = e.data.scale;
-            result_spectrum.scale2 = e.data.scale2;
-
-            /**
-             * Replace its header with the header of the original spectrum
-             * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
-             */
-            result_spectrum.header = all_spectra[e.data.all_spectra_indices[i]].header;
-            result_spectrum.noise_level = all_spectra[e.data.all_spectra_indices[i]].noise_level;
-            result_spectrum.levels = all_spectra[e.data.all_spectra_indices[i]].levels;
-            result_spectrum.negative_levels = all_spectra[e.data.all_spectra_indices[i]].negative_levels;
-            result_spectrum.spectral_max = all_spectra[e.data.all_spectra_indices[i]].spectral_max;
-            result_spectrum.spectral_min = all_spectra[e.data.all_spectra_indices[i]].spectral_min;
-
-            draw_spectrum([result_spectrum],false/**from fid */,false/**re-process of fid or ft2 */);
-        }
-
-
-        /**
-         * Clear the processing message
-         */
-        document.getElementById("webassembly_message").innerText = "";
-        /**
-         * Re-enable the run pseudo 3D buttons
-         */
-        document.getElementById("button_run_pseudo3d_gaussian").disabled = false;
-        document.getElementById("button_run_pseudo3d_voigt").disabled = false;
-        /**
-         * Enable the assignment_file
-         */
-        document.getElementById("assignment_file").disabled = false;
-    }
-
-    else if(e.data.matched_peaks_tab)
-    {
-        console.log("Assignment transfer received.");
-        /**
-         * Update pseudo3d_fitted_peaks_object with the assignment
-         */
-        pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.matched_peaks_tab);
-    }
-
-    else if(e.data.webassembly_job === "spin_optimization")
-    {
-        process_spin_optimization_result(e.data.spin_system);
-    }
 
     else{
         console.log(e.data);
@@ -2594,6 +2260,7 @@ function run_Voigt_fitter(spectrum_index,flag)
         spectrum_data: data_uint8,
         picked_peaks: picked_peaks_copy_tab,
         spectrum_index: spectrum_index,
+        noise_level: all_spectra[spectrum_index].noise_level,
         maxround: maxround,
         flag: flag, //0: Voigt, 1: Gaussian
         scale: all_spectra[spectrum_index].scale,

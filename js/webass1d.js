@@ -37,7 +37,7 @@ onmessage = function (e) {
          * Write a file named "argument_voigt_fit.txt" to the virtual file system
          * save -noise_level, -scale and -scale2 
          */
-        let content = ' -peak_in peaks.tab -out fitted.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
+        let content = ' -in test.ft1 -peak_in peaks.tab -out fitted.tab -folder . -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
         content = content.concat(' -maxround ', e.data.maxround);
         
 
@@ -52,13 +52,11 @@ onmessage = function (e) {
         else if (e.data.flag === 1){
             content = content.concat(' -method gaussian ');
         }
-        else {
-            content = content.concat(' -method voigt-lorentz ');
-        }
+        
 
         console.log(content);
 
-        Module['FS_createDataFile']('/', 'argument_voigt_fit.txt', content, true, true, true);
+        Module['FS_createDataFile']('/', 'arguments_vf1d.txt', content, true, true, true);
 
         console.log('Spectrum data and picked peaks saved to virtual file system');
         /**
@@ -71,12 +69,10 @@ onmessage = function (e) {
          * Remove the input files from the virtual file system
          * Read file peaks.json, parse it and send it back to the main script
          */
-        FS.unlink('hsqc.ft2');
+        FS.unlink('test.ft1');
         FS.unlink('peaks.tab');
         FS.unlink('argument_voigt_fit.txt');
-        let peaks = JSON.parse(FS.readFile('fitted.json', { encoding: 'utf8' }));
         let peaks_tab = FS.readFile('fitted.tab', { encoding: 'utf8' });
-        FS.unlink('fitted.json');
         FS.unlink('fitted.tab');
 
         /**
@@ -86,23 +82,19 @@ onmessage = function (e) {
         let filename;
         if(e.data.flag === 0)
         {
-            filename='recon_voigt_hsqc.ft2';
+            filename='recon_voigt_test.ft1';
         }
         else if(e.data.flag === 1)
         {
-            filename='recon_gaussian_hsqc.ft2';
+            filename='recon_gaussian_test.ft1';
         }
-        else
-        {
-            filename='recon_voigt_lorentz_hsqc.ft2';
-        }
+       
 
         const file_data = FS.readFile(filename, { encoding: 'binary' });
         console.log('File data read from virtual file system, type of file_data:', typeof file_data, ' and length:', file_data.length);
         FS.unlink(filename);
         postMessage({
             webassembly_job: e.data.webassembly_job,
-            fitted_peaks: peaks,
             fitted_peaks_tab: peaks_tab, //peaks_tab is a very long string with multiple lines (in nmrPipe tab format)
             spectrum_origin: e.data.spectrum_index, //pass through the spectrum index of the original spectrum (run peak fitting and recon on)
             recon_spectrum: file_data,
