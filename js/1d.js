@@ -426,7 +426,7 @@ webassembly_1d_worker.onmessage = function (e) {
         /**
          * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
          */
-        let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft2");
+        let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft1");
         let result_spectrum = new spectrum_1d();
         result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.spectrum_origin);
 
@@ -459,6 +459,15 @@ webassembly_1d_worker.onmessage = function (e) {
          * Clear the processing message
          */
         document.getElementById("webassembly_message").innerText = "";
+
+        /**
+         * At this moment, add recon.js to the plot
+         */
+        let recon_peaks = JSON.parse(e.data.recon_json);
+        let peaks_center = get_center(recon_peaks.peaks_recon);
+        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
+
+
     }
 
 
@@ -2326,109 +2335,14 @@ function show_hide_peaks(index,flag,b_show)
         }
     }
 
-    /**
-     * If index is not -2, we need to uncheck the checkbox of pseudo 3D peaks
-     */
-    if(index!==-2)
-    {
-        document.getElementById("show_pseudo3d_peaks").checked = false;
-    }
-
-    /**
-     * -2 means pseudo 3D peaks
-     */
-    if(index==-2 && b_show)
-    {
-        current_spectrum_index_of_peaks = index;
-        current_flag_of_peaks = 'fitted';
-        show_peak_table();
-        /**
-         * flag is always 'fitted' for pseudo 3D peaks.
-         * First define a dummy hsqc_spectrum object. When flag is fitted, main_plot will only use fitted_peaks of the spectrum
-         */
-        let pseudo3d_spectrum = new spectrum_1d();
-        pseudo3d_spectrum.fitted_peaks_object = pseudo3d_fitted_peaks_object;
-
-        /**
-         * If we have DOSY in column_headers, add it to peak_properties.
-         */
-        if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY')!==-1)
-        {
-            /**
-             * Get all column_headers that starts with Z_A (such as Z_A0,Z_A1, ... )
-             */
-            let dosy_headers = pseudo3d_fitted_peaks_object.column_headers.filter(function(header) {
-                return header.startsWith('Z_A');
-            });
-
-            /**
-             * Make a header list
-             */
-            let header_list = ['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS','DOSY'];
-
-            /**
-             * If with error estimation, add DOSY_STD 
-             */
-            if(pseudo3d_fitted_peaks_object.column_headers.indexOf('DOSY_STD')!=-1)
-            {
-                header_list.push('DOSY_STD');
-            }
-
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',header_list.concat(dosy_headers),'SOLID');
-
-            /**
-             * For pseudo3D only, main_plot need to know the pseudo-3D plane 
-             * name: "Gradient"
-             * value: pseudo3d_fitted_peaks_object.gradients^2;
-             * y_value: dosy_headers
-             */
-
-            main_plot.pseudo3d_plane_name = "Gradient";
-            main_plot.pseudo3d_plane_value = pseudo3d_fitted_peaks_object.gradients.map(d => d*d);
-            main_plot.pseudo3d_plane_y_value = dosy_headers;
-            main_plot.pseudo3d_x_label = "Gradient^2";
-            main_plot.pseudo3d_y_label = "ln(Z)";
-            main_plot.pseudo3d_slope_factor = -1.0/pseudo3d_fitted_peaks_object.scale_constant;
-
-            main_plot.allow_hover_on_peaks(true);
-
-
-            /**
-             * Insert ASS and DOSY into HTML select with ID labels
-             */
-            update_label_select(['DOSY','HEIGHT']);
-            
-            color_map_list = ['HEIGHT','DOSY'];
-            color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT'),get_peak_limit(pseudo3d_fitted_peaks_object,'DOSY')];
-            update_colormap_select();
-
-        }
-        else
-        {
-            main_plot.add_peaks(pseudo3d_spectrum,'fitted',['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');    
-            update_label_select(['HEIGHT']);
-            color_map_list = ['HEIGHT'];
-            color_map_limit =[get_peak_limit(pseudo3d_fitted_peaks_object,'HEIGHT')];
-            update_colormap_select();
-            main_plot.allow_hover_on_peaks(false);
-        }
-    }
-
-    else if(b_show)
+    if(b_show)
     {
         current_spectrum_index_of_peaks = index;
         set_current_spectrum(index);
         current_flag_of_peaks = flag;
         show_peak_table();
 
-        /**
-         * Get current lowest contour level of the spectrum
-         */
-        let level = all_spectra[index].levels[main_plot.contour_lbs[index]];
-        main_plot.set_peak_level(level);
-        let level_negative = all_spectra[index].negative_levels[main_plot.contour_lbs_negative[index]];
-        main_plot.set_peak_level_negative(level_negative);
-
+      
         if(flag === 'picked')
         {
             /**
@@ -3251,4 +3165,28 @@ function set_current_spectrum(spectrum_index)
     }
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+}
+
+
+/**
+ * 
+ * @param {array} peaks peaks is an array of peaks, each peak is an array of [x,y] coordinates
+ * @returns {array} peaks_center
+ * For each peak, this function calculate the x coordinate of the peak center (mean of x coordinates of all points in the peak)
+ * Return an array of peak centers
+ */
+function get_center(peaks) {
+    let peaks_center = new Array(peaks.length);
+
+    for (var i = 0; i < peaks.length; i++) {
+        let x_min = 1000.0;
+        let x_max = -1000.0;
+        for (var j = 0; j < peaks[i].length; j++) {
+            if (peaks[i][j][0] < x_min) { x_min = peaks[i][j][0]; }
+            if (peaks[i][j][0] > x_max) { x_max = peaks[i][j][0]; }
+
+        }
+        peaks_center[i] = (x_min + x_max) / 2.0;
+    }
+    return peaks_center;
 }
