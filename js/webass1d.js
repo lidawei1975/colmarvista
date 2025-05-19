@@ -118,16 +118,17 @@ onmessage = function (e) {
         Module['FS_createDataFile']('/', 'test.ft1', e.data.spectrum_data, true, true, true);
 
         /**
-         * Write a file named "arguments_dp.txt" to the virtual file system
+         * Write a file named "arguments_peak_picking_1d.txt" to the virtual file system
          * save -noise_level, -scale and -scale2
          */
         
         let content = ' -in test.ft1 -out peaks.tab -noise_level '.concat(e.data.noise_level,
             ' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
-        Module['FS_createDataFile']('/', 'arguments_dp.txt', content, true, true, true);
+        Module['FS_createDataFile']('/', 'arguments_peak_picking_1d.txt', content, true, true, true);
         
 
         console.log('Spectrum data saved to virtual file system');
+        console.log('Content of arguments_peak_picking_1d.txt:', content);
         /**
          * Run deep function
          */
@@ -142,7 +143,7 @@ onmessage = function (e) {
         FS.unlink('test.ft1');
         let peaks_tab = FS.readFile('peaks.tab', { encoding: 'utf8' });
         FS.unlink('peaks.tab');
-        FS.unlink('arguments_dp.txt');
+        FS.unlink('arguments_peak_picking_1d.txt');
        
         postMessage({
             webassembly_job: e.data.webassembly_job,

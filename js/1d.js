@@ -291,26 +291,13 @@ $(document).ready(function () {
    
 
     /**
-     * These 3 checkbox can only be triggered when the checkboxes are enabled
+     * This checkbox can only be triggered when the checkboxes are enabled
      * which means the main_plot is already defined
      * and current spectrum is an experimental spectrum
      * and current showing peaks are picked peaks (not fitted peaks)
      */
 
-    /** 
-     * Add event listener to the allow_brush_to_remove checkbox
-     */
-    document.getElementById("allow_brush_to_remove").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.allow_brush_to_remove = true;
-        }
-        else {
-            /**
-             * Disable the peak editing in main plot
-             */
-            main_plot.allow_brush_to_remove = false;
-        }
-    });
+
 
     /**
      * Event listener for the allow_drag_and_drop checkbox
@@ -321,18 +308,6 @@ $(document).ready(function () {
         }
         else {
             main_plot.allow_peak_dragging(false);
-        }
-    });
-
-    /**
-     * Event listener for the allow_click_to_add_peak checkbox
-    */
-    document.getElementById("allow_click_to_add_peak").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.allow_click_to_add_peak(true);
-        }
-        else {
-            main_plot.allow_click_to_add_peak(false);
         }
     });
 
@@ -953,6 +928,22 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(load_peak_list_label);
         new_spectrum_div.appendChild(peak_list_input);
 
+        /**
+         * Add an input field to set minimum peak height (relative to noise level) for DEEP picker (ID: "scale1-".concat(index))
+         */
+        let scale1_label = document.createElement("label");
+        scale1_label.setAttribute("for", "scale1-".concat(index));
+        scale1_label.innerText = " Scale1: ";
+        let scale1_input = document.createElement("input");
+        scale1_input.setAttribute("type", "number");
+        scale1_input.setAttribute("step", "0.1");
+        scale1_input.setAttribute("min", "4.0");
+        scale1_input.setAttribute("id", "scale1-".concat(index));
+        scale1_input.setAttribute("size", "4");
+        scale1_input.setAttribute("value", "10.0");
+        new_spectrum_div.appendChild(scale1_label);
+        new_spectrum_div.appendChild(scale1_input);
+
 
         /**
          * Add a run_DEEP_Picker button to run DEEP picker. Default is enabled
@@ -963,6 +954,8 @@ function add_to_list(index) {
         deep_picker_button.onclick = function () { run_DEEP_Picker(index,0); };
         new_spectrum_div.appendChild(deep_picker_button);
 
+        // Add a line break
+        new_spectrum_div.appendChild(document.createElement("br"));
       
         /**
          * Add a combine_peak cutoff input filed with ID "combine_peak_cutoff-".concat(index)
@@ -1198,14 +1191,6 @@ function add_to_list(index) {
     if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
     {
         total_number_of_experimental_spectra += 1;
-        /**
-         * If we have 2 or more experimental spectra, we enable the run_Voigt_fitter button
-         */
-        if(total_number_of_experimental_spectra >= 2)
-        {
-            document.getElementById("button_run_pseudo3d_gaussian").disabled = false;
-            document.getElementById("button_run_pseudo3d_voigt").disabled = false;
-        }
     }
 }
 
@@ -2188,9 +2173,10 @@ function run_DEEP_Picker(spectrum_index,flag)
      * and scale2 as 0.6 * scale
      */
     let noise_level = all_spectra[spectrum_index].noise_level;
-    let scale = 5.5;
+    let scale = parseFloat(document.getElementById("scale1-".concat(spectrum_index)).value);
     let scale2 = 0.6 * scale;
     let maxround = 10;
+
 
    
     /**
@@ -2289,23 +2275,17 @@ function run_Voigt_fitter(spectrum_index,flag)
 function show_hide_peaks(index,flag,b_show)
 {
     /**
-     * Disable main_plot.allow_brush_to_remove and checkbox:
-     * allow_brush_to_remove
      * allow_drag_and_drop
-     * allow_click_to_add_peak
      */
-    main_plot.allow_brush_to_remove = false;
-    document.getElementById("allow_brush_to_remove").checked = false;
-    document.getElementById("allow_brush_to_remove").disabled = true;
+
     document.getElementById("allow_drag_and_drop").checked = false;
     document.getElementById("allow_drag_and_drop").disabled = true;
-    document.getElementById("allow_click_to_add_peak").checked = false;
-    document.getElementById("allow_click_to_add_peak").disabled = true;
+
     
     /**
      * Turn off checkbox of all other spectra
      */
-    for(let i=0;i<all_spectra.length;i++)
+    for(let i=0;i<1;i++)
     {
         if(i!==index)
         {
@@ -2350,9 +2330,7 @@ function show_hide_peaks(index,flag,b_show)
              */
             if(all_spectra[index].spectrum_origin === -1 || all_spectra[index].spectrum_origin === -2 || all_spectra[index].spectrum_origin >=10000)
             {
-                document.getElementById("allow_brush_to_remove").disabled = false;
                 document.getElementById("allow_drag_and_drop").disabled = false;
-                document.getElementById("allow_click_to_add_peak").disabled = false;
             }
             main_plot.add_peaks(all_spectra[index].picked_peaks_object,all_spectra[index].spectral_max);
         }

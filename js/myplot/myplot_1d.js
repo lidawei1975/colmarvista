@@ -973,12 +973,14 @@ class myplot_1d {
      * @param {Object} peak_obj: cpeaks class object
      */
     add_peaks(peak_obj,maxv) {
+        let self = this;
         /**
-         * Construct peak data, array of [x,y] pairs
+         * Construct peak data, array of [x,y,z] 
          * x is ppm: peak_obj.column['X_PPM']
          * y is intensity: peak_obj.column['HEIGHT'], normalized by maxv
+         * z is index: peak_obj.column['INDEX'] (not for plotting, but for tracking the peak)
          */
-        let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT']);
+        let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT','INDEX']);
         this.maxv = maxv;
 
         this.peaks_symbol=this.vis.append('g')
@@ -994,6 +996,34 @@ class myplot_1d {
             .style("stroke-width", 3.5)
             .style("stroke", "blue")
             .attr("class", "peak_circle");
+
+        /**
+         * Allow drag and drop of the peaks
+         */
+        this.peak_drag = d3.drag()
+            .on("start", function (event, d) {
+                d3.select(this).raise().classed("active", true);
+            })
+            .on("drag", function (event, d) {
+                d3.select(this)
+                    .attr("cx", event.x)
+                    .attr("cy", event.y);
+                //update the peak data
+
+            })
+            .on("end", function (event, d) {
+                d3.select(this).classed("active", false);
+                let ppm = self.x.invert(event.x);
+                let intensity = self.y.invert(event.y) * maxv;
+                console.log("ppm", ppm, "intensity", intensity);
+                //update the peak data, 
+                d[0] = ppm;
+                d[1] = intensity;
+                //update the peak object
+                peak_obj.update_row_1d(d[2], ppm, intensity);
+            });
+
+        this.peaks_symbol.call(this.peak_drag);
     };
 
     remove_peaks() {

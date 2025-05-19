@@ -557,6 +557,28 @@ class cpeaks {
         return true;
     }
 
+        /**
+         * Update X_PPM and Y_PPM of a row, from index (value of the column with header "INDEX")
+         */
+        update_row_1d(index, x_ppm, height) {
+            let index_index = this.column_headers.indexOf('INDEX');
+            if (index_index === -1) {
+                return false;
+            }
+            let row_index = this.columns[index_index].indexOf(index);
+            if (row_index === -1) {
+                return false;
+            }
+            let x_ppm_index = this.column_headers.indexOf('X_PPM');
+            let height_index = this.column_headers.indexOf('HEIGHT');
+            if (x_ppm_index === -1 || height_index === -1) {
+                return false;
+            }
+            this.columns[x_ppm_index][row_index] = x_ppm;
+            this.columns[height_index][row_index] = height;
+            return true;
+        }
+
     /**
      * Add a row to the peaks object from a json object
      * {X_PPM: x_ppm,Y_PPM: y_ppm, HEIGHT: data_height};
