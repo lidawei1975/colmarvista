@@ -2341,8 +2341,8 @@ function show_hide_peaks(index,flag,b_show)
         set_current_spectrum(index);
         current_flag_of_peaks = flag;
         show_peak_table();
+        main_plot.remove_peaks();
 
-      
         if(flag === 'picked')
         {
             /**
@@ -2354,22 +2354,17 @@ function show_hide_peaks(index,flag,b_show)
                 document.getElementById("allow_drag_and_drop").disabled = false;
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
+            main_plot.add_peaks(all_spectra[index].picked_peaks_object,all_spectra[index].spectral_max);
         }
-        main_plot.add_peaks(all_spectra[index],flag,['INDEX','X_PPM','Y_PPM','HEIGHT','INDEX','ASS'],'SOLID');
-        update_label_select(['INDEX','HEIGHT']);
-        color_map_list = ['HEIGHT'];
-        color_map_limit =[get_peak_limit( all_spectra[index].picked_peaks_object,'HEIGHT')];
-        update_colormap_select();
-        main_plot.allow_hover_on_peaks(false);
+        else
+        {
+            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,all_spectra[index].spectral_max);
+        }
     }
     else
     {
         current_spectrum_index_of_peaks = -1; // -1 means no spectrum is selected. flag is not important
-        main_plot.remove_picked_peaks();
-        color_map_list=[];
-        color_map_limit=[];
-        update_colormap_select();
-        main_plot.allow_hover_on_peaks(false);
+        main_plot.remove_peaks();
         remove_peak_table();
     }
     /**
@@ -2538,26 +2533,6 @@ function update_label_select(labels)
         const option = document.createElement("option");
         option.value = labels[i];
         option.text = labels[i];
-        selectElement.add(option);
-    }
-}
-
-function update_colormap_select()
-{
-    /**
-     * Remove all except 1st (which is Solid: means solid color, not colormap
-     */
-    let selectElement=document.getElementById('peak_colormap');
-    let i = selectElement.options.length-1;
-    while (i>0) {
-        selectElement.remove(i);
-        i--;
-    }
-    for(let i=0;i<color_map_list.length;i++)
-    {
-        const option = document.createElement("option");
-        option.value = color_map_list[i];
-        option.text = color_map_list[i];
         selectElement.add(option);
     }
 }

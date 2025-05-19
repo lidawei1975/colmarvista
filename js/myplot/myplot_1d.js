@@ -41,6 +41,9 @@ class myplot_1d {
         this.recon_line_width = 2.0;
         this.reference = 0.0;
 
+        this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+        this.maxv=1.0; //max value of the experimental spectrum
+
         /**
          * Construct for this.data from spectrum_1d.js
          * spectrum.raw_data is data[i][1] (amplitude)
@@ -762,6 +765,10 @@ class myplot_1d {
             this.line_baseline.attr("d", this.line(data_baseline_strided));
         }
 
+        // redraw peaks
+        if(this.peaks_symbol !== null) {
+            this.peaks_symbol.attr("cx", (d) => this.x(d[0])).attr("cy", (d) => this.y(d[1]/self.maxv));
+        }
 
         //redraw the x axis and y axis
         this.xAxis_element.call(this.xAxis);
@@ -959,6 +966,39 @@ class myplot_1d {
      */
     get_visible_region() {
         return this.x.domain();
+    }
+
+    /**
+     * Show peaks on the plot, as red circles
+     * @param {Object} peak_obj: cpeaks class object
+     */
+    add_peaks(peak_obj,maxv) {
+        /**
+         * Construct peak data, array of [x,y] pairs
+         * x is ppm: peak_obj.column['X_PPM']
+         * y is intensity: peak_obj.column['HEIGHT'], normalized by maxv
+         */
+        let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT']);
+        this.maxv = maxv;
+
+        this.peaks_symbol=this.vis.append('g')
+            .selectAll('circle')
+            .data(peak_data)
+            .enter()
+            .append('circle')
+            .attr("clip-path", "url(#clip)")
+            .attr('cx', (d) => this.x(d[0]))
+            .attr('cy', (d) => this.y(d[1] / maxv))
+            .attr('r', 5)
+            .style("fill", "blue")
+            .style("stroke-width", 3.5)
+            .style("stroke", "blue")
+            .attr("class", "peak_circle");
+    };
+
+    remove_peaks() {
+        this.vis.selectAll(".peak_circle").remove();
+        this.peaks_symbol = null;
     }
 
 };

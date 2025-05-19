@@ -397,6 +397,29 @@ class cpeaks {
         return result;
     }
 
+    
+    /**
+     * Get a array of array, each array is a row of the peaks object with only selected columns
+     * @param {string[]} column_header_names - the column header names to be selected
+     */
+    get_selected_columns_as_array(column_header_names) {
+        let indexes = column_header_names.map(header => this.column_headers.indexOf(header));
+        let result = [];
+        for (let i = 0; i < this.columns[0].length; i++) {
+            let row = [];
+            let counter = 0;
+            for (let j = 0; j < indexes.length; j++) {
+                if (indexes[j] === -1) {
+                    continue;
+                }
+                row[counter] = this.columns[indexes[j]][i];
+                counter++;
+            }
+            result.push(row);
+        }
+        return result;
+    }
+
     /**
      * Get an array of arrays of selected columns
      * result[column_index][row_index]
