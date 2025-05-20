@@ -1986,44 +1986,20 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
 async function download_plot()
 {
-    const format = 'png';
-
-    const $svg = document.getElementById('visualization'); 
-
-    /**
-     * Generate an Image (from canvas1) 
+/**
+     * Generate a link to download main_plot as a SVG file
+     * The top SVG element has id = "plot_1d"
      */
-    var contour_image = new Image();
-    contour_image.src = main_plot.contour_plot.drawScene(1);
-
-    /**
-     * Create a canvas element
-     */
-
-    const svgData = encodeAsUTF8(serializeAsXML($svg))
-
-    const img = await loadImage(svgData);
-    
-    const $canvas = document.createElement('canvas')
-    $canvas.width = $svg.clientWidth
-    $canvas.height = $svg.clientHeight
-    $canvas.getContext('2d').fillStyle = "white";
-    $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
-    $canvas.getContext('2d').drawImage(contour_image,90,20,$svg.clientWidth-110,$svg.clientHeight-90);
-    $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
-    
-    const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
-    
-    const $img = document.createElement('img');
-    $img.src = dataURL;
-
-    /**
-     * Download the image
-     */
-    const a = document.createElement('a');
-    a.href = dataURL;
-    a.download = 'nmr_plot.' + format;
-    a.click();
+    var svgData = document.getElementById("plot_1d").outerHTML;
+    var svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    var svgUrl = URL.createObjectURL(svgBlob);
+    var downloadLink = document.createElement("a");
+    downloadLink.href = svgUrl;
+    downloadLink.download = "colmar-vista.svg";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(svgUrl);
 }
 
 /**
