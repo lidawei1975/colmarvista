@@ -958,21 +958,21 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(document.createElement("br"));
       
         /**
-         * Add a combine_peak cutoff input filed with ID "combine_peak_cutoff-".concat(index)
+         * Add a combine_peak cutoff input filed with ID "peak_combine_cutoff-".concat(index)
          * run_Voigt_fitter() will read this value and send to wasm to combine peaks in the fitting
          */
-        let combine_peak_cutoff_label = document.createElement("label");
-        combine_peak_cutoff_label.setAttribute("for", "combine_peak_cutoff-".concat(index));
-        combine_peak_cutoff_label.innerText = " Combine peak cutoff: ";
-        let combine_peak_cutoff_input = document.createElement("input");
-        combine_peak_cutoff_input.setAttribute("type", "number");
-        combine_peak_cutoff_input.setAttribute("step", "0.01");
-        combine_peak_cutoff_input.setAttribute("min", "0.00");
-        combine_peak_cutoff_input.setAttribute("id", "combine_peak_cutoff-".concat(index));
-        combine_peak_cutoff_input.setAttribute("size", "1");
-        combine_peak_cutoff_input.setAttribute("value", "0.1");
-        new_spectrum_div.appendChild(combine_peak_cutoff_label);
-        new_spectrum_div.appendChild(combine_peak_cutoff_input);
+        let peak_combine_cutoff_label = document.createElement("label");
+        peak_combine_cutoff_label.setAttribute("for", "peak_combine_cutoff-".concat(index));
+        peak_combine_cutoff_label.innerText = " Combine peak cutoff: ";
+        let peak_combine_cutoff_input = document.createElement("input");
+        peak_combine_cutoff_input.setAttribute("type", "number");
+        peak_combine_cutoff_input.setAttribute("step", "0.01");
+        peak_combine_cutoff_input.setAttribute("min", "0.00");
+        peak_combine_cutoff_input.setAttribute("id", "peak_combine_cutoff-".concat(index));
+        peak_combine_cutoff_input.setAttribute("size", "1");
+        peak_combine_cutoff_input.setAttribute("value", "0.1");
+        new_spectrum_div.appendChild(peak_combine_cutoff_label);
+        new_spectrum_div.appendChild(peak_combine_cutoff_input);
 
         /**
          * Add a maxround input filed (type: int number) with ID "maxround-".concat(index)
@@ -2215,6 +2215,11 @@ function run_Voigt_fitter(spectrum_index,flag)
      */
     let maxround = parseInt(document.getElementById("maxround-"+spectrum_index).value);
 
+    /**
+     * Get peak combine cutoff
+     */
+    let peak_combine_cutoff = parseFloat(document.getElementById("peak_combine_cutoff-"+spectrum_index).value);
+
   
     /**
      * Get subset of the picked peaks (within visible region)
@@ -2257,6 +2262,7 @@ function run_Voigt_fitter(spectrum_index,flag)
         spectrum_index: spectrum_index,
         noise_level: all_spectra[spectrum_index].noise_level,
         maxround: maxround,
+        peak_combine_cutoff: peak_combine_cutoff,
         flag: flag, //0: Voigt, 1: Gaussian
         scale: all_spectra[spectrum_index].scale,
         scale2: all_spectra[spectrum_index].scale2,

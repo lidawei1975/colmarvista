@@ -37,8 +37,10 @@ onmessage = function (e) {
          * Write a file named "argument_voigt_fit.txt" to the virtual file system
          * save -noise_level, -scale and -scale2 
          */
-        let content = ' -in test.ft1 -peak_in peaks.tab -out fitted.tab -folder . -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
-        content = content.concat(' -maxround ', e.data.maxround);
+        let content = ' -in test.ft1 -peak_in peaks.tab -out fitted.tab -folder .'
+            .concat(' -noise_level ',e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2)
+            .concat(' -combine ', e.data.peak_combine_cutoff)
+            .concat(' -maxround ', e.data.maxround);
         
 
         /**
