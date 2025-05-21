@@ -39,6 +39,8 @@ onmessage = function (e) {
          */
         let content = ' -in test.ft1 -peak_in peaks.tab -out fitted.tab -folder .'
             .concat(' -noise_level ',e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2)
+            .concat(' -spectrum-begin ', e.data.spectrum_begin)
+            .concat(' -spectrum-end ', e.data.spectrum_end)
             .concat(' -combine ', e.data.peak_combine_cutoff)
             .concat(' -maxround ', e.data.maxround);
         

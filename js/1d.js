@@ -2212,6 +2212,16 @@ function run_Voigt_fitter(spectrum_index,flag)
 
     let picked_peaks_copy_tab = picked_peaks_copy.save_peaks_tab();
 
+    /**
+     * Make sure x_ppm_visible_start > x_ppm_visible_end
+     */
+    if(x_ppm_visible_start < x_ppm_visible_end)
+    {
+        let temp = x_ppm_visible_start;
+        x_ppm_visible_start = x_ppm_visible_end;
+        x_ppm_visible_end = temp;
+    }
+
 
     /**
      * Combine all_spectra[spectrum_index].raw_data and all_spectra[spectrum_index].header into one Float32Array
@@ -2235,6 +2245,8 @@ function run_Voigt_fitter(spectrum_index,flag)
         webassembly_job: "peak_fitter",
         spectrum_data: data_uint8,
         picked_peaks: picked_peaks_copy_tab,
+        spectrum_begin: x_ppm_visible_start,
+        spectrum_end: x_ppm_visible_end,
         spectrum_index: spectrum_index,
         noise_level: all_spectra[spectrum_index].noise_level,
         maxround: maxround,
