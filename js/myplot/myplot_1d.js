@@ -294,7 +294,7 @@ class myplot_1d {
             /**
             * left side of the Y axis or shift key is pressed, Y zoom only
             */
-            if (e.clientX < self.margin.left || e.shiftKey == true) {
+            if (e.clientX - bound.left < self.margin.left || e.shiftKey == true) {
                 /**
                  * Get top and bottom of the visible range
                  * We need to zoom in/out around the mouse position
@@ -1029,6 +1029,12 @@ class myplot_1d {
     remove_peaks() {
         this.vis.selectAll(".peak_circle").remove();
         this.peaks_symbol = null;
+    };
+
+    zoom_to = function (x_scale)
+    {
+        this.x.domain(x_scale);
+        this.redraw();
     }
 
 };
