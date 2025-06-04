@@ -286,6 +286,29 @@ $(document).ready(function () {
             });
         }
     });
+
+        /**
+     * Event listener for file input "load_file"
+     */
+    document.getElementById('load_file').addEventListener('change', function (e) {
+        let file = document.getElementById('load_file').files[0];
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function () {
+                /**
+                 * Read as array buffer
+                 */
+                loadBinaryAndJsonWithLength(reader.result);
+            };
+            reader.onerror = function (e) {
+                console.log("Error reading file");
+            };
+            /**
+             * Read as binary file
+             */
+            reader.readAsArrayBuffer(file);
+        }
+    });
 });
 
 
@@ -1876,20 +1899,18 @@ function download_log()
 function save_to_file()
 {
     /**
-     * Step 1, prepare the json data. Convert all_spectra to a hsqc_spectra_copy
+     * Step 1, prepare the json data. Convert all_spectra to a all_spectra_copy
      * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
      */
-    let hsqc_spectra_copy = [];
+    let all_spectra_copy = [];
     for(let i=0;i<all_spectra.length;i++)
     {
         let spectrum_copy = all_spectra[i].create_shallow_copy_wo_float32();
-        hsqc_spectra_copy.push(spectrum_copy);
+        all_spectra_copy.push(spectrum_copy);
     }
 
     let to_save = {
-        all_spectra: hsqc_spectra_copy,
-        pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
-        pseudo2d_fitted_peaks_error: pseudo2d_fitted_peaks_error,
+        all_spectra: all_spectra_copy,
     };
 
     /**
@@ -1898,7 +1919,7 @@ function save_to_file()
      */
     let totalLength = 0;
     for(let i=0;i<all_spectra.length;i++){
-        totalLength += all_spectra[i].header.length + all_spectra[i].raw_data.length + all_spectra[i].raw_data_ri.length + all_spectra[i].raw_data_ir.length + all_spectra[i].raw_data_ii.length;
+        totalLength += all_spectra[i].header.length + all_spectra[i].raw_data.length + all_spectra[i].raw_data_i.length;
     }
 
     const jsonString = JSON.stringify(to_save);
@@ -1921,18 +1942,13 @@ function save_to_file()
      */
     let offset = 4 + jsonLength;
     for(let i=0;i<all_spectra.length;i++){
-        combinedView.set(new Uint8Array(all_spectra[i].header.buffer), offset);
-        console.log('set header at offset ' + offset);
-        console.log(all_spectra[i].header);
+        combinedView.set(new Uint8Array(all_spectra[i].header.buffer, 0, 2048), offset);
+       
         offset += all_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
         combinedView.set(new Uint8Array(all_spectra[i].raw_data.buffer), offset);
         offset += all_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data_ri.buffer), offset);
-        offset += all_spectra[i].raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data_ir.buffer), offset);
-        offset += all_spectra[i].raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data_ii.buffer), offset);
-        offset += all_spectra[i].raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+        combinedView.set(new Uint8Array(all_spectra[i].raw_data_i.buffer), offset);
+        offset += all_spectra[i].raw_data_i.length * Float32Array.BYTES_PER_ELEMENT;
     }    
 
     // Create Blob and download:
@@ -1940,7 +1956,7 @@ function save_to_file()
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "colmarvista_save.bin";
+    a.download = "colmarvista1d.save";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1963,15 +1979,6 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     let to_save = JSON.parse(jsonString);
 
     all_spectra = to_save.all_spectra;
-    pseudo3d_fitted_peaks_object = to_save.pseudo3d_fitted_peaks_object;
-    if(typeof to_save.pseudo2d_fitted_peaks_error === 'undefined')
-    {
-        pseudo2d_fitted_peaks_error = [];   
-    }
-    else
-    {
-        pseudo2d_fitted_peaks_error = to_save.pseudo2d_fitted_peaks_error;
-    }
 
     /**
      * Reattach methods defined in spectrum.js to all all_spectra objects
@@ -1979,14 +1986,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     for(let i=0;i<all_spectra.length;i++)
     {
         /**
-         * Loop all methods of class spectrum and attach them to the all_spectra[i] object
+         * Loop all methods of class spectrum_1d and attach them to the all_spectra[i] object
          */
-        let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
+        let spectrum_methods = Object.getOwnPropertyNames(spectrum_1d.prototype);
         for(let j=0;j<spectrum_methods.length;j++)
         {
             if(spectrum_methods[j] !== 'constructor')
             {
-                all_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
+                all_spectra[i][spectrum_methods[j]] = spectrum_1d.prototype[spectrum_methods[j]];
             }
         }
         /**
@@ -2016,35 +2023,6 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         }
     }
 
-    /**
-     * If pseudo3d_fitted_peaks_object is not null, we need to reattach methods as well
-     */
-    if(pseudo3d_fitted_peaks_object !== null )
-    {
-        let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-        for(let j=0;j<peaks_methods.length;j++)
-        {
-            if(peaks_methods[j] !== 'constructor')
-            {
-                pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
-                if(typeof pseudo2d_fitted_peaks_error !== 'undefined' && pseudo2d_fitted_peaks_error !== null)
-                {
-                    for(let i=0;i<pseudo2d_fitted_peaks_error.length;i++)
-                    {
-                        pseudo2d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Because we will re-calculate contour plot, we reset all visible to true
-     */
-    for(let i=0;i<all_spectra.length;i++)
-    {
-        all_spectra[i].visible = true;
-    }
 
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
@@ -2057,29 +2035,38 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         all_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
         offset += all_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
 
-        all_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += all_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT;
-
-        all_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += all_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT;
-
-        all_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += all_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT;
+        all_spectra[i].raw_data_i = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += all_spectra[i].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT;
     }
-    draw_spectrum_from_loading();
-    /**
-     * process pseudo-3D buttons and dosy information
-     */
-    if(pseudo3d_fitted_peaks_object !== null)
+
+    if(b_plot_initialized === false)
     {
-        if(pseudo3d_fitted_peaks_object.gradients !== null)
-        {
-            document.getElementById("dosy_gradient").value = pseudo3d_fitted_peaks_object.gradients.join(' ');
-            document.getElementById("dosy_rescale").value = pseudo3d_fitted_peaks_object.scale_constant;
-            document.getElementById("dosy_result").textContent = "Dosy result is available";
-        }
-        document.getElementById("button_download_fitted_peaks").disabled = false;
-        document.getElementById("show_pseudo3d_peaks").disabled = false;
+        b_plot_initialized = true;
+        main_plot = new myplot_1d(); //the plot object
+        document.getElementById("plot_1d").style.display = "block"; //show the plot
+        document.getElementById("plot_1d").style.width = "1200px";
+        document.getElementById("plot_1d").style.height = "800px";
+        const cr = document.getElementById("plot_1d").getBoundingClientRect();
+        /**
+         * Initialize the plot 
+         * and draw the first spectrum.
+         * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
+         * to fill the data
+         */
+        main_plot.init(cr.width, cr.height, all_spectra[0]);
+        plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
+    }
+
+    add_to_list(0,false,false);
+
+    if(all_spectra.length>1)
+    {
+        /**
+         * If there are 2 spectra, 2nd one is from recon, draw it as well
+         */
+        let recon_peaks = all_spectra[1].recon_peaks;
+        let peaks_center = all_spectra[1].peaks_center;   
+        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
     }
 };
 

@@ -26,6 +26,15 @@
 
         <div id="section2">
 
+            <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <label for="button_save" id="button_save_label">Save current session to a local file </label>
+                <button id="button_save" onclick="save_to_file()">save</button>
+                <br>
+                <label id="load_file_label" for="load_file">Load previous session: </label>
+                <input type="file" id="load_file">
+                <br>
+            </div>
+
 
             <div id="file_area" class="drop-area" style="width: 1200px;">
                 <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
