@@ -23,7 +23,7 @@ class myplot_1d {
     init(width, height, spectrum) {
 
 
-        this.margin = ({ top: 10, right: 10, bottom: 80, left: 80 });
+        this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
 
         var self = this;
 
@@ -71,21 +71,6 @@ class myplot_1d {
         }
         
         this.maxv= spectrum.spectral_max;
-        /**
-         * Data normalization
-         */
-        for (var i = 0; i < this.data.length; i++) {
-            this.data[i][1] = this.data[i][1] / this.maxv;
-        }
-
-        /**
-         * If imaginary part is provided, normalize it as well, using the same maxv
-         */
-        if (this.imagine_exist === true) {
-            for (var i = 0; i < this.data.length; i++) {
-                this.data[i][2] = this.data[i][2] / this.maxv;
-            }
-        }
 
         /**
          * define min and max of ppm (this.data[?][0]) for the plot
@@ -155,7 +140,7 @@ class myplot_1d {
         /**
          * Define y axis object. Add y axis to the plot and y label
         */
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0);
+        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
 
         this.yAxis_element
             = this.vis.append('svg:g')
@@ -374,7 +359,7 @@ class myplot_1d {
             .attr("x", this.width / 2)
             .attr("y", this.height - 10);
 
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0);
+        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
         this.yAxis_element
             .attr('transform', 'translate(' + (this.margin.left) + ',0)')
             .call(this.yAxis);
@@ -546,16 +531,6 @@ class myplot_1d {
             }
         }
 
-        //rescale the experimental_peaks
-        for (var i = 0; i < this.experimental_peaks.length; i++) {
-            for (var j = 0; j < this.experimental_peaks[i].length; j++) {
-                this.experimental_peaks[i][j][1] = this.experimental_peaks[i][j][1] / this.maxv;
-            }
-        }
-        for (var i = 0; i < this.experimental_peaks.length; i++) {
-            this.experimental_peak_params[i].intensity = this.experimental_peak_params[i].intensity / this.maxv;
-        }
-
         //remove old one if exists
         this.vis.selectAll(".peak_recon").remove();
 
@@ -580,11 +555,6 @@ class myplot_1d {
                 })
                 .attr("d", "M0 0");
             this.experimental_peaks_show[i] = 0; // 0: not shown, 1: shown
-        }
-
-        //rescale the spectrum
-        for (var i = 0; i < this.data_recon.length; i++) {
-            this.data_recon[i][1] = this.data_recon[i][1] / this.maxv;
         }
 
 
@@ -617,7 +587,6 @@ class myplot_1d {
     /**
      * This function will add a baseline to the plot and save the baseline in this.baseline
      * baseline is an array of intensity only (from larger ppm to smaller ppm) but this.baseline is an array of [x,y] pairs. X is ppm, Y is intensity
-     * this.baseline is also normalized by this.maxv
      * @param {*} baseline 
      * @returns 
      */
@@ -631,12 +600,6 @@ class myplot_1d {
         }
 
         this.baseline_exist = true;
-
-        //Define this.baseline as array of [x,y] pairs. X is ppm, Y is intensity, rescaled by this.maxv
-        this.baseline = [];
-        for (var i = 0; i < baseline.length; i++) {
-            this.baseline.push([this.data[i][0], baseline[baseline.length - 1 - i] / this.maxv]);
-        }
 
 
         //remove old one if exists
@@ -767,7 +730,7 @@ class myplot_1d {
 
         // redraw peaks
         if(this.peaks_symbol !== null) {
-            this.peaks_symbol.attr("cx", (d) => this.x(d[0])).attr("cy", (d) => this.y(d[1]/self.maxv));
+            this.peaks_symbol.attr("cx", (d) => this.x(d[0])).attr("cy", (d) => this.y(d[1]));
         }
 
         //redraw the x axis and y axis
@@ -972,16 +935,14 @@ class myplot_1d {
      * Show peaks on the plot, as red circles
      * @param {Object} peak_obj: cpeaks class object
      */
-    add_peaks(peak_obj,maxv) {
+    add_peaks(peak_obj) {
         let self = this;
         /**
          * Construct peak data, array of [x,y,z] 
          * x is ppm: peak_obj.column['X_PPM']
-         * y is intensity: peak_obj.column['HEIGHT'], normalized by maxv
          * z is index: peak_obj.column['INDEX'] (not for plotting, but for tracking the peak)
          */
         let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT','INDEX']);
-        this.maxv = maxv;
 
         this.peaks_symbol=this.vis.append('g')
             .selectAll('circle')
@@ -990,7 +951,7 @@ class myplot_1d {
             .append('circle')
             .attr("clip-path", "url(#clip)")
             .attr('cx', (d) => this.x(d[0]))
-            .attr('cy', (d) => this.y(d[1] / maxv))
+            .attr('cy', (d) => this.y(d[1]))
             .attr('r', 5)
             .style("fill", "blue")
             .style("stroke-width", 3.5)
@@ -1014,7 +975,7 @@ class myplot_1d {
             .on("end", function (event, d) {
                 d3.select(this).classed("active", false);
                 let ppm = self.x.invert(event.x);
-                let intensity = self.y.invert(event.y) * maxv;
+                let intensity = self.y.invert(event.y);
                 console.log("ppm", ppm, "intensity", intensity);
                 //update the peak data, 
                 d[0] = ppm;
