@@ -203,6 +203,25 @@ $(document).ready(function () {
     .init();
 
     /**
+     * Upload pseudo 3D fitting result file 
+     * Instead of running pseudo 3D fitting, this is useful when size is too large to run pseudo 3D fitting in browser
+     */
+    document.getElementById('pseudo3d_file').addEventListener('change', function (e) {
+        let file = document.getElementById('pseudo3d_file').files[0];
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function () {
+                pseudo3d_fitted_peaks_object = new cpeaks();
+                pseudo3d_fitted_peaks_object.process_peaks_tab(reader.result);
+            };
+            reader.onerror = function (e) {
+                console.log("Error reading pseudo 3D peak fitting file");
+            };
+            reader.readAsText(file);
+        }
+    });
+
+    /**
      * Upload a file with assignment information. 
      * Assignment will be transfer to current showing fitted peaks
      */
