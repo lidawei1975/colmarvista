@@ -213,6 +213,11 @@ $(document).ready(function () {
             reader.onload = function () {
                 pseudo3d_fitted_peaks_object = new cpeaks();
                 pseudo3d_fitted_peaks_object.process_peaks_tab(reader.result);
+                /**
+                 * Enable the download fitted peaks button and show the fitted peaks button
+                 */
+                document.getElementById("button_download_fitted_peaks").disabled = false;
+                document.getElementById("show_pseudo3d_peaks").disabled = false;
             };
             reader.onerror = function (e) {
                 console.log("Error reading pseudo 3D peak fitting file");
