@@ -707,14 +707,22 @@ class spectrum {
      */
     process_spectrum_common_task() {
         /**
-     * Get median of abs(z). If data_size is > 1024*1024, we will sample 1024*1024 points by stride
-     */
+         * Get median of abs(z). If data_size is > 1024*1024, we will sample 1024*1024 points by stride
+         */
         this.noise_level = this.mathTool.estimate_noise_level(this.n_direct, this.n_indirect, this.raw_data);
 
         /**
          * Get max and min of z (z is sorted)
          */
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
+
+        /**
+         * If noise_level < spectral_max/1.4^30, set noise_level to spectral_max/1.4^30
+         */
+        if (this.noise_level < this.spectral_max / Math.pow(1.4, 30)) {
+            this.noise_level = this.spectral_max / Math.pow(1.4, 30);
+        }
+
 
         /**
          * raw_data is row major, size is  n_indirect (rows) * n_direct (columns).
