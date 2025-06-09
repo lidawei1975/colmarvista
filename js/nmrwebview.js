@@ -1351,7 +1351,14 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
 
     let input = {
         WIDTH: wid,
-        HEIGHT: height
+        HEIGHT: height,
+        MARGINS: { 
+            left: margin_left,
+            top: margin_top,
+            right: margin_right,
+            bottom: margin_bottom
+        },
+        fontsize: 44, //default font size
     };
 
     if (main_plot !== null) {
@@ -2707,6 +2714,7 @@ function init_plot(input) {
     input.drawto_legend = "#legend";
     input.drawto_peak = "#peaklist";
     input.drawto_contour = "canvas1"; //webgl background as contour plot
+    input.fontsize = 24;
 
     /**
      * Check whether checkbox Horizontal_cross_section and Vertical_cross_section are checked
@@ -3699,7 +3707,7 @@ async function download_plot()
         $canvas.height = $svg.clientHeight
         $canvas.getContext('2d').fillStyle = "white";
         $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
-        $canvas.getContext('2d').drawImage(contour_image,90,20,$svg.clientWidth-110,$svg.clientHeight-90);
+        $canvas.getContext('2d').drawImage(contour_image,plot_margin_left,plot_margin_top,$svg.clientWidth-plot_margin_left-plot_margin_right,$svg.clientHeight-plot_margin_top-plot_margin_bottom);
         $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
         
         const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
