@@ -248,13 +248,16 @@
                             <button onclick="resetzoom()">Reset all Zoom</button>,
                             <button onclick="popzoom()">Zoom Back</button>,
                             <button onclick="zoomout()">Zoom out 120%</button>
-                            <button onclick="download_plot()">Download plot</button>
                             <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
                                 PC</button>
                             <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
                                 PC</button>
                             <!-- Information for user: phase correction applied -->
                             <span id="pc_info"></span>
+                            <input type="checkbox" id="high_resolution_download"><label for="high_resolution_download">High resolution download</label>
+                            <label for="download_width">Width (px)</label><input type="number" id="download_width" value="3600" min="800" max="7200">
+                            <label for="download_height">Height (px)</label><input type="number" id="download_height" value="2400" min="600" max="4800">
+                            <button onclick="download_plot()">Download plot</button>
                             <br>
 
 

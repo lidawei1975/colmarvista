@@ -1295,6 +1295,18 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
     }
 });
 
+function manual_resize_plot(width, height) {
+    document.getElementById('vis_parent').style.width = width.toString().concat('px');
+    document.getElementById('vis_parent').style.height = height.toString().concat('px');
+    let padding = 20;
+    let margin_left = plot_margin_left;
+    let margin_top = plot_margin_top;
+    let margin_right = plot_margin_right;
+    let margin_bottom = plot_margin_bottom;
+    resize_main_plot(width,height,padding,margin_left,margin_top,margin_right,margin_bottom);
+}
+
+
 
 function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom)
 {
@@ -3663,44 +3675,84 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
 async function download_plot()
 {
-    const format = 'png';
+    async function generate_and_download() {
+        const format = 'png';
 
-    const $svg = document.getElementById('visualization'); 
+        const $svg = document.getElementById('visualization'); 
+
+        /**
+         * Generate an Image (from canvas1) 
+         */
+        var contour_image = new Image();
+        contour_image.src = main_plot.contour_plot.drawScene(1);
+
+        /**
+         * Create a canvas element
+         */
+
+        const svgData = encodeAsUTF8(serializeAsXML($svg))
+
+        const img = await loadImage(svgData);
+        
+        const $canvas = document.createElement('canvas')
+        $canvas.width = $svg.clientWidth
+        $canvas.height = $svg.clientHeight
+        $canvas.getContext('2d').fillStyle = "white";
+        $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
+        $canvas.getContext('2d').drawImage(contour_image,90,20,$svg.clientWidth-110,$svg.clientHeight-90);
+        $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
+        
+        const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
+        
+        const $img = document.createElement('img');
+        $img.src = dataURL;
+
+        /**
+         * Download the image
+         */
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = 'nmr_plot.' + format;
+        a.click();
+    }
 
     /**
-     * Generate an Image (from canvas1) 
+     * If checkbox "high_resolution_download" is checked. We will
+     * (1) save current size of element "vis_parent"
+     * (2) set the size of element "vis_parent" to user defined size (in download_width and download_height)
+     * (3) redraw the plot and download.
+     * (4) restore the size of element "vis_parent"
      */
-    var contour_image = new Image();
-    contour_image.src = main_plot.contour_plot.drawScene(1);
+    if(document.getElementById("high_resolution_download").checked)
+    {
+        let vis_parent = document.getElementById("vis_parent");
+        let original_width = vis_parent.style.width;
+        let original_height = vis_parent.style.height;
+        /**
+         * Remove px from the original width and height
+         */
+        original_width = original_width.replace("px", "");
+        original_height = original_height.replace("px", "");
 
-    /**
-     * Create a canvas element
-     */
+        manual_resize_plot(document.getElementById("download_width").value, document.getElementById("download_height").value);
 
-    const svgData = encodeAsUTF8(serializeAsXML($svg))
+        /**
+         * Must wait for the plot to be redrawn, downloaded before we restore the original size
+         */
+        await generate_and_download();
 
-    const img = await loadImage(svgData);
-    
-    const $canvas = document.createElement('canvas')
-    $canvas.width = $svg.clientWidth
-    $canvas.height = $svg.clientHeight
-    $canvas.getContext('2d').fillStyle = "white";
-    $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
-    $canvas.getContext('2d').drawImage(contour_image,90,20,$svg.clientWidth-110,$svg.clientHeight-90);
-    $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
-    
-    const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
-    
-    const $img = document.createElement('img');
-    $img.src = dataURL;
-
-    /**
-     * Download the image
-     */
-    const a = document.createElement('a');
-    a.href = dataURL;
-    a.download = 'nmr_plot.' + format;
-    a.click();
+        /**
+         * Restore the original size of vis_parent
+         */
+        manual_resize_plot(original_width, original_height);
+    }
+    else
+    {
+        /**
+         * Generate and download the plot
+         */
+        generate_and_download();
+    }
 }
 
 /**
