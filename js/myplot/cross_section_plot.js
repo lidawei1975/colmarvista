@@ -382,27 +382,39 @@ class cross_section_plot {
         this.redraw();
     }
 
-    resize_x(width) {
+    resize_x(width,margin) {
         this.width = width;
+        this.margin = margin;
         if(this.orientation === "horizontal"){
             this.x.range([this.margin.left, this.width - this.margin.right]);
+            this.Axis_element.attr('transform', 'translate(' + (this.margin.left) + ',0)').call(this.Axis);
+
             /**
              * Change width of the clip space according to the new width of the main_plot object
              */
-            this.clip_space.attr("width", width - this.margin.left - this.margin.right);
+            this.clip_space
+                .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
+                .attr("width", this.width - this.margin.left - this.margin.right)
+                .attr("height", this.height - this.margin.top - this.margin.bottom);
+
         }
         else if(this.orientation === "vertical"){
             this.x.range([this.width - this.margin.right, this.margin.left]);
+            this.Axis_element.attr('transform', 'translate(0,' + (this.height - this.margin.bottom) + ')').call(this.Axis);
             /**
              * Change width of the clip space according to the new width of the main_plot object
              */
-            this.clip_space.attr("width", width - this.margin.left - this.margin.right);
+            this.clip_space
+                .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
+                .attr("width", this.width - this.margin.left - this.margin.right)
+                .attr("height", this.height - this.margin.top - this.margin.bottom);
         }
         this.redraw();
     }
 
-    resize_y(height) {
+    resize_y(height,margin) {
         this.height = height;
+        this.margin = margin;
         this.y.range([this.height - this.margin.bottom, this.margin.top]);
         /**
          * Remove old axis element and add new axis element
