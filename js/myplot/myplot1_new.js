@@ -128,18 +128,28 @@ plotit.prototype.update = function (input) {
 
     var self = this;
 
-    this.HEIGHT = input.HEIGHT;
-    this.WIDTH = input.WIDTH;
-    this.MARGINS = input.MARGINS;
-    this.fontsize = input.fontsize ? input.fontsize : 24; //default fontsize is 24
+    this.HEIGHT = input.HEIGHT ? input.HEIGHT : this.HEIGHT; //if input.HEIGHT is not provided, keep the old value
+    this.WIDTH = input.WIDTH ? input.WIDTH : this.WIDTH; //if input.WIDTH is not provided, keep the old value
+    this.MARGINS = input.MARGINS ? input.MARGINS : this.MARGINS; //if input.MARGINS is not provided, keep the old value
+    this.fontsize = input.fontsize ? input.fontsize : this.fontsize; //if input.fontsize is not provided, keep the old value
 
 
     this.xRange.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
     this.yRange.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
 
 
-    this.xAxis.scale(this.xRange);
-    this.yAxis.scale(this.yRange);
+
+    /**
+     * thickness of the axis line is 5% of the fontsize, round to integer
+     * and make sure it is at least 1 pixel
+     */
+    let thickness = Math.round(this.fontsize * 0.05);
+    if (thickness < 1) {
+        thickness = 1;
+    }
+
+    this.xAxis.scale(this.xRange).tickSizeInner(6* thickness);
+    this.yAxis.scale(this.yRange).tickSizeInner(6* thickness);
 
 
     /**
@@ -160,17 +170,23 @@ plotit.prototype.update = function (input) {
     this.xAxis_svg.attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')').call(this.xAxis);
     this.yAxis_svg.attr('transform', 'translate(' + (this.MARGINS.left) + ',0)').call(this.yAxis);
 
+    this.xAxis_svg.select(".domain").style("stroke-width",thickness + "px");
+    this.xAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.yAxis_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.yAxis_svg.selectAll(".tick line").style("stroke-width",thickness + "px");
+
 
     this.vis.selectAll('.xlabel')
         .attr("font-size", this.fontsize + "px")
         .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2);
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30);
 
     this.vis.selectAll('.ylabel')
         .attr("font-size",  this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 -  this.fontsize / 2);
+        .attr("x", -this.HEIGHT / 2 )
+        .attr("y", this.MARGINS.left / 2 -  this.fontsize / 2 - 30);
 
 
 
@@ -625,7 +641,7 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize  / 2)
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize  / 2 + 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
@@ -634,8 +650,8 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 - this.fontsize  / 2)
+        .attr("x", -this.HEIGHT / 2 )
+        .attr("y", this.MARGINS.left / 2 - this.fontsize  / 2 - 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 

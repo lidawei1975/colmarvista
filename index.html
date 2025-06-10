@@ -254,9 +254,10 @@
                                 PC</button>
                             <!-- Information for user: phase correction applied -->
                             <span id="pc_info"></span>
-                            <input type="checkbox" id="high_resolution_download"><label for="high_resolution_download">High resolution download</label>
-                            <label for="download_width">Width (px)</label><input type="number" id="download_width" value="3600" min="800" max="7200">
-                            <label for="download_height">Height (px)</label><input type="number" id="download_height" value="2400" min="600" max="4800">
+                            <label for="plot_font_size">Plot font size: </label>
+                            <input type="number" id="plot_font_size" value="24" min="12" max="72">
+                            <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
+                            <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
                             <button onclick="download_plot()">Download plot</button>
                             <br>
 

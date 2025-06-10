@@ -31,9 +31,11 @@ catch (err) {
 
 
 var plot_margin_top = 20;
-var plot_margin_bottom = 70;
-var plot_margin_left = 90;
+var plot_margin_bottom = 100;
+var plot_margin_left = 150;
 var plot_margin_right = 20;
+var plot_font_size = 24;
+var plot_padding = 20; //padding for the plot area
 
 
 var main_plot = null; //hsqc plot object
@@ -778,6 +780,46 @@ $(document).ready(function () {
             }
         });
     });
+
+    /**
+     * Event listener for number input with ID "plot_font_size"
+     */
+    document.getElementById("plot_font_size").addEventListener('change', function () {
+        plot_font_size = parseInt(this.value);
+        if (main_plot) {
+
+            let cr = get_content_size("vis_parent");
+            
+            /**
+             * We need update margin as well to prevent font size from overlapping with the plot area
+             */
+            plot_margin_left = 30 + plot_font_size * 5;
+            plot_margin_bottom = 30 + plot_font_size * 3;
+
+
+            let canvas_height = cr.height - (plot_margin_top +plot_margin_bottom);
+            let canvas_width = cr.width - (plot_margin_left + plot_margin_right);
+
+            /**
+             * Set canvas1 and canvas_parent to the correct size and position.
+             */
+            document.getElementById('canvas_parent').style.top = (plot_padding + plot_margin_top).toFixed(0).concat('px');
+            document.getElementById('canvas_parent').style.left = (plot_padding + plot_margin_left).toFixed(0).concat('px');
+            document.getElementById('canvas1').setAttribute("height", canvas_height.toString());
+            document.getElementById('canvas1').setAttribute("width", canvas_width.toString());
+
+
+            main_plot.update({
+                MARGINS: {
+                    left: plot_margin_left,
+                    right: plot_margin_right,
+                    top: plot_margin_top,
+                    bottom: plot_margin_bottom
+                },
+                fontsize: plot_font_size,
+            });
+        }
+    });
 });
 
 
@@ -1285,30 +1327,32 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
 
         const cr = entry.contentRect;
-        let padding = 20;
-        let margin_left = plot_margin_left;
-        let margin_top = plot_margin_top;
-        let margin_right = plot_margin_right;
-        let margin_bottom = plot_margin_bottom;
-
-        resize_main_plot(cr.width,cr.height,padding,margin_left,margin_top,margin_right,margin_bottom);
+        resize_main_plot(cr.width,cr.height);
     }
 });
 
-function manual_resize_plot(width, height) {
-    document.getElementById('vis_parent').style.width = width.toString().concat('px');
-    document.getElementById('vis_parent').style.height = height.toString().concat('px');
-    let padding = 20;
-    let margin_left = plot_margin_left;
-    let margin_top = plot_margin_top;
-    let margin_right = plot_margin_right;
-    let margin_bottom = plot_margin_bottom;
-    resize_main_plot(width,height,padding,margin_left,margin_top,margin_right,margin_bottom);
+function manual_resize_plot(scale) {
+
+    /**
+     * Get current width and height of the vis_parent div
+     */
+    let cr = get_content_size("vis_parent");
+    document.getElementById('vis_parent').style.height = (cr.height * scale).toString().concat('px');
+    document.getElementById('vis_parent').style.width = (cr.width * scale).toString().concat('px');
+
+    /**
+     * Rescale font size of the main plot
+     */
+    plot_font_size = Math.round(plot_font_size * scale);
+    plot_margin_left = 30 + plot_font_size * 5;
+    plot_margin_bottom = 30 + plot_font_size * 3;
+
+    resize_main_plot(cr.width * scale, cr.height * scale);
 }
 
 
 
-function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom)
+function resize_main_plot(wid, height)
 {
     /**
      * same size for svg_parent (parent of visualization), canvas_parent (parent of canvas1), canvas1, 
@@ -1316,8 +1360,8 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
      */
     document.getElementById('svg_parent').style.height = height.toString().concat('px');
     document.getElementById('svg_parent').style.width = wid.toString().concat('px');
-    document.getElementById('svg_parent').style.top = padding.toFixed(0).concat('px');
-    document.getElementById('svg_parent').style.left = padding.toFixed(0).concat('px');
+    document.getElementById('svg_parent').style.top = plot_padding.toFixed(0).concat('px');
+    document.getElementById('svg_parent').style.left = plot_padding.toFixed(0).concat('px');
 
     /**
      * Set the size of the visualization div to be the same as its parent
@@ -1329,23 +1373,13 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
      * canvas is shifted 50px to the right, 20 px to the bottom.
      * It is also shortened by 20px in width on the right and 50px in height on the bottom.
      */
-    let canvas_height = height - (margin_top + margin_bottom);
-    let canvas_width = wid - (margin_left + margin_right);
+    let canvas_height = height - (plot_margin_top + plot_margin_bottom);
+    let canvas_width = wid - (plot_margin_left + plot_margin_right);
 
     // document.getElementById('canvas_parent').style.height = canvas_height.toString().concat('px');
     // document.getElementById('canvas_parent').style.width = canvas_width.toString().concat('px');
-    document.getElementById('canvas_parent').style.top = (padding + margin_top).toFixed(0).concat('px');
-    document.getElementById('canvas_parent').style.left = (padding + margin_left).toFixed(0).concat('px');
-
-
-    /**
-     * Set canvas1 style width and height to be the same as its parent
-     */
-    // document.getElementById('canvas1').style.height = canvas_height.toString().concat('px');
-    // document.getElementById('canvas1').style.width = canvas_width.toString().concat('px');
-    /**
-     * Set canvas1 width and height to be the same as its style width and height
-     */
+    document.getElementById('canvas_parent').style.top = (plot_padding + plot_margin_top).toFixed(0).concat('px');
+    document.getElementById('canvas_parent').style.left = (plot_padding + plot_margin_left).toFixed(0).concat('px');
     document.getElementById('canvas1').setAttribute("height", canvas_height.toString());
     document.getElementById('canvas1').setAttribute("width", canvas_width.toString());
 
@@ -1353,12 +1387,12 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
         WIDTH: wid,
         HEIGHT: height,
         MARGINS: { 
-            left: margin_left,
-            top: margin_top,
-            right: margin_right,
-            bottom: margin_bottom
+            left: plot_margin_left,
+            top: plot_margin_top,
+            right: plot_margin_right,
+            bottom: plot_margin_bottom
         },
-        fontsize: 44, //default font size
+        fontsize:plot_font_size,
     };
 
     if (main_plot !== null) {
@@ -3731,18 +3765,24 @@ async function download_plot()
      * (3) redraw the plot and download.
      * (4) restore the size of element "vis_parent"
      */
-    if(document.getElementById("high_resolution_download").checked)
-    {
-        let vis_parent = document.getElementById("vis_parent");
-        let original_width = vis_parent.style.width;
-        let original_height = vis_parent.style.height;
-        /**
-         * Remove px from the original width and height
-         */
-        original_width = original_width.replace("px", "");
-        original_height = original_height.replace("px", "");
 
-        manual_resize_plot(document.getElementById("download_width").value, document.getElementById("download_height").value);
+    let scale = parseInt(document.getElementById("plot_scale_up_factor").value);
+
+    if (scale > 1) {
+
+        let cr = get_content_size("vis_parent");
+
+        /**
+         * Define a maximum scale factor, so that the plot does not become too large
+         * cr.width*scale * cr.height*scale should be less than 24 M
+         */
+        if (cr.width * scale * cr.height * scale > 24e6) {
+            let new_scale = Math.floor(Math.sqrt(24e6 / (cr.width * cr.height)));
+            alert("The scale factor is too large. It has been set to " + new_scale + " to avoid too large image size.");
+            scale = new_scale;
+        }
+
+        manual_resize_plot(scale);
 
         /**
          * Must wait for the plot to be redrawn, downloaded before we restore the original size
@@ -3752,15 +3792,15 @@ async function download_plot()
         /**
          * Restore the original size of vis_parent
          */
-        manual_resize_plot(original_width, original_height);
+        manual_resize_plot(1.0 / scale);
     }
-    else
-    {
+    else {
         /**
-         * Generate and download the plot
+         * If scale is 1, we can directly download the plot
          */
-        generate_and_download();
+        await generate_and_download();
     }
+    
 }
 
 /**
@@ -5199,4 +5239,31 @@ function set_current_spectrum(spectrum_index)
     }
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+}
+
+
+function get_content_size(element_id)
+{
+    const el = document.getElementById(element_id);
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+
+    // Parse padding and border values
+    const paddingLeft = parseFloat(style.paddingLeft);
+    const paddingRight = parseFloat(style.paddingRight);
+    const paddingTop = parseFloat(style.paddingTop);
+    const paddingBottom = parseFloat(style.paddingBottom);
+
+    const borderLeft = parseFloat(style.borderLeftWidth);
+    const borderRight = parseFloat(style.borderRightWidth);
+    const borderTop = parseFloat(style.borderTopWidth);
+    const borderBottom = parseFloat(style.borderBottomWidth);
+
+    // Subtract padding and border from total size
+    const contentWidth = rect.width - paddingLeft - paddingRight - borderLeft - borderRight;
+    const contentHeight = rect.height - paddingTop - paddingBottom - borderTop - borderBottom;
+
+    console.log('Content Width:', contentWidth);
+    console.log('Content Height:', contentHeight);
+    return {width: contentWidth, height: contentHeight, boundingClientRectWidth: rect.width, boundingClientRectHeight: rect.height};
 }
