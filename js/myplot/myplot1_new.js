@@ -208,8 +208,8 @@ plotit.prototype.update = function (input) {
      */
     this.reset_axis();
 
-    this.x_cross_section_plot.resize_x(this.WIDTH);
-    this.y_cross_section_plot.resize_y(this.HEIGHT);
+    this.x_cross_section_plot.resize_x(this.WIDTH,{ top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
+    this.y_cross_section_plot.resize_y(this.HEIGHT,  { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
 
 };
 
