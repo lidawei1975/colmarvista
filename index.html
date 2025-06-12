@@ -198,6 +198,9 @@
                         pseudo-3D fitting of all spectra</button>
                     <button id="button_run_pseudo3d_voigt" disabled onclick="run_pseudo3d(0)">Run Voigt pseudo-3D
                         fitting of all spectra</button>
+                    <label for="pseudo3d_file">Upload pseudo-3D fitted peaks (.tab): </label>
+                    <input type="file" id="pseudo3d_file"><br>
+                    <br>
                     <br>
                     <button id="button_download_fitted_peaks" disabled onclick="download_pseudo3d()">Download
                         pseudo-3D fitted peaks</button>
@@ -210,7 +213,7 @@
                     <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
                     <div id="dosy_area" style="display:block;">
                         <label for="dosy_gradient">DOSY gradient values (space separated): </label>
-                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="10"><br>
+                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
                         <lable for="dosy_gradient_weight"> Weight: (e.g. 1 0 0 1 1)</lable>
                         <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
                         <label for="dosy_rescale">Rescale factor: </label>
@@ -245,13 +248,17 @@
                             <button onclick="resetzoom()">Reset all Zoom</button>,
                             <button onclick="popzoom()">Zoom Back</button>,
                             <button onclick="zoomout()">Zoom out 120%</button>
-                            <button onclick="download_plot()">Download plot</button>
                             <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
                                 PC</button>
                             <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
                                 PC</button>
                             <!-- Information for user: phase correction applied -->
                             <span id="pc_info"></span>
+                            <label for="plot_font_size">Plot font size: </label>
+                            <input type="number" id="plot_font_size" value="24" min="12" max="72">
+                            <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
+                            <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
+                            <button onclick="download_plot()">Download plot</button>
                             <br>
 
 

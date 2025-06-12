@@ -31,9 +31,11 @@ catch (err) {
 
 
 var plot_margin_top = 20;
-var plot_margin_bottom = 70;
-var plot_margin_left = 90;
+var plot_margin_bottom = 100;
+var plot_margin_left = 150;
 var plot_margin_right = 20;
+var plot_font_size = 24;
+var plot_padding = 20; //padding for the plot area
 
 
 var main_plot = null; //hsqc plot object
@@ -201,6 +203,30 @@ $(document).ready(function () {
     .files_id(["acquisition_file2","acquisition_file2", "acquisition_file", "fid_file", "fid_file","nuslist_file"]) /** Corresponding file element IDs */
     .file_extension([])  /** file extensions to be searched from upload */
     .init();
+
+    /**
+     * Upload pseudo 3D fitting result file 
+     * Instead of running pseudo 3D fitting, this is useful when size is too large to run pseudo 3D fitting in browser
+     */
+    document.getElementById('pseudo3d_file').addEventListener('change', function (e) {
+        let file = document.getElementById('pseudo3d_file').files[0];
+        if (file) {
+            var reader = new FileReader();
+            reader.onload = function () {
+                pseudo3d_fitted_peaks_object = new cpeaks();
+                pseudo3d_fitted_peaks_object.process_peaks_tab(reader.result);
+                /**
+                 * Enable the download fitted peaks button and show the fitted peaks button
+                 */
+                document.getElementById("button_download_fitted_peaks").disabled = false;
+                document.getElementById("show_pseudo3d_peaks").disabled = false;
+            };
+            reader.onerror = function (e) {
+                console.log("Error reading pseudo 3D peak fitting file");
+            };
+            reader.readAsText(file);
+        }
+    });
 
     /**
      * Upload a file with assignment information. 
@@ -754,6 +780,46 @@ $(document).ready(function () {
             }
         });
     });
+
+    /**
+     * Event listener for number input with ID "plot_font_size"
+     */
+    document.getElementById("plot_font_size").addEventListener('change', function () {
+        plot_font_size = parseInt(this.value);
+        if (main_plot) {
+
+            let cr = get_content_size("vis_parent");
+            
+            /**
+             * We need update margin as well to prevent font size from overlapping with the plot area
+             */
+            plot_margin_left = 30 + plot_font_size * 5;
+            plot_margin_bottom = 30 + plot_font_size * 3;
+
+
+            let canvas_height = cr.height - (plot_margin_top +plot_margin_bottom);
+            let canvas_width = cr.width - (plot_margin_left + plot_margin_right);
+
+            /**
+             * Set canvas1 and canvas_parent to the correct size and position.
+             */
+            document.getElementById('canvas_parent').style.top = (plot_padding + plot_margin_top).toFixed(0).concat('px');
+            document.getElementById('canvas_parent').style.left = (plot_padding + plot_margin_left).toFixed(0).concat('px');
+            document.getElementById('canvas1').setAttribute("height", canvas_height.toString());
+            document.getElementById('canvas1').setAttribute("width", canvas_width.toString());
+
+
+            main_plot.update({
+                MARGINS: {
+                    left: plot_margin_left,
+                    right: plot_margin_right,
+                    top: plot_margin_top,
+                    bottom: plot_margin_bottom
+                },
+                fontsize: plot_font_size,
+            });
+        }
+    });
 });
 
 
@@ -1261,18 +1327,32 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
 
         const cr = entry.contentRect;
-        let padding = 20;
-        let margin_left = plot_margin_left;
-        let margin_top = plot_margin_top;
-        let margin_right = plot_margin_right;
-        let margin_bottom = plot_margin_bottom;
-
-        resize_main_plot(cr.width,cr.height,padding,margin_left,margin_top,margin_right,margin_bottom);
+        resize_main_plot(cr.width,cr.height);
     }
 });
 
+function manual_resize_plot(scale) {
 
-function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom)
+    /**
+     * Get current width and height of the vis_parent div
+     */
+    let cr = get_content_size("vis_parent");
+    document.getElementById('vis_parent').style.height = (cr.height * scale).toString().concat('px');
+    document.getElementById('vis_parent').style.width = (cr.width * scale).toString().concat('px');
+
+    /**
+     * Rescale font size of the main plot
+     */
+    plot_font_size = Math.round(plot_font_size * scale);
+    plot_margin_left = 30 + plot_font_size * 5;
+    plot_margin_bottom = 30 + plot_font_size * 3;
+
+    resize_main_plot(cr.width * scale, cr.height * scale);
+}
+
+
+
+function resize_main_plot(wid, height)
 {
     /**
      * same size for svg_parent (parent of visualization), canvas_parent (parent of canvas1), canvas1, 
@@ -1280,8 +1360,8 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
      */
     document.getElementById('svg_parent').style.height = height.toString().concat('px');
     document.getElementById('svg_parent').style.width = wid.toString().concat('px');
-    document.getElementById('svg_parent').style.top = padding.toFixed(0).concat('px');
-    document.getElementById('svg_parent').style.left = padding.toFixed(0).concat('px');
+    document.getElementById('svg_parent').style.top = plot_padding.toFixed(0).concat('px');
+    document.getElementById('svg_parent').style.left = plot_padding.toFixed(0).concat('px');
 
     /**
      * Set the size of the visualization div to be the same as its parent
@@ -1293,29 +1373,26 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
      * canvas is shifted 50px to the right, 20 px to the bottom.
      * It is also shortened by 20px in width on the right and 50px in height on the bottom.
      */
-    let canvas_height = height - (margin_top + margin_bottom);
-    let canvas_width = wid - (margin_left + margin_right);
+    let canvas_height = height - (plot_margin_top + plot_margin_bottom);
+    let canvas_width = wid - (plot_margin_left + plot_margin_right);
 
     // document.getElementById('canvas_parent').style.height = canvas_height.toString().concat('px');
     // document.getElementById('canvas_parent').style.width = canvas_width.toString().concat('px');
-    document.getElementById('canvas_parent').style.top = (padding + margin_top).toFixed(0).concat('px');
-    document.getElementById('canvas_parent').style.left = (padding + margin_left).toFixed(0).concat('px');
-
-
-    /**
-     * Set canvas1 style width and height to be the same as its parent
-     */
-    // document.getElementById('canvas1').style.height = canvas_height.toString().concat('px');
-    // document.getElementById('canvas1').style.width = canvas_width.toString().concat('px');
-    /**
-     * Set canvas1 width and height to be the same as its style width and height
-     */
+    document.getElementById('canvas_parent').style.top = (plot_padding + plot_margin_top).toFixed(0).concat('px');
+    document.getElementById('canvas_parent').style.left = (plot_padding + plot_margin_left).toFixed(0).concat('px');
     document.getElementById('canvas1').setAttribute("height", canvas_height.toString());
     document.getElementById('canvas1').setAttribute("width", canvas_width.toString());
 
     let input = {
         WIDTH: wid,
-        HEIGHT: height
+        HEIGHT: height,
+        MARGINS: { 
+            left: plot_margin_left,
+            top: plot_margin_top,
+            right: plot_margin_right,
+            bottom: plot_margin_bottom
+        },
+        fontsize:plot_font_size,
     };
 
     if (main_plot !== null) {
@@ -2671,6 +2748,7 @@ function init_plot(input) {
     input.drawto_legend = "#legend";
     input.drawto_peak = "#peaklist";
     input.drawto_contour = "canvas1"; //webgl background as contour plot
+    input.fontsize = 24;
 
     /**
      * Check whether checkbox Horizontal_cross_section and Vertical_cross_section are checked
@@ -3639,44 +3717,90 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
 async function download_plot()
 {
-    const format = 'png';
+    async function generate_and_download() {
+        const format = 'png';
 
-    const $svg = document.getElementById('visualization'); 
+        const $svg = document.getElementById('visualization'); 
+
+        /**
+         * Generate an Image (from canvas1) 
+         */
+        var contour_image = new Image();
+        contour_image.src = main_plot.contour_plot.drawScene(1);
+
+        /**
+         * Create a canvas element
+         */
+
+        const svgData = encodeAsUTF8(serializeAsXML($svg))
+
+        const img = await loadImage(svgData);
+        
+        const $canvas = document.createElement('canvas')
+        $canvas.width = $svg.clientWidth
+        $canvas.height = $svg.clientHeight
+        $canvas.getContext('2d').fillStyle = "white";
+        $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
+        $canvas.getContext('2d').drawImage(contour_image,plot_margin_left,plot_margin_top,$svg.clientWidth-plot_margin_left-plot_margin_right,$svg.clientHeight-plot_margin_top-plot_margin_bottom);
+        $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
+        
+        const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
+        
+        const $img = document.createElement('img');
+        $img.src = dataURL;
+
+        /**
+         * Download the image
+         */
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = 'nmr_plot.' + format;
+        a.click();
+    }
 
     /**
-     * Generate an Image (from canvas1) 
-     */
-    var contour_image = new Image();
-    contour_image.src = main_plot.contour_plot.drawScene(1);
-
-    /**
-     * Create a canvas element
+     * If checkbox "high_resolution_download" is checked. We will
+     * (1) save current size of element "vis_parent"
+     * (2) set the size of element "vis_parent" to user defined size (in download_width and download_height)
+     * (3) redraw the plot and download.
+     * (4) restore the size of element "vis_parent"
      */
 
-    const svgData = encodeAsUTF8(serializeAsXML($svg))
+    let scale = parseInt(document.getElementById("plot_scale_up_factor").value);
 
-    const img = await loadImage(svgData);
-    
-    const $canvas = document.createElement('canvas')
-    $canvas.width = $svg.clientWidth
-    $canvas.height = $svg.clientHeight
-    $canvas.getContext('2d').fillStyle = "white";
-    $canvas.getContext('2d').fillRect(0, 0, $svg.clientWidth, $svg.clientHeight);
-    $canvas.getContext('2d').drawImage(contour_image,90,20,$svg.clientWidth-110,$svg.clientHeight-90);
-    $canvas.getContext('2d').drawImage(img, 0, 0, $svg.clientWidth, $svg.clientHeight)
-    
-    const dataURL = await $canvas.toDataURL(`image/${format}`, 1.0)
-    
-    const $img = document.createElement('img');
-    $img.src = dataURL;
+    if (scale > 1) {
 
-    /**
-     * Download the image
-     */
-    const a = document.createElement('a');
-    a.href = dataURL;
-    a.download = 'nmr_plot.' + format;
-    a.click();
+        let cr = get_content_size("vis_parent");
+
+        /**
+         * Define a maximum scale factor, so that the plot does not become too large
+         * cr.width*scale * cr.height*scale should be less than 24 M
+         */
+        if (cr.width * scale * cr.height * scale > 24e6) {
+            let new_scale = Math.floor(Math.sqrt(24e6 / (cr.width * cr.height)));
+            alert("The scale factor is too large. It has been set to " + new_scale + " to avoid too large image size.");
+            scale = new_scale;
+        }
+
+        manual_resize_plot(scale);
+
+        /**
+         * Must wait for the plot to be redrawn, downloaded before we restore the original size
+         */
+        await generate_and_download();
+
+        /**
+         * Restore the original size of vis_parent
+         */
+        manual_resize_plot(1.0 / scale);
+    }
+    else {
+        /**
+         * If scale is 1, we can directly download the plot
+         */
+        await generate_and_download();
+    }
+    
 }
 
 /**
@@ -5115,4 +5239,31 @@ function set_current_spectrum(spectrum_index)
     }
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+}
+
+
+function get_content_size(element_id)
+{
+    const el = document.getElementById(element_id);
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+
+    // Parse padding and border values
+    const paddingLeft = parseFloat(style.paddingLeft);
+    const paddingRight = parseFloat(style.paddingRight);
+    const paddingTop = parseFloat(style.paddingTop);
+    const paddingBottom = parseFloat(style.paddingBottom);
+
+    const borderLeft = parseFloat(style.borderLeftWidth);
+    const borderRight = parseFloat(style.borderRightWidth);
+    const borderTop = parseFloat(style.borderTopWidth);
+    const borderBottom = parseFloat(style.borderBottomWidth);
+
+    // Subtract padding and border from total size
+    const contentWidth = rect.width - paddingLeft - paddingRight - borderLeft - borderRight;
+    const contentHeight = rect.height - paddingTop - paddingBottom - borderTop - borderBottom;
+
+    console.log('Content Width:', contentWidth);
+    console.log('Content Height:', contentHeight);
+    return {width: contentWidth, height: contentHeight, boundingClientRectWidth: rect.width, boundingClientRectHeight: rect.height};
 }

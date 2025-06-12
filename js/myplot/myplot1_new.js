@@ -17,6 +17,7 @@ function plotit(input) {
     this.HEIGHT = input.HEIGHT;
     this.WIDTH = input.WIDTH;
     this.MARGINS = input.MARGINS;
+    this.fontsize = input.fontsize ? input.fontsize : 24; //default fontsize is 24
     this.PointData = input.PointData;
     this.drawto = input.drawto;
     this.drawto_legend = input.drawto_legend;
@@ -63,7 +64,7 @@ function plotit(input) {
     this.new_peaks = []; //a deep copy of peaks from one spectrum, 
     this.visible_peaks = []; //visible peaks in the current plot, used for peak labels
     this.$peaks_text_svg = null; //svg element for peak labels
-    this.font_size = 24; //default font size is 24 for peak labels
+    this.peak_fontsize = 24; //default font size is 24 for peak labels
 
     /**
      * Init cross section plot
@@ -127,16 +128,28 @@ plotit.prototype.update = function (input) {
 
     var self = this;
 
-    this.HEIGHT = input.HEIGHT;
-    this.WIDTH = input.WIDTH;
+    this.HEIGHT = input.HEIGHT ? input.HEIGHT : this.HEIGHT; //if input.HEIGHT is not provided, keep the old value
+    this.WIDTH = input.WIDTH ? input.WIDTH : this.WIDTH; //if input.WIDTH is not provided, keep the old value
+    this.MARGINS = input.MARGINS ? input.MARGINS : this.MARGINS; //if input.MARGINS is not provided, keep the old value
+    this.fontsize = input.fontsize ? input.fontsize : this.fontsize; //if input.fontsize is not provided, keep the old value
 
 
     this.xRange.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
     this.yRange.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
 
 
-    this.xAxis.scale(this.xRange);
-    this.yAxis.scale(this.yRange);
+
+    /**
+     * thickness of the axis line is 5% of the fontsize, round to integer
+     * and make sure it is at least 1 pixel
+     */
+    let thickness = Math.round(this.fontsize * 0.05);
+    if (thickness < 1) {
+        thickness = 1;
+    }
+
+    this.xAxis.scale(this.xRange).tickSizeInner(6* thickness);
+    this.yAxis.scale(this.yRange).tickSizeInner(6* thickness);
 
 
     /**
@@ -157,11 +170,23 @@ plotit.prototype.update = function (input) {
     this.xAxis_svg.attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')').call(this.xAxis);
     this.yAxis_svg.attr('transform', 'translate(' + (this.MARGINS.left) + ',0)').call(this.yAxis);
 
+    this.xAxis_svg.select(".domain").style("stroke-width",thickness + "px");
+    this.xAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.yAxis_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.yAxis_svg.selectAll(".tick line").style("stroke-width",thickness + "px");
 
 
-    this.vis.selectAll('.xlabel').attr("x", this.WIDTH / 2).attr("y", this.HEIGHT);
-    this.vis.selectAll('.ylabel').attr("y", this.HEIGHT / 2).attr("transform", "rotate(-90 12," + this.HEIGHT / 2 + ")");
+    this.vis.selectAll('.xlabel')
+        .attr("font-size", this.fontsize + "px")
+        .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30);
 
+    this.vis.selectAll('.ylabel')
+        .attr("font-size",  this.fontsize + "px")
+        .attr("transform", `rotate(-90)`)
+        .attr("x", -this.HEIGHT / 2 )
+        .attr("y", this.MARGINS.left / 2 -  this.fontsize / 2 - 30);
 
 
 
@@ -183,8 +208,8 @@ plotit.prototype.update = function (input) {
      */
     this.reset_axis();
 
-    this.x_cross_section_plot.resize_x(this.WIDTH);
-    this.y_cross_section_plot.resize_y(this.HEIGHT);
+    this.x_cross_section_plot.resize_x(this.WIDTH,{ top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
+    this.y_cross_section_plot.resize_y(this.HEIGHT,  { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
 
 };
 
@@ -196,16 +221,32 @@ plotit.prototype.reset_axis = function () {
 
     let self = this;
 
+    /**
+     * Estimate the number of ticks based on the width of the plot and the fontsize
+     */
+    const estimatedTickWidth = self.fontsize * 4; // Approximate label length
+    const maxTicks = Math.floor((this.WIDTH - this.MARGINS.left - this.MARGINS.right) / estimatedTickWidth);
+    this.xAxis.ticks(maxTicks);
+
+    /**
+     * Estimate the number of ticks based on the height of the plot and the fontsize
+     */
+    const estimatedTickHeight = self.fontsize * 2; // Approximate label height
+    const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
+    this.yAxis.ticks(maxTicksY);
+
     this.xAxis_svg.call(this.xAxis);
     this.yAxis_svg.call(this.yAxis);
     this.vis.selectAll(".xaxis>.tick>text")
         .each(function () {
-            d3.select(this).style("font-size", "20px");
+            d3.select(this).style("font-size", self.fontsize + "px");
         });
     this.vis.selectAll(".yaxis>.tick>text")
         .each(function () {
-            d3.select(this).style("font-size", "20px");
+            d3.select(this).style("font-size", self.fontsize + "px");
         });
+
+
 
     /**
      * Reset the position of peaks
@@ -267,11 +308,11 @@ plotit.prototype.reset_axis = function () {
             {
                 if(d.y > self.yRange(d.Y_PPM))
                 {
-                    return d.y - 0.5*self.font_size;
+                    return d.y - 0.5*self.peak_fontsize;
                 }
                 else
                 {
-                    return d.y + 0.5*self.font_size;
+                    return d.y + 0.5*self.peak_fontsize;
                 }
             }
         });
@@ -597,21 +638,20 @@ plotit.prototype.draw = function () {
 
     this.vis.append("text")
         .attr("class", "xlabel")
-        .attr("text-anchor", "center")
-        .attr("x", this.WIDTH / 2)
-        .attr("y", this.HEIGHT - 20)
-        .style("font-size", "22px")
+        .attr("text-anchor", "middle")
+        .attr("font-size", this.fontsize + "px")
+        .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize  / 2 + 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
     this.vis.append("text")
         .attr("class", "ylabel")
-        .attr("text-anchor", "center")
-        .attr("y", this.HEIGHT / 2 + 10)
-        .attr("x", 6)
-        .attr("cx", 0).attr("cy", 0)
-        .attr("transform", "rotate(-90 12," + this.HEIGHT / 2 + ")")
-        .style("font-size", "22px")
+        .attr("text-anchor", "middle")
+        .attr("font-size", this.fontsize + "px")
+        .attr("transform", `rotate(-90)`)
+        .attr("x", -this.HEIGHT / 2 )
+        .attr("y", this.MARGINS.left / 2 - this.fontsize  / 2 - 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
@@ -1213,10 +1253,10 @@ plotit.prototype.update_peak_ass_property = function(index,assignment)
  * Add peak labels to the plot. Only show the labels for the peaks that are visible
  * That is, this function need to be called after any zoom, pan, resize or contour level change to be valid
  */
-plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,font_size,color,label) {
+plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,peak_fontsize,color,label) {
     let self = this;
 
-    self.font_size = font_size;
+    self.peak_fontsize = peak_fontsize;
     self.text_label = label;
 
     /**
@@ -1426,7 +1466,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .enter()
         .append('text')
         .attr('class', 'peak_text')
-        .attr('font-size',font_size)
+        .attr('font-size',peak_fontsize)
         .style('fill', function () {
                 return self.peak_color;
         })
@@ -1476,7 +1516,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             return -this.getComputedTextLength()/2;
         })
         .attr('dy', function () {
-            return 0.5*font_size;
+            return 0.5*peak_fontsize;
         });
 
     /**
@@ -1533,7 +1573,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
                 return -this.getComputedTextLength()/2;
             })
             .attr('dy', function () {
-                return 0.5*font_size
+                return 0.5*peak_fontsize
             });
 
             /**
@@ -1571,11 +1611,11 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             {
                 if(d.y > self.yRange(d.Y_PPM))
                 {
-                    return d.y - 0.5*font_size;
+                    return d.y - 0.5*peak_fontsize;
                 }
                 else
                 {
-                    return d.y + 0.5*font_size;
+                    return d.y + 0.5*peak_fontsize;
                 }
             }
         })
