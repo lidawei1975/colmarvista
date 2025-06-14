@@ -25,6 +25,18 @@ catch (err) {
     }
 }
 
+var webassembly_1d_worker_2;
+try {
+    webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
+}
+catch (err) {
+    console.log(err);
+    if (typeof (webassembly_1d_worker_2) === "undefined" )
+    {
+        alert("Failed to load WebWorker for NUS, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
+    }
+}
+
 
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
@@ -311,6 +323,45 @@ $(document).ready(function () {
     });
 });
 
+webassembly_1d_worker_2.onmessage = function (e) {
+    
+    if(e.data.webassembly_job === "peak_picker")
+    {
+        let peaks = new cpeaks();
+        peaks.process_peaks_tab(e.data.picked_peaks_tab);
+        all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
+
+     
+        /**
+         * when picked peaks are received, fitted peaks need to be reset
+         */
+        all_spectra[e.data.spectrum_index].fitted_peaks_object = null;
+        
+        /**
+         * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
+         */
+        disable_enable_fitted_peak_buttons(e.data.spectrum_index,0);
+
+        /**
+         * Need to save its scale and scale2 used to run deep picker
+         * because we will need them to run peak fitting
+         */
+        all_spectra[e.data.spectrum_index].scale = e.data.scale;
+        all_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
+        
+        disable_enable_peak_buttons(e.data.spectrum_index,1);
+
+        /**
+         * Clear the processing message
+         */
+        document.getElementById("webassembly_message").innerText = "";
+    }
+    else if(e.data.infor)
+    {
+        console.log(e.data.infor);
+    }
+}
+        
 
 
 webassembly_1d_worker.onmessage = function (e) {
@@ -1646,21 +1697,30 @@ function run_DEEP_Picker(spectrum_index,flag)
     let scale = parseFloat(document.getElementById("scale1-".concat(spectrum_index)).value);
     let scale2 = 0.6 * scale;
     let maxround = 10;
-
-
    
     /**
      * Add title to textarea "log"
      */
-    webassembly_1d_worker.postMessage({
+    // webassembly_1d_worker.postMessage({
+    //     webassembly_job: "peak_picker",
+    //     spectrum_data: data_uint8,
+    //     spectrum_index: spectrum_index,
+    //     scale: scale,
+    //     scale2: scale2,
+    //     noise_level: noise_level,
+    //     maxround: maxround,
+    // });
+
+    webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",
-        spectrum_data: data_uint8,
+        spectrum_data: data, //float32 array
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
         noise_level: noise_level,
-        maxround: maxround,
+        mod: 2,
     });
+
     /**
      * Let user know the processing is started
      */
