@@ -356,6 +356,85 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         document.getElementById("webassembly_message").innerText = "";
     }
+    /**
+     * If result is fitted_peaks and recon_spectrum
+     */
+    else if (e.data.webassembly_job === "peak_fitter") { 
+        console.log("Fitted peaks and recon_spectrum received");
+
+        /**
+         * Define a new class peaks object, process e.data.fitted_peaks_tab
+         */
+        let peaks = new cpeaks();
+        peaks.process_peaks_tab(e.data.fitted_peaks_tab);
+        all_spectra[e.data.spectrum_origin].fitted_peaks_object = peaks;
+
+        /**
+         * Enable the download fitted peaks button and show the fitted peaks button
+         */
+        disable_enable_fitted_peak_buttons(e.data.spectrum_origin,1);
+
+        /**
+         * Uncheck the show_peaks checkbox then simulate a click event to show the peaks (with updated peaks from fitted_peaks)
+         */
+        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).checked = false;
+        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).click();
+
+        // /**
+        //  * Treat the received recon_spectrum as a frequency domain spectrum
+        //  */
+        // let arrayBuffer = new Uint8Array(e.data.recon_spectrum).buffer;
+
+        // /**
+        //  * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
+        //  */
+        // let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft1");
+        // let result_spectrum = new spectrum_1d();
+        // result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.spectrum_origin);
+
+        // /**
+        //  * Replace its header with the header of the original spectrum
+        //  * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
+        //  */
+        // result_spectrum.header = all_spectra[e.data.spectrum_origin].header;
+        // result_spectrum.noise_level = all_spectra[e.data.spectrum_origin].noise_level;
+        // result_spectrum.levels = all_spectra[e.data.spectrum_origin].levels;
+        // result_spectrum.negative_levels = all_spectra[e.data.spectrum_origin].negative_levels;
+        // result_spectrum.spectral_max = all_spectra[e.data.spectrum_origin].spectral_max;
+        // result_spectrum.spectral_min = all_spectra[e.data.spectrum_origin].spectral_min;
+
+        // /**
+        //  * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
+        //  */
+        // result_spectrum.picked_peaks_object = all_spectra[e.data.spectrum_origin].picked_peaks_object;
+        // result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
+
+        // /**
+        //  * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
+        //  */
+        // result_spectrum.scale = e.data.scale;
+        // result_spectrum.scale2 = e.data.scale2;
+        // result_spectrum.recon_peaks = recon_peaks;
+        // result_spectrum.peaks_center = peaks_center;
+        // all_spectra.push(result_spectrum);
+
+        /**
+         * Keep copy of all fitted peaks (as spectrum).
+         * TODO: This is not a good practice, we should use the peaks object to generate peak spectrum instead in future version
+         */
+        let recon_peaks = JSON.parse(e.data.recon_json);
+        let peaks_center = get_center(recon_peaks.peaks_recon);
+
+        /**
+         * Clear the processing message
+         */
+        document.getElementById("webassembly_message").innerText = "";
+
+        /**
+         * At this moment, add recon.js to the plot
+         */
+        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
+    }
     else if(e.data.stdout)
     {
         document.getElementById("log").value += e.data.stdout + "\n";
@@ -1796,14 +1875,13 @@ function run_Voigt_fitter(spectrum_index,flag)
      */
     let data_uint8 = new Uint8Array(data.buffer);
 
-    webassembly_1d_worker.postMessage({
+    webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_fitter",
-        spectrum_data: data_uint8,
+        spectrum_data: data,
         picked_peaks: picked_peaks_copy_tab,
         spectrum_begin: x_ppm_visible_start,
         spectrum_end: x_ppm_visible_end,
         spectrum_index: spectrum_index,
-        noise_level: all_spectra[spectrum_index].noise_level,
         maxround: maxround,
         peak_combine_cutoff: peak_combine_cutoff,
         flag: flag, //0: Voigt, 1: Gaussian
