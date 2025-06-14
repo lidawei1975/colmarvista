@@ -3,8 +3,21 @@
 // Import Emscripten factory function
 importScripts('webdp1d_cpp.js');
 
-// Initialize the WASM module
-let ModulePromise = webdp1d_cpp();
+
+/**
+ * Redirect the stdout and stderr to postMessage
+ */
+let ModulePromise = webdp1d_cpp({
+  print: (text) => {
+    // This captures C++ stdout
+    // Forward it to main thread
+    postMessage({ stdout: text });
+  },
+  printErr: (text) => {
+    // This captures C++ stderr
+    postMessage({ stdout: text });
+  }
+});
 
 self.onmessage = async function (event) {
     // Wait for the module to be ready
@@ -18,7 +31,7 @@ self.onmessage = async function (event) {
 
     if (event.data.webassembly_job == "test") {
         const result = obj.say_hello(event.data.name);
-        self.postMessage({ infor: result });
+        self.postMessage({ stdout: result });
     }
     else if (event.data.webassembly_job == "peak_picker") {
 

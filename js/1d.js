@@ -356,9 +356,10 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         document.getElementById("webassembly_message").innerText = "";
     }
-    else if(e.data.infor)
+    else if(e.data.stdout)
     {
-        console.log(e.data.infor);
+        document.getElementById("log").value += e.data.stdout + "\n";
+        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
     }
 }
         
