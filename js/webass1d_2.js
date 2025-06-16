@@ -84,17 +84,20 @@ self.onmessage = async function (event) {
             .function("peak_reading_from_string", &spectrum_fit_1d::peak_reading_from_string)
             .function("peak_fitting", &spectrum_fit_1d::peak_fitting)
             .function("output_as_string", &spectrum_fit_1d::output_as_string)
-            .function("output_json_as_string", &spectrum_fit_1d::output_json_as_string);
+            .function("output_json_as_string", &spectrum_fit_1d::output_json_as_string)
+            .function("get_size_of_recon", &spectrum_fit_1d::get_size_of_recon)
+            .function("get_data_of_recon", &spectrum_fit_1d::get_data_of_recon)
+            ;
          */
 
         // Initialize the object with scale and scale2
         obj.init(event.data.scale, event.data.scale2, event.data.noise_level);
 
         let fit_type = 0; // Default fit type
-        if(event.data.flag ===0){
+        if(event.data.flag ===1){
             fit_type = 1; // Gaussian
         }
-        else if(event.data.flag ===1){
+        else if(event.data.flag ===0){
             fit_type = 2; // Voigt
         }
         else if(event.data.flag ===2){
@@ -103,7 +106,7 @@ self.onmessage = async function (event) {
 
         obj.init_fit(fit_type, event.data.maxround, event.data.peak_combine_cutoff);
 
-        obj.init_error(2/**ZF */,1/**round, must >=5 to active */);
+        obj.init_error(2/**ZF */,0/**round in error est, 0 means not run at all*/);
 
         
         // Read the spectrum data from the buffer
@@ -127,13 +130,27 @@ self.onmessage = async function (event) {
         const fitted_peaks_tab = obj.output_as_string(-1); // -1 means normal run without error estimation
         const fitted_peaks_json = obj.output_json_as_string(true); // true means with individual peaks
 
+        // get size of reconstructed spectrum in float32
+        const size = obj.get_size_of_recon();
+        const ptr = obj.get_data_of_recon(0);
+        // const float32_recon = new Float32Array(Module.HEAPF32.buffer, ptr, size);
+
+        const vec=obj.spe_recon; //exposed vector of float32
+
+        const float32_recon = new Float32Array(vec.size());
+        for (let i = 0; i < vec.size(); ++i)
+        {
+            float32_recon[i] = vec.get(i);
+        }
+
         self.postMessage({
             webassembly_job: event.data.webassembly_job,
             fitted_peaks_tab: fitted_peaks_tab,
             recon_json: fitted_peaks_json,
             spectrum_origin: event.data.spectrum_index,
             scale: event.data.scale,
-            scale2: event.data.scale2
+            scale2: event.data.scale2,
+            recon_spectrum: float32_recon,
         });
     }
 };

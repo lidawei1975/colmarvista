@@ -12,19 +12,6 @@
  * Make sure we can load WebWorker
 */
 
-var webassembly_1d_worker;
-
-try {
-    webassembly_1d_worker = new Worker('./js/webass1d.js');
-}
-catch (err) {
-    console.log(err);
-    if (typeof (webassembly_1d_worker) === "undefined" )
-    {
-        alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
-    }
-}
-
 var webassembly_1d_worker_2;
 try {
     webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
@@ -380,159 +367,13 @@ webassembly_1d_worker_2.onmessage = function (e) {
         document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).checked = false;
         document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).click();
 
-        // /**
-        //  * Treat the received recon_spectrum as a frequency domain spectrum
-        //  */
-        // let arrayBuffer = new Uint8Array(e.data.recon_spectrum).buffer;
-
-        // /**
-        //  * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
-        //  */
-        // let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft1");
-        // let result_spectrum = new spectrum_1d();
-        // result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.spectrum_origin);
-
-        // /**
-        //  * Replace its header with the header of the original spectrum
-        //  * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
-        //  */
-        // result_spectrum.header = all_spectra[e.data.spectrum_origin].header;
-        // result_spectrum.noise_level = all_spectra[e.data.spectrum_origin].noise_level;
-        // result_spectrum.levels = all_spectra[e.data.spectrum_origin].levels;
-        // result_spectrum.negative_levels = all_spectra[e.data.spectrum_origin].negative_levels;
-        // result_spectrum.spectral_max = all_spectra[e.data.spectrum_origin].spectral_max;
-        // result_spectrum.spectral_min = all_spectra[e.data.spectrum_origin].spectral_min;
-
-        // /**
-        //  * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
-        //  */
-        // result_spectrum.picked_peaks_object = all_spectra[e.data.spectrum_origin].picked_peaks_object;
-        // result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
-
-        // /**
-        //  * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
-        //  */
-        // result_spectrum.scale = e.data.scale;
-        // result_spectrum.scale2 = e.data.scale2;
-        // result_spectrum.recon_peaks = recon_peaks;
-        // result_spectrum.peaks_center = peaks_center;
-        // all_spectra.push(result_spectrum);
-
-        /**
-         * Keep copy of all fitted peaks (as spectrum).
-         * TODO: This is not a good practice, we should use the peaks object to generate peak spectrum instead in future version
-         */
-        let recon_peaks = JSON.parse(e.data.recon_json);
-        let peaks_center = get_center(recon_peaks.peaks_recon);
-
-        /**
-         * Clear the processing message
-         */
-        document.getElementById("webassembly_message").innerText = "";
-
-        /**
-         * At this moment, add recon.js to the plot
-         */
-        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
-    }
-    else if(e.data.stdout)
-    {
-        document.getElementById("log").value += e.data.stdout + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
-}
         
-
-
-webassembly_1d_worker.onmessage = function (e) {
-
-    /**
-     * if result is stdout, it is the processing message
-     */
-    if (e.data.stdout) {
-
-        /**
-         * Append e.data.stdout to textarea with ID "log"
-         * and add a new line
-         */
-        document.getElementById("log").value += e.data.stdout + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
-    /**
-     * e.data.stdout is defined but empty, it is the end of the processing message
-     */
-    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
-    }
-
-    /**
-     * If result is peaks
-     */
-    else if (e.data.webassembly_job === "peak_picker") {
-        let peaks = new cpeaks();
-        peaks.process_peaks_tab(e.data.picked_peaks_tab);
-        all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
-
-     
-        /**
-         * when picked peaks are received, fitted peaks need to be reset
-         */
-        all_spectra[e.data.spectrum_index].fitted_peaks_object = null;
-        
-        /**
-         * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
-         */
-        disable_enable_fitted_peak_buttons(e.data.spectrum_index,0);
-
-        /**
-         * Need to save its scale and scale2 used to run deep picker
-         * because we will need them to run peak fitting
-         */
-        all_spectra[e.data.spectrum_index].scale = e.data.scale;
-        all_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
-        
-        disable_enable_peak_buttons(e.data.spectrum_index,1);
-
-        /**
-         * Clear the processing message
-         */
-        document.getElementById("webassembly_message").innerText = "";
-    }
-
-    /**
-     * If result is fitted_peaks and recon_spectrum
-     */
-    else if (e.data.webassembly_job === "peak_fitter") { 
-        console.log("Fitted peaks and recon_spectrum received");
-
-        /**
-         * Define a new class peaks object, process e.data.fitted_peaks_tab
-         */
-        let peaks = new cpeaks();
-        peaks.process_peaks_tab(e.data.fitted_peaks_tab);
-        all_spectra[e.data.spectrum_origin].fitted_peaks_object = peaks;
-
-        /**
-         * Enable the download fitted peaks button and show the fitted peaks button
-         */
-        disable_enable_fitted_peak_buttons(e.data.spectrum_origin,1);
-
-        /**
-         * Uncheck the show_peaks checkbox then simulate a click event to show the peaks (with updated peaks from fitted_peaks)
-         */
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).checked = false;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).click();
-
-        /**
-         * Treat the received recon_spectrum as a frequency domain spectrum
-         */
-        let arrayBuffer = new Uint8Array(e.data.recon_spectrum).buffer;
-
         /**
          * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
          */
         let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft1");
         let result_spectrum = new spectrum_1d();
-        result_spectrum.process_ft_file(arrayBuffer,result_spectrum_name,e.data.spectrum_origin);
+        result_spectrum.process_ft_file_type2(all_spectra[e.data.spectrum_origin].header,e.data.recon_spectrum,result_spectrum_name,e.data.spectrum_origin);
 
         /**
          * Replace its header with the header of the original spectrum
@@ -552,22 +393,22 @@ webassembly_1d_worker.onmessage = function (e) {
         result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
 
         /**
-         * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
-         */
-        result_spectrum.scale = e.data.scale;
-        result_spectrum.scale2 = e.data.scale2;
-
-        /**
          * Keep copy of all fitted peaks (as spectrum).
          * TODO: This is not a good practice, we should use the peaks object to generate peak spectrum instead in future version
          */
         let recon_peaks = JSON.parse(e.data.recon_json);
         let peaks_center = get_center(recon_peaks.peaks_recon);
 
+        /**
+         * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
+         */
+        result_spectrum.scale = e.data.scale;
+        result_spectrum.scale2 = e.data.scale2;
         result_spectrum.recon_peaks = recon_peaks;
         result_spectrum.peaks_center = peaks_center;
-
         all_spectra.push(result_spectrum);
+
+
 
         /**
          * Clear the processing message
@@ -577,17 +418,14 @@ webassembly_1d_worker.onmessage = function (e) {
         /**
          * At this moment, add recon.js to the plot
          */
-        
         main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
-
-
     }
-
-
-    else{
-        console.log(e.data);
+    else if(e.data.stdout)
+    {
+        document.getElementById("log").value += e.data.stdout + "\n";
+        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
     }
-};
+}
 
 var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
@@ -1776,20 +1614,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     let noise_level = all_spectra[spectrum_index].noise_level;
     let scale = parseFloat(document.getElementById("scale1-".concat(spectrum_index)).value);
     let scale2 = 0.6 * scale;
-    let maxround = 10;
    
-    /**
-     * Add title to textarea "log"
-     */
-    // webassembly_1d_worker.postMessage({
-    //     webassembly_job: "peak_picker",
-    //     spectrum_data: data_uint8,
-    //     spectrum_index: spectrum_index,
-    //     scale: scale,
-    //     scale2: scale2,
-    //     noise_level: noise_level,
-    //     maxround: maxround,
-    // });
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",

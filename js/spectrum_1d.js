@@ -290,6 +290,100 @@ class spectrum_1d {
 
     };
 
+    process_ft_file_type2(header,spectral_data, file_name, spectrum_origin) {
+        
+        this.header=header;
+
+        this.spectrum_format = "ft1";
+
+        this.spectrum_origin = spectrum_origin;
+
+
+        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
+        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
+
+       
+        /**
+         * Datatype of the direct and indirect dimension
+         * 0: complex
+         * 1: real
+         */
+        this.header[56] =1;
+        this.datatype_direct = this.header[56];
+
+        /**
+         * this.datatype_direct: 1 means real, 0 means complex
+         * this.datatype_indirect: 1 means real, 0 means complex
+         */
+        if (this.datatype_direct == 0 ) {
+            console.log("Complex data ");
+        }
+       
+        else if (this.datatype_direct == 1) {
+            console.log("Real data ");
+        }
+        console.log("n_direct: ", this.n_direct);
+
+        this.direct_ndx = 2;
+        
+        /**
+         * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
+         * All are array of length 4
+         */
+        this.sw = [];
+        this.frq = [];
+        this.ref = [];
+
+        this.sw[0] = this.header[229];
+        this.sw[1] = this.header[100];
+        this.sw[2] = this.header[11];
+        this.sw[3] = this.header[29];
+
+        this.frq[0] = this.header[218];
+        this.frq[1] = this.header[119];
+        this.frq[2] = this.header[10];
+        this.frq[3] = this.header[28];
+
+        this.ref[0] = this.header[249];
+        this.ref[1] = this.header[101];
+        this.ref[2] = this.header[12];
+        this.ref[3] = this.header[30];
+
+        /**
+         * Get ppm_start, ppm_width, ppm_step for both direct and indirect dimensions
+         */
+        this.sw1 = this.sw[this.direct_ndx - 1];
+        this.frq1 = this.frq[this.direct_ndx - 1];
+        this.ref1 = this.ref[this.direct_ndx - 1];
+
+
+        this.x_ppm_start = (this.ref1 + this.sw1) / this.frq1;
+        this.x_ppm_width = this.sw1 / this.frq1;
+        this.x_ppm_step = -this.x_ppm_width / this.n_direct;
+
+        /**
+         * shift by half of the bin size because the contour plot is defined by the center of each bin
+         */
+        this.x_ppm_start -= this.x_ppm_width / this.n_direct / 2;
+
+        this.x_ppm_ref = 0.0;
+
+        /**
+         * Initialize this.raw_data, this.raw_data_ri, this.raw_data_ir, this.raw_data_ii
+         * If no initialization here, it will have default size of 0 (empty array)
+         */
+        this.raw_data = spectral_data;
+        
+
+        /**
+         * Keep original file name
+         */
+        this.filename = file_name;
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
+
+    };
+
 
     /**
      * Process the raw file data of a 1D FT spectrum (nmrPipe .ft1 format)
