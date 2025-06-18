@@ -315,4 +315,14 @@ class ldwmath {
         let b = parseInt(hex.substring(5, 7), 16);
         return [r, g, b];
     }
+
+    /**
+     * Get median of an array of numbers
+     */
+    get_median(arr) {
+        if (arr.length === 0) return null; // Handle empty array case
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
 }

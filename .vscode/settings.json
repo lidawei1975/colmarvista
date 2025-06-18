@@ -11,6 +11,8 @@
         "gammay",
         "mainplot",
         "maxround",
+        "nround",
+        "nspect",
         "nuslist",
         "overlayed",
         "peaklist",
@@ -27,7 +29,13 @@
         "tooldiv",
         "webass",
         "xdim",
+        "xstart",
+        "xydim",
         "ydim",
+        "ystart",
         "zoomout"
+    ],
+    "cSpell.ignoreWords": [
+        "npeak"
     ]
 }

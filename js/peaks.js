@@ -701,6 +701,34 @@ class cpeaks {
         else {
             return value.toString();
         }
+    };
+
+    /**
+     * Add a row to the peaks object. Length of row must be the same as the number of columns
+     * @param {array} row 
+     */
+    add_row(row)
+    {
+        if (row.length !== this.column_headers.length) {
+            return false;
+        }
+        /**
+         * Check if row has all values, if not, set to 0 or 'n.a.'
+         */
+        for (let i = 0; i < row.length; i++) {
+            if (row[i] === null || row[i] === undefined) {
+                if (this.column_formats[i].includes('s')) {
+                    row[i] = 'n.a.';
+                }
+                else {
+                    row[i] = 0;
+                }
+            }
+        }
+        this.columns.forEach((column, index) => {
+            column.push(row[index]);
+        });
+        return true;
     }
 
     /**
