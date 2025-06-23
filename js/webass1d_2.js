@@ -44,9 +44,19 @@ self.onmessage = async function (event) {
             spectrum_data.push_back(event.data.spectrum_data[i]);
         }
 
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
+
         obj.init_mod(event.data.mod); //DNN model 1 or model 2 
 
-        obj.read_first_spectrum_from_buffer(spectrum_data); //float32  array of spectral file (.ft1 format)
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data,spectrum_data_imaginary); // Read the first spectrum from buffer
 
         obj.adjust_ppp_of_spectrum(6.0);  //set desired median peak width to 6.0 (model 2) or 12.0 (model 1)
 
@@ -105,14 +115,26 @@ self.onmessage = async function (event) {
         obj.init_error(2/**ZF */,0/**round in error est, 0 means not run at all*/);
 
         
-        // Read the spectrum data from the buffer
+        /**
+         * Need to convert event.data.spectrum_data (Float32Array) to webassembly VectorFloat
+         */
         const spectrum_data = new Module.VectorFloat();
         for (let i = 0; i < event.data.spectrum_data.length; ++i) {
             spectrum_data.push_back(event.data.spectrum_data[i]);
         }
 
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
+
         // Read the first spectrum from buffer
-        obj.read_first_spectrum_from_buffer(spectrum_data);
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data, spectrum_data_imaginary);
         obj.prepare_to_read_additional_spectrum_from_buffer(false); // false means no negative peak picking
 
 
@@ -152,6 +174,9 @@ self.onmessage = async function (event) {
         // Clean up the object to free memory
         obj.delete(); // Clean up the object to free memory
     }
+    /**
+     * This is part of 2D VF workflow. Fitting of one region (correlated peaks) only, not the full 2D spectrum.
+     */
     else if( event.data.webassembly_job === "gaussian_fitting" ){
 
         const nspect = 1; // Assuming single spectrum for now
@@ -296,6 +321,112 @@ self.onmessage = async function (event) {
 
         obj.delete(); // Clean up the object to free memory
     }
+
+    /**
+     * 1D FID processing job
+     */
+    else if(event.data.webassembly_job === "fid_processor_1d") {
+         const nspect = 1; // Assuming single spectrum for now
+
+        const obj = new Module.spectrum_phasing_1d(); //spectrum_phasing_1d has fid_1d as its base class for FID processing
+
+        /**
+         * Passed variables:
+         *                 
+         *      acquisition_string: acquisition_string,
+                fid_data: fid_data, //Uint8Array
+                apodization_string: apodization_string,
+                zf_direct: zf_direct,
+                phase_correction_direct_p0: phase_correction_direct_p0,
+                phase_correction_direct_p1: phase_correction_direct_p1,
+                auto_direct: auto_direct,
+                delete_imaginary: delete_imaginary,
+                pseudo_2d_process: pseudo_2d_process,
+         */
+
+        
+        obj.set_up_apodization_from_string(event.data.apodization_string);
+        obj.read_bruker_files_as_strings(event.data.acquisition_string);
+
+        const fid_data = new Module.VectorFloat();
+        if(obj.get_fid_data_type() === 2) {
+            /**
+             * Double (float64) data type in e.data.fid_data,
+             * convert every 8 bytes to a float32 number.
+             * Remember that e.data.fid_data is Uint8Array, need to view it as a float64 array.
+             */
+            const fid_data_double = new Float64Array(event.data.fid_buffer);
+            for (let i = 0; i < fid_data_double.length; ++i) {
+                fid_data.push_back(fid_data_double[i]);
+            }
+        }
+        else if(obj.get_fid_data_type() === 0) {
+            /**
+             * Int (int32) data type in e.data.fid_data,
+             * convert every 4 bytes to a int32 number.
+             */
+            const fid_data_int = new Int32Array(event.data.fid_buffer);
+            for (let i = 0; i < fid_data_int.length; ++i) {
+                fid_data.push_back(fid_data_int[i]);
+            }
+        }
+
+        obj.set_fid_data(fid_data);
+        obj.run_zf(event.data.zf_direct); // Zero filling
+        obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
+
+        let p0= event.data.phase_correction_direct_p0;
+        let p1= event.data.phase_correction_direct_p0 + event.data.phase_correction_direct_p1;
+
+        /**
+         * Automatic phase correction part.
+         */
+        if(event.data.auto_direct) {
+            obj.set_up_parameters(5, 10, 3,true,true);
+            obj.auto_phase_correction();
+            const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
+            
+            p0 = v.get(0);
+            p1 = v.get(1);
+        }
+        else {
+            obj.phase_spectrum(p0, p1); // Apply the phase correction parameters provided by the user
+        }
+        
+        
+        obj.write_nmrpipe_ft1(""); // Generate nmrPipe FT1 file header (internal data), Empty name "" means do not actually write to a file
+
+        let fid_json = obj.write_json_as_string(); // Get the spectrum header information as JSON string
+
+        /**
+         * get_spectrum_header_data will return address of the header data in the heap
+         * header_ptr, header_size, header_data are reinterpret_cast<uintptr_t> float * pointer.
+         */
+        const header_ptr = obj.get_data_of_header();
+        const header_size = 512; //nmrPipe header size is 512 float32.
+        const header_data = new Float32Array(Module.HEAPF32.buffer, header_ptr, header_size);
+        const data_of_real_ptr = obj.get_data_of_real(); // Get the real part of the spectrum data
+        const data_of_read_size = obj.get_ndata_frq(); // Get the size of the real part data, imaginary part has the same size
+        const real_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_real_ptr, data_of_read_size);
+        const data_of_imag_ptr = obj.get_data_of_imag(); // Get the imaginary part of the spectrum data
+        const image_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_imag_ptr, data_of_read_size);
+
+        self.postMessage({
+            /**
+             * Passthrough the webassembly job type, spectrum index, and peak assignment
+             */
+            webassembly_job: event.data.webassembly_job,
+            fid_json: fid_json,
+            spectrum_header : header_data,
+            real_spectrum_data: real_spectrum_data,
+            image_spectrum_data: image_spectrum_data,
+            p0: p0,
+            p1: p1 - p0, // p1 from C++ code is PC at the right end, so p1 is p1 - p0 in traditional NMRPipe format
+        });
+
+        obj.delete(); // Clean up the object to free memory
+    }
+    
 
     else {
         // Handle other jobs or errors

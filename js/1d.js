@@ -163,6 +163,17 @@ $(document).ready(function () {
 
     pseudo2d_fitted_peaks_error = [];
 
+    /**
+    * INitialize the file drop processor for the time domain spectra
+    */
+    fid_drop_process = new file_drop_processor()
+    .drop_area('input_files') /** id of dropzone */
+    .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
+    .files_id([ "acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
+    .file_extension([])  /** file extensions to be searched from upload */
+    .required_files([0,1])
+    .init();
+
 
     /**
      * ft2 file drop processor
@@ -286,7 +297,7 @@ $(document).ready(function () {
         }
     });
 
-        /**
+    /**
      * Event listener for file input "load_file"
      */
     document.getElementById('load_file').addEventListener('change', function (e) {
@@ -308,11 +319,118 @@ $(document).ready(function () {
             reader.readAsArrayBuffer(file);
         }
     });
+
+    /**
+     * Event listener for fid file input "fid_file"
+     */
+    document.getElementById('fid_file_form').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        let acquisition_file = document.getElementById('acquisition_file').files[0];
+        let fid_file = document.getElementById('fid_file').files[0];
+
+        if (acquisition_file && fid_file) {
+            let acquisition_string = await read_file_text(acquisition_file);
+            let fid_buffer = await read_file(fid_file);
+            /**
+             * Convert fid_buffer to Float32Array
+             */
+            let apodization_string = document.getElementById("apodization_direct").value;
+            let zf_direct = parseInt(document.getElementById("zf_direct").value);
+            let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+            let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+            let auto_direct = document.getElementById("auto_direct").checked;
+            let delete_imaginary = document.getElementById("delete_imaginary").checked;
+            /**
+             * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
+             */
+            let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+
+            /**
+             * fid_process_parameters is a GLOBAL object that will be sent to the webassembly worker
+             * It will be saved here, in case we need to re-process the fid file
+             */
+            fid_process_parameters = {
+                webassembly_job: "fid_processor_1d",
+                acquisition_string: acquisition_string,
+                fid_buffer: fid_buffer,
+                apodization_string: apodization_string,
+                zf_direct: zf_direct,
+                phase_correction_direct_p0: phase_correction_direct_p0,
+                phase_correction_direct_p1: phase_correction_direct_p1,
+                auto_direct: auto_direct,
+                delete_imaginary: delete_imaginary,
+                pseudo_2d_process: pseudo_2d_process,
+                reprocess: false, // this is not a re-process, it is a new fid file processing
+                spectrum_index: -1, // -1 is a flag, means to be decided later.
+            };
+
+            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+        }
+        else{
+            alert("Please select both acquisition and fid files.");
+        }
+    });
 });
+
+/**
+ * user click button to re-process fid file
+ */
+function reprocess_fid(spectrum_index) {
+    let apodization_string = document.getElementById("apodization_direct").value;
+    let zf_direct = parseInt(document.getElementById("zf_direct").value);
+    let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+    let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+    let auto_direct = document.getElementById("auto_direct").checked;
+    let delete_imaginary = document.getElementById("delete_imaginary").checked;
+
+    /**
+     * Only update above parameters, keep the rest the same
+     */
+    fid_process_parameters.apodization_string = apodization_string;
+    fid_process_parameters.zf_direct = zf_direct;
+    fid_process_parameters.phase_correction_direct_p0 = phase_correction_direct_p0;
+    fid_process_parameters.phase_correction_direct_p1 = phase_correction_direct_p1;
+    fid_process_parameters.auto_direct = auto_direct;
+    fid_process_parameters.delete_imaginary = delete_imaginary;
+    fid_drop_process.reprocess = true; // this is a re-process, not a new fid file processing
+    fid_drop_process.spectrum_index = spectrum_index; // save the spectrum index to re-process
+
+    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+}
 
 webassembly_1d_worker_2.onmessage = function (e) {
     
-    if(e.data.webassembly_job === "peak_picker")
+    if(e.data.webassembly_job === "fid_processor_1d"){
+        /**
+         * Received fid processing result:
+         *  webassembly_job: event.data.webassembly_job,
+            fid_json: fid_json,
+            spectrum_header : header_data,
+            real_spectrum_data: real_spectrum_data,
+         */
+        result_spectrum = new spectrum_1d();
+
+        /**
+         * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
+         */
+        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length*2);
+        combined.set(e.data.spectrum_header);
+        combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
+        combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
+        const buffer = combined.buffer;
+        result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+
+        /**
+         * Update fid processing box parameters
+         */
+        document.getElementById("phase_correction_direct_p0").value = e.data.phase_correction_direct_p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = e.data.phase_correction_direct_p1.toFixed(2);
+
+        draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
+    }
+
+
+    else if(e.data.webassembly_job === "peak_picker")
     {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
@@ -1600,10 +1718,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+
 
     /**
      * Get noise_level of the spectrum
@@ -1618,7 +1733,8 @@ function run_DEEP_Picker(spectrum_index,flag)
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",
-        spectrum_data: data, //float32 array
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
@@ -1691,18 +1807,12 @@ function run_Voigt_fitter(spectrum_index,flag)
     header[56] = 1.0;
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     header[99] = all_spectra[spectrum_index].n_direct; //size of direct dimension of the input spectrum
-    /**
-     * Also set 
-     */
-    let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+   
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_fitter",
-        spectrum_data: data,
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
         spectrum_begin: x_ppm_visible_start,
         spectrum_end: x_ppm_visible_end,

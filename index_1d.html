@@ -35,6 +35,64 @@
                 <br>
             </div>
 
+            <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
+                        domain data for processing: <span class="information">(Console version >=3.0) </span></p>
+                </span>
+                <form id="fid_file_form" action="" enctype="multipart/form-data">
+                    <div class="drop-area input-section" id="input_files">
+                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file" name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called acqus):</label>
+                        <input type="file" name="acquisition_file" id="acquisition_file"><br>
+                        <span class="information"> You can also drag and drop Bruker folder (which contains required
+                            files here).</span><br>
+                    </div>
+
+                    <div class="input-section" id="input_options">
+                        <span>
+                            <label for="apodization_direct">Direct dimension apodization function</label>
+                            <input type="text" name="apodization_direct" id="apodization_direct"
+                                value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
+                        </span>
+
+                        <span>
+                            <label for="zf_direct">Zero filling factor for direct dimension (2, 4, 8): </label>
+                            <select name="zf_direct" id="zf_direct">
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <label for="phase_correction_direct_p0">Phase correction for direct dimension P0:
+                            </label>
+                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
+                                value="0" step="any">
+                            <label for="phase_correction_direct_p1">P1: </label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
+                                value="0" step="any">
+                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
+                            <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
+                            <label for="delete_imaginary">Delete imaginary data
+                        </span>
+
+                        <span>
+                            <input type="radio" name="Pseudo-2D-process" id="first_only" value="first_only" checked>
+                            <label for="first_only">Process the first 1D experiment only</label>
+                            <input type="radio" name="Pseudo-2D-process" id="all_traces" value="all_planes">
+                            <label for="all_planes">Process all pseudo 2D traces</label>
+                        </span>
+                    </div>
+                    <input type="submit" id="button_fid_process" name="button_fid_process"
+                        value="Upload experimental files and process">
+                    </br>
+
+                </form>
+            </div>
+
 
             <div id="file_area" class="drop-area" style="width: 1200px;">
                 <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
@@ -93,13 +151,13 @@
                         <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
                         <br><br>
                     </div>
-                    
-                    
+
+
                     <!-- This is the main plot -->
                     <div id="plot_1d" class="resizable" style="display: none;">
                         <!-- The SVG based plot will be generated here -->
                     </div>
-                    
+
 
                 </div>
             </div>
