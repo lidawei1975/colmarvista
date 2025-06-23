@@ -156,146 +156,83 @@ self.onmessage = async function (event) {
 
         const nspect = 1; // Assuming single spectrum for now
 
-        const obj = new Module.gaussian_fit();
+        const obj = new Module.fid_1d();
 
         /**
-         * List of functions that can be used
-         *  .function("init", &gaussian_fit::init)
-            .function("set_everything", &gaussian_fit::set_everything)
-            .function("set_peak_paras", &gaussian_fit::set_peak_parameters)
-            .function("run", &gaussian_fit::run)
-            .function("run_with_error_estimation", &gaussian_fit::run_with_error_estimation)
-            .function("get_nround", &gaussian_fit::get_nround)
+         * Passed variables:
+         *                 
+         *      acquisition_string: acquisition_string,
+                fid_data: fid_data,
+                apodization_string: apodization_string,
+                zf_direct: zf_direct,
+                phase_correction_direct_p0: phase_correction_direct_p0,
+                phase_correction_direct_p1: phase_correction_direct_p1,
+                auto_direct: auto_direct,
+                delete_imaginary: delete_imaginary,
+                pseudo_2d_process: pseudo_2d_process,
 
-        * And list of properties that can be used (public variables in C++)
-
-            
-            .property("amp", &gaussian_fit::amp)
-            .property("sigmax", &gaussian_fit::sigmax)
-            .property("sigmay", &gaussian_fit::sigmay)
-            .property("gammax", &gaussian_fit::gammax)
-            .property("gammay", &gaussian_fit::gammay)
-            .property("x", &gaussian_fit::x)
-            .property("y", &gaussian_fit::y)
-            .property("err", &gaussian_fit::err)
-            .property("original_ndx", &gaussian_fit::original_ndx)
+         * Bound functions of fid_1d C++ class:
+                .function("init", &fid_1d::init)
+                .function("read_first_spectrum_from_buffer", &fid_1d::read_first_spectrum_from_buffer) //for dp_1d and vf_1d
+                .function("set_spectrum_from_data", &fid_1d::set_spectrum_from_data) //for dp_1d and vf_1d
+                //below are for fid processing
+                .function("set_up_apodization_from_string", &fid_1d::set_up_apodization_from_string)
+                .function("read_bruker_files_as_strings", &fid_1d::read_bruker_files_as_strings)
+                .function("set_fid_data", &fid_1d::set_fid_data) //fir fid processing
+                .function("run_zf", &fid_1d::run_zf)
+                .function("run_fft_and_rm_bruker_filter", &fid_1d::run_fft_and_rm_bruker_filter)
+                .function("write_json_as_string", &fid_1d::write_json_as_string) 
+                .function("get_nspectra", &fid_1d::get_nspectra)
+                .function("get_ndata_frq", &fid_1d::get_ndata_frq)
+                .function("get_spectrum_header_data", &fid_1d::get_spectrum_header)
+                .function("get_data_of_real", &fid_1d::get_data_of_real)     
          */
 
-        obj.set_everything_wasm(event.data.peak_shape, event.data.maxround, event.data.cluster_counter);
-
-        /**
-         * Need to convert event.data.spect_parts (JS array) to webassembly VectorFloat
-         * convert event.data.xx (JS array) to webassembly VectorFloat
-         * convert event.data.yy (JS array) to webassembly VectorFloat
-         * convert event.data.aas (JS array) to webassembly VectorFloat
-         * convert event.data.sx (JS array) to webassembly VectorFloat
-         * convert event.data.sy (JS array) to webassembly VectorFloat
-         * convert event.data.gx (JS array) to webassembly VectorFloat
-         * convert event.data.gy (JS array) to webassembly VectorFloat
-         * convert event.data.ori_index (JS array) to webassembly VectorInt
-         */
-        const spect_parts = new Module.VectorDouble();
-        for (let i = 0; i < event.data.spect_parts.length; ++i) {
-            spect_parts.push_back(event.data.spect_parts[i]);
-        }
-
-        const aas = new Module.VectorDouble();
-        for(let i = 0; i < event.data.aas.length; ++i)
-        {
-            aas.push_back(event.data.aas[i]);
-        }
-
-        const xx = new Module.VectorDouble();
-        const yy = new Module.VectorDouble();
-        const sx = new Module.VectorDouble();
-        const sy = new Module.VectorDouble();
-        const gx = new Module.VectorDouble();
-        const gy = new Module.VectorDouble();
-        const ori_index = new Module.VectorInt();
-        const region_peak_cannot_move_flag = new Module.VectorInt();
-        for (let i = 0; i < event.data.xx.length; ++i) {
-            xx.push_back(event.data.xx[i]);
-            yy.push_back(event.data.yy[i]);
-            sx.push_back(event.data.sx[i]);
-            sy.push_back(event.data.sy[i]);
-            gx.push_back(event.data.gx[i]);
-            gy.push_back(event.data.gy[i]);
-            ori_index.push_back(event.data.ori_index[i]);
-            region_peak_cannot_move_flag.push_back(event.data.region_peak_cannot_move_flag[i]);
-        }
         
+        obj.set_up_apodization_from_string(event.data.apodization_string);
+        obj.read_bruker_files_as_strings(event.data.acquisition_string);
+        /**
+         * Convert fid_data (Float32Array) to webassembly VectorFloat
+         */
+        const fid_data = new Module.VectorFloat();
+        for (let i = 0; i < event.data.fid_data.length; ++i) {
+            fid_data.push_back(event.data.fid_data[i]);
+        }
+        obj.set_fid_data(fid_data);
+        obj.run_zf(event.data.zf_direct); // Zero filling
+        obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
 
-        obj.init(event.data.min1, event.data.min2, event.data.size1, event.data.size2, event.data.nspect,
-            spect_parts, xx, yy, aas, sx, sy, gx, gy, ori_index,region_peak_cannot_move_flag,
-            event.data.median_width_x, event.data.median_width_y);
-        obj.set_peak_paras(
-            event.data.wx * 1.5, event.data.wy * 1.5,
-            event.data.noise_level, event.data.noise_level * event.data.user_scale2,
-            event.data.too_near_cutoff, event.data.step1, event.data.step2, event.data.removal_cutoff
-        );
-        obj.peak_sign = event.data.peak_sign; // 1 means positive peak fitting, -1 means negative peak fitting
-        obj.run(1); //1 means first run without error estimation
+        let fid_json = obj.write_json_as_string(); // Get the spectrum header information as JSON string
 
         /**
-         * Collect the results from the object
+         * get_spectrum_header_data will return address of the header data in the heap
          */
-        let p1 = new Float32Array(obj.npeak);
-        let p2 = new Float32Array(obj.npeak);
-        let group = new Int32Array(obj.npeak);
-        let nround = new Int32Array(obj.npeak);
-        let p_intensity = new Float32Array(obj.npeak);
-        let sigmax = new Float32Array(obj.sigmax.size());
-        let sigmay = new Float32Array(obj.sigmay.size());
-        let peak_index = new Int32Array(obj.original_ndx.size());
-        let err = new Float32Array(obj.err.size());
-        let gammax = new Float32Array(obj.gammax.size());
-        let gammay = new Float32Array(obj.gammay.size());
-        let p_intensity_all_spectra = new Float32Array(obj.npeak * nspect);
-        for (let i = 0; i < obj.npeak; i++)
-        {
-            p1[i] = obj.x.get(i) + obj.xstart;  
-            p2[i] = obj.y.get(i) + obj.ystart;
-            group[i] = event.data.cluster_counter;
-            nround[i] = obj.get_nround();
-            p_intensity[i] = obj.amp.get(i*nspect); // first spectrum intensity
-            // Collecting sigmax and sigmay
-            sigmax[i] = obj.sigmax.get(i);
-            sigmay[i] = obj.sigmay.get(i);
-            peak_index[i] = obj.original_ndx.get(i);
-            err[i] = obj.err.get(i);
-            gammax[i] = obj.gammax.get(i);
-            gammay[i] = obj.gammay.get(i);
-            for(let j=i*nspect; j<(i+1)*nspect; j++){
-                p_intensity_all_spectra[j] = obj.amp.get(j)
-            }
-        }
+        const header_ptr = obj.get_spectrum_header_data();
+        const header_size = 512; //nmrPipe header size is 512 float32.
+        const header_data = new Float32Array(Module.HEAPF32.buffer, header_ptr, header_size);
+        const data_of_real_ptr = obj.get_data_of_real(); // Get the real part of the spectrum data
+        const data_of_read_size = obj.get_ndata_frq(); // Get the size of the real part data
+        const real_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_real_ptr, data_of_read_size);
+
         self.postMessage({
             /**
              * Passthrough the webassembly job type, spectrum index, and peak assignment
              */
             webassembly_job: event.data.webassembly_job,
-            spectrum_index: event.data.spectrum_index,
-            peak_assignment: event.data.peak_assignment, 
-
-            /**
-             * This is the output of the peak fitter
-             */
-            p1: p1,
-            p2: p2,
-            group: group,
-            nround: nround,
-            p_intensity: p_intensity,
-            sigmax: sigmax,
-            sigmay: sigmay,
-            peak_index: peak_index,
-            err: err,
-            gammax: gammax,
-            gammay: gammay,
-            p_intensity_all_spectra: p_intensity_all_spectra,
+            fid_json: fid_json,
+            spectrum_header : header_data,
+            real_spectrum_data: real_spectrum_data,
         });
 
         obj.delete(); // Clean up the object to free memory
     }
+
+    else if (event.data.webassembly_job == "fid_processor") {
+
+        // This is for fid processing job
+        console.log('Fid processing job received');
+        const obj = new Module.fid_processor();
+
 
     else {
         // Handle other jobs or errors

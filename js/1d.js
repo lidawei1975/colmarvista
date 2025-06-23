@@ -163,6 +163,16 @@ $(document).ready(function () {
 
     pseudo2d_fitted_peaks_error = [];
 
+    /**
+    * INitialize the file drop processor for the time domain spectra
+    */
+    fid_drop_process = new file_drop_processor()
+    .drop_area('input_files') /** id of dropzone */
+    .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
+    .files_id([ "acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
+    .file_extension([])  /** file extensions to be searched from upload */
+    .init();
+
 
     /**
      * ft2 file drop processor
@@ -286,7 +296,7 @@ $(document).ready(function () {
         }
     });
 
-        /**
+    /**
      * Event listener for file input "load_file"
      */
     document.getElementById('load_file').addEventListener('change', function (e) {
@@ -306,6 +316,53 @@ $(document).ready(function () {
              * Read as binary file
              */
             reader.readAsArrayBuffer(file);
+        }
+    });
+
+    /**
+     * Event listener for fid file input "fid_file"
+     */
+    document.getElementById('fid_file').addEventListener('change', async function (e) {
+        e.preventDefault();
+        let acquisition_file = document.getElementById('acquisition_file').files[0];
+        let fid_file = document.getElementById('fid_file').files[0];
+        let promise_arr;
+
+        if (acquisition_file && fid_file) {
+            let acquisition_string = await read_file_text(acquisition_file);
+            let fid_buffer = await read_file(fid_file);
+            /**
+             * Convert fid_buffer to Float32Array
+             */
+            let fid_data = new Float32Array(fid_buffer);
+            let apodization_string = document.getElementById("apodization").value;
+            let zf_direct = parseInt(document.getElementById("zf_direct").value);
+            let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+            let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+            let auto_direct = document.getElementById("auto_direct").checked;
+            let delete_imaginary = document.getElementById("delete_imaginary").checked;
+            /**
+             * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
+             */
+            let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+
+            const fid_process_parameters = {
+                webassembly_job: "fid_processor",
+                acquisition_string: acquisition_string,
+                fid_data: fid_data,
+                apodization_string: apodization_string,
+                zf_direct: zf_direct,
+                phase_correction_direct_p0: phase_correction_direct_p0,
+                phase_correction_direct_p1: phase_correction_direct_p1,
+                auto_direct: auto_direct,
+                delete_imaginary: delete_imaginary,
+                pseudo_2d_process: pseudo_2d_process,
+            };
+
+            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+        }
+        else{
+            alert("Please select both acquisition and fid files.");
         }
     });
 });
