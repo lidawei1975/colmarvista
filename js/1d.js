@@ -171,6 +171,7 @@ $(document).ready(function () {
     .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
     .files_id([ "acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
     .file_extension([])  /** file extensions to be searched from upload */
+    .required_files([0,1])
     .init();
 
 
@@ -322,11 +323,10 @@ $(document).ready(function () {
     /**
      * Event listener for fid file input "fid_file"
      */
-    document.getElementById('fid_file').addEventListener('change', async function (e) {
+    document.getElementById('fid_file_form').addEventListener('submit', async function (e) {
         e.preventDefault();
         let acquisition_file = document.getElementById('acquisition_file').files[0];
         let fid_file = document.getElementById('fid_file').files[0];
-        let promise_arr;
 
         if (acquisition_file && fid_file) {
             let acquisition_string = await read_file_text(acquisition_file);
@@ -335,7 +335,7 @@ $(document).ready(function () {
              * Convert fid_buffer to Float32Array
              */
             let fid_data = new Float32Array(fid_buffer);
-            let apodization_string = document.getElementById("apodization").value;
+            let apodization_string = document.getElementById("apodization_direct").value;
             let zf_direct = parseInt(document.getElementById("zf_direct").value);
             let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
             let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
@@ -347,7 +347,7 @@ $(document).ready(function () {
             let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
 
             const fid_process_parameters = {
-                webassembly_job: "fid_processor",
+                webassembly_job: "fid_processor_1d",
                 acquisition_string: acquisition_string,
                 fid_data: fid_data,
                 apodization_string: apodization_string,
@@ -369,7 +369,29 @@ $(document).ready(function () {
 
 webassembly_1d_worker_2.onmessage = function (e) {
     
-    if(e.data.webassembly_job === "peak_picker")
+    if(e.data.webassembly_job === "fid_processor_1d"){
+        /**
+         * Received fid processing result:
+         *  webassembly_job: event.data.webassembly_job,
+            fid_json: fid_json,
+            spectrum_header : header_data,
+            real_spectrum_data: real_spectrum_data,
+         */
+        result_spectrum = new spectrum_1d();
+
+        /**
+         * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
+         */
+        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length);
+        combined.set(e.data.spectrum_header);
+        combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
+        const buffer = combined.buffer;
+        result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+        draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
+    }
+
+
+    else if(e.data.webassembly_job === "peak_picker")
     {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
