@@ -334,7 +334,6 @@ $(document).ready(function () {
             /**
              * Convert fid_buffer to Float32Array
              */
-            let fid_data = new Float32Array(fid_buffer);
             let apodization_string = document.getElementById("apodization_direct").value;
             let zf_direct = parseInt(document.getElementById("zf_direct").value);
             let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -349,7 +348,7 @@ $(document).ready(function () {
             const fid_process_parameters = {
                 webassembly_job: "fid_processor_1d",
                 acquisition_string: acquisition_string,
-                fid_data: fid_data,
+                fid_buffer: fid_buffer,
                 apodization_string: apodization_string,
                 zf_direct: zf_direct,
                 phase_correction_direct_p0: phase_correction_direct_p0,
@@ -382,9 +381,10 @@ webassembly_1d_worker_2.onmessage = function (e) {
         /**
          * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
          */
-        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length);
+        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length*2);
         combined.set(e.data.spectrum_header);
         combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
+        combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
         const buffer = combined.buffer;
         result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
         draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);

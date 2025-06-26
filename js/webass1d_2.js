@@ -312,7 +312,7 @@ self.onmessage = async function (event) {
          * Passed variables:
          *                 
          *      acquisition_string: acquisition_string,
-                fid_data: fid_data,
+                fid_data: fid_data, //Uint8Array
                 apodization_string: apodization_string,
                 zf_direct: zf_direct,
                 phase_correction_direct_p0: phase_correction_direct_p0,
@@ -325,28 +325,49 @@ self.onmessage = async function (event) {
         
         obj.set_up_apodization_from_string(event.data.apodization_string);
         obj.read_bruker_files_as_strings(event.data.acquisition_string);
-        /**
-         * Convert fid_data (Float32Array) to webassembly VectorFloat
-         */
+
         const fid_data = new Module.VectorFloat();
-        for (let i = 0; i < event.data.fid_data.length; ++i) {
-            fid_data.push_back(event.data.fid_data[i]);
+        if(obj.get_fid_data_type() === 2) {
+            /**
+             * Double (float64) data type in e.data.fid_data,
+             * convert every 8 bytes to a float32 number.
+             * Remember that e.data.fid_data is Uint8Array, need to view it as a float64 array.
+             */
+            const fid_data_double = new Float64Array(event.data.fid_buffer);
+            for (let i = 0; i < fid_data_double.length; ++i) {
+                fid_data.push_back(fid_data_double[i]);
+            }
         }
+        else if(obj.get_fid_data_type() === 0) {
+            /**
+             * Int (int32) data type in e.data.fid_data,
+             * convert every 4 bytes to a int32 number.
+             */
+            const fid_data_int = new Int32Array(event.data.fid_buffer);
+            for (let i = 0; i < fid_data_int.length; ++i) {
+                fid_data.push_back(fid_data_int[i]);
+            }
+        }
+
         obj.set_fid_data(fid_data);
         obj.run_zf(event.data.zf_direct); // Zero filling
         obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
+        obj.write_nmrpipe_ft1(""); // Generate nmrPipe FT1 file header (internal data), Empty name "" means do not actually write to a file
 
         let fid_json = obj.write_json_as_string(); // Get the spectrum header information as JSON string
 
         /**
          * get_spectrum_header_data will return address of the header data in the heap
+         * header_ptr, header_size, header_data are reinterpret_cast<uintptr_t> float * pointer.
          */
-        const header_ptr = obj.get_spectrum_header_data();
+        const header_ptr = obj.get_data_of_header();
         const header_size = 512; //nmrPipe header size is 512 float32.
         const header_data = new Float32Array(Module.HEAPF32.buffer, header_ptr, header_size);
         const data_of_real_ptr = obj.get_data_of_real(); // Get the real part of the spectrum data
-        const data_of_read_size = obj.get_ndata_frq(); // Get the size of the real part data
+        const data_of_read_size = obj.get_ndata_frq(); // Get the size of the real part data, imaginary part has the same size
         const real_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_real_ptr, data_of_read_size);
+        const data_of_imag_ptr = obj.get_data_of_imag(); // Get the imaginary part of the spectrum data
+        const image_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_imag_ptr, data_of_read_size);
 
         self.postMessage({
             /**
@@ -356,6 +377,7 @@ self.onmessage = async function (event) {
             fid_json: fid_json,
             spectrum_header : header_data,
             real_spectrum_data: real_spectrum_data,
+            image_spectrum_data: image_spectrum_data,
         });
 
         obj.delete(); // Clean up the object to free memory
