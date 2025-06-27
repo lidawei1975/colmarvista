@@ -1679,10 +1679,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+
 
     /**
      * Get noise_level of the spectrum
@@ -1697,7 +1694,8 @@ function run_DEEP_Picker(spectrum_index,flag)
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",
-        spectrum_data: data, //float32 array
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
@@ -1770,18 +1768,12 @@ function run_Voigt_fitter(spectrum_index,flag)
     header[56] = 1.0;
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     header[99] = all_spectra[spectrum_index].n_direct; //size of direct dimension of the input spectrum
-    /**
-     * Also set 
-     */
-    let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+   
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_fitter",
-        spectrum_data: data,
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
         spectrum_begin: x_ppm_visible_start,
         spectrum_end: x_ppm_visible_end,

@@ -44,9 +44,19 @@ self.onmessage = async function (event) {
             spectrum_data.push_back(event.data.spectrum_data[i]);
         }
 
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
+
         obj.init_mod(event.data.mod); //DNN model 1 or model 2 
 
-        obj.read_first_spectrum_from_buffer(spectrum_data); //float32  array of spectral file (.ft1 format)
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data,spectrum_data_imaginary); // Read the first spectrum from buffer
 
         obj.adjust_ppp_of_spectrum(6.0);  //set desired median peak width to 6.0 (model 2) or 12.0 (model 1)
 
@@ -105,14 +115,26 @@ self.onmessage = async function (event) {
         obj.init_error(2/**ZF */,0/**round in error est, 0 means not run at all*/);
 
         
-        // Read the spectrum data from the buffer
+        /**
+         * Need to convert event.data.spectrum_data (Float32Array) to webassembly VectorFloat
+         */
         const spectrum_data = new Module.VectorFloat();
         for (let i = 0; i < event.data.spectrum_data.length; ++i) {
             spectrum_data.push_back(event.data.spectrum_data[i]);
         }
 
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
+
         // Read the first spectrum from buffer
-        obj.read_first_spectrum_from_buffer(spectrum_data);
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data, spectrum_data_imaginary);
         obj.prepare_to_read_additional_spectrum_from_buffer(false); // false means no negative peak picking
 
 
@@ -306,7 +328,7 @@ self.onmessage = async function (event) {
     else if(event.data.webassembly_job === "fid_processor_1d") {
          const nspect = 1; // Assuming single spectrum for now
 
-        const obj = new Module.fid_1d();
+        const obj = new Module.spectrum_phasing_1d(); //spectrum_phasing_1d has fid_1d as its base class for FID processing
 
         /**
          * Passed variables:
@@ -352,6 +374,16 @@ self.onmessage = async function (event) {
         obj.set_fid_data(fid_data);
         obj.run_zf(event.data.zf_direct); // Zero filling
         obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
+
+        /**
+         * Automatic phase correction part.
+         */
+        obj.set_up_parameters(5, 10, 3,true,true);
+        obj.auto_phase_correction();
+        const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
+        
+        console.log("Phase correction parameters: ", v); //v has two float32 values, phase correction at the two ends of the spectrum
+
         obj.write_nmrpipe_ft1(""); // Generate nmrPipe FT1 file header (internal data), Empty name "" means do not actually write to a file
 
         let fid_json = obj.write_json_as_string(); // Get the spectrum header information as JSON string
