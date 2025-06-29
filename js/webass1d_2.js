@@ -375,15 +375,25 @@ self.onmessage = async function (event) {
         obj.run_zf(event.data.zf_direct); // Zero filling
         obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
 
+        let p0= event.data.phase_correction_direct_p0;
+        let p1= event.data.phase_correction_direct_p0 + event.data.phase_correction_direct_p1;
+
         /**
          * Automatic phase correction part.
          */
-        obj.set_up_parameters(5, 10, 3,true,true);
-        obj.auto_phase_correction();
-        const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
+        if(event.data.auto_direct) {
+            obj.set_up_parameters(5, 10, 3,true,true);
+            obj.auto_phase_correction();
+            const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
+            
+            p0 = v.get(0);
+            p1 = v.get(1);
+        }
+        else {
+            obj.phase_spectrum(p0, p1); // Apply the phase correction parameters provided by the user
+        }
         
-        console.log("Phase correction parameters: ", v); //v has two float32 values, phase correction at the two ends of the spectrum
-
+        
         obj.write_nmrpipe_ft1(""); // Generate nmrPipe FT1 file header (internal data), Empty name "" means do not actually write to a file
 
         let fid_json = obj.write_json_as_string(); // Get the spectrum header information as JSON string
@@ -410,6 +420,8 @@ self.onmessage = async function (event) {
             spectrum_header : header_data,
             real_spectrum_data: real_spectrum_data,
             image_spectrum_data: image_spectrum_data,
+            p0: p0,
+            p1: p1 - p0, // p1 from C++ code is PC at the right end, so p1 is p1 - p0 in traditional NMRPipe format
         });
 
         obj.delete(); // Clean up the object to free memory

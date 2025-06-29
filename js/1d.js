@@ -345,7 +345,11 @@ $(document).ready(function () {
              */
             let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
 
-            const fid_process_parameters = {
+            /**
+             * fid_process_parameters is a GLOBAL object that will be sent to the webassembly worker
+             * It will be saved here, in case we need to re-process the fid file
+             */
+            fid_process_parameters = {
                 webassembly_job: "fid_processor_1d",
                 acquisition_string: acquisition_string,
                 fid_buffer: fid_buffer,
@@ -356,6 +360,8 @@ $(document).ready(function () {
                 auto_direct: auto_direct,
                 delete_imaginary: delete_imaginary,
                 pseudo_2d_process: pseudo_2d_process,
+                reprocess: false, // this is not a re-process, it is a new fid file processing
+                spectrum_index: -1, // -1 is a flag, means to be decided later.
             };
 
             webassembly_1d_worker_2.postMessage(fid_process_parameters);
@@ -365,6 +371,32 @@ $(document).ready(function () {
         }
     });
 });
+
+/**
+ * user click button to re-process fid file
+ */
+function reprocess_fid(spectrum_index) {
+    let apodization_string = document.getElementById("apodization_direct").value;
+    let zf_direct = parseInt(document.getElementById("zf_direct").value);
+    let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+    let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+    let auto_direct = document.getElementById("auto_direct").checked;
+    let delete_imaginary = document.getElementById("delete_imaginary").checked;
+
+    /**
+     * Only update above parameters, keep the rest the same
+     */
+    fid_process_parameters.apodization_string = apodization_string;
+    fid_process_parameters.zf_direct = zf_direct;
+    fid_process_parameters.phase_correction_direct_p0 = phase_correction_direct_p0;
+    fid_process_parameters.phase_correction_direct_p1 = phase_correction_direct_p1;
+    fid_process_parameters.auto_direct = auto_direct;
+    fid_process_parameters.delete_imaginary = delete_imaginary;
+    fid_drop_process.reprocess = true; // this is a re-process, not a new fid file processing
+    fid_drop_process.spectrum_index = spectrum_index; // save the spectrum index to re-process
+
+    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+}
 
 webassembly_1d_worker_2.onmessage = function (e) {
     
@@ -387,6 +419,13 @@ webassembly_1d_worker_2.onmessage = function (e) {
         combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
         const buffer = combined.buffer;
         result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+
+        /**
+         * Update fid processing box parameters
+         */
+        document.getElementById("phase_correction_direct_p0").value = e.data.phase_correction_direct_p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = e.data.phase_correction_direct_p1.toFixed(2);
+
         draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
     }
 
