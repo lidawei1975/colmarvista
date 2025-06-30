@@ -229,7 +229,7 @@ $(document).ready(function () {
                     /**
                      * If not a .ft2 file or .ft3 file, resolve the promise
                      */
-                    if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") )
+                    if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ucsf") )
                     {
                         return read_file(this.querySelector('input[type="file"]').files[ii]);
                     }
@@ -423,8 +423,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
         /**
          * Update fid processing box parameters
          */
-        document.getElementById("phase_correction_direct_p0").value = e.data.phase_correction_direct_p0.toFixed(2);
-        document.getElementById("phase_correction_direct_p1").value = e.data.phase_correction_direct_p1.toFixed(2);
+        document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
 
         draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
     }

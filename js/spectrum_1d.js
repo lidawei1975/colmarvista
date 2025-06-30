@@ -239,7 +239,9 @@ class spectrum_1d {
         /**
          * Noise level, spectral_max and min, projection, levels, negative_levels code.
          */
-        this.process_spectrum_common_task();
+        this.filename = file_name;
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
         /**
          * Setup a fake nmrPipe header, so that we can use the same code to 
@@ -531,5 +533,114 @@ class spectrum_1d {
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
     };
+
+    
+    process_sparky_file(arrayBuffer, file_name, spectrum_origin) {
+
+        /**
+         * Get the 11th bytes and convert to integer (one byte integer). 
+         */
+        let n_dim = new Int8Array(arrayBuffer, 10, 1)[0];
+        let n_complicity = new Int8Array(arrayBuffer, 11, 1)[0]; // 1: real, 0: complex
+        // let n_version = new Int8Array(arrayBuffer, 13, 1)[0]; 
+
+        /**
+         * Make sure n_dim is 2 and n_complicity is 1 (real)
+         */
+        if (n_dim !== 1 || n_complicity !== 1) {
+            console.log('n_dim: ', n_dim, 'n_complicity: ', n_complicity, 'n_version: ', n_version, ' . Only 1D real data is supported');
+            return;
+        }
+
+        this.spectrum_format = "ucsf";
+
+        this.spectrum_origin = spectrum_origin;
+
+        /**
+         * @IMPORTANT
+         * Please notice that Sparky stores data in big endian. DataView's get* methods use big endian by default.
+         */
+
+        let direct_parameters = new DataView(arrayBuffer, 188, 24);
+
+        this.n_indirect = 1; //because it is 1D spectrum, indirect dimension is not used
+        this.n_direct = direct_parameters.getInt32(0);
+        let direct_tile_size = direct_parameters.getInt32(8);
+        this.frq1 = direct_parameters.getFloat32(12); //observed frequency of direct dimension MHz
+        this.sw1 = direct_parameters.getFloat32(16); //spectral width of direct dimension, Hz
+        this.center1 = direct_parameters.getFloat32(20);   //ppm of the center of the spectrum
+        this.ref1 = this.center1 * this.frq1 - this.sw1 / 2; //end frequency of the spectrum (lowest frequency)
+        this.x_ppm_ref = 0.0; //reference correction (initially set to 0)
+        this.x_ppm_start = this.center1 + this.sw1 / this.frq1 / 2.0; //ppm of the start of the spectrum
+        this.x_ppm_width = this.sw1 / this.frq1; //width of the spectrum in ppm
+        this.x_ppm_step = -this.x_ppm_width / this.n_direct; //step size in ppm
+
+        this.raw_data = new Float32Array(this.n_direct);
+
+       
+
+
+        let current_file_position = 436-128; //start of the spectral data. Aligned to 4 bytes boundary, so there is not need to use DataView
+
+        /**
+         * Because Sparky stores data in big endian, we need to swap the byte order
+         * from location current_file_position to the end of the arrayBuffer
+         * for all float32 data (4 bytes), swap the byte order
+         */
+        for (let i = 0; i < (arrayBuffer.byteLength - current_file_position) / 4; i++) {
+            let temp = new Uint8Array(arrayBuffer, current_file_position + i * 4, 4);
+            temp.reverse();
+        }
+
+        this.raw_data = new Float32Array(arrayBuffer, current_file_position, this.n_direct);
+
+
+        /**
+         * Setup fake nmrPipe header, so that we can use the same code to run DEEP_Picker, etc.
+         */
+        this.header = new Float32Array(512); //empty array
+        this.header[0] = 0.0; //magic number for nmrPipe header
+
+        this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
+        this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
+        this.header[221] = 0; // not transposed
+        this.header[9] = 1; // # of dimensions
+        this.header[56] = 1; //real data along both dimensions
+        this.header[55] = 1; //real data along both dimensions
+
+        this.header[24] = 2; //direct dimension is the second dimension
+        this.header[25] = 1; //indirect dimension is the first dimension
+
+        this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
+        this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
+
+        /**
+         * Suppose filed strength is 850 along direct dimension
+         * and indirection dimension obs is 85.0
+         */
+        this.header[119] = this.frq1; //observed frequency of direct dimension
+        this.header[218] = 85.0 //not used
+
+        this.header[100] = this.sw1; //spectral width of direct dimension
+        this.header[229] = 100.0; // //spectral width of indirect dimension, not used
+
+        /**
+         * Per topspin convention, First point is inclusive, last point is exclusive in [ppm_start, ppm_start+ppm_width)]
+         * Notice x_ppm_step and y_ppm_step are negative
+         */
+        this.header[101] = (this.x_ppm_start - this.x_ppm_width - this.x_ppm_step) * this.frq1; //origin of direct dimension (last point frq in Hz)
+        this.header[249] = 0.0; //origin of indirect dimension (last point frq in Hz, not used)
+        // this.ref1 = this.header[101];
+        // this.ref2 = this.header[249];
+
+        /**
+         * Noise level, spectral_max and min.
+         */
+        this.filename = file_name;
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
+
+    };
+
 
 };
