@@ -1343,10 +1343,9 @@ function download_spectrum(index, flag) {
  * @param {*} result_spectra: an array of object of hsqc_spectrum
  * @param {*} b_from_fid: boolean, whether the spectrum is from a fid file
  * @param {*} b_reprocess: boolean, whether this is a new spectrum_1d or a reprocessed spectrum
- * @param {*} pseudo3d_children: array of indices of pseudo 3D children's previous spectrum_index, only valid if b_reprocess is true and b_from_fid is true
  * @returns 
  */
-function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=[])
+function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
 {
 
     let spectrum_index;
@@ -1397,7 +1396,6 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
             else
             {
                 result_spectra[i].spectrum_origin = 10000 + first_spectrum_index;
-                all_spectra[first_spectrum_index].pseudo3d_children.push(result_spectra[i].spectrum_index);
             }
 
             all_spectra.push(result_spectra[i]);
@@ -1414,62 +1412,6 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
         result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
         all_spectra[spectrum_index] = result_spectra[0];
-
-        /**
-         * If the spectrum is the current spectrum of the main plot, clear its cross section plot because it becomes invalid
-         */
-        if(main_plot.current_spectral_index === spectrum_index)
-        {
-            /**
-             * clear main_plot.y_cross_section_plot and x_cross_section_plot
-             */
-            main_plot.y_cross_section_plot.clear();
-            main_plot.x_cross_section_plot.clear();
-        }
-
-        /**
-         * For pseudo-3D, there several cases:
-         * 1. Reprocessed all spectra, and previously also processed all spectra,
-         *    so pseudo3d_children.length === result_spectra.length-1
-         */
-        if(result_spectra.length -1 ==pseudo3d_children.length)
-        {
-            for(let i=1;i<result_spectra.length;i++)
-            {
-                let new_spectrum_index = pseudo3d_children[i-1];
-                result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_origin = 10000 + spectrum_index;
-                /**
-                 * Copy previous colors
-                 */
-                result_spectra[i].spectrum_color = all_spectra[new_spectrum_index].spectrum_color;
-                result_spectra[i].spectrum_color_negative = all_spectra[new_spectrum_index].spectrum_color_negative;
-                all_spectra[new_spectrum_index] = result_spectra[i];
-            }
-        }
-        else if(pseudo3d_children.length === 0 && result_spectra.length > 1)
-        {
-            /**
-             * Reprocessed all spectra, and previously only processed the first spectrum
-             */
-            for(let i=1;i<result_spectra.length;i++)
-            {
-                const new_spectrum_index = all_spectra.length;
-                result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length]);
-                result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index*2+1) % color_list.length]);
-                result_spectra[i].spectrum_origin = 10000 + spectrum_index;
-                all_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
-                all_spectra.push(result_spectra[i]);
-            }
-        }
-        else 
-        {
-            /**
-             * Do nothing. Error or unexpected case
-             * Or reprocessed only first spectrum and previously processed all spectra or first spectrum
-             */
-        }
 
     }
     
@@ -1491,8 +1433,27 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height, result_spectra[0]);
+        main_plot.init(cr.width, cr.height);
+
+        /**
+         * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
+         * We need to make a data array of two numbers: ppm and amplitude
+         */
+        let data = [];
+        for (let i = 0; i < result_spectra[0].n_direct; i++) {
+            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        }
+        main_plot.add_data(data);
+
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
+    }
+    else
+    {
+        let data = [];
+        for (let i = 0; i < result_spectra[0].n_direct; i++) {
+            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        }
+        main_plot.add_data(data);
     }
 
     add_to_list(0,b_from_fid,b_reprocess);
@@ -2127,7 +2088,10 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height, all_spectra[0]);
+        main_plot.init(cr.width, cr.height);
+
+
+
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
 

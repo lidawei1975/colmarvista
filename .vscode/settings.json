@@ -30,9 +30,11 @@
         "tooldiv",
         "webass",
         "xdim",
+        "xscale",
         "xstart",
         "xydim",
         "ydim",
+        "yscale",
         "ystart",
         "zoomout"
     ],

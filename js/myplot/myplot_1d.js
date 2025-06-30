@@ -1,95 +1,104 @@
 
+/**
+ * Helper functions
+ */
+
+function lttb(data, threshold) {
+    if (threshold >= data.length || threshold === 0) {
+        return data; // Nothing to do
+    }
+
+    const sampled = [];
+    const every = (data.length - 2) / (threshold - 2);
+
+    let a = 0;  // Initially a is the first point in the triangle
+    let maxAreaPoint;
+    let maxArea;
+    let area;
+    let nextA;
+
+    sampled.push(data[a]); // Always add the first point
+
+    for (let i = 0; i < threshold - 2; i++) {
+        let avgX = 0;
+        let avgY = 0;
+        let avgRangeStart = Math.floor((i + 1) * every) + 1;
+        let avgRangeEnd = Math.floor((i + 2) * every) + 1;
+        avgRangeEnd = avgRangeEnd < data.length ? avgRangeEnd : data.length;
+
+        let avgRangeLength = avgRangeEnd - avgRangeStart;
+
+        for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+            avgX += data[j][0];
+            avgY += data[j][1];
+        }
+        avgX /= avgRangeLength;
+        avgY /= avgRangeLength;
+
+        let rangeOffs = Math.floor((i + 0) * every) + 1;
+        let rangeTo = Math.floor((i + 1) * every) + 1;
+
+        maxArea = -1;
+
+        for (let j = rangeOffs; j < rangeTo; j++) {
+            area = Math.abs(
+                (data[a][0] - avgX) * (data[j][1] - data[a][1]) -
+                (data[a][0] - data[j][0]) * (avgY - data[a][1])
+            ) * 0.5;
+            if (area > maxArea) {
+                maxArea = area;
+                maxAreaPoint = data[j];
+                nextA = j;
+            }
+        }
+
+        sampled.push(maxAreaPoint);
+        a = nextA;
+    }
+
+    sampled.push(data[data.length - 1]); // Always add the last point
+
+    return sampled;
+}
+
+
+function downsampleData(data, threshold, xDomain)
+{
+    const visible = data.filter(d => d[0] >= xDomain[0] && d[0] <= xDomain[1]);
+    if (visible.length <= threshold) return visible;
+    return lttb(visible, threshold);
+}
+
+
 class myplot_1d {
     constructor() {
 
         // test d3 exist
         if (!d3) throw Error('d3 library not set');
+        this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
+        
+        this.baseline_exist = false;
+        /**
+         * Default lineGenerator width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
+         */
+        this.exp_line_width = 1.0;
 
-        this.imagine_exist = false; //boolean variable to indicate if the imaginary part of the spectrum is provided
-
-        this.data = []; //experimental spectrum, with phase correction applied.
-        this.original_data = []; //experimental spectrum before phase correction
-        this.data_strided = []; //experimental spectrum that will be plotted at current zoom level and pan position, shallow copy of this.data
+        this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
     }
 
     /**
      * 
      * @param {int} width  width of the plot SVG element
      * @param {int} height height of the plot SVG element
-     * @param {obj} spectrum   a spectrum object as defined in spectrum_1d.js
-     * 
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, spectrum) {
+    init(width, height) {
 
-
-        this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
-
-        var self = this;
-
+        let self = this; // to use this inside some functions
+        
         this.width = width;
         this.height = height;
 
-        this.baseline_exist = false;
-        this.recon_exist = false;
-        this.simulated_exist = false;
-
-        /**
-         * Default line width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
-         */
-        this.exp_line_width = 2.0;
-        this.recon_line_width = 2.0;
-        this.reference = 0.0;
-
-        this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
-        this.maxv=1.0; //max value of the experimental spectrum
-
-        /**
-         * Construct for this.data from spectrum_1d.js
-         * spectrum.raw_data is data[i][1] (amplitude)
-         * spectrum.raw_data_i is data[i][2] (imaginary part amplitude)
-         * spectrum.x_ppm_start is the first element of data[i][0] (ppm)
-         * spectrum.x_ppm_step is the step of each data point
-         * spectrum.n_direct is the number of data points
-         */
-        this.imagine_exist = spectrum.datatype_direct === 0 ? true : false;
-
-        if(this.imagine_exist === true) {
-            this.data = Array.from({ length: spectrum.n_direct }, (_, i) => {
-                let ppm = spectrum.x_ppm_start + i * spectrum.x_ppm_step;
-                let amp = spectrum.raw_data[i];
-                let imag = spectrum.raw_data_i[i];
-                return [ppm, amp, imag];
-            });
-        }
-        else {
-            this.data = Array.from({ length: spectrum.n_direct }, (_, i) => {
-                let ppm = spectrum.x_ppm_start + i * spectrum.x_ppm_step;
-                let amp = spectrum.raw_data[i];
-                return [ppm, amp];
-            });
-        }
-        
-        this.maxv= spectrum.spectral_max;
-
-        /**
-         * define min and max of ppm (this.data[?][0]) for the plot
-         */
-        var lowest = Number.POSITIVE_INFINITY;
-        var highest = Number.NEGATIVE_INFINITY;
-        var tmp;
-        for (var i = this.data.length - 1; i >= 0; i--) {
-            tmp = this.data[i][0];
-            if (tmp < lowest) lowest = tmp;
-            if (tmp > highest) highest = tmp;
-        }
-
-        /**
-         * current min and max ppm of the visible range
-         * these two will be updated when the user zooms or pans the plot
-         */
-        this.min_d = lowest;
-        this.max_d = highest;
 
         this.vis = d3.select("#plot_1d").insert("svg", ":first-child")
             .attr("id", "main_plot")
@@ -97,14 +106,19 @@ class myplot_1d {
             .attr("width", this.width)
             .attr("height", this.height);
 
-
-        this.x = d3.scaleLinear()
-            .domain(d3.extent(self.data, d => d[0]))
+        /**
+         * Default (initial) x is from 12 ppm to 0 ppm
+         */
+        this.xscale = d3.scaleLinear()
+            .domain([0,12])
             .range([this.width - this.margin.right, this.margin.left])
             .nice();
 
-        this.y = d3.scaleLinear()
-            .domain(d3.extent(self.data, d => d[1]))
+        /**
+         * Default (init) y is from 0 to 1
+         */
+        this.yscale = d3.scaleLinear()
+            .domain([0,1])
             .range([this.height - this.margin.bottom, this.margin.top])
             .nice();
 
@@ -113,7 +127,7 @@ class myplot_1d {
         /**
         * Define x axis object
         */
-        this.xAxis = d3.axisBottom(this.x).ticks(this.true_width / 100.0);
+        this.xAxis = d3.axisBottom(this.xscale).ticks(this.true_width / 100.0);
 
         /**
          * Add x axis to the plot
@@ -140,7 +154,7 @@ class myplot_1d {
         /**
          * Define y axis object. Add y axis to the plot and y label
         */
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
+        this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
 
         this.yAxis_element
             = this.vis.append('svg:g')
@@ -175,62 +189,27 @@ class myplot_1d {
 
 
         /**
-         * Define line object
-         * this.line is a function that will convert data (ppm,amp) to path (screen coordinates)
+         * Define lineGenerator object
+         * this.lineGenerator is a function that will convert data (ppm,amp) to path (screen coordinates)
         */
-        this.line = d3.line()
-            .x((d) => this.x(d[0]))
-            .y((d) => this.y(d[1]))
+        this.lineGenerator = d3.line()
+            .x((d) => this.xscale(d[0]))
+            .y((d) => this.yscale(d[1]))
             ;
+
 
         /**
          * Define clip space for the plot. 
         */
-        this.clip_space
-            = this.vis.append("defs").append("clipPath")
-                .attr("id", "clip")
-                .append("rect")
-                .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", width - this.margin.left - this.margin.right)
-                .attr("height", height - this.margin.top - this.margin.bottom);
+        this.$clip_space = this.vis.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
+            .attr("width", width - this.margin.left - this.margin.right)
+            .attr("height", height - this.margin.top - this.margin.bottom);
 
-        /**
-         * To run phase correction on the fly, we need to keep a copy of the original data
-         */
-        if (this.imagine_exist === true) {
-            this.original_data = this.data.map((x) => [x[0], x[1], x[2]]);
-        }
-        else {
-            this.original_data = this.data.map((x) => [x[0], x[1]]);
-        }
-
-
-        /**  To save computational time, we will only draw at most 20000 points using stride 
-         * this.data_strided is a shallow copy of this.data (share the same data!!)
-        */
-        this.data_strided = this.data;
-        if (this.data_strided.length > 10000) {
-            let step = Math.ceil(this.data_strided.length / 10000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            this.data_strided = this.data_strided.filter((x, i) => i % step === 0);
-        }
-
-
-        this.line_exp = this.vis.append("g")
-            .append("path")
-            .attr("clip-path", "url(#clip)")
-            .data(self.data)
-            .attr("class", "line_exp")
-            .attr("fill", "none")
-            .style("stroke", "black")
-            .style("stroke-width", this.exp_line_width)
-            .attr("d", this.line(this.data_strided));
-
-
-
+        this.lineCounter = 0; // Counter for lineGenerator IDs
+        this.allLines = {}; // Object to store all lines with their IDs
 
         this.handleMouseMoveHandler = this.handleMouseMove.bind(this);
         // window.addEventListener('mousemove', self.handleMouseMoveHandler);
@@ -272,8 +251,8 @@ class myplot_1d {
              * Get the ppm and amp of the mouse position
              */
             let bound = document.getElementById('main_plot').getBoundingClientRect();
-            let ppm = self.x.invert(e.clientX - bound.left);
-            let amp = self.y.invert(e.clientY - bound.top);
+            let ppm = self.xscale.invert(e.clientX - bound.left);
+            let amp = self.yscale.invert(e.clientY - bound.top);
 
 
             /**
@@ -287,11 +266,11 @@ class myplot_1d {
                  * Note: Y axis is inverted
                  * So, top is smaller than bottom
                  */
-                let top = self.y.domain()[0];
-                let bottom = self.y.domain()[1];
+                let top = self.yscale.domain()[0];
+                let bottom = self.yscale.domain()[1];
                 let new_top = amp - (amp - top) * delta;
                 let new_bottom = amp + (bottom - amp) * delta;
-                this.y.domain([new_top, new_bottom]);
+                this.yscale.domain([new_top, new_bottom]);
             }
             /**
              * Right side of the Y axis, X zoom only
@@ -302,23 +281,46 @@ class myplot_1d {
                  * We need to zoom in/out around the mouse position
                  * So, we need to calculate the new left and right of the visible range
                  */
-                let left = self.x.domain()[0];
-                let right = self.x.domain()[1];
+                let left = self.xscale.domain()[0];
+                let right = self.xscale.domain()[1];
                 let new_left = ppm - (ppm - left) * delta;
                 let new_right = ppm + (right - ppm) * delta;
-                this.x.domain([new_left, new_right]);
+                this.xscale.domain([new_left, new_right]);
             }
 
             this.redraw();
         });
 
+    }
+
+
+    add_data(data) {
         /**
-         * Clear compound_peaks and compound_peaks_name when initializing the plot
+         * Redefine x and y scales, according to the data only if this is the 1st time add_data is called
          */
-        this.compound_peaks = [];
-        this.compound_peaks_name = [];
-        this.peak_datas = [];
-    };
+        if (this.lineCounter == 0) {
+            this.xscale.domain([data[data.length - 1][0], data[0][0]]);
+            this.yscale.domain(d3.extent(data, d => d[1]));
+            // NO need to update this.lineGenerator, it will be updated because this.xscale and this.yscale are functions used by lineGenerator
+        }
+
+        const lineId = `line${this.lineCounter++}`;
+        this.allLines[lineId] = data; // Store original data
+
+        const downsampled = downsampleData(data, this.true_width, this.xscale.domain());
+
+        this.vis.append("path")
+            .datum(downsampled)
+            .attr("class", "lineGenerator")
+            .attr("id", lineId)
+            .attr("clip-path", "url(#clip)")
+            .attr("fill", "none")
+            .attr("stroke", 'red')
+            .attr("stroke-width", 2)
+            .attr("d", this.lineGenerator);
+    }
+
+   
 
     resize(width, height) {
 
@@ -335,13 +337,13 @@ class myplot_1d {
         this.height = height;
         this.true_width = this.width - this.margin.left - this.margin.right;
         this.true_height = this.height - this.margin.top - this.margin.bottom;
-        this.x.range([this.width - this.margin.right, this.margin.left]);
-        this.y.range([this.height - this.margin.bottom, this.margin.top]);
+        this.xscale.range([this.width - this.margin.right, this.margin.left]);
+        this.yscale.range([this.height - this.margin.bottom, this.margin.top]);
 
         /**
          * Reset width and height of the clip space according to the new width and height of the main_plot object
          */
-        this.clip_space
+        this.$clip_space
             .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
             .attr("width", width - this.margin.left - this.margin.right)
             .attr("height", height - this.margin.top - this.margin.bottom);
@@ -350,7 +352,7 @@ class myplot_1d {
         /**
          * Redraw x and y axes and labels
         */
-        this.xAxis = d3.axisBottom(this.x).ticks(this.true_width / 100.0);
+        this.xAxis = d3.axisBottom(this.xscale).ticks(this.true_width / 100.0);
         this.xAxis_element
             .attr('transform', 'translate(0,' + (this.height - this.margin.bottom) + ')')
             .call(this.xAxis);
@@ -359,7 +361,7 @@ class myplot_1d {
             .attr("x", this.width / 2)
             .attr("y", this.height - 10);
 
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
+        this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
         this.yAxis_element
             .attr('transform', 'translate(' + (this.margin.left) + ',0)')
             .call(this.yAxis);
@@ -379,7 +381,6 @@ class myplot_1d {
     handleMouseMove(e) {
         var self = this;
 
-
         /**
          * With this.click_event, we can differentiate between click and drag
          */
@@ -392,14 +393,14 @@ class myplot_1d {
             /**
              * Convert deltaX and deltaY to ppm and intensity
              */
-            let delta_ppm = this.x.invert(e.clientX) - this.x.invert(this.startMousePos[0]);
-            let delta_intensity = this.y.invert(e.clientY) - this.y.invert(this.startMousePos[1]);
+            let delta_ppm = this.xscale.invert(e.clientX) - this.xscale.invert(this.startMousePos[0]);
+            let delta_intensity = this.yscale.invert(e.clientY) - this.yscale.invert(this.startMousePos[1]);
 
             /**
-             * Update self.x and self.y
+             * Update self.xscale and self.yscale
              */
-            self.x.domain([self.x.domain()[0] - delta_ppm, self.x.domain()[1] - delta_ppm]);
-            self.y.domain([self.y.domain()[0] - delta_intensity, self.y.domain()[1] - delta_intensity]);
+            self.xscale.domain([self.xscale.domain()[0] - delta_ppm, self.xscale.domain()[1] - delta_ppm]);
+            self.yscale.domain([self.yscale.domain()[0] - delta_intensity, self.yscale.domain()[1] - delta_intensity]);
 
             /**
              * Update self.startMousePos
@@ -420,8 +421,8 @@ class myplot_1d {
             let py = e.clientY - bound.top;
             if (px > self.margin.left && px < self.width - self.margin.right
                 && py > self.margin.top && py < self.height - self.margin.bottom) {
-                let ppm = self.x.invert(px);
-                let amp = self.y.invert(py);
+                let ppm = self.xscale.invert(px);
+                let amp = self.yscale.invert(py);
 
                 tooldiv.style("opacity", .9);
                 tooldiv.html(ppm.toFixed(4) + " " + amp.toExponential(1) + " ")
@@ -451,10 +452,10 @@ class myplot_1d {
                 /**
                  * Call parent function with the ppm and intensity of the clicked point
                  */
-                var ppm = self.x.invert(e.clientX - bound.left);
-                var amp = self.y.invert(e.clientY - bound.top);
+                var ppm = self.xscale.invert(e.clientX - bound.left);
+                var amp = self.yscale.invert(e.clientY - bound.top);
                 // console.log(ppm,amp);
-                user_click_on_plot(ppm, amp); //user_click_on_plot is defined out of this class (to revise later!!)
+                // user_click_on_plot(ppm, amp); //user_click_on_plot is defined out of this class (to revise later!!)
             }
         }
         this.mouse_is_down = false;
@@ -581,7 +582,7 @@ class myplot_1d {
             .attr("fill", "none")
             .style("stroke", "red")
             .style("stroke-width", this.recon_line_width)
-            .attr("d", this.line(data_recon_strided));
+            .attr("d", this.lineGenerator(data_recon_strided));
     };
 
     /**
@@ -611,7 +612,7 @@ class myplot_1d {
             .attr("class", "line_baseline")
             .attr("fill", "none")
             .style("stroke", "green")
-            .attr("d", this.line(this.baseline));
+            .attr("d", this.lineGenerator(this.baseline));
     };
 
     /**
@@ -636,7 +637,7 @@ class myplot_1d {
     }
 
     /**
-     * Set new line width 
+     * Set new lineGenerator width 
      */
     reset_line_width(exp_line_width, recon_line_width,) {
         this.exp_line_width = parseFloat(exp_line_width);
@@ -652,86 +653,34 @@ class myplot_1d {
     */
     redraw() {
 
+
         var self = this;
 
-        this.line.x((d) => this.x(d[0])).y((d) => this.y(d[1]));
+        this.lineGenerator.x((d) => this.xscale(d[0])).y((d) => this.yscale(d[1]));
 
-        this.min_d = self.x.invert(self.margin.left);
-        this.max_d = self.x.invert(self.width - self.margin.right);
+        this.min_d = self.xscale.invert(self.margin.left);
+        this.max_d = self.xscale.invert(self.width - self.margin.right);
 
         if (this.min_d > this.max_d) {
             let temp = this.min_d;
             this.min_d = this.max_d;
             this.max_d = temp;
         }
+
         /** To save computational resource, we filter out data points that are out of visible range or too close to each other
          * because this.data is an array of [x,y,z] pairs, this.data_strided is a shallow copy of this.data (share the same data!!)
         */
-        this.data_strided = this.data.filter((row) => row[0] > this.min_d && row[0] < this.max_d);
-        if (this.data_strided.length > 20000) {
-            let step = Math.ceil(this.data_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            this.data_strided = this.data_strided.filter((x, i) => i % step == 0);
-        }
-        this.line_exp.attr("d", this.line(this.data_strided)).style("stroke-width", self.exp_line_width);
 
-        if (this.recon_exist) {
-            //Do save computational resource, we filter out data points that are out of visible range or too close to each other
-            let data_recon_strided = this.data_recon.filter((x) => x[0] > this.min_d && x[0] < this.max_d);
-            let step = Math.ceil(data_recon_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_recon_strided = data_recon_strided.filter((x, i) => i % step == 0);
-            this.line_recon.attr("d", this.line(data_recon_strided)).style("stroke-width", self.recon_line_width);
 
-            /**
-             * Redraw peaks. Only draw peaks that are in the visible range and only when zoom level is high enough
-             */
-            if (this.max_d - this.min_d < this.median_experimental_peak_width * 100.0) {
-                for (var i = 0; i < this.experimental_peaks.length; i++) {
-                    let vis_center = self.x(this.experimental_peaks_centers[i]); //get peak center in pixel
+        // Re-downsample each line for new x-domain
+        Object.entries(this.allLines).forEach(([lineId, data]) => {
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain());
+            this.vis.select(`#${lineId}`)
+                .datum(downsampled)
+                .attr("d", this.lineGenerator);
+        });
 
-                    if (vis_center < 90 || vis_center > self.width - 10) {
-                        this.experimental_peaks_line[i].attr("d", "M0 1000");
-                        this.experimental_peaks_show[i] = 0;
-                    }
-                    else {
-                        this.experimental_peaks_line[i].attr("d", this.line(this.experimental_peaks[i]));
-                        this.experimental_peaks_show[i] = 1;
-                    }
-                }
-            }
-            else {
-                for (var i = 0; i < this.experimental_peaks.length; i++) {
-                    this.experimental_peaks_line[i].attr("d", "M0 1000");
-                    this.experimental_peaks_show[i] = 0;
-                }
-            }
-        }
-
-       
-
-        if (this.baseline_exist) {
-            //Do save computational resource, we filter out data points that are out of visible range or too close to each other    
-            let data_baseline_strided = this.baseline.filter((x) => x[0] > this.min_d && x[0] < this.max_d);
-            let step = Math.ceil(data_baseline_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_baseline_strided = data_baseline_strided.filter((x, i) => i % step == 0);
-            this.line_baseline.attr("d", this.line(data_baseline_strided));
-        }
-
-        // redraw peaks
-        if(this.peaks_symbol !== null) {
-            this.peaks_symbol.attr("cx", (d) => this.x(d[0])).attr("cy", (d) => this.y(d[1]));
-        }
+     
 
         //redraw the x axis and y axis
         this.xAxis_element.call(this.xAxis);
@@ -803,7 +752,7 @@ class myplot_1d {
          * Now draw the experimental spectrum with phase correction.
          * this.data_strided is a shallow copy of this.data (share the same data!!)
          */
-        this.line_exp.attr("d", self.line(self.data_strided));
+        this.line_exp.attr("d", self.lineGenerator(self.data_strided));
     }
 
     /**
@@ -898,7 +847,7 @@ class myplot_1d {
             y_left.push(1.0);
             x = x_left.concat(x);
             y = y_left.concat(y);
-            //convert x,y to 2D array as required by d3.line
+            //convert x,y to 2D array as required by d3.lineGenerator
             let data_item = [];
             for (var j = 0; j < x.length; j++) {
                 data_item.push([x[j], y[j]]);
@@ -928,7 +877,7 @@ class myplot_1d {
      * Return array of 2, ppm_start and ppm_end (ppm_start > ppm_end per NMR convention)
      */
     get_visible_region() {
-        return this.x.domain();
+        return this.xscale.domain();
     }
 
     /**
@@ -950,8 +899,8 @@ class myplot_1d {
             .enter()
             .append('circle')
             .attr("clip-path", "url(#clip)")
-            .attr('cx', (d) => this.x(d[0]))
-            .attr('cy', (d) => this.y(d[1]))
+            .attr('cx', (d) => this.xscale(d[0]))
+            .attr('cy', (d) => this.yscale(d[1]))
             .attr('r', 5)
             .style("fill", "blue")
             .style("stroke-width", 3.5)
@@ -974,8 +923,8 @@ class myplot_1d {
             })
             .on("end", function (event, d) {
                 d3.select(this).classed("active", false);
-                let ppm = self.x.invert(event.x);
-                let intensity = self.y.invert(event.y);
+                let ppm = self.xscale.invert(event.x);
+                let intensity = self.yscale.invert(event.y);
                 console.log("ppm", ppm, "intensity", intensity);
                 //update the peak data, 
                 d[0] = ppm;
@@ -994,7 +943,7 @@ class myplot_1d {
 
     zoom_to = function (x_scale)
     {
-        this.x.domain(x_scale);
+        this.xscale.domain(x_scale);
         this.redraw();
     }
 
