@@ -294,7 +294,7 @@ class myplot_1d {
     }
 
 
-    add_data(data) {
+    add_data(data,color) {
         /**
          * Redefine x and y scales, according to the data only if this is the 1st time add_data is called
          */
@@ -315,9 +315,17 @@ class myplot_1d {
             .attr("id", lineId)
             .attr("clip-path", "url(#clip)")
             .attr("fill", "none")
-            .attr("stroke", 'red')
+            .attr("stroke", color)
             .attr("stroke-width", 2)
             .attr("d", this.lineGenerator);
+    }
+
+    update_spectrum_color(index, color) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.vis.select(`#${lineId}`)
+                .attr("stroke", color);
+        }
     }
 
    

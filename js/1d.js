@@ -967,15 +967,23 @@ function add_to_list(index) {
     download_button.innerText = "Download ft1";
     download_button.onclick = function () { download_spectrum(index,'original'); };
     new_spectrum_div.appendChild(download_button);
+    
     /**
-     * Add a different spectrum download button for reconstructed spectrum only
+     * A color picker element with the color of the contour plot, whose ID is "contour_color-".concat(index)
+     * Set the color of the picker to the color of the spectrum
+     * Also add an event listener to update the color of the contour plot
      */
-    if (new_spectrum.spectrum_origin >=0 && new_spectrum.spectrum_origin < 10000) {
-        let download_button = document.createElement("button");
-        download_button.innerText = "Download diff.ft2";
-        download_button.onclick = function () { download_spectrum(index,'diff'); };
-        new_spectrum_div.appendChild(download_button);
-    }
+    let line_color_label = document.createElement("label");
+    line_color_label.setAttribute("for", "line_color-".concat(index));
+    line_color_label.innerText = "Color: ";
+    let line_color_input = document.createElement("input");
+    line_color_input.setAttribute("type", "color");
+    line_color_input.setAttribute("value", new_spectrum.spectrum_color);
+    line_color_input.setAttribute("id", "contour_color-".concat(index));
+    line_color_input.addEventListener("change", (e) => { update_line_color(e, index); });
+    new_spectrum_div.appendChild(line_color_label);
+    new_spectrum_div.appendChild(line_color_input);
+
     new_spectrum_div.appendChild(document.createElement("br"));
 
 
@@ -1353,13 +1361,12 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
     if(b_from_fid ==false && b_reprocess === false)
     {
         /**
-         * New spectrum from ft2, set its index (current length of the spectral array) and color
+         * New spectrum from ft1, set its index (current length of the spectral array) and color
          * It is also possible this is a reconstructed spectrum from peak fitting
          */
         spectrum_index = all_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
-        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
-        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra.push(result_spectra[0]);
 
         /**
@@ -1381,8 +1388,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         for(let i=0;i<result_spectra.length;i++)
         {
             result_spectra[i].spectrum_index = all_spectra.length;
-            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index*2) % color_list.length]);
-            result_spectra[i].spectrum_color_negative =  rgbToHex(color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length]);
+            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index) % color_list.length]);
 
             /**
              * For spectrum from fid, we need to include all FID files and processing parameters in the result_spectra object
@@ -1409,10 +1415,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
          */
         spectrum_index = result_spectra[0].spectrum_index;
         result_spectra[0].fid_process_parameters = fid_process_parameters;
-        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
-        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra[spectrum_index] = result_spectra[0];
-
     }
     
 
@@ -1443,7 +1447,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         for (let i = 0; i < result_spectra[0].n_direct; i++) {
             data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
         }
-        main_plot.add_data(data);
+        main_plot.add_data(data,result_spectra[0].spectrum_color);
 
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
@@ -1453,10 +1457,10 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         for (let i = 0; i < result_spectra[0].n_direct; i++) {
             data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
         }
-        main_plot.add_data(data);
+        main_plot.add_data(data, result_spectra[0].spectrum_color);
     }
 
-    add_to_list(0,b_from_fid,b_reprocess);
+    add_to_list(spectrum_index,b_from_fid,b_reprocess);
 
 }
 
@@ -1927,6 +1931,11 @@ function download_log()
     a.remove();
 }
 
+function update_line_color(e,index) {
+    let color = e.target.value;  //hex format
+    all_spectra[index].spectrum_color = (color);
+    main_plot.update_spectrum_color(index, color);
+}
 
 /**
  * Onclick event from save button
