@@ -84,6 +84,8 @@ class myplot_1d {
         this.exp_line_width = 1.0;
 
         this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+
+        this.spectral_order = [];
     }
 
     /**
@@ -208,7 +210,6 @@ class myplot_1d {
             .attr("width", width - this.margin.left - this.margin.right)
             .attr("height", height - this.margin.top - this.margin.bottom);
 
-        this.lineCounter = 0; // Counter for lineGenerator IDs
         this.allLines = {}; // Object to store all lines with their IDs
 
         this.handleMouseMoveHandler = this.handleMouseMove.bind(this);
@@ -294,17 +295,19 @@ class myplot_1d {
     }
 
 
-    add_data(data,color) {
+    add_data(data,index,color) {
         /**
          * Redefine x and y scales, according to the data only if this is the 1st time add_data is called
          */
-        if (this.lineCounter == 0) {
+        if (index == 0) {
             this.xscale.domain([data[data.length - 1][0], data[0][0]]);
             this.yscale.domain(d3.extent(data, d => d[1]));
             // NO need to update this.lineGenerator, it will be updated because this.xscale and this.yscale are functions used by lineGenerator
         }
 
-        const lineId = `line${this.lineCounter++}`;
+        this.spectral_order.push(index); // Keep track of the order of spectra
+
+        const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
 
         const downsampled = downsampleData(data, this.true_width, this.xscale.domain());
@@ -656,11 +659,23 @@ class myplot_1d {
         this.redraw();
     }
 
+    redraw_order()
+    {
+        /**
+         * Redraw the order of the spectra in this.spectral_order
+         * this.spectral_order is an array of index of the spectra in this.allLines
+         * this.allLines is an object with keys as lineId and values as data
+         */
+        this.spectral_order.forEach((index) => {
+            const lineId = `line${index}`;
+            this.vis.select(`#${lineId}`).raise();  
+        });
+    }
+
     /**
      * This function will redraw the plot. It will be called when the user zooms or pans the plot
     */
     redraw() {
-
 
         var self = this;
 
@@ -674,21 +689,6 @@ class myplot_1d {
             this.min_d = this.max_d;
             this.max_d = temp;
         }
-
-        /** To save computational resource, we filter out data points that are out of visible range or too close to each other
-         * because this.data is an array of [x,y,z] pairs, this.data_strided is a shallow copy of this.data (share the same data!!)
-        */
-
-
-        // Re-downsample each line for new x-domain
-        Object.entries(this.allLines).forEach(([lineId, data]) => {
-            const downsampled = downsampleData(data,this.true_width, this.xscale.domain());
-            this.vis.select(`#${lineId}`)
-                .datum(downsampled)
-                .attr("d", this.lineGenerator);
-        });
-
-     
 
         //redraw the x axis and y axis
         this.xAxis_element.call(this.xAxis);
@@ -706,6 +706,17 @@ class myplot_1d {
             .each(function () {
                 d3.select(this).style("font", "italic 2.0em sans-serif");
             });
+
+        /**
+         * Redraw experimental spectrum
+         */
+         Object.entries(this.allLines).forEach(([lineId, data]) => {
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain());
+            this.vis.select(`#${lineId}`)
+                .datum(downsampled)
+                .attr("d", this.lineGenerator);
+        });
+
     }
 
     /**

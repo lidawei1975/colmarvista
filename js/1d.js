@@ -652,7 +652,7 @@ sortableList.addEventListener(
             if (new_order.length === main_plot.spectral_order.length) {
                 clearInterval(interval_id);
                 main_plot.spectral_order = new_order;
-                main_plot.redraw_contour_order();
+                main_plot.redraw_order();
             }
         }, 1000);
     });
@@ -864,7 +864,7 @@ function add_to_list(index) {
     /**
      * Add a "Reprocess" button to the new spectrum_1d div if
      * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 2D)
-     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_ri or raw_data_ir is not empty
+     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_i or raw_data_ir is not empty
      */
     if(new_spectrum.spectrum_origin === -2)
     {
@@ -922,7 +922,7 @@ function add_to_list(index) {
             /**
              * If this new spectrum_1d has no imaginary part, disable auto phase correction button
              */
-            if(all_spectra[index].raw_data_ri.length > 0 && all_spectra[index].raw_data_ir.length > 0 && all_spectra[index].raw_data_ii.length > 0 && all_spectra[index].spectrum_origin === -1)
+            if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_ir.length > 0 && all_spectra[index].raw_data_ii.length > 0 && all_spectra[index].spectrum_origin === -1)
             {
                 document.getElementById("automatic_pc").disabled = false;
             }
@@ -1447,7 +1447,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         for (let i = 0; i < result_spectra[0].n_direct; i++) {
             data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
         }
-        main_plot.add_data(data,result_spectra[0].spectrum_color);
+        main_plot.add_data(data,result_spectra[0].spectrum_index,result_spectra[0].spectrum_color);
 
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
@@ -1457,7 +1457,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         for (let i = 0; i < result_spectra[0].n_direct; i++) {
             data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
         }
-        main_plot.add_data(data, result_spectra[0].spectrum_color);
+        main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
     }
 
     add_to_list(spectrum_index,b_from_fid,b_reprocess);
@@ -1959,7 +1959,7 @@ function save_to_file()
 
     /**
      * Step 2, prepare the binaryData, which is a concatenation of all 
-     *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all all_spectra elements
+     *  header, raw_data, raw_data_i
      */
     let totalLength = 0;
     for(let i=0;i<all_spectra.length;i++){
@@ -2106,15 +2106,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     add_to_list(0,false,false);
 
-    if(all_spectra.length>1)
-    {
-        /**
-         * If there are 2 spectra, 2nd one is from recon, draw it as well
-         */
-        let recon_peaks = all_spectra[1].recon_peaks;
-        let peaks_center = all_spectra[1].peaks_center;   
-        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
-    }
+  
 };
 
 function zoom_to_peak(index)
