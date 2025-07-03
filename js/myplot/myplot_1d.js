@@ -90,6 +90,8 @@ class myplot_1d {
         this.spectral_scale = []; // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
 
         this.spectrum_reference = [];   // This is the reference correction of each spectrum
+
+        this.spectrum_visibility = []; // This is the visibility of each spectrum, used to show/hide the spectrum in the plot
     }
 
     /**
@@ -345,6 +347,8 @@ class myplot_1d {
 
         this.spectrum_reference.push(0.0); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
 
+        this.spectrum_visibility.push(true); // This is the visibility of the spectrum, used to show/hide the spectrum in the plot
+
         const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
 
@@ -366,6 +370,18 @@ class myplot_1d {
         if (this.allLines[lineId]) {
             this.vis.select(`#${lineId}`)
                 .attr("stroke", color);
+        }
+    }
+
+    update_visibility(index, visibility) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.spectrum_visibility[index] = visibility; // Update visibility
+            if (visibility) {
+                this.vis.select(`#${lineId}`).style("display", "inline");
+            } else {
+                this.vis.select(`#${lineId}`).style("display", "none");
+            }
         }
     }
 

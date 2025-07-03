@@ -779,10 +779,9 @@ function minimize_spectrum(button,index)
         minimize_button.innerText = "+";
         spectrum_div.style.height = "1.75rem";
         spectrum_div.style.overflow = "clip";
-        /**
-         * Also set lbs to hide all contours for this spectrum
-         */
+        
         all_spectra[index].visible = false;
+        main_plot.update_visibility(index,false);
 
         /**
          * Loop all spectra, find children of this spectrum, hide them too
@@ -792,6 +791,7 @@ function minimize_spectrum(button,index)
             if(all_spectra[i].spectrum_origin === index)
             {
                 all_spectra[i].visible = false;
+                main_plot.update_visibility(i,false);
             }
         }
     }
@@ -800,6 +800,7 @@ function minimize_spectrum(button,index)
         minimize_button.innerText = "-";
         spectrum_div.style.height = "auto";
         all_spectra[index].visible = true;
+        main_plot.update_visibility(index,true);
 
         /**
          * Loop all spectra, find children of this spectrum, show them too
@@ -809,10 +810,10 @@ function minimize_spectrum(button,index)
             if(all_spectra[i].spectrum_origin === index)
             {
                 all_spectra[i].visible = true;
+                main_plot.update_visibility(i,true);
             }
         }
     }
-    main_plot.redraw_1d();
 }
 
 /**
