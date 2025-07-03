@@ -86,6 +86,10 @@ class myplot_1d {
         this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
 
         this.spectral_order = [];
+
+        this.spectral_scale = []; // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
+
+        this.spectrum_reference = [];   // This is the reference correction of each spectrum
     }
 
     /**
@@ -241,12 +245,42 @@ class myplot_1d {
         this.vis.on('wheel', (e) => {
             e.preventDefault();
             var delta = e.deltaY;
+            
+
+            /**
+             * If alt key is pressed, we rescale one spectrum only (this.current_spectral_index)
+             */
+            if (e.altKey == true && this.current_spectral_index != null) {
+
+                if (delta > 0) {
+                    delta = 0.99;
+                }
+                else {
+                    delta = 1.01;
+                }
+
+                let index = this.current_spectral_index;
+                let lineId = `line${index}`;
+                let data = this.allLines[lineId];
+                if (data) {
+                    this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
+                    const scale = this.spectral_scale[index]; // Update the scale of the spectrum
+                    const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    this.vis.select(`#${lineId}`)
+                        .datum(downsampled)
+                        .attr("d", this.lineGenerator);
+                }
+                return;
+            }
+
             if (delta > 0) {
                 delta = 1.1;
             }
             else {
                 delta = 0.9;
             }
+
 
             /**
              * Get the ppm and amp of the mouse position
@@ -307,10 +341,14 @@ class myplot_1d {
 
         this.spectral_order.push(index); // Keep track of the order of spectra
 
+        this.spectral_scale.push(1.0); // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
+
+        this.spectrum_reference.push(0.0); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
+
         const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
 
-        const downsampled = downsampleData(data, this.true_width, this.xscale.domain());
+        const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
 
         this.vis.append("path")
             .datum(downsampled)
@@ -408,20 +446,45 @@ class myplot_1d {
             let delta_intensity = this.yscale.invert(e.clientY) - this.yscale.invert(this.startMousePos[1]);
 
             /**
-             * Update self.xscale and self.yscale
-             */
-            self.xscale.domain([self.xscale.domain()[0] - delta_ppm, self.xscale.domain()[1] - delta_ppm]);
-            self.yscale.domain([self.yscale.domain()[0] - delta_intensity, self.yscale.domain()[1] - delta_intensity]);
-
-            /**
              * Update self.startMousePos
              */
             self.startMousePos = [e.clientX, e.clientY];
 
+
             /**
-             * Redraw the plot
+             * If alt key is pressed, we need to pan only the current spectral index and along the X axis only.
+             * We do not change xscale, instead, we change data of this.current_spectral_index
              */
-            self.redraw();
+            if (e.altKey == true && this.current_spectral_index != null) {
+                let index = this.current_spectral_index;
+                this.spectrum_reference[index] += delta_ppm; // Update reference correction for the spectrum
+                /**
+                 * Redraw the current spectral index only
+                 */
+                let lineId = `line${index}`;
+                let data = this.allLines[lineId];
+                if (data) {
+                    const scale = this.spectral_scale[index]; // Get the current scale of the spectrum
+                    const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    this.vis.select(`#${lineId}`)
+                        .datum(downsampled)
+                        .attr("d", this.lineGenerator);
+                }
+            }
+            else {
+
+
+                /**
+                 * Update self.xscale and self.yscale
+                 */
+                self.xscale.domain([self.xscale.domain()[0] - delta_ppm, self.xscale.domain()[1] - delta_ppm]);
+                self.yscale.domain([self.yscale.domain()[0] - delta_intensity, self.yscale.domain()[1] - delta_intensity]);
+                /**
+                 * Redraw the plot
+                 */
+                self.redraw();
+            }
         }
         /**
          * If the mouse is not down, we need to show the tooltip
@@ -491,110 +554,6 @@ class myplot_1d {
 
     }
 
-
-    /**
-     * 
-     * @param {array} spectrum_recon spectrum_recon is an array of [x,y] pairs. X: chemical shift, Y: intensity
-     * @param {array} experimental_peaks //array of peaks, each peak is an array of ppm and intensity
-     * @param {array} peak_centers //array of peak centers, each peak center is one number.
-     * This function will add the reconstructed spectrum and peaks to the plot
-     */
-
-    show_recon(spectrum_recon, experimental_peaks, peak_params, peak_centers) {
-
-        if (!Array.isArray(spectrum_recon) || !Array.isArray(experimental_peaks)) {
-            throw new Error('colmar_1d_double_zoom function show_recon all arguments must be array');
-        }
-
-        var self = this;
-
-        this.recon_exist = true;
-        this.data_recon = spectrum_recon;
-        this.experimental_peaks = experimental_peaks;
-        this.experimental_peak_params = peak_params;
-        this.experimental_peaks_centers = peak_centers;
-        this.experimental_peaks_show = new Array(experimental_peaks.length);
-        this.experimental_peaks_line = new Array(this.experimental_peaks.length);
-
-        /**
-         * Get median of the peak width of the experimental spectrum
-         * for each peak, peak width is estimated as (sigma+gamma)*2.5
-         */
-        let peak_width = [];
-        for (var i = 0; i < this.experimental_peak_params.length; i++) {
-            peak_width.push((this.experimental_peak_params[i].sigma + this.experimental_peak_params[i].gamma) * 2.5);
-        }
-
-        this.median_experimental_peak_width = this.median(peak_width);
-
-
-        /**
-         * if this.reference is not 0, we need to shift the ppm of the reconstructed spectrum and experimental_peaks and peak_centers
-         */
-        if (this.reference != 0.0) {
-            for (var i = 0; i < this.data_recon.length; i++) {
-                this.data_recon[i][0] = this.data_recon[i][0] + this.reference;
-            }
-            for (var i = 0; i < this.experimental_peaks.length; i++) {
-                for (var j = 0; j < this.experimental_peaks[i].length; j++) {
-                    this.experimental_peaks[i][j][0] = this.experimental_peaks[i][j][0] + this.reference;
-                }
-                this.experimental_peaks_centers[i] = this.experimental_peaks_centers[i] + this.reference;
-            }
-        }
-
-        //remove old one if exists
-        this.vis.selectAll(".peak_recon").remove();
-
-        /**
-         * draw peaks. fake here. we will update the peaks later
-         */
-        for (var i = 0; i < this.experimental_peaks.length; i++) {
-            this.experimental_peaks_line[i] = this.vis.append('g')
-                .append("path")
-                .attr("clip-path", "url(#clip)")
-                .attr("class", "peak_recon")
-                .attr("fill", "none")
-                .style("stroke-width", this.recon_line_width+1)
-                // .style("stroke", "green")
-                .style("stroke", function () {
-                    if (self.experimental_peak_params[i].background == 0) {
-                        return "green";
-                    }
-                    else {
-                        return "blue";
-                    }
-                })
-                .attr("d", "M0 0");
-            this.experimental_peaks_show[i] = 0; // 0: not shown, 1: shown
-        }
-
-
-        //reconstruction
-        var data_recon_strided = this.data_recon;
-        if (data_recon_strided.length > 20000) {
-            let step = Math.ceil(data_recon_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_recon_strided = data_recon_strided.filter(function (x, i) {
-                return i % step == 0;
-            });
-        }
-
-        //remove old one if exists
-        this.vis.selectAll(".line_recon").remove();
-
-        this.line_recon = this.vis.append("g")
-            .append("path")
-            .attr("clip-path", "url(#clip)")
-            .attr("class", "line_recon")
-            .attr("fill", "none")
-            .style("stroke", "red")
-            .style("stroke-width", this.recon_line_width)
-            .attr("d", this.lineGenerator(data_recon_strided));
-    };
 
     /**
      * This function will add a baseline to the plot and save the baseline in this.baseline
@@ -711,7 +670,12 @@ class myplot_1d {
          * Redraw experimental spectrum
          */
          Object.entries(this.allLines).forEach(([lineId, data]) => {
-            const downsampled = downsampleData(data,this.true_width, this.xscale.domain());
+
+            const index = parseInt(lineId.replace('line', ''))
+            const scale = this.spectral_scale[index];
+            const reference = this.spectrum_reference[index];
+
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
             this.vis.select(`#${lineId}`)
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
