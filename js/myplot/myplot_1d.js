@@ -83,7 +83,7 @@ class myplot_1d {
          */
         this.exp_line_width = 1.0;
 
-        this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+        this.$peaks_symbol = null; //this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
 
         this.spectral_order = [];
 
@@ -100,13 +100,26 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height) {
+    init(width, height, peak_params) {
 
         let self = this; // to use this inside some functions
         
         this.width = width;
         this.height = height;
 
+        if(peak_params)
+        {
+            this.peak_color = peak_params.color || "#0000ff"; // Default peak color is blue
+            this.peak_size = peak_params.size || 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = peak_params.peak_thickness || 1.0; // Default peak line width is 1.0
+            this.filled_peaks = peak_params.filled_peaks || false; //default filled peaks is false, so peaks are not filled with color
+        }
+        else{
+            this.peak_color = "#0000ff"; // Default peak color is blue
+            this.peak_size = 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = 1.0; // Default peak line width is 1.0
+            this.filled_peaks = false; // Default filled peaks is false, so peaks are not filled with color
+        }
 
         this.vis = d3.select("#plot_1d").insert("svg", ":first-child")
             .attr("id", "main_plot")
@@ -697,6 +710,15 @@ class myplot_1d {
                 .attr("d", this.lineGenerator);
         });
 
+        /**
+         * Update peaks location if it is not null
+         */
+        if(this.$peaks_symbol) {
+            this.$peaks_symbol
+                .attr('cx', (d) => this.xscale(d[0]))
+                .attr('cy', (d) => this.yscale(d[1]))
+                ;
+        }
     }
 
     /**
@@ -892,52 +914,70 @@ class myplot_1d {
          */
         let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT','INDEX']);
 
-        this.peaks_symbol=this.vis.append('g')
-            .selectAll('circle')
+        this.$peaks_symbol=this.vis.append('g')
+            .selectAll("circle")
             .data(peak_data)
             .enter()
             .append('circle')
             .attr("clip-path", "url(#clip)")
             .attr('cx', (d) => this.xscale(d[0]))
             .attr('cy', (d) => this.yscale(d[1]))
-            .attr('r', 5)
-            .style("fill", "blue")
-            .style("stroke-width", 3.5)
-            .style("stroke", "blue")
-            .attr("class", "peak_circle");
-
-        /**
-         * Allow drag and drop of the peaks
-         */
-        this.peak_drag = d3.drag()
-            .on("start", function (event, d) {
-                d3.select(this).raise().classed("active", true);
+            .attr('r', self.peak_size) // radius of the circle
+            .style("fill", function (d) {
+                if (self.filled_peaks) {
+                    return self.peak_color; // filled peaks
+                } else {
+                    return "none"; // not filled peaks
+                }
             })
-            .on("drag", function (event, d) {
-                d3.select(this)
-                    .attr("cx", event.x)
-                    .attr("cy", event.y);
-                //update the peak data
-
-            })
-            .on("end", function (event, d) {
-                d3.select(this).classed("active", false);
-                let ppm = self.xscale.invert(event.x);
-                let intensity = self.yscale.invert(event.y);
-                console.log("ppm", ppm, "intensity", intensity);
-                //update the peak data, 
-                d[0] = ppm;
-                d[1] = intensity;
-                //update the peak object
-                peak_obj.update_row_1d(d[2], ppm, intensity);
-            });
-
-        this.peaks_symbol.call(this.peak_drag);
+            .style("stroke-width", self.peak_thickness) // thickness of the circle
+            .style("stroke",self.peak_color) // color of the circle
+            ;
     };
 
+    /**
+     * Redraw peaks on the plot, only need to update one style, depending on the flag
+     * Peak positions are not changed, so no need to update cx and cy
+     * @param {int} flag:
+     * 1: size changed
+     * 2: line thickness changed
+     * 3: filling changed
+     * 4: color changed
+     */
+    redraw_peaks(flag) {
+        if (this.$peaks_symbol) {
+            switch(flag) {
+                case 1:
+                    this.$peaks_symbol.attr('r', this.peak_size); // update radius of the circle
+                    break;
+                case 2:
+                    this.$peaks_symbol.style("stroke-width", this.peak_thickness); // update thickness of the circle
+                    break;
+                case 3:
+                    if (this.filled_peaks) {
+                        this.$peaks_symbol.style("fill", this.peak_color); // filled peaks
+                    } else {
+                        this.$peaks_symbol.style("fill", "none"); // not filled peaks
+                    }
+                    break;
+                case 4:
+                    this.$peaks_symbol.style("stroke", this.peak_color); // update color of the circle
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none"); // update fill color of the circle
+                    break;
+                default:
+                    console.warn("colmar_1d_double_zoom: redraw_peaks called with unknown flag: " + flag);
+                    break;
+            }
+        }
+    }
+
     remove_peaks() {
-        this.vis.selectAll(".peak_circle").remove();
-        this.peaks_symbol = null;
+        if(this.$peaks_symbol)
+        {
+            this.vis.selectAll("circle").remove();
+            this.$peaks_symbol = null;
+        }
+        
     };
 
     zoom_to = function (x_scale)

@@ -28,7 +28,7 @@ catch (err) {
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
-var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
+var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 2D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
@@ -369,6 +369,26 @@ $(document).ready(function () {
         else{
             alert("Please select both acquisition and fid files.");
         }
+    });
+
+    /**
+     * Event listener for peak_size, peak_thickness, filled_peaks and peak_color
+     */
+    document.getElementById('peak_size').addEventListener('change', function (e) {
+        main_plot.peak_size = parseFloat(this.value);
+        main_plot.redraw_peaks(1);
+    });
+    document.getElementById('peak_thickness').addEventListener('change', function (e) {
+        main_plot.peak_thickness = parseFloat(this.value);
+        main_plot.redraw_peaks(2);
+    });
+    document.getElementById('filled_peaks').addEventListener('change', function (e) {
+        main_plot.filled_peaks = this.checked;
+        main_plot.redraw_peaks(3);
+    });
+    document.getElementById('peak_color').addEventListener('change', function (e) {
+        main_plot.peak_color = this.value;
+        main_plot.redraw_peaks(4);
     });
 });
 
@@ -1438,7 +1458,14 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height);
+        let peak_params = {
+            peak_color: document.getElementById("peak_color").value,
+            peak_size: parseFloat(document.getElementById("peak_size").value),
+            peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
+            filled_peaks: document.getElementById("filled_peaks").checked,
+
+        };
+        main_plot.init(cr.width, cr.height,peak_params);
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -1805,19 +1832,12 @@ function show_hide_peaks(index,flag,b_show)
     /**
      * Turn off checkbox of all other spectra
      */
-    for(let i=0;i<1;i++)
+    for(let i=0;i<all_spectra.length;i++)
     {
         if(i!==index)
         {
-            /**
-             * If spectrum is deleted, these checkboxes are no longer available.
-             * So we need to check if they are available
-             */
-            if(all_spectra[i].spectrum_origin !== -3)
-            {
-                document.getElementById("show_peaks-"+i).checked = false;
-                document.getElementById("show_fitted_peaks-"+i).checked = false;
-            }
+            document.getElementById("show_peaks-"+i).checked = false;
+            document.getElementById("show_fitted_peaks-"+i).checked = false;
         }
         /**
          * uncheck the checkbox of the current spectrum
@@ -1845,18 +1865,11 @@ function show_hide_peaks(index,flag,b_show)
 
         if(flag === 'picked')
         {
-            /**
-             * Only for picked peaks of an experimental spectrum, allow user to make changes
-             */
-            if(all_spectra[index].spectrum_origin === -1 || all_spectra[index].spectrum_origin === -2 || all_spectra[index].spectrum_origin >=10000)
-            {
-                document.getElementById("allow_drag_and_drop").disabled = false;
-            }
-            main_plot.add_peaks(all_spectra[index].picked_peaks_object,all_spectra[index].spectral_max);
+            main_plot.add_peaks(all_spectra[index].picked_peaks_object);
         }
         else
         {
-            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,all_spectra[index].spectral_max);
+            main_plot.add_peaks(all_spectra[index].fitted_peaks_object);
         }
     }
     else
@@ -1865,9 +1878,6 @@ function show_hide_peaks(index,flag,b_show)
         main_plot.remove_peaks();
         remove_peak_table();
     }
-    /**
-     * There is no need to redraw the contour plot
-     */
 }
 
 
