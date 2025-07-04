@@ -808,6 +808,15 @@ function minimize_spectrum(button,index)
         main_plot.update_visibility(index,false);
 
         /**
+         * If peaks are shown, remove them as well
+         */
+        if(current_spectrum_index_of_peaks === index)
+        {
+            current_spectrum_index_of_peaks = -1;
+            main_plot.remove_peaks();
+        }
+
+        /**
          * Loop all spectra, find children of this spectrum, hide them too
          */
         for(let i=0;i<all_spectra.length;i++)
@@ -816,6 +825,25 @@ function minimize_spectrum(button,index)
             {
                 all_spectra[i].visible = false;
                 main_plot.update_visibility(i,false);
+                if(current_spectrum_index_of_peaks === i)
+                {
+                    current_spectrum_index_of_peaks = -1;
+                    main_plot.remove_peaks();
+                }
+            }
+        }
+        /**
+         * If this is the current spectrum, set current_spectrum_index to -1
+         */
+        if(main_plot.current_spectrum_index === index)
+        {
+            main_plot.current_spectrum_index = -1;
+            /**
+             * Un-highlight the current spectrum in the list
+             */
+            let current_spectrum_div = document.getElementById("spectrum-".concat(index));
+            if (current_spectrum_div) {
+                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
     }
@@ -912,14 +940,14 @@ function add_to_list(index) {
         /**
          * make this one the default selected spectrum
          */
-        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
 
-            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectrum_index));
             if (current_spectrum_div) {
                 current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
-        main_plot.current_spectral_index = index;
+        main_plot.current_spectrum_index = index;
         /**
          * Highlight the current spectrum in the list
          */
@@ -1470,7 +1498,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height,peak_params);
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -1887,54 +1915,12 @@ function show_hide_peaks(index,flag,b_show)
 
         if(flag === 'picked')
         {
-            main_plot.add_peaks(all_spectra[index].picked_peaks_object);
+            main_plot.add_peaks(all_spectra[index].picked_peaks_object,'picked');
         }
         else
         {
-            main_plot.add_peaks(all_spectra[index].fitted_peaks_object);
-
-            /**
-             * all_spectra[index].recon_peaks
-             */
-
-            /**
-             * Generate fitted peak profiles from all_spectra[index].fitted_peaks_object
-             * step1: get all peaks from fitted_peaks_object that are within visible region of main_plot
-             * and extract the following columns: "X_PPM","HEIGHT","SIGMAX","GAMMAX"
-             */
-            const [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
-            const plot_width = main_plot.true_width; //get the width of the plot in pixels
-            /**
-             * Get median peak width in fitted_peaks_object
-             */
-            const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
-            const median_peak_width = all_peak_widths[all_peak_widths.length >> 1]; //get the median peak width in ppm
-            const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end- x_ppm_visible_start) * plot_width; //convert to pixel width
-
-            /**
-             * We only need to generate profiles for peaks when median_peak_width_pixel is at least 40 
-             */
-            if(median_peak_width_pixel > 40)
-            {
-                let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
-
-                main_plot.update_reconstructed_peaks(filtered_peaks_recon);
-
-                /**
-                 * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
-                 * Step 2: for each peak, generate a profile
-                 * We need web assembly worker to generate the profile (pseudo Voigt profile)
-                 */
-                // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
-                //         .filter(peak => {
-                //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
-                //         });
-                // webassembly_1d_worker_2.postMessage({
-                //     webassembly_job: "generate_voigt_profiles",
-                //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
-                //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
-                // });
-            }
+            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,'fitted');
+            update_reconstructed_peaks(current_spectrum_index_of_peaks);
         }
     }
     else
@@ -1945,6 +1931,68 @@ function show_hide_peaks(index,flag,b_show)
     }
 }
 
+let zoomPanTimeout; // to debounce zoom and pan events
+function update_reconstructed_peaks_debounced(index) {
+    clearTimeout(zoomPanTimeout);
+
+  // Set a new timeout
+  zoomPanTimeout = setTimeout(() => {
+    console.log("Zoom or pan stopped. Running function.");
+    update_reconstructed_peaks(index);
+  }, 100);
+}
+
+
+function update_reconstructed_peaks(index) {
+
+
+    main_plot.update_reconstructed_peaks([]);
+
+    /**
+     * If picked peaks, do nothing
+     */
+    if (current_flag_of_peaks === 'picked') {
+        return;
+    }
+
+    /**
+     * Generate fitted peak profiles from all_spectra[index].fitted_peaks_object
+     * step1: get all peaks from fitted_peaks_object that are within visible region of main_plot
+     * and extract the following columns: "X_PPM","HEIGHT","SIGMAX","GAMMAX"
+     */
+    const [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
+    const plot_width = main_plot.true_width; //get the width of the plot in pixels
+    /**
+     * Get median peak width in fitted_peaks_object
+     */
+    const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
+    const median_peak_width = all_peak_widths[all_peak_widths.length >> 1] * Math.abs(all_spectra[index].x_ppm_step); //get the median peak width in ppm
+    const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end - x_ppm_visible_start) * plot_width; //convert to pixel width
+
+    /**
+     * We only need to generate profiles for peaks when median_peak_width_pixel is at least 4 pixels
+     */
+    if (median_peak_width_pixel > 4) {
+        let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
+
+        main_plot.update_reconstructed_peaks(filtered_peaks_recon);
+
+        /**
+         * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
+         * Step 2: for each peak, generate a profile
+         * We need web assembly worker to generate the profile (pseudo Voigt profile)
+         */
+        // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
+        //         .filter(peak => {
+        //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
+        //         });
+        // webassembly_1d_worker_2.postMessage({
+        //     webassembly_job: "generate_voigt_profiles",
+        //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
+        //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
+        // });
+    }
+}
 
 /**
  * Generate a list of peaks in nmrPipe .tab format
@@ -2173,9 +2221,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height);
+        let peak_params = {
+            peak_color: document.getElementById("peak_color").value,
+            peak_size: parseFloat(document.getElementById("peak_size").value),
+            peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
+            filled_peaks: document.getElementById("filled_peaks").checked,
 
-
+        };
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
 
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
@@ -2193,9 +2246,8 @@ function zoom_to_peak(index)
      * Get the peak position (column X_PPM and Y_PPM)
      */
     let x_ppm = peaks_object.get_column_by_header('X_PPM')[index];
-    let y_ppm = peaks_object.get_column_by_header('Y_PPM')[index];
 
-    let x_ppm_scale = [x_ppm + 0.5, x_ppm - 0.5];
+    let x_ppm_scale = [x_ppm - 0.1, x_ppm + 0.1];
 
     main_plot.zoom_to(x_ppm_scale);
 
@@ -2418,13 +2470,24 @@ function search_peak()
 
 function set_current_spectrum(spectrum_index)
 {
-    if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < all_spectra.length) {
-        if (main_plot.current_spectral_index !== spectrum_index) {
-            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+    if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index !== spectrum_index) {
+            document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
         }
     }
-    main_plot.current_spectral_index = spectrum_index;
+    main_plot.current_spectrum_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+
+    /**
+     * If current showing peaks is not the same as current_spectrum_index, 
+     * we need to reset current_spectrum_index_of_peaks to -1 (no peaks showing)
+     */
+    if (current_spectrum_index_of_peaks !== spectrum_index) {
+        current_spectrum_index_of_peaks = -1;
+        current_flag_of_peaks = 'picked'; //reset to picked peaks
+        remove_peak_table();
+        main_plot.remove_peaks();
+    }
 }
 
 

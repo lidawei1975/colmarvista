@@ -92,6 +92,8 @@ class myplot_1d {
         this.spectrum_reference = [];   // This is the reference correction of each spectrum
 
         this.spectrum_visibility = []; // This is the visibility of each spectrum, used to show/hide the spectrum in the plot
+        
+        this.peak_type = null;
     }
 
     /**
@@ -100,12 +102,16 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params) {
+    init(width, height, peak_params,zoom_pan_on_call_function) {
 
         let self = this; // to use this inside some functions
         
         this.width = width;
         this.height = height;
+        /**
+         * ON call function we need to call when user zoom out the plot using mouse wheel
+         */
+        this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
 
         if(peak_params)
         {
@@ -263,9 +269,9 @@ class myplot_1d {
             
 
             /**
-             * If alt key is pressed, we rescale one spectrum only (this.current_spectral_index)
+             * If alt key is pressed, we rescale one spectrum only (this.current_spectrum_index)
              */
-            if (e.altKey == true && this.current_spectral_index != null) {
+            if (e.altKey == true && this.current_spectrum_index != null) {
 
                 if (delta > 0) {
                     delta = 0.99;
@@ -274,7 +280,7 @@ class myplot_1d {
                     delta = 1.01;
                 }
 
-                let index = this.current_spectral_index;
+                let index = this.current_spectrum_index;
                 let lineId = `line${index}`;
                 let data = this.allLines[lineId];
                 if (data) {
@@ -336,6 +342,12 @@ class myplot_1d {
                 let new_left = ppm - (ppm - left) * delta;
                 let new_right = ppm + (right - ppm) * delta;
                 this.xscale.domain([new_left, new_right]);
+                /**
+                 * We need to call the zoom_pan_on_call_function if it is defined
+                 */
+                if (this.peak_type === "fitted" && this.zoom_pan_on_call_function) {
+                    this.zoom_pan_on_call_function(self.current_spectrum_index);
+                }
             }
 
             this.redraw();
@@ -482,10 +494,10 @@ class myplot_1d {
 
             /**
              * If alt key is pressed, we need to pan only the current spectral index and along the X axis only.
-             * We do not change xscale, instead, we change data of this.current_spectral_index
+             * We do not change xscale, instead, we change data of this.current_spectrum_index
              */
-            if (e.altKey == true && this.current_spectral_index != null) {
-                let index = this.current_spectral_index;
+            if (e.altKey == true && this.current_spectrum_index != null) {
+                let index = this.current_spectrum_index;
                 this.spectrum_reference[index] += delta_ppm; // Update reference correction for the spectrum
                 /**
                  * Redraw the current spectral index only
@@ -502,8 +514,6 @@ class myplot_1d {
                 }
             }
             else {
-
-
                 /**
                  * Update self.xscale and self.yscale
                  */
@@ -513,6 +523,10 @@ class myplot_1d {
                  * Redraw the plot
                  */
                 self.redraw();
+                if(this.peak_type === "fitted" && self.zoom_pan_on_call_function)
+                {
+                    self.zoom_pan_on_call_function(self.current_spectrum_index);
+                }
             }
         }
         /**
@@ -923,6 +937,11 @@ class myplot_1d {
             this.$reconstructed_peaks.remove();
             this.$reconstructed_peaks = null;
         }
+
+        if(filtered_peaks_recon == null || filtered_peaks_recon.length == 0) {
+            return; // No peaks to show
+        }
+
         /**
          * Step 2, add new peak profile. One peak profile is a path with multiple points
          */
@@ -931,6 +950,7 @@ class myplot_1d {
             .enter()
             .append('path')
             .attr('class', 'reconstructed_peaks')
+            .attr('clip-path', 'url(#clip)')
             .attr('d', d => this.lineGenerator(d))
             .attr('stroke', 'grey')
             .attr('stroke-width', 1)
@@ -941,8 +961,9 @@ class myplot_1d {
      * Show peaks on the plot, as red circles
      * @param {Object} peak_obj: cpeaks class object
      */
-    add_peaks(peak_obj) {
+    add_peaks(peak_obj,peak_type='picked') {
         let self = this;
+        self.peak_type = peak_type; // save peak type for later use
         /**
          * Construct peak data, array of [x,y,z] 
          * x is ppm: peak_obj.column['X_PPM']
@@ -1013,7 +1034,11 @@ class myplot_1d {
             this.vis.selectAll("circle").remove();
             this.$peaks_symbol = null;
         }
-        
+        this.peak_type = null; // reset peak type
+        /**
+         * also remove reconstructed peaks if they exist (if it is from fitted peaks)
+         */
+        this.update_reconstructed_peaks([]);
     };
 
     zoom_to = function (x_scale)
