@@ -901,6 +901,7 @@ class myplot_1d {
         return this.xscale.domain();
     }
 
+
     /**
      * Show peaks on the plot, as red circles
      * @param {Object} peak_obj: cpeaks class object

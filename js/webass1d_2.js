@@ -29,6 +29,50 @@ self.onmessage = async function (event) {
         self.postMessage({ stdout: result });
         obj.delete(); // Clean up the object to free memory
     }
+
+    else if (event.data.webassembly_job == "generate_voigt_profiles") {
+        const obj = new Module.voigt_profile();
+
+
+        for(let i = 0; i < event.data.peaks.length; ++i) {
+            obj.generate_voigt_profiles(
+                0.01, //extend until y drops below 0.01 of central peak height
+                event.data.step, //step size
+                event.data.peaks[i][0], //center ppm
+                event.data.peaks[i][1], //height
+                event.data.peaks[i][2], //sigma in ppm
+                event.data.peaks[i][3]); //gamma in ppm
+
+            /**
+             * Get profile as a float32 array
+             */
+            const profile_size = obj.get_size_of_profile();
+            const profile_ptr = obj.get_data_of_profile(0); // Get the pointer to the profile data
+            const profile_data = new Float32Array(Module.HEAPF32.buffer, profile_ptr, profile_size);    
+            /**
+             * Because of symmetry, profile_size is always odd, so we can get the center index
+             */
+            const length_of_half = Math.floor((profile_size-1) / 2);
+            /**
+             * Get corresponding ppm values for the profile, using JS code, not C++ code
+             */
+            let profile_ppm = new Float32Array(profile_size);
+            profile_ppm[length_of_half] = event.data.peaks[i][0]; // Center ppm value
+            for(let j = 0; j < length_of_half; ++j) {
+                profile_ppm[j] = event.data.peaks[i][0] - (length_of_half - j) * event.data.step;
+                profile_ppm[profile_size - 1 - j] = event.data.peaks[i][0] + (length_of_half - j) * event.data.step;
+            }
+
+            self.postMessage({
+                webassembly_job: event.data.webassembly_job,
+                profile_index: i, // Index of the profile
+                profile_ppm: profile_ppm,
+                profile_data: profile_data,
+            });
+        }
+        obj.delete(); // Clean up the object to free memory
+    }
+
     else if (event.data.webassembly_job == "peak_picker") {
 
         const obj = new Module.spectrum_pick_1d();

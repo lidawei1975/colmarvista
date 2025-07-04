@@ -607,7 +607,13 @@ class cpeaks {
                 this.columns[i].push(this.columns[i][0]);
             }
             else {
-                this.columns[i].push(this.columns[i].reduce((a, b) => a + b, 0) / this.columns[i].length);
+                /**
+                 * Keep original values in the column, then calculate median using a sorted copy of the column
+                 */
+                let temp=this.columns[i].slice();
+                temp.sort((a, b) => a - b);
+                let median_temp = temp[temp.length >> 1];
+                this.columns[i].push(median_temp);
             }
         }
         return true;
