@@ -1892,6 +1892,7 @@ function show_hide_peaks(index,flag,b_show)
         else
         {
             main_plot.add_peaks(all_spectra[index].fitted_peaks_object);
+            main_plot.update_reconstructed_peaks([]);
 
             /**
              * all_spectra[index].recon_peaks
@@ -1908,13 +1909,13 @@ function show_hide_peaks(index,flag,b_show)
              * Get median peak width in fitted_peaks_object
              */
             const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
-            const median_peak_width = all_peak_widths[all_peak_widths.length >> 1]; //get the median peak width in ppm
+            const median_peak_width = all_peak_widths[all_peak_widths.length >> 1] * Math.abs(all_spectra[index].x_ppm_step); //get the median peak width in ppm
             const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end- x_ppm_visible_start) * plot_width; //convert to pixel width
 
             /**
-             * We only need to generate profiles for peaks when median_peak_width_pixel is at least 40 
+             * We only need to generate profiles for peaks when median_peak_width_pixel is at least 4 pixels
              */
-            if(median_peak_width_pixel > 40)
+            if(median_peak_width_pixel > 4)
             {
                 let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
 

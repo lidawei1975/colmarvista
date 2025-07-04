@@ -923,6 +923,11 @@ class myplot_1d {
             this.$reconstructed_peaks.remove();
             this.$reconstructed_peaks = null;
         }
+
+        if(filtered_peaks_recon == null || filtered_peaks_recon.length == 0) {
+            return; // No peaks to show
+        }
+
         /**
          * Step 2, add new peak profile. One peak profile is a path with multiple points
          */
