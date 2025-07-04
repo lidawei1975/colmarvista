@@ -190,7 +190,7 @@ self.onmessage = async function (event) {
 
         // Get the fitted peaks as a long string in NMRPipe tab format
         const fitted_peaks_tab = obj.output_as_string(-1); // -1 means normal run without error estimation
-        // const fitted_peaks_json = obj.output_json_as_string(true); // true means with individual peaks
+        const fitted_peaks_json = obj.output_json_as_string(true); // true means with individual peaks
 
         // get size of reconstructed spectrum in float32
         const size = obj.get_size_of_recon();
@@ -208,7 +208,7 @@ self.onmessage = async function (event) {
         self.postMessage({
             webassembly_job: event.data.webassembly_job,
             fitted_peaks_tab: fitted_peaks_tab,
-            // recon_json: fitted_peaks_json,
+            recon_json: fitted_peaks_json,
             spectrum_origin: event.data.spectrum_index,
             scale: event.data.scale,
             scale2: event.data.scale2,

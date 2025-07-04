@@ -523,6 +523,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.picked_peaks_object = all_spectra[e.data.spectrum_origin].picked_peaks_object;
         result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
 
+        const recon_peaks = JSON.parse(e.data.recon_json);
+        const peaks_center = get_center(recon_peaks.peaks_recon);
+
+        result_spectrum.recon_peaks = recon_peaks.peaks_recon;
+        result_spectrum.recon_peaks_center = peaks_center;
+
        
 
         /**
@@ -1888,42 +1894,47 @@ function show_hide_peaks(index,flag,b_show)
             main_plot.add_peaks(all_spectra[index].fitted_peaks_object);
 
             /**
+             * all_spectra[index].recon_peaks
+             */
+
+            /**
              * Generate fitted peak profiles from all_spectra[index].fitted_peaks_object
              * step1: get all peaks from fitted_peaks_object that are within visible region of main_plot
              * and extract the following columns: "X_PPM","HEIGHT","SIGMAX","GAMMAX"
              */
-            // const [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
-            // const plot_width = main_plot.true_width; //get the width of the plot in pixels
-            // /**
-            //  * Get median peak width in fitted_peaks_object
-            //  */
-            // const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
-            // const median_peak_width = all_peak_widths[all_peak_widths.length >> 1]; //get the median peak width in ppm
-            // const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end- x_ppm_visible_start) * plot_width; //convert to pixel width
+            const [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
+            const plot_width = main_plot.true_width; //get the width of the plot in pixels
+            /**
+             * Get median peak width in fitted_peaks_object
+             */
+            const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
+            const median_peak_width = all_peak_widths[all_peak_widths.length >> 1]; //get the median peak width in ppm
+            const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end- x_ppm_visible_start) * plot_width; //convert to pixel width
 
-            // /**
-            //  * We only need to generate profiles for peaks when median_peak_width_pixel is at least 40 
-            //  */
-            // if(median_peak_width_pixel > 40)
-            // {
-            
-            //     /**
-            //      * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
-            //      */
-            //     const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
-            //             .filter(peak => {
-            //                 return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
-            //             });
-            //     /**
-            //      * Step 2: for each peak, generate a profile
-            //      * We need web assembly worker to generate the profile (pseudo Voigt profile)
-            //      */
-            //     webassembly_1d_worker_2.postMessage({
-            //         webassembly_job: "generate_voigt_profiles",
-            //         peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
-            //         step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
-            //     });
-            // }
+            /**
+             * We only need to generate profiles for peaks when median_peak_width_pixel is at least 40 
+             */
+            if(median_peak_width_pixel > 40)
+            {
+                let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
+
+                main_plot.update_reconstructed_peaks(filtered_peaks_recon);
+
+                /**
+                 * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
+                 * Step 2: for each peak, generate a profile
+                 * We need web assembly worker to generate the profile (pseudo Voigt profile)
+                 */
+                // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
+                //         .filter(peak => {
+                //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
+                //         });
+                // webassembly_1d_worker_2.postMessage({
+                //     webassembly_job: "generate_voigt_profiles",
+                //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
+                //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
+                // });
+            }
         }
     }
     else

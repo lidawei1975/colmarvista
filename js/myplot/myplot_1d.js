@@ -719,6 +719,13 @@ class myplot_1d {
                 .attr('cy', (d) => this.yscale(d[1]))
                 ;
         }
+
+
+        // Redraw all peak profiles
+        if(this.$reconstructed_peaks) {
+            this.$reconstructed_peaks
+            .attr('d', d => this.lineGenerator(d));
+        }
     }
 
     /**
@@ -901,6 +908,34 @@ class myplot_1d {
         return this.xscale.domain();
     }
 
+    /**
+     * Show reconstructed peak profiles, as gray lines
+     * @param {array} filtered_peaks_recon: array of array of [x,y] pairs, where x is ppm and y is intensity
+     * filtered_peaks_recon[0] is the first peak profile, filtered_peaks_recon[1] is the second peak profile, etc.
+     * filtered_peaks_recon[0][1] is first point of the first peak profile, which has two numbers: ppm and intensity
+     */
+    update_reconstructed_peaks(filtered_peaks_recon)
+    {
+        /**
+         * Step 1, remove old peaks if they exist
+         */
+        if (this.$reconstructed_peaks) {
+            this.$reconstructed_peaks.remove();
+            this.$reconstructed_peaks = null;
+        }
+        /**
+         * Step 2, add new peak profile. One peak profile is a path with multiple points
+         */
+        this.$reconstructed_peaks = this.vis.selectAll('path.reconstructed_peaks')
+            .data(filtered_peaks_recon)
+            .enter()
+            .append('path')
+            .attr('class', 'reconstructed_peaks')
+            .attr('d', d => this.lineGenerator(d))
+            .attr('stroke', 'grey')
+            .attr('stroke-width', 1)
+            .attr('fill', 'none');
+    }
 
     /**
      * Show peaks on the plot, as red circles
