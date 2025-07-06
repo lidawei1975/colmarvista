@@ -75,6 +75,11 @@ self.onmessage = async function (event) {
 
     else if (event.data.webassembly_job == "peak_picker") {
 
+        /**
+         * n_verbose is a global variable (static base class member variable) in Module, which is used to control the verbosity of the output.
+         */
+        Module.shared_data_1d.n_verbose = 1;
+
         const obj = new Module.spectrum_pick_1d();
         obj.init(event.data.scale,
             event.data.scale2,
@@ -123,8 +128,9 @@ self.onmessage = async function (event) {
     else if( event.data.webassembly_job === "peak_fitter" ) {
         // This is for peak fitting job
         console.log('Peak fitting job received');
+        Module.shared_data_1d.n_verbose = 1;
         const obj = new Module.spectrum_fit_1d();
-
+        
         /**
          *  Here it is list of functions that can be used
          *  .function("init", &spectrum_fit_1d::init)
@@ -370,10 +376,12 @@ self.onmessage = async function (event) {
      * 1D FID processing job
      */
     else if(event.data.webassembly_job === "fid_processor_1d") {
-         const nspect = 1; // Assuming single spectrum for now
+        const nspect = 1; // Assuming single spectrum for now
+
+        Module.shared_data_1d.n_verbose = 1;
 
         const obj = new Module.spectrum_phasing_1d(); //spectrum_phasing_1d has fid_1d as its base class for FID processing
-
+        
         /**
          * Passed variables:
          *                 

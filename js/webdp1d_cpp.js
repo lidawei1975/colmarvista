@@ -4844,6 +4844,77 @@ async function createWasm() {
       );
     };
 
+  
+  
+  var runDestructors = (destructors) => {
+      while (destructors.length) {
+        var ptr = destructors.pop();
+        var del = destructors.pop();
+        del(ptr);
+      }
+    };
+  
+  
+  
+  var __embind_register_class_class_property = (rawClassType,
+                                            fieldName,
+                                            rawFieldType,
+                                            rawFieldPtr,
+                                            getterSignature,
+                                            getter,
+                                            setterSignature,
+                                            setter) => {
+      fieldName = AsciiToString(fieldName);
+      getter = embind__requireFunction(getterSignature, getter);
+  
+      whenDependentTypesAreResolved([], [rawClassType], (classType) => {
+        classType = classType[0];
+        var humanName = `${classType.name}.${fieldName}`;
+        var desc = {
+          get() {
+            throwUnboundTypeError(`Cannot access ${humanName} due to unbound types`, [rawFieldType]);
+          },
+          enumerable: true,
+          configurable: true
+        };
+        if (setter) {
+          desc.set = () => {
+            throwUnboundTypeError(`Cannot access ${humanName} due to unbound types`, [rawFieldType]);
+          };
+        } else {
+          desc.set = (v) => {
+            throwBindingError(`${humanName} is a read-only property`);
+          };
+        }
+  
+        Object.defineProperty(classType.registeredClass.constructor, fieldName, desc);
+  
+        whenDependentTypesAreResolved([], [rawFieldType], (fieldType) => {
+          fieldType = fieldType[0];
+          var desc = {
+            get() {
+              return fieldType['fromWireType'](getter(rawFieldPtr));
+            },
+            enumerable: true
+          };
+  
+          if (setter) {
+            setter = embind__requireFunction(setterSignature, setter);
+            desc.set = (v) => {
+              var destructors = [];
+              setter(rawFieldPtr, fieldType['toWireType'](destructors, v));
+              runDestructors(destructors);
+            };
+          }
+  
+          Object.defineProperty(classType.registeredClass.constructor, fieldName, desc);
+          return [];
+        });
+  
+        return [];
+      });
+    };
+
   var heap32VectorToArray = (count, firstElement) => {
       var array = [];
       for (var i = 0; i < count; i++) {
@@ -4857,13 +4928,6 @@ async function createWasm() {
   
   
   
-  var runDestructors = (destructors) => {
-      while (destructors.length) {
-        var ptr = destructors.pop();
-        var del = destructors.pop();
-        del(ptr);
-      }
-    };
   
   
   function usesDestructorStack(argTypes) {
@@ -6049,6 +6113,16 @@ async function createWasm() {
       quit_(1, e);
     };
 
+  
+  
+  var stackAlloc = (sz) => __emscripten_stack_alloc(sz);
+  var stringToUTF8OnStack = (str) => {
+      var size = lengthBytesUTF8(str) + 1;
+      var ret = stackAlloc(size);
+      stringToUTF8(str, ret, size);
+      return ret;
+    };
+
   FS.createPreloadedFile = FS_createPreloadedFile;
   FS.staticInit();;
 init_ClassHandle();
@@ -6105,7 +6179,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   'convertI32PairToI53',
   'convertI32PairToI53Checked',
   'convertU32PairToI53',
-  'stackAlloc',
   'getTempRet0',
   'setTempRet0',
   'zeroMemory',
@@ -6156,7 +6229,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   'intArrayToString',
   'stringToAscii',
   'stringToNewUTF8',
-  'stringToUTF8OnStack',
   'writeArrayToMemory',
   'registerKeyEventCallback',
   'maybeCStringToJsString',
@@ -6296,6 +6368,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'bigintToI53Checked',
   'stackSave',
   'stackRestore',
+  'stackAlloc',
   'ptrToString',
   'exitJS',
   'getHeapMax',
@@ -6341,6 +6414,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'UTF32ToString',
   'stringToUTF32',
   'lengthBytesUTF32',
+  'stringToUTF8OnStack',
   'JSEvents',
   'specialHTMLTargets',
   'findCanvasEventTarget',
@@ -6607,7 +6681,6 @@ function checkIncomingModuleAPI() {
 var _main = Module['_main'] = makeInvalidEarlyAccess('_main');
 var _free = makeInvalidEarlyAccess('_free');
 var _malloc = makeInvalidEarlyAccess('_malloc');
-var _main = Module['_main'] = makeInvalidEarlyAccess('_main');
 var ___getTypeName = makeInvalidEarlyAccess('___getTypeName');
 var _fflush = makeInvalidEarlyAccess('_fflush');
 var _emscripten_stack_get_end = makeInvalidEarlyAccess('_emscripten_stack_get_end');
@@ -6623,7 +6696,6 @@ function assignWasmExports(wasmExports) {
   Module['_main'] = _main = createExportWrapper('__main_argc_argv', 2);
   _free = createExportWrapper('free', 1);
   _malloc = createExportWrapper('malloc', 1);
-  Module['_main'] = _main = createExportWrapper('main', 2);
   ___getTypeName = createExportWrapper('__getTypeName', 1);
   _fflush = createExportWrapper('fflush', 1);
   _emscripten_stack_get_end = wasmExports['emscripten_stack_get_end'];
@@ -6654,6 +6726,8 @@ var wasmImports = {
   _embind_register_bool: __embind_register_bool,
   /** @export */
   _embind_register_class: __embind_register_class,
+  /** @export */
+  _embind_register_class_class_property: __embind_register_class_class_property,
   /** @export */
   _embind_register_class_constructor: __embind_register_class_constructor,
   /** @export */
@@ -6709,14 +6783,22 @@ var wasmExports = await createWasm();
 
 var calledRun;
 
-function callMain() {
+function callMain(args = []) {
   assert(runDependencies == 0, 'cannot call main when async dependencies remain! (listen on Module["onRuntimeInitialized"])');
   assert(typeof onPreRuns === 'undefined' || onPreRuns.length == 0, 'cannot call main when preRun functions remain to be called');
 
   var entryFunction = _main;
 
-  var argc = 0;
-  var argv = 0;
+  args.unshift(thisProgram);
+
+  var argc = args.length;
+  var argv = stackAlloc((argc + 1) * 4);
+  var argv_ptr = argv;
+  args.forEach((arg) => {
+    HEAPU32[((argv_ptr)>>2)] = stringToUTF8OnStack(arg);
+    argv_ptr += 4;
+  });
+  HEAPU32[((argv_ptr)>>2)] = 0;
 
   try {
 
@@ -6739,7 +6821,7 @@ function stackCheckInit() {
   writeStackCookie();
 }
 
-function run() {
+function run(args = arguments_) {
 
   if (runDependencies > 0) {
     dependenciesFulfilled = run;
@@ -6774,7 +6856,7 @@ function run() {
     consumedModuleProp('onRuntimeInitialized');
 
     var noInitialRun = Module['noInitialRun'] || false;
-    if (!noInitialRun) callMain();
+    if (!noInitialRun) callMain(args);
 
     postRun();
   }
