@@ -800,6 +800,21 @@ function minimize_spectrum(button,index)
     let minimize_button = button;
     if(minimize_button.innerText === "-")
     {
+        /**
+         * If this is current spectrum, do not minimize it
+         */
+        if(main_plot.current_spectrum_index === index)
+        {
+            return; 
+        }
+        /**
+         * If current spectrum is recon spectrum of spectrum index, do not minimize it
+         */
+        if( all_spectra[main_plot.current_spectrum_index].spectrum_origin  === index)
+        {
+            return;
+        }
+
         minimize_button.innerText = "+";
         spectrum_div.style.height = "1.75rem";
         spectrum_div.style.overflow = "clip";
@@ -830,20 +845,6 @@ function minimize_spectrum(button,index)
                     current_spectrum_index_of_peaks = -1;
                     main_plot.remove_peaks();
                 }
-            }
-        }
-        /**
-         * If this is the current spectrum, set current_spectrum_index to -1
-         */
-        if(main_plot.current_spectrum_index === index)
-        {
-            main_plot.current_spectrum_index = -1;
-            /**
-             * Un-highlight the current spectrum in the list
-             */
-            let current_spectrum_div = document.getElementById("spectrum-".concat(index));
-            if (current_spectrum_div) {
-                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
     }
@@ -1026,6 +1027,18 @@ function add_to_list(index) {
     line_color_input.addEventListener("change", (e) => { update_line_color(e, index); });
     new_spectrum_div.appendChild(line_color_label);
     new_spectrum_div.appendChild(line_color_input);
+
+    /**
+     * Label and span for spectrum scale, default is 1.0
+     */
+    let scale_label = document.createElement("label");
+    scale_label.setAttribute("for", "spectrum-scale-".concat(index));
+    scale_label.innerText = "Scale: ";
+    let scale_span = document.createElement("span");
+    scale_span.setAttribute("id", "spectrum-scale-".concat(index));
+    scale_span.innerText = "1.00";
+    new_spectrum_div.appendChild(scale_label);
+    new_spectrum_div.appendChild(scale_span);
 
     new_spectrum_div.appendChild(document.createElement("br"));
 
