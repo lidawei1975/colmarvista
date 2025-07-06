@@ -1044,6 +1044,11 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(scale_label);
         new_spectrum_div.appendChild(scale_span);
 
+        /**
+         * Add a double spaces between scale and reference
+         */
+        new_spectrum_div.appendChild(document.createTextNode("  "));
+
 
         let ref_label = document.createElement("label");
         ref_label.setAttribute("for", "spectrum-reference-".concat(index));

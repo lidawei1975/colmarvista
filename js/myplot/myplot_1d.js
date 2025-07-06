@@ -285,70 +285,68 @@ class myplot_1d {
                 let index = this.current_spectrum_index;
 
                 /**
-                 * Don't rescale the spectrum if all_spectra[index].spectral_origin >=0 
-                 * means a reconstructed spectrum or from pseudo 2D but not the fitted spectrum
+                 * If it is a reconstructed spectrum, we need to get the original spectrum index
                  */
-                if ( all_spectra[index].spectrum_origin < 0)
-                {
+                if (all_spectra[index].spectrum_origin >= 0) {
+                    index = all_spectra[index].spectrum_origin;
+                }
+
+                /**
+                 * Update the scale of the spectrum to user (span element with id 'spectrum-scale-<index>')
+                 */
+                document.getElementById('spectrum-scale-'.concat(index)).textContent = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
+
+                let lineId = `line${index}`;
+                let data = this.allLines[lineId];
+                if (data) {
+                    this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
+                    const scale = this.spectral_scale[index]; // Update the scale of the spectrum
+                    const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    this.vis.select(`#${lineId}`)
+                        .datum(downsampled)
+                        .attr("d", this.lineGenerator);
+
+
                     /**
-                     * Update the scale of the spectrum to user (span element with id 'spectrum-scale-<index>')
+                     * We also need to rescale all in all_spectra[index].reconstructed_indices
                      */
-                    document.getElementById('spectrum-scale-'.concat(index)).textContent  = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
-
-                    let lineId = `line${index}`;
-                    let data = this.allLines[lineId];
-                    if (data) {
-                        this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
-                        const scale = this.spectral_scale[index]; // Update the scale of the spectrum
-                        const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
-                        let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
-                        this.vis.select(`#${lineId}`)
-                            .datum(downsampled)
-                            .attr("d", this.lineGenerator);
-                    
-
-                        /**
-                         * We also need to rescale all in all_spectra[index].reconstructed_indices
-                         */
-                        for(let m=0;m < all_spectra[index].reconstructed_indices.length; m++)
-                        {
-                            let recon_index = all_spectra[index].reconstructed_indices[m];
-                            this.spectral_scale[recon_index] = scale;
-                            this.spectrum_reference[recon_index] = reference;
-                            lineId = `line${recon_index}`;
-                            data = this.allLines[lineId];
-                            if (data) {
-                                const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
-                                const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
-                                downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
-                                this.vis.select(`#${lineId}`)
-                                    .datum(downsampled)
-                                    .attr("d", this.lineGenerator);
-                            }
+                    for (let m = 0; m < all_spectra[index].reconstructed_indices.length; m++) {
+                        let recon_index = all_spectra[index].reconstructed_indices[m];
+                        this.spectral_scale[recon_index] = scale;
+                        this.spectrum_reference[recon_index] = reference;
+                        lineId = `line${recon_index}`;
+                        data = this.allLines[lineId];
+                        if (data) {
+                            const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
+                            const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            this.vis.select(`#${lineId}`)
+                                .datum(downsampled)
+                                .attr("d", this.lineGenerator);
                         }
+                    }
 
-                        if(current_spectrum_index_of_peaks != -1 && current_spectrum_index_of_peaks == index )
-                        {
+                    if (current_spectrum_index_of_peaks != -1 ) {
+                        /**
+                         * We need to rescale the peaks of the current spectrum index
+                         * this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+                         */
+                        this.$peaks_symbol
+                            .attr('cx', (d) => this.xscale(d[0] + reference))
+                            .attr('cy', (d) => this.yscale(d[1] * scale));
+
+                        if (this.peak_type === "fitted") {
                             /**
-                             * We need to rescale the peaks of the current spectrum index
-                             * this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+                             * We need to rescale the fitted peaks of the current spectrum index
+                             * this.$reconstructed_peaks is an array of [x,y] pairs. X is ppm, Y is intensity
                              */
-                            this.$peaks_symbol
-                                .attr('cx', (d) => this.xscale(d[0] + reference))
-                                .attr('cy', (d) => this.yscale(d[1] * scale));
-
-                            if(this.peak_type === "fitted")
-                            {
-                                /**
-                                 * We need to rescale the fitted peaks of the current spectrum index
-                                 * this.$reconstructed_peaks is an array of [x,y] pairs. X is ppm, Y is intensity
-                                 */
-                                this.$reconstructed_peaks
-                                    .attr('d', d => this.lineGenerator(d.map(p => [p[0] + reference, p[1] * scale])));
-                            }
+                            this.$reconstructed_peaks
+                                .attr('d', d => this.lineGenerator(d.map(p => [p[0] + reference, p[1] * scale])));
                         }
                     }
                 }
+
                 return;
             }
 
@@ -559,7 +557,7 @@ class myplot_1d {
                 
                 if ( all_spectra[index].spectrum_origin >=0)
                 {
-                    return; // Do not pan the spectrum if it is a reconstructed spectrum or from pseudo 2D but not the fitted spectrum
+                    index = all_spectra[index].spectrum_origin; // Get the original spectrum index if it is a reconstructed spectrum
                 }
 
                 
@@ -602,7 +600,7 @@ class myplot_1d {
                         }
                     }
 
-                    if (current_spectrum_index_of_peaks != -1 && current_spectrum_index_of_peaks == index) {
+                    if (current_spectrum_index_of_peaks != -1 ) {
                         /**
                          * We need to rescale the peaks of the current spectrum index
                          * this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
