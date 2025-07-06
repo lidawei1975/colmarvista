@@ -554,8 +554,22 @@ class myplot_1d {
              * We do not change xscale, instead, we change data of this.current_spectrum_index
              */
             if (e.altKey == true && this.current_spectrum_index != -1) {
+
                 let index = this.current_spectrum_index;
+                
+                if ( all_spectra[index].spectrum_origin >=0)
+                {
+                    return; // Do not pan the spectrum if it is a reconstructed spectrum or from pseudo 2D but not the fitted spectrum
+                }
+
+                
                 this.spectrum_reference[index] += delta_ppm; // Update reference correction for the spectrum
+                
+                /**
+                 * Update the scale of the spectrum to user (span element with id 'spectrum-reference-<index>')
+                 */
+                document.getElementById('spectrum-reference-'.concat(index)).textContent = this.spectrum_reference[index].toFixed(4); // Update the scale of the spectrum to user input
+                
                 /**
                  * Redraw the current spectral index only
                  */
@@ -568,6 +582,44 @@ class myplot_1d {
                     this.vis.select(`#${lineId}`)
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
+
+                    /**
+                     * We also need to update all in all_spectra[index].reconstructed_indices
+                     */
+                    for(let m=0;m < all_spectra[index].reconstructed_indices.length; m++)
+                    {
+                        let recon_index = all_spectra[index].reconstructed_indices[m];
+                        this.spectrum_reference[recon_index] += delta_ppm; // Update reference correction for the spectrum
+                        lineId = `line${recon_index}`;
+                        data = this.allLines[lineId];
+                        if (data) {
+                            const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
+                            const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            this.vis.select(`#${lineId}`)
+                                .datum(downsampled)
+                                .attr("d", this.lineGenerator);
+                        }
+                    }
+
+                    if (current_spectrum_index_of_peaks != -1 && current_spectrum_index_of_peaks == index) {
+                        /**
+                         * We need to rescale the peaks of the current spectrum index
+                         * this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+                         */
+                        this.$peaks_symbol
+                            .attr('cx', (d) => this.xscale(d[0] + reference))
+                            .attr('cy', (d) => this.yscale(d[1] * scale));
+
+                        if (this.peak_type === "fitted") {
+                            /**
+                             * We need to rescale the fitted peaks of the current spectrum index
+                             * this.$reconstructed_peaks is an array of [x,y] pairs. X is ppm, Y is intensity
+                             */
+                            this.$reconstructed_peaks
+                                .attr('d', d => this.lineGenerator(d.map(p => [p[0] + reference, p[1] * scale])));
+                        }
+                    }
                 }
             }
             else {
@@ -786,7 +838,7 @@ class myplot_1d {
          */
         if(this.$peaks_symbol) {
             this.$peaks_symbol
-                .attr('cx', (d) => this.xscale(d[0]))
+                .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
                 .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
                 ;
         }
@@ -795,9 +847,10 @@ class myplot_1d {
         // Redraw all peak profiles
         if(this.$reconstructed_peaks) {
             const scale_factor = this.spectral_scale[this.current_spectrum_index];
+            const reference = this.spectrum_reference[this.current_spectrum_index];
             this.$reconstructed_peaks
             .attr('d', d => this.lineGenerator(
-                d.map(p => [p[0], p[1] * scale_factor])
+                d.map(p => [p[0] + reference, p[1] * scale_factor])
             ))
         }
     }
@@ -1006,6 +1059,7 @@ class myplot_1d {
          * Step 2, add new peak profile. One peak profile is a path with multiple points
          */
         const scale_factor = this.spectral_scale[this.current_spectrum_index] || 1.0; // Get the scale factor for the current spectrum index, default to 1.0 if not defined
+        const reference = this.spectrum_reference[this.current_spectrum_index] || 0.0; // Get the reference correction for the current spectrum index, default to 0.0 if not defined
         this.$reconstructed_peaks = this.vis.selectAll('path.reconstructed_peaks')
             .data(filtered_peaks_recon)
             .enter()
@@ -1013,7 +1067,7 @@ class myplot_1d {
             .attr('class', 'reconstructed_peaks')
             .attr('clip-path', 'url(#clip)')
             .attr('d', d => this.lineGenerator(
-                d.map(p => [p[0], p[1] * scale_factor])
+                d.map(p => [p[0]+reference, p[1] * scale_factor])
             ))
             .attr('stroke', 'grey')
             .attr('stroke-width', 1)
@@ -1040,8 +1094,8 @@ class myplot_1d {
             .enter()
             .append('circle')
             .attr("clip-path", "url(#clip)")
-            .attr('cx', (d) => this.xscale(d[0]))
-            .attr('cy', (d) => this.yscale(d[1]* this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
+            .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
+            .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
             .attr('r', self.peak_size) // radius of the circle
             .style("fill", function (d) {
                 if (self.filled_peaks) {

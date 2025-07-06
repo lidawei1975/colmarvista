@@ -1029,16 +1029,32 @@ function add_to_list(index) {
     new_spectrum_div.appendChild(line_color_input);
 
     /**
+     * For no-reconstructed spectra or add spectra from pseudo 2D, add 
      * Label and span for spectrum scale, default is 1.0
+     * Label and span for spectrum reference, default is 0.0
      */
-    let scale_label = document.createElement("label");
-    scale_label.setAttribute("for", "spectrum-scale-".concat(index));
-    scale_label.innerText = "Scale: ";
-    let scale_span = document.createElement("span");
-    scale_span.setAttribute("id", "spectrum-scale-".concat(index));
-    scale_span.innerText = "1.00";
-    new_spectrum_div.appendChild(scale_label);
-    new_spectrum_div.appendChild(scale_span);
+    if( new_spectrum.spectrum_origin < 0 )
+    {
+        let scale_label = document.createElement("label");
+        scale_label.setAttribute("for", "spectrum-scale-".concat(index));
+        scale_label.innerText = "Scale: ";
+        let scale_span = document.createElement("span");
+        scale_span.setAttribute("id", "spectrum-scale-".concat(index));
+        scale_span.innerText = "1.00";
+        new_spectrum_div.appendChild(scale_label);
+        new_spectrum_div.appendChild(scale_span);
+
+
+        let ref_label = document.createElement("label");
+        ref_label.setAttribute("for", "spectrum-reference-".concat(index));
+        ref_label.innerText = "Reference: ";
+        let ref_span = document.createElement("span");
+        ref_span.setAttribute("id", "spectrum-reference-".concat(index));
+        ref_span.innerText = "0.0000";
+        new_spectrum_div.appendChild(ref_label);
+        new_spectrum_div.appendChild(ref_span);
+
+    }
 
     new_spectrum_div.appendChild(document.createElement("br"));
 
