@@ -12,22 +12,26 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2;
+var my_contour_worker, webassembly_worker, webassembly_worker2,webassembly_1d_worker_2;
 
 try {
     my_contour_worker = new Worker('./js/contour.js');
     webassembly_worker = new Worker('./js/webass.js');
     webassembly_worker2 = new Worker('./js/webass2.js');
+     webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
 }
 catch (err) {
     console.log(err);
     if (typeof (my_contour_worker) === "undefined" 
         || typeof (webassembly_worker) === "undefined"
-        || typeof (webassembly_worker2) === "undefined")
+        || typeof (webassembly_worker2) === "undefined"
+        || typeof (webassembly_1d_worker_2) === "undefined" )
     {
         alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
+
+const mathTool = new ldwmath();
 
 
 var plot_margin_top = 20;
@@ -202,6 +206,7 @@ $(document).ready(function () {
     .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid","nuslist"])  /** file names to be searched from upload */
     .files_id(["acquisition_file2","acquisition_file2", "acquisition_file", "fid_file", "fid_file","nuslist_file"]) /** Corresponding file element IDs */
     .file_extension([])  /** file extensions to be searched from upload */
+    .required_files([0,2,3])
     .init();
 
     /**
@@ -950,6 +955,35 @@ webassembly_worker2.onmessage = function (e) {
             zf_indirect: zf_indirect,
             processing_flag: e.data.processing_flag,
         });
+    }
+}
+
+webassembly_1d_worker_2.onmessage = function (e) {
+    /**
+     * if result is stdout, it is the processing message
+     */
+    if (e.data.stdout) {
+
+        /**
+         * Append e.data.stdout to textarea with ID "log"
+         * and add a new line
+         */
+        document.getElementById("log").value += e.data.stdout + "\n";
+        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    }
+    /**
+     * e.data.stdout is defined but empty, it is the end of the processing message
+     */
+    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
+    }
+
+    /**
+     * If job is "gaussian_fitting"
+     */
+    else if (e.data.webassembly_job === "gaussian_fitting") {
+        console.log("Fitted peaks received from C++ worker");
+        let spectrum_index = e.data.spectrum_index;
+        hsqc_spectra[spectrum_index].process_gaussian_fitting_result(e.data);
     }
 }
 

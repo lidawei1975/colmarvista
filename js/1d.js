@@ -28,7 +28,7 @@ catch (err) {
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
-var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
+var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 2D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
@@ -163,6 +163,17 @@ $(document).ready(function () {
 
     pseudo2d_fitted_peaks_error = [];
 
+    /**
+    * INitialize the file drop processor for the time domain spectra
+    */
+    fid_drop_process = new file_drop_processor()
+    .drop_area('input_files') /** id of dropzone */
+    .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
+    .files_id([ "acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
+    .file_extension([])  /** file extensions to be searched from upload */
+    .required_files([0,1])
+    .init();
+
 
     /**
      * ft2 file drop processor
@@ -218,7 +229,7 @@ $(document).ready(function () {
                     /**
                      * If not a .ft2 file or .ft3 file, resolve the promise
                      */
-                    if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") )
+                    if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ucsf") )
                     {
                         return read_file(this.querySelector('input[type="file"]').files[ii]);
                     }
@@ -286,7 +297,7 @@ $(document).ready(function () {
         }
     });
 
-        /**
+    /**
      * Event listener for file input "load_file"
      */
     document.getElementById('load_file').addEventListener('change', function (e) {
@@ -308,11 +319,138 @@ $(document).ready(function () {
             reader.readAsArrayBuffer(file);
         }
     });
+
+    /**
+     * Event listener for fid file input "fid_file"
+     */
+    document.getElementById('fid_file_form').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        let acquisition_file = document.getElementById('acquisition_file').files[0];
+        let fid_file = document.getElementById('fid_file').files[0];
+
+        if (acquisition_file && fid_file) {
+            let acquisition_string = await read_file_text(acquisition_file);
+            let fid_buffer = await read_file(fid_file);
+            /**
+             * Convert fid_buffer to Float32Array
+             */
+            let apodization_string = document.getElementById("apodization_direct").value;
+            let zf_direct = parseInt(document.getElementById("zf_direct").value);
+            let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+            let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+            let auto_direct = document.getElementById("auto_direct").checked;
+            let delete_imaginary = document.getElementById("delete_imaginary").checked;
+            /**
+             * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
+             */
+            let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+
+            /**
+             * fid_process_parameters is a GLOBAL object that will be sent to the webassembly worker
+             * It will be saved here, in case we need to re-process the fid file
+             */
+            fid_process_parameters = {
+                webassembly_job: "fid_processor_1d",
+                acquisition_string: acquisition_string,
+                fid_buffer: fid_buffer,
+                apodization_string: apodization_string,
+                zf_direct: zf_direct,
+                phase_correction_direct_p0: phase_correction_direct_p0,
+                phase_correction_direct_p1: phase_correction_direct_p1,
+                auto_direct: auto_direct,
+                delete_imaginary: delete_imaginary,
+                pseudo_2d_process: pseudo_2d_process,
+                reprocess: false, // this is not a re-process, it is a new fid file processing
+                spectrum_index: -1, // -1 is a flag, means to be decided later.
+            };
+
+            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+        }
+        else{
+            alert("Please select both acquisition and fid files.");
+        }
+    });
+
+    /**
+     * Event listener for peak_size, peak_thickness, filled_peaks and peak_color
+     */
+    document.getElementById('peak_size').addEventListener('change', function (e) {
+        main_plot.peak_size = parseFloat(this.value);
+        main_plot.redraw_peaks(1);
+    });
+    document.getElementById('peak_thickness').addEventListener('change', function (e) {
+        main_plot.peak_thickness = parseFloat(this.value);
+        main_plot.redraw_peaks(2);
+    });
+    document.getElementById('filled_peaks').addEventListener('change', function (e) {
+        main_plot.filled_peaks = this.checked;
+        main_plot.redraw_peaks(3);
+    });
+    document.getElementById('peak_color').addEventListener('change', function (e) {
+        main_plot.peak_color = this.value;
+        main_plot.redraw_peaks(4);
+    });
 });
+
+/**
+ * user click button to re-process fid file
+ */
+function reprocess_fid(spectrum_index) {
+    let apodization_string = document.getElementById("apodization_direct").value;
+    let zf_direct = parseInt(document.getElementById("zf_direct").value);
+    let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+    let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+    let auto_direct = document.getElementById("auto_direct").checked;
+    let delete_imaginary = document.getElementById("delete_imaginary").checked;
+
+    /**
+     * Only update above parameters, keep the rest the same
+     */
+    fid_process_parameters.apodization_string = apodization_string;
+    fid_process_parameters.zf_direct = zf_direct;
+    fid_process_parameters.phase_correction_direct_p0 = phase_correction_direct_p0;
+    fid_process_parameters.phase_correction_direct_p1 = phase_correction_direct_p1;
+    fid_process_parameters.auto_direct = auto_direct;
+    fid_process_parameters.delete_imaginary = delete_imaginary;
+    fid_drop_process.reprocess = true; // this is a re-process, not a new fid file processing
+    fid_drop_process.spectrum_index = spectrum_index; // save the spectrum index to re-process
+
+    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+}
 
 webassembly_1d_worker_2.onmessage = function (e) {
     
-    if(e.data.webassembly_job === "peak_picker")
+    if(e.data.webassembly_job === "fid_processor_1d"){
+        /**
+         * Received fid processing result:
+         *  webassembly_job: event.data.webassembly_job,
+            fid_json: fid_json,
+            spectrum_header : header_data,
+            real_spectrum_data: real_spectrum_data,
+         */
+        result_spectrum = new spectrum_1d();
+
+        /**
+         * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
+         */
+        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length*2);
+        combined.set(e.data.spectrum_header);
+        combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
+        combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
+        const buffer = combined.buffer;
+        result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+
+        /**
+         * Update fid processing box parameters
+         */
+        document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
+
+        draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
+    }
+
+
+    else if(e.data.webassembly_job === "peak_picker")
     {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
@@ -360,13 +498,6 @@ webassembly_1d_worker_2.onmessage = function (e) {
          * Enable the download fitted peaks button and show the fitted peaks button
          */
         disable_enable_fitted_peak_buttons(e.data.spectrum_origin,1);
-
-        /**
-         * Uncheck the show_peaks checkbox then simulate a click event to show the peaks (with updated peaks from fitted_peaks)
-         */
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).checked = false;
-        document.getElementById("show_fitted_peaks-".concat(e.data.spectrum_origin)).click();
-
         
         /**
          * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
@@ -392,34 +523,45 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.picked_peaks_object = all_spectra[e.data.spectrum_origin].picked_peaks_object;
         result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
 
-        /**
-         * Keep copy of all fitted peaks (as spectrum).
-         * TODO: This is not a good practice, we should use the peaks object to generate peak spectrum instead in future version
-         */
-        let recon_peaks = JSON.parse(e.data.recon_json);
-        let peaks_center = get_center(recon_peaks.peaks_recon);
+        const recon_peaks = JSON.parse(e.data.recon_json);
+        const peaks_center = get_center(recon_peaks.peaks_recon);
+
+        result_spectrum.recon_peaks = recon_peaks.peaks_recon;
+        result_spectrum.recon_peaks_center = peaks_center;
+
+       
 
         /**
          * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
          */
         result_spectrum.scale = e.data.scale;
         result_spectrum.scale2 = e.data.scale2;
-        result_spectrum.recon_peaks = recon_peaks;
-        result_spectrum.peaks_center = peaks_center;
-        all_spectra.push(result_spectrum);
 
-
-
+        draw_spectrum([result_spectrum], false/**from fid */, false/** re-process of fid or ft2 */);
         /**
          * Clear the processing message
          */
         document.getElementById("webassembly_message").innerText = "";
 
-        /**
-         * At this moment, add recon.js to the plot
-         */
-        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
+     
     }
+
+    else if(e.data.webassembly_job === "generate_voigt_profiles"){
+
+        /**
+         * If peak index == 0, we are receiving the first one from a new batch, remove all existing profiles first
+         */
+        if(e.data.profile_index==0)
+        {
+            main_plot.remove_all_peak_profiles();
+        }
+        /**
+         * Add the profile to the main_plot
+         */
+        main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
+    }
+
+
     else if(e.data.stdout)
     {
         document.getElementById("log").value += e.data.stdout + "\n";
@@ -534,7 +676,7 @@ sortableList.addEventListener(
             if (new_order.length === main_plot.spectral_order.length) {
                 clearInterval(interval_id);
                 main_plot.spectral_order = new_order;
-                main_plot.redraw_contour_order();
+                main_plot.redraw_order();
             }
         }, 1000);
     });
@@ -658,13 +800,36 @@ function minimize_spectrum(button,index)
     let minimize_button = button;
     if(minimize_button.innerText === "-")
     {
+        /**
+         * If this is current spectrum, do not minimize it
+         */
+        if(main_plot.current_spectrum_index === index)
+        {
+            return; 
+        }
+        /**
+         * If current spectrum is recon spectrum of spectrum index, do not minimize it
+         */
+        if( all_spectra[main_plot.current_spectrum_index].spectrum_origin  === index)
+        {
+            return;
+        }
+
         minimize_button.innerText = "+";
         spectrum_div.style.height = "1.75rem";
         spectrum_div.style.overflow = "clip";
-        /**
-         * Also set lbs to hide all contours for this spectrum
-         */
+        
         all_spectra[index].visible = false;
+        main_plot.update_visibility(index,false);
+
+        /**
+         * If peaks are shown, remove them as well
+         */
+        if(current_spectrum_index_of_peaks === index)
+        {
+            current_spectrum_index_of_peaks = -1;
+            main_plot.remove_peaks();
+        }
 
         /**
          * Loop all spectra, find children of this spectrum, hide them too
@@ -674,6 +839,12 @@ function minimize_spectrum(button,index)
             if(all_spectra[i].spectrum_origin === index)
             {
                 all_spectra[i].visible = false;
+                main_plot.update_visibility(i,false);
+                if(current_spectrum_index_of_peaks === i)
+                {
+                    current_spectrum_index_of_peaks = -1;
+                    main_plot.remove_peaks();
+                }
             }
         }
     }
@@ -682,6 +853,7 @@ function minimize_spectrum(button,index)
         minimize_button.innerText = "-";
         spectrum_div.style.height = "auto";
         all_spectra[index].visible = true;
+        main_plot.update_visibility(index,true);
 
         /**
          * Loop all spectra, find children of this spectrum, show them too
@@ -691,10 +863,10 @@ function minimize_spectrum(button,index)
             if(all_spectra[i].spectrum_origin === index)
             {
                 all_spectra[i].visible = true;
+                main_plot.update_visibility(i,true);
             }
         }
     }
-    main_plot.redraw_1d();
 }
 
 /**
@@ -746,7 +918,7 @@ function add_to_list(index) {
     /**
      * Add a "Reprocess" button to the new spectrum_1d div if
      * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 2D)
-     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_ri or raw_data_ir is not empty
+     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_i or raw_data_ir is not empty
      */
     if(new_spectrum.spectrum_origin === -2)
     {
@@ -754,16 +926,6 @@ function add_to_list(index) {
         reprocess_button.innerText = "Reprocess";
         reprocess_button.onclick = function () { reprocess_spectrum(this,index); };
         new_spectrum_div.appendChild(reprocess_button);
-    }
-
-    /**
-     * If this is a reconstructed spectrum, add a button called "Remove me"
-     */
-    if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
-        let remove_button = document.createElement("button");
-        remove_button.innerText = "Remove me";
-        remove_button.onclick = function () { remove_spectrum_caller(index); };
-        new_spectrum_div.appendChild(remove_button);
     }
     
     if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
@@ -779,14 +941,14 @@ function add_to_list(index) {
         /**
          * make this one the default selected spectrum
          */
-        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
 
-            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectrum_index));
             if (current_spectrum_div) {
                 current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
-        main_plot.current_spectral_index = index;
+        main_plot.current_spectrum_index = index;
         /**
          * Highlight the current spectrum in the list
          */
@@ -804,7 +966,7 @@ function add_to_list(index) {
             /**
              * If this new spectrum_1d has no imaginary part, disable auto phase correction button
              */
-            if(all_spectra[index].raw_data_ri.length > 0 && all_spectra[index].raw_data_ir.length > 0 && all_spectra[index].raw_data_ii.length > 0 && all_spectra[index].spectrum_origin === -1)
+            if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_ir.length > 0 && all_spectra[index].raw_data_ii.length > 0 && all_spectra[index].spectrum_origin === -1)
             {
                 document.getElementById("automatic_pc").disabled = false;
             }
@@ -849,15 +1011,35 @@ function add_to_list(index) {
     download_button.innerText = "Download ft1";
     download_button.onclick = function () { download_spectrum(index,'original'); };
     new_spectrum_div.appendChild(download_button);
+    
     /**
-     * Add a different spectrum download button for reconstructed spectrum only
+     * A color picker element with the color of the contour plot, whose ID is "contour_color-".concat(index)
+     * Set the color of the picker to the color of the spectrum
+     * Also add an event listener to update the color of the contour plot
      */
-    if (new_spectrum.spectrum_origin >=0 && new_spectrum.spectrum_origin < 10000) {
-        let download_button = document.createElement("button");
-        download_button.innerText = "Download diff.ft2";
-        download_button.onclick = function () { download_spectrum(index,'diff'); };
-        new_spectrum_div.appendChild(download_button);
-    }
+    let line_color_label = document.createElement("label");
+    line_color_label.setAttribute("for", "line_color-".concat(index));
+    line_color_label.innerText = "Color: ";
+    let line_color_input = document.createElement("input");
+    line_color_input.setAttribute("type", "color");
+    line_color_input.setAttribute("value", new_spectrum.spectrum_color);
+    line_color_input.setAttribute("id", "contour_color-".concat(index));
+    line_color_input.addEventListener("change", (e) => { update_line_color(e, index); });
+    new_spectrum_div.appendChild(line_color_label);
+    new_spectrum_div.appendChild(line_color_input);
+
+    /**
+     * Label and span for spectrum scale, default is 1.0
+     */
+    let scale_label = document.createElement("label");
+    scale_label.setAttribute("for", "spectrum-scale-".concat(index));
+    scale_label.innerText = "Scale: ";
+    let scale_span = document.createElement("span");
+    scale_span.setAttribute("id", "spectrum-scale-".concat(index));
+    scale_span.innerText = "1.00";
+    new_spectrum_div.appendChild(scale_label);
+    new_spectrum_div.appendChild(scale_span);
+
     new_spectrum_div.appendChild(document.createElement("br"));
 
 
@@ -906,7 +1088,13 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(deep_picker_button);
 
         // Add a line break
-        new_spectrum_div.appendChild(document.createElement("br"));
+        if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000)
+        {
+
+        }
+        else{
+            new_spectrum_div.appendChild(document.createElement("br"));
+        }
       
         /**
          * Add a combine_peak cutoff input filed with ID "peak_combine_cutoff-".concat(index)
@@ -1002,15 +1190,19 @@ function add_to_list(index) {
     download_peaks_button.onclick = function () { download_peaks(index,'picked'); };
     new_spectrum_div.appendChild(download_peaks_button);
 
-    /**
-     * Add a download button to download the fitted peaks.
-     * Disabled (enabled) if all_spectra[index].fitted_peaks_object is empty (not empty)
-     */
-    let download_fitted_peaks_button = document.createElement("button");
-    download_fitted_peaks_button.innerText = "Download fitted peaks";
-    download_fitted_peaks_button.setAttribute("id", "download_fitted_peaks-".concat(index));
-    download_fitted_peaks_button.onclick = function () { download_peaks(index,'fitted'); };
-    new_spectrum_div.appendChild(download_fitted_peaks_button);
+
+
+    if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
+        /**
+         * Add a download button to download the fitted peaks.
+         * Disabled (enabled) if all_spectra[index].fitted_peaks_object is empty (not empty)
+         */
+        let download_fitted_peaks_button = document.createElement("button");
+        download_fitted_peaks_button.innerText = "Download fitted peaks";
+        download_fitted_peaks_button.setAttribute("id", "download_fitted_peaks-".concat(index));
+        download_fitted_peaks_button.onclick = function () { download_peaks(index,'fitted'); };
+        new_spectrum_div.appendChild(download_fitted_peaks_button);
+    }
 
     /**
      * Add a checkbox to show or hide the picked peaks. Default is unchecked
@@ -1036,22 +1228,34 @@ function add_to_list(index) {
     show_peaks_label.innerText = "Show picked peaks";
     new_spectrum_div.appendChild(show_peaks_label);
 
-    /**
-     * Add a checkbox to show or hide the fitted peaks. Default is unchecked
-     */
-    let show_fitted_peaks_checkbox = document.createElement("input");
-    show_fitted_peaks_checkbox.setAttribute("type", "checkbox");
-    show_fitted_peaks_checkbox.setAttribute("id", "show_fitted_peaks-".concat(index));
-    show_fitted_peaks_checkbox.onclick = function (e) {
+    if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
         /**
-         * If the checkbox is checked, show the peaks
+         * Add a checkbox to show or hide the fitted peaks. Default is unchecked
          */
-        if (e.target.checked) {
-            show_hide_peaks(index,'fitted', true);
+        let show_fitted_peaks_checkbox = document.createElement("input");
+        show_fitted_peaks_checkbox.setAttribute("type", "checkbox");
+        show_fitted_peaks_checkbox.setAttribute("id", "show_fitted_peaks-".concat(index));
+        show_fitted_peaks_checkbox.onclick = function (e) {
+            /**
+             * If the checkbox is checked, show the peaks
+             */
+            if (e.target.checked) {
+                show_hide_peaks(index,'fitted', true);
+            }
+            else {
+                show_hide_peaks(index,'fitted', false);
+            }
         }
-        else {
-            show_hide_peaks(index,'fitted', false);
+        if(all_spectra[index].fitted_peaks_object === null || all_spectra[index].fitted_peaks_object.column_headers.length === 0)
+        {
+            show_fitted_peaks_checkbox.disabled = true;
+            download_fitted_peaks_button.disabled = true;
         }
+         new_spectrum_div.appendChild(show_fitted_peaks_checkbox);
+        let show_fitted_peaks_label = document.createElement("label");
+        show_fitted_peaks_label.setAttribute("for", "show_fitted_peaks-".concat(index));
+        show_fitted_peaks_label.innerText = "Show fitted peaks";
+        new_spectrum_div.appendChild(show_fitted_peaks_label);
     }
 
     /**
@@ -1062,18 +1266,7 @@ function add_to_list(index) {
         show_peaks_checkbox.disabled = true;
         download_peaks_button.disabled = true;
     }
-    if(all_spectra[index].fitted_peaks_object === null || all_spectra[index].fitted_peaks_object.column_headers.length === 0)
-    {
-        show_fitted_peaks_checkbox.disabled = true;
-        download_fitted_peaks_button.disabled = true;
-    }
-
-    new_spectrum_div.appendChild(show_fitted_peaks_checkbox);
-    let show_fitted_peaks_label = document.createElement("label");
-    show_fitted_peaks_label.setAttribute("for", "show_fitted_peaks-".concat(index));
-    show_fitted_peaks_label.innerText = "Show fitted peaks";
-    new_spectrum_div.appendChild(show_fitted_peaks_label);
-
+    
     /**
      * Add a new line
     */
@@ -1225,10 +1418,9 @@ function download_spectrum(index, flag) {
  * @param {*} result_spectra: an array of object of hsqc_spectrum
  * @param {*} b_from_fid: boolean, whether the spectrum is from a fid file
  * @param {*} b_reprocess: boolean, whether this is a new spectrum_1d or a reprocessed spectrum
- * @param {*} pseudo3d_children: array of indices of pseudo 3D children's previous spectrum_index, only valid if b_reprocess is true and b_from_fid is true
  * @returns 
  */
-function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=[])
+function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
 {
 
     let spectrum_index;
@@ -1236,13 +1428,12 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
     if(b_from_fid ==false && b_reprocess === false)
     {
         /**
-         * New spectrum from ft2, set its index (current length of the spectral array) and color
+         * New spectrum from ft1, set its index (current length of the spectral array) and color
          * It is also possible this is a reconstructed spectrum from peak fitting
          */
         spectrum_index = all_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
-        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
-        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra.push(result_spectra[0]);
 
         /**
@@ -1264,8 +1455,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
         for(let i=0;i<result_spectra.length;i++)
         {
             result_spectra[i].spectrum_index = all_spectra.length;
-            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index*2) % color_list.length]);
-            result_spectra[i].spectrum_color_negative =  rgbToHex(color_list[(result_spectra[i].spectrum_index*2+1) % color_list.length]);
+            result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index) % color_list.length]);
 
             /**
              * For spectrum from fid, we need to include all FID files and processing parameters in the result_spectra object
@@ -1279,7 +1469,6 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
             else
             {
                 result_spectra[i].spectrum_origin = 10000 + first_spectrum_index;
-                all_spectra[first_spectrum_index].pseudo3d_children.push(result_spectra[i].spectrum_index);
             }
 
             all_spectra.push(result_spectra[i]);
@@ -1293,66 +1482,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          */
         spectrum_index = result_spectra[0].spectrum_index;
         result_spectra[0].fid_process_parameters = fid_process_parameters;
-        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index*2) % color_list.length]);
-        result_spectra[0].spectrum_color_negative =  rgbToHex(color_list[(spectrum_index*2+1) % color_list.length]);
+        result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra[spectrum_index] = result_spectra[0];
-
-        /**
-         * If the spectrum is the current spectrum of the main plot, clear its cross section plot because it becomes invalid
-         */
-        if(main_plot.current_spectral_index === spectrum_index)
-        {
-            /**
-             * clear main_plot.y_cross_section_plot and x_cross_section_plot
-             */
-            main_plot.y_cross_section_plot.clear();
-            main_plot.x_cross_section_plot.clear();
-        }
-
-        /**
-         * For pseudo-3D, there several cases:
-         * 1. Reprocessed all spectra, and previously also processed all spectra,
-         *    so pseudo3d_children.length === result_spectra.length-1
-         */
-        if(result_spectra.length -1 ==pseudo3d_children.length)
-        {
-            for(let i=1;i<result_spectra.length;i++)
-            {
-                let new_spectrum_index = pseudo3d_children[i-1];
-                result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_origin = 10000 + spectrum_index;
-                /**
-                 * Copy previous colors
-                 */
-                result_spectra[i].spectrum_color = all_spectra[new_spectrum_index].spectrum_color;
-                result_spectra[i].spectrum_color_negative = all_spectra[new_spectrum_index].spectrum_color_negative;
-                all_spectra[new_spectrum_index] = result_spectra[i];
-            }
-        }
-        else if(pseudo3d_children.length === 0 && result_spectra.length > 1)
-        {
-            /**
-             * Reprocessed all spectra, and previously only processed the first spectrum
-             */
-            for(let i=1;i<result_spectra.length;i++)
-            {
-                const new_spectrum_index = all_spectra.length;
-                result_spectra[i].spectrum_index = new_spectrum_index;
-                result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index*2) % color_list.length]);
-                result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index*2+1) % color_list.length]);
-                result_spectra[i].spectrum_origin = 10000 + spectrum_index;
-                all_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
-                all_spectra.push(result_spectra[i]);
-            }
-        }
-        else 
-        {
-            /**
-             * Do nothing. Error or unexpected case
-             * Or reprocessed only first spectrum and previously processed all spectra or first spectrum
-             */
-        }
-
     }
     
 
@@ -1373,11 +1504,37 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,pseudo3d_children=
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height, result_spectra[0]);
+        let peak_params = {
+            peak_color: document.getElementById("peak_color").value,
+            peak_size: parseFloat(document.getElementById("peak_size").value),
+            peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
+            filled_peaks: document.getElementById("filled_peaks").checked,
+
+        };
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+
+        /**
+         * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
+         * We need to make a data array of two numbers: ppm and amplitude
+         */
+        let data = [];
+        for (let i = 0; i < result_spectra[0].n_direct; i++) {
+            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        }
+        main_plot.add_data(data,result_spectra[0].spectrum_index,result_spectra[0].spectrum_color);
+
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
+    else
+    {
+        let data = [];
+        for (let i = 0; i < result_spectra[0].n_direct; i++) {
+            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        }
+        main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
+    }
 
-    add_to_list(0,b_from_fid,b_reprocess);
+    add_to_list(spectrum_index,b_from_fid,b_reprocess);
 
 }
 
@@ -1555,29 +1712,6 @@ function disable_enable_peak_buttons(spectrum_index,flag)
     }
 }
 
-/**
- * Disable or enable buttons for download_fitted_peaks and show_fitted_peaks
- */
-function disable_enable_fitted_peak_buttons(spectrum_index,flag)
-{
-    if(flag==0)
-    {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;   
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
-    }
-    else if(flag==1)
-    {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        /**
-         * Enable run deep picker and run voigt fitter buttons (allow run again)
-         */
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
-    }
-}
 
 
 /**
@@ -1600,10 +1734,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+
 
     /**
      * Get noise_level of the spectrum
@@ -1618,7 +1749,8 @@ function run_DEEP_Picker(spectrum_index,flag)
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",
-        spectrum_data: data, //float32 array
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
         scale: scale,
         scale2: scale2,
@@ -1691,18 +1823,12 @@ function run_Voigt_fitter(spectrum_index,flag)
     header[56] = 1.0;
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     header[99] = all_spectra[spectrum_index].n_direct; //size of direct dimension of the input spectrum
-    /**
-     * Also set 
-     */
-    let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+   
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_fitter",
-        spectrum_data: data,
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
         spectrum_begin: x_ppm_visible_start,
         spectrum_end: x_ppm_visible_end,
@@ -1718,7 +1844,41 @@ function run_Voigt_fitter(spectrum_index,flag)
      * Let user know the processing is started
      */
     document.getElementById("webassembly_message").innerText = "Run Peak fitting, please wait...";
+}
 
+/**
+ * Disable or enable buttons for download_fitted_peaks and show_fitted_peaks
+ * @param {int} spectrum_index: index of the spectrum in all_spectra array
+ * @param {int} flag: 0 to disable, 1 to enable
+ */
+function disable_enable_fitted_peak_buttons(spectrum_index,flag)
+{
+    /**
+     * (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) means reconstructed spectrum
+     */
+    let b_reconstructed = (all_spectra[spectrum_index].spectrum_origin >= 0 && all_spectra[spectrum_index].spectrum_origin < 10000);
+
+    if(flag==0 && b_reconstructed)
+    {
+        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;   
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+    }
+    else if(flag==1)
+    {
+        if (b_reconstructed === true) {
+            document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
+            document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
+        }
+        else {
+            /**
+             * Enable run deep picker and run voigt fitter buttons (allow run again)
+             */
+            document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
+            document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
+            document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
+        }
+    }
 }
 
 /**
@@ -1729,17 +1889,14 @@ function show_hide_peaks(index,flag,b_show)
     /**
      * Turn off checkbox of all other spectra
      */
-    for(let i=0;i<1;i++)
+    for(let i=0;i<all_spectra.length;i++)
     {
+        const b_reconstructed = (all_spectra[i].spectrum_origin >= 0 && all_spectra[i].spectrum_origin < 10000);
         if(i!==index)
         {
-            /**
-             * If spectrum is deleted, these checkboxes are no longer available.
-             * So we need to check if they are available
-             */
-            if(all_spectra[i].spectrum_origin !== -3)
+            document.getElementById("show_peaks-"+i).checked = false;
+            if(b_reconstructed)
             {
-                document.getElementById("show_peaks-"+i).checked = false;
                 document.getElementById("show_fitted_peaks-"+i).checked = false;
             }
         }
@@ -1750,7 +1907,9 @@ function show_hide_peaks(index,flag,b_show)
         {
             if(flag === 'picked')
             {
-                document.getElementById("show_fitted_peaks-"+i).checked = false;
+                if(b_reconstructed){
+                    document.getElementById("show_fitted_peaks-"+i).checked = false;
+                }
             }
             else if(flag === 'fitted')
             {
@@ -1769,18 +1928,12 @@ function show_hide_peaks(index,flag,b_show)
 
         if(flag === 'picked')
         {
-            /**
-             * Only for picked peaks of an experimental spectrum, allow user to make changes
-             */
-            if(all_spectra[index].spectrum_origin === -1 || all_spectra[index].spectrum_origin === -2 || all_spectra[index].spectrum_origin >=10000)
-            {
-                document.getElementById("allow_drag_and_drop").disabled = false;
-            }
-            main_plot.add_peaks(all_spectra[index].picked_peaks_object,all_spectra[index].spectral_max);
+            main_plot.add_peaks(all_spectra[index].picked_peaks_object,'picked');
         }
         else
         {
-            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,all_spectra[index].spectral_max);
+            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,'fitted');
+            update_reconstructed_peaks(current_spectrum_index_of_peaks);
         }
     }
     else
@@ -1789,11 +1942,70 @@ function show_hide_peaks(index,flag,b_show)
         main_plot.remove_peaks();
         remove_peak_table();
     }
-    /**
-     * There is no need to redraw the contour plot
-     */
 }
 
+let zoomPanTimeout; // to debounce zoom and pan events
+function update_reconstructed_peaks_debounced(index) {
+    clearTimeout(zoomPanTimeout);
+
+  // Set a new timeout
+  zoomPanTimeout = setTimeout(() => {
+    console.log("Zoom or pan stopped. Running function.");
+    update_reconstructed_peaks(index);
+  }, 100);
+}
+
+
+function update_reconstructed_peaks(index) {
+
+
+    main_plot.update_reconstructed_peaks([]);
+
+    /**
+     * If picked peaks, do nothing
+     */
+    if (current_flag_of_peaks === 'picked') {
+        return;
+    }
+
+    /**
+     * Generate fitted peak profiles from all_spectra[index].fitted_peaks_object
+     * step1: get all peaks from fitted_peaks_object that are within visible region of main_plot
+     * and extract the following columns: "X_PPM","HEIGHT","SIGMAX","GAMMAX"
+     */
+    const [x_ppm_visible_start, x_ppm_visible_end] = main_plot.get_visible_region();
+    const plot_width = main_plot.true_width; //get the width of the plot in pixels
+    /**
+     * Get median peak width in fitted_peaks_object
+     */
+    const all_peak_widths = all_spectra[index].fitted_peaks_object.get_column_by_header("XW").sort((a, b) => a - b); //sort the peak widths
+    const median_peak_width = all_peak_widths[all_peak_widths.length >> 1] * Math.abs(all_spectra[index].x_ppm_step); //get the median peak width in ppm
+    const median_peak_width_pixel = median_peak_width / (x_ppm_visible_end - x_ppm_visible_start) * plot_width; //convert to pixel width
+
+    /**
+     * We only need to generate profiles for peaks when median_peak_width_pixel is at least 4 pixels
+     */
+    if (median_peak_width_pixel > 4) {
+        let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
+
+        main_plot.update_reconstructed_peaks(filtered_peaks_recon);
+
+        /**
+         * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
+         * Step 2: for each peak, generate a profile
+         * We need web assembly worker to generate the profile (pseudo Voigt profile)
+         */
+        // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
+        //         .filter(peak => {
+        //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
+        //         });
+        // webassembly_1d_worker_2.postMessage({
+        //     webassembly_job: "generate_voigt_profiles",
+        //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
+        //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
+        // });
+    }
+}
 
 /**
  * Generate a list of peaks in nmrPipe .tab format
@@ -1856,6 +2068,11 @@ function download_log()
     a.remove();
 }
 
+function update_line_color(e,index) {
+    let color = e.target.value;  //hex format
+    all_spectra[index].spectrum_color = (color);
+    main_plot.update_spectrum_color(index, color);
+}
 
 /**
  * Onclick event from save button
@@ -1879,7 +2096,7 @@ function save_to_file()
 
     /**
      * Step 2, prepare the binaryData, which is a concatenation of all 
-     *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all all_spectra elements
+     *  header, raw_data, raw_data_i
      */
     let totalLength = 0;
     for(let i=0;i<all_spectra.length;i++){
@@ -2017,21 +2234,21 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
          * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
          * to fill the data
          */
-        main_plot.init(cr.width, cr.height, all_spectra[0]);
+        let peak_params = {
+            peak_color: document.getElementById("peak_color").value,
+            peak_size: parseFloat(document.getElementById("peak_size").value),
+            peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
+            filled_peaks: document.getElementById("filled_peaks").checked,
+
+        };
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+
         plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
     }
 
     add_to_list(0,false,false);
 
-    if(all_spectra.length>1)
-    {
-        /**
-         * If there are 2 spectra, 2nd one is from recon, draw it as well
-         */
-        let recon_peaks = all_spectra[1].recon_peaks;
-        let peaks_center = all_spectra[1].peaks_center;   
-        main_plot.show_recon(recon_peaks.spectrum_recon, recon_peaks.peaks_recon, recon_peaks.peak_params, peaks_center);
-    }
+  
 };
 
 function zoom_to_peak(index)
@@ -2042,9 +2259,8 @@ function zoom_to_peak(index)
      * Get the peak position (column X_PPM and Y_PPM)
      */
     let x_ppm = peaks_object.get_column_by_header('X_PPM')[index];
-    let y_ppm = peaks_object.get_column_by_header('Y_PPM')[index];
 
-    let x_ppm_scale = [x_ppm + 0.5, x_ppm - 0.5];
+    let x_ppm_scale = [x_ppm - 0.1, x_ppm + 0.1];
 
     main_plot.zoom_to(x_ppm_scale);
 
@@ -2267,13 +2483,24 @@ function search_peak()
 
 function set_current_spectrum(spectrum_index)
 {
-    if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < all_spectra.length) {
-        if (main_plot.current_spectral_index !== spectrum_index) {
-            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+    if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index !== spectrum_index) {
+            document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
         }
     }
-    main_plot.current_spectral_index = spectrum_index;
+    main_plot.current_spectrum_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+
+    /**
+     * If current showing peaks is not the same as current_spectrum_index, 
+     * we need to reset current_spectrum_index_of_peaks to -1 (no peaks showing)
+     */
+    if (current_spectrum_index_of_peaks !== spectrum_index) {
+        current_spectrum_index_of_peaks = -1;
+        current_flag_of_peaks = 'picked'; //reset to picked peaks
+        remove_peak_table();
+        main_plot.remove_peaks();
+    }
 }
 
 

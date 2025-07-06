@@ -607,7 +607,13 @@ class cpeaks {
                 this.columns[i].push(this.columns[i][0]);
             }
             else {
-                this.columns[i].push(this.columns[i].reduce((a, b) => a + b, 0) / this.columns[i].length);
+                /**
+                 * Keep original values in the column, then calculate median using a sorted copy of the column
+                 */
+                let temp=this.columns[i].slice();
+                temp.sort((a, b) => a - b);
+                let median_temp = temp[temp.length >> 1];
+                this.columns[i].push(median_temp);
             }
         }
         return true;
@@ -701,6 +707,34 @@ class cpeaks {
         else {
             return value.toString();
         }
+    };
+
+    /**
+     * Add a row to the peaks object. Length of row must be the same as the number of columns
+     * @param {array} row 
+     */
+    add_row(row)
+    {
+        if (row.length !== this.column_headers.length) {
+            return false;
+        }
+        /**
+         * Check if row has all values, if not, set to 0 or 'n.a.'
+         */
+        for (let i = 0; i < row.length; i++) {
+            if (row[i] === null || row[i] === undefined) {
+                if (this.column_formats[i].includes('s')) {
+                    row[i] = 'n.a.';
+                }
+                else {
+                    row[i] = 0;
+                }
+            }
+        }
+        this.columns.forEach((column, index) => {
+            column.push(row[index]);
+        });
+        return true;
     }
 
     /**

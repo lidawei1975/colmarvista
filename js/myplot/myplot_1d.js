@@ -1,95 +1,133 @@
 
+/**
+ * Helper functions
+ */
+
+function lttb(data, threshold) {
+    if (threshold >= data.length || threshold === 0) {
+        return data; // Nothing to do
+    }
+
+    const sampled = [];
+    const every = (data.length - 2) / (threshold - 2);
+
+    let a = 0;  // Initially a is the first point in the triangle
+    let maxAreaPoint;
+    let maxArea;
+    let area;
+    let nextA;
+
+    sampled.push(data[a]); // Always add the first point
+
+    for (let i = 0; i < threshold - 2; i++) {
+        let avgX = 0;
+        let avgY = 0;
+        let avgRangeStart = Math.floor((i + 1) * every) + 1;
+        let avgRangeEnd = Math.floor((i + 2) * every) + 1;
+        avgRangeEnd = avgRangeEnd < data.length ? avgRangeEnd : data.length;
+
+        let avgRangeLength = avgRangeEnd - avgRangeStart;
+
+        for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+            avgX += data[j][0];
+            avgY += data[j][1];
+        }
+        avgX /= avgRangeLength;
+        avgY /= avgRangeLength;
+
+        let rangeOffs = Math.floor((i + 0) * every) + 1;
+        let rangeTo = Math.floor((i + 1) * every) + 1;
+
+        maxArea = -1;
+
+        for (let j = rangeOffs; j < rangeTo; j++) {
+            area = Math.abs(
+                (data[a][0] - avgX) * (data[j][1] - data[a][1]) -
+                (data[a][0] - data[j][0]) * (avgY - data[a][1])
+            ) * 0.5;
+            if (area > maxArea) {
+                maxArea = area;
+                maxAreaPoint = data[j];
+                nextA = j;
+            }
+        }
+
+        sampled.push(maxAreaPoint);
+        a = nextA;
+    }
+
+    sampled.push(data[data.length - 1]); // Always add the last point
+
+    return sampled;
+}
+
+
+function downsampleData(data, threshold, xDomain)
+{
+    const visible = data.filter(d => d[0] >= xDomain[0] && d[0] <= xDomain[1]);
+    if (visible.length <= threshold) return visible;
+    return lttb(visible, threshold);
+}
+
+
 class myplot_1d {
     constructor() {
 
         // test d3 exist
         if (!d3) throw Error('d3 library not set');
+        this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
+        
+        this.baseline_exist = false;
+        /**
+         * Default lineGenerator width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
+         */
+        this.exp_line_width = 1.0;
 
-        this.imagine_exist = false; //boolean variable to indicate if the imaginary part of the spectrum is provided
+        this.$peaks_symbol = null; //this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
 
-        this.data = []; //experimental spectrum, with phase correction applied.
-        this.original_data = []; //experimental spectrum before phase correction
-        this.data_strided = []; //experimental spectrum that will be plotted at current zoom level and pan position, shallow copy of this.data
+        this.spectral_order = [];
+
+        this.spectral_scale = []; // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
+
+        this.spectrum_reference = [];   // This is the reference correction of each spectrum
+
+        this.spectrum_visibility = []; // This is the visibility of each spectrum, used to show/hide the spectrum in the plot
+        
+        this.peak_type = null;
+
+        this.current_spectrum_index = -1; // -1 means no current spectrum is selected
     }
 
     /**
      * 
      * @param {int} width  width of the plot SVG element
      * @param {int} height height of the plot SVG element
-     * @param {obj} spectrum   a spectrum object as defined in spectrum_1d.js
-     * 
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, spectrum) {
+    init(width, height, peak_params,zoom_pan_on_call_function) {
 
-
-        this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
-
-        var self = this;
-
+        let self = this; // to use this inside some functions
+        
         this.width = width;
         this.height = height;
-
-        this.baseline_exist = false;
-        this.recon_exist = false;
-        this.simulated_exist = false;
-
         /**
-         * Default line width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
+         * ON call function we need to call when user zoom out the plot using mouse wheel
          */
-        this.exp_line_width = 2.0;
-        this.recon_line_width = 2.0;
-        this.reference = 0.0;
+        this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
 
-        this.peaks_symbol = null; //this.peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
-        this.maxv=1.0; //max value of the experimental spectrum
-
-        /**
-         * Construct for this.data from spectrum_1d.js
-         * spectrum.raw_data is data[i][1] (amplitude)
-         * spectrum.raw_data_i is data[i][2] (imaginary part amplitude)
-         * spectrum.x_ppm_start is the first element of data[i][0] (ppm)
-         * spectrum.x_ppm_step is the step of each data point
-         * spectrum.n_direct is the number of data points
-         */
-        this.imagine_exist = spectrum.datatype_direct === 0 ? true : false;
-
-        if(this.imagine_exist === true) {
-            this.data = Array.from({ length: spectrum.n_direct }, (_, i) => {
-                let ppm = spectrum.x_ppm_start + i * spectrum.x_ppm_step;
-                let amp = spectrum.raw_data[i];
-                let imag = spectrum.raw_data_i[i];
-                return [ppm, amp, imag];
-            });
+        if(peak_params)
+        {
+            this.peak_color = peak_params.color || "#0000ff"; // Default peak color is blue
+            this.peak_size = peak_params.size || 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = peak_params.peak_thickness || 1.0; // Default peak line width is 1.0
+            this.filled_peaks = peak_params.filled_peaks || false; //default filled peaks is false, so peaks are not filled with color
         }
-        else {
-            this.data = Array.from({ length: spectrum.n_direct }, (_, i) => {
-                let ppm = spectrum.x_ppm_start + i * spectrum.x_ppm_step;
-                let amp = spectrum.raw_data[i];
-                return [ppm, amp];
-            });
+        else{
+            this.peak_color = "#0000ff"; // Default peak color is blue
+            this.peak_size = 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = 1.0; // Default peak line width is 1.0
+            this.filled_peaks = false; // Default filled peaks is false, so peaks are not filled with color
         }
-        
-        this.maxv= spectrum.spectral_max;
-
-        /**
-         * define min and max of ppm (this.data[?][0]) for the plot
-         */
-        var lowest = Number.POSITIVE_INFINITY;
-        var highest = Number.NEGATIVE_INFINITY;
-        var tmp;
-        for (var i = this.data.length - 1; i >= 0; i--) {
-            tmp = this.data[i][0];
-            if (tmp < lowest) lowest = tmp;
-            if (tmp > highest) highest = tmp;
-        }
-
-        /**
-         * current min and max ppm of the visible range
-         * these two will be updated when the user zooms or pans the plot
-         */
-        this.min_d = lowest;
-        this.max_d = highest;
 
         this.vis = d3.select("#plot_1d").insert("svg", ":first-child")
             .attr("id", "main_plot")
@@ -97,14 +135,19 @@ class myplot_1d {
             .attr("width", this.width)
             .attr("height", this.height);
 
-
-        this.x = d3.scaleLinear()
-            .domain(d3.extent(self.data, d => d[0]))
+        /**
+         * Default (initial) x is from 12 ppm to 0 ppm
+         */
+        this.xscale = d3.scaleLinear()
+            .domain([0,12])
             .range([this.width - this.margin.right, this.margin.left])
             .nice();
 
-        this.y = d3.scaleLinear()
-            .domain(d3.extent(self.data, d => d[1]))
+        /**
+         * Default (init) y is from 0 to 1
+         */
+        this.yscale = d3.scaleLinear()
+            .domain([0,1])
             .range([this.height - this.margin.bottom, this.margin.top])
             .nice();
 
@@ -113,7 +156,7 @@ class myplot_1d {
         /**
         * Define x axis object
         */
-        this.xAxis = d3.axisBottom(this.x).ticks(this.true_width / 100.0);
+        this.xAxis = d3.axisBottom(this.xscale).ticks(this.true_width / 100.0);
 
         /**
          * Add x axis to the plot
@@ -140,7 +183,7 @@ class myplot_1d {
         /**
          * Define y axis object. Add y axis to the plot and y label
         */
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
+        this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
 
         this.yAxis_element
             = this.vis.append('svg:g')
@@ -175,62 +218,26 @@ class myplot_1d {
 
 
         /**
-         * Define line object
-         * this.line is a function that will convert data (ppm,amp) to path (screen coordinates)
+         * Define lineGenerator object
+         * this.lineGenerator is a function that will convert data (ppm,amp) to path (screen coordinates)
         */
-        this.line = d3.line()
-            .x((d) => this.x(d[0]))
-            .y((d) => this.y(d[1]))
+        this.lineGenerator = d3.line()
+            .x((d) => this.xscale(d[0]))
+            .y((d) => this.yscale(d[1]))
             ;
+
 
         /**
          * Define clip space for the plot. 
         */
-        this.clip_space
-            = this.vis.append("defs").append("clipPath")
-                .attr("id", "clip")
-                .append("rect")
-                .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", width - this.margin.left - this.margin.right)
-                .attr("height", height - this.margin.top - this.margin.bottom);
+        this.$clip_space = this.vis.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
+            .attr("width", width - this.margin.left - this.margin.right)
+            .attr("height", height - this.margin.top - this.margin.bottom);
 
-        /**
-         * To run phase correction on the fly, we need to keep a copy of the original data
-         */
-        if (this.imagine_exist === true) {
-            this.original_data = this.data.map((x) => [x[0], x[1], x[2]]);
-        }
-        else {
-            this.original_data = this.data.map((x) => [x[0], x[1]]);
-        }
-
-
-        /**  To save computational time, we will only draw at most 20000 points using stride 
-         * this.data_strided is a shallow copy of this.data (share the same data!!)
-        */
-        this.data_strided = this.data;
-        if (this.data_strided.length > 10000) {
-            let step = Math.ceil(this.data_strided.length / 10000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            this.data_strided = this.data_strided.filter((x, i) => i % step === 0);
-        }
-
-
-        this.line_exp = this.vis.append("g")
-            .append("path")
-            .attr("clip-path", "url(#clip)")
-            .data(self.data)
-            .attr("class", "line_exp")
-            .attr("fill", "none")
-            .style("stroke", "black")
-            .style("stroke-width", this.exp_line_width)
-            .attr("d", this.line(this.data_strided));
-
-
-
+        this.allLines = {}; // Object to store all lines with their IDs
 
         this.handleMouseMoveHandler = this.handleMouseMove.bind(this);
         // window.addEventListener('mousemove', self.handleMouseMoveHandler);
@@ -261,6 +268,90 @@ class myplot_1d {
         this.vis.on('wheel', (e) => {
             e.preventDefault();
             var delta = e.deltaY;
+            
+
+            /**
+             * If alt key is pressed, we rescale one spectrum only (this.current_spectrum_index)
+             */
+            if (e.altKey == true && this.current_spectrum_index != -1) {
+
+                if (delta > 0) {
+                    delta = 0.99;
+                }
+                else {
+                    delta = 1.01;
+                }
+
+                let index = this.current_spectrum_index;
+
+                /**
+                 * Don't rescale the spectrum if all_spectra[index].spectral_origin >=0 
+                 * means a reconstructed spectrum or from pseudo 2D but not the fitted spectrum
+                 */
+                if ( all_spectra[index].spectrum_origin < 0)
+                {
+                    /**
+                     * Update the scale of the spectrum to user (span element with id 'spectrum-scale-<index>')
+                     */
+                    document.getElementById('spectrum-scale-'.concat(index)).textContent  = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
+
+                    let lineId = `line${index}`;
+                    let data = this.allLines[lineId];
+                    if (data) {
+                        this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
+                        const scale = this.spectral_scale[index]; // Update the scale of the spectrum
+                        const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
+                        let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                        this.vis.select(`#${lineId}`)
+                            .datum(downsampled)
+                            .attr("d", this.lineGenerator);
+                    
+
+                        /**
+                         * We also need to rescale all in all_spectra[index].reconstructed_indices
+                         */
+                        for(let m=0;m < all_spectra[index].reconstructed_indices.length; m++)
+                        {
+                            let recon_index = all_spectra[index].reconstructed_indices[m];
+                            this.spectral_scale[recon_index] = scale;
+                            this.spectrum_reference[recon_index] = reference;
+                            lineId = `line${recon_index}`;
+                            data = this.allLines[lineId];
+                            if (data) {
+                                const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
+                                const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
+                                downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                                this.vis.select(`#${lineId}`)
+                                    .datum(downsampled)
+                                    .attr("d", this.lineGenerator);
+                            }
+                        }
+
+                        if(current_spectrum_index_of_peaks != -1 && current_spectrum_index_of_peaks == index )
+                        {
+                            /**
+                             * We need to rescale the peaks of the current spectrum index
+                             * this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+                             */
+                            this.$peaks_symbol
+                                .attr('cx', (d) => this.xscale(d[0] + reference))
+                                .attr('cy', (d) => this.yscale(d[1] * scale));
+
+                            if(this.peak_type === "fitted")
+                            {
+                                /**
+                                 * We need to rescale the fitted peaks of the current spectrum index
+                                 * this.$reconstructed_peaks is an array of [x,y] pairs. X is ppm, Y is intensity
+                                 */
+                                this.$reconstructed_peaks
+                                    .attr('d', d => this.lineGenerator(d.map(p => [p[0] + reference, p[1] * scale])));
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
             if (delta > 0) {
                 delta = 1.1;
             }
@@ -268,12 +359,13 @@ class myplot_1d {
                 delta = 0.9;
             }
 
+
             /**
              * Get the ppm and amp of the mouse position
              */
             let bound = document.getElementById('main_plot').getBoundingClientRect();
-            let ppm = self.x.invert(e.clientX - bound.left);
-            let amp = self.y.invert(e.clientY - bound.top);
+            let ppm = self.xscale.invert(e.clientX - bound.left);
+            let amp = self.yscale.invert(e.clientY - bound.top);
 
 
             /**
@@ -287,11 +379,11 @@ class myplot_1d {
                  * Note: Y axis is inverted
                  * So, top is smaller than bottom
                  */
-                let top = self.y.domain()[0];
-                let bottom = self.y.domain()[1];
+                let top = self.yscale.domain()[0];
+                let bottom = self.yscale.domain()[1];
                 let new_top = amp - (amp - top) * delta;
                 let new_bottom = amp + (bottom - amp) * delta;
-                this.y.domain([new_top, new_bottom]);
+                this.yscale.domain([new_top, new_bottom]);
             }
             /**
              * Right side of the Y axis, X zoom only
@@ -302,23 +394,80 @@ class myplot_1d {
                  * We need to zoom in/out around the mouse position
                  * So, we need to calculate the new left and right of the visible range
                  */
-                let left = self.x.domain()[0];
-                let right = self.x.domain()[1];
+                let left = self.xscale.domain()[0];
+                let right = self.xscale.domain()[1];
                 let new_left = ppm - (ppm - left) * delta;
                 let new_right = ppm + (right - ppm) * delta;
-                this.x.domain([new_left, new_right]);
+                this.xscale.domain([new_left, new_right]);
+                /**
+                 * We need to call the zoom_pan_on_call_function if it is defined
+                 */
+                if (this.peak_type === "fitted" && this.zoom_pan_on_call_function && this.current_spectrum_index != -1) {
+                    this.zoom_pan_on_call_function(self.current_spectrum_index);
+                }
             }
 
             this.redraw();
         });
 
+    }
+
+
+    add_data(data,index,color) {
         /**
-         * Clear compound_peaks and compound_peaks_name when initializing the plot
+         * Redefine x and y scales, according to the data only if this is the 1st time add_data is called
          */
-        this.compound_peaks = [];
-        this.compound_peaks_name = [];
-        this.peak_datas = [];
-    };
+        if (index == 0) {
+            this.xscale.domain([data[data.length - 1][0], data[0][0]]);
+            this.yscale.domain(d3.extent(data, d => d[1]));
+            // NO need to update this.lineGenerator, it will be updated because this.xscale and this.yscale are functions used by lineGenerator
+        }
+
+        this.spectral_order.push(index); // Keep track of the order of spectra
+
+        this.spectral_scale.push(1.0); // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
+
+        this.spectrum_reference.push(0.0); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
+
+        this.spectrum_visibility.push(true); // This is the visibility of the spectrum, used to show/hide the spectrum in the plot
+
+        const lineId = `line${index}`;
+        this.allLines[lineId] = data; // Store original data
+
+        const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+
+        this.vis.append("path")
+            .datum(downsampled)
+            .attr("class", "lineGenerator")
+            .attr("id", lineId)
+            .attr("clip-path", "url(#clip)")
+            .attr("fill", "none")
+            .attr("stroke", color)
+            .attr("stroke-width", 2)
+            .attr("d", this.lineGenerator);
+    }
+
+    update_spectrum_color(index, color) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.vis.select(`#${lineId}`)
+                .attr("stroke", color);
+        }
+    }
+
+    update_visibility(index, visibility) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.spectrum_visibility[index] = visibility; // Update visibility
+            if (visibility) {
+                this.vis.select(`#${lineId}`).style("display", "inline");
+            } else {
+                this.vis.select(`#${lineId}`).style("display", "none");
+            }
+        }
+    }
+
+   
 
     resize(width, height) {
 
@@ -335,13 +484,13 @@ class myplot_1d {
         this.height = height;
         this.true_width = this.width - this.margin.left - this.margin.right;
         this.true_height = this.height - this.margin.top - this.margin.bottom;
-        this.x.range([this.width - this.margin.right, this.margin.left]);
-        this.y.range([this.height - this.margin.bottom, this.margin.top]);
+        this.xscale.range([this.width - this.margin.right, this.margin.left]);
+        this.yscale.range([this.height - this.margin.bottom, this.margin.top]);
 
         /**
          * Reset width and height of the clip space according to the new width and height of the main_plot object
          */
-        this.clip_space
+        this.$clip_space
             .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
             .attr("width", width - this.margin.left - this.margin.right)
             .attr("height", height - this.margin.top - this.margin.bottom);
@@ -350,7 +499,7 @@ class myplot_1d {
         /**
          * Redraw x and y axes and labels
         */
-        this.xAxis = d3.axisBottom(this.x).ticks(this.true_width / 100.0);
+        this.xAxis = d3.axisBottom(this.xscale).ticks(this.true_width / 100.0);
         this.xAxis_element
             .attr('transform', 'translate(0,' + (this.height - this.margin.bottom) + ')')
             .call(this.xAxis);
@@ -359,7 +508,7 @@ class myplot_1d {
             .attr("x", this.width / 2)
             .attr("y", this.height - 10);
 
-        this.yAxis = d3.axisLeft(this.y).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
+        this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
         this.yAxis_element
             .attr('transform', 'translate(' + (this.margin.left) + ',0)')
             .call(this.yAxis);
@@ -379,7 +528,6 @@ class myplot_1d {
     handleMouseMove(e) {
         var self = this;
 
-
         /**
          * With this.click_event, we can differentiate between click and drag
          */
@@ -392,24 +540,51 @@ class myplot_1d {
             /**
              * Convert deltaX and deltaY to ppm and intensity
              */
-            let delta_ppm = this.x.invert(e.clientX) - this.x.invert(this.startMousePos[0]);
-            let delta_intensity = this.y.invert(e.clientY) - this.y.invert(this.startMousePos[1]);
-
-            /**
-             * Update self.x and self.y
-             */
-            self.x.domain([self.x.domain()[0] - delta_ppm, self.x.domain()[1] - delta_ppm]);
-            self.y.domain([self.y.domain()[0] - delta_intensity, self.y.domain()[1] - delta_intensity]);
+            let delta_ppm = this.xscale.invert(e.clientX) - this.xscale.invert(this.startMousePos[0]);
+            let delta_intensity = this.yscale.invert(e.clientY) - this.yscale.invert(this.startMousePos[1]);
 
             /**
              * Update self.startMousePos
              */
             self.startMousePos = [e.clientX, e.clientY];
 
+
             /**
-             * Redraw the plot
+             * If alt key is pressed, we need to pan only the current spectral index and along the X axis only.
+             * We do not change xscale, instead, we change data of this.current_spectrum_index
              */
-            self.redraw();
+            if (e.altKey == true && this.current_spectrum_index != -1) {
+                let index = this.current_spectrum_index;
+                this.spectrum_reference[index] += delta_ppm; // Update reference correction for the spectrum
+                /**
+                 * Redraw the current spectral index only
+                 */
+                let lineId = `line${index}`;
+                let data = this.allLines[lineId];
+                if (data) {
+                    const scale = this.spectral_scale[index]; // Get the current scale of the spectrum
+                    const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    this.vis.select(`#${lineId}`)
+                        .datum(downsampled)
+                        .attr("d", this.lineGenerator);
+                }
+            }
+            else {
+                /**
+                 * Update self.xscale and self.yscale
+                 */
+                self.xscale.domain([self.xscale.domain()[0] - delta_ppm, self.xscale.domain()[1] - delta_ppm]);
+                self.yscale.domain([self.yscale.domain()[0] - delta_intensity, self.yscale.domain()[1] - delta_intensity]);
+                /**
+                 * Redraw the plot
+                 */
+                self.redraw();
+                if(this.peak_type === "fitted" && self.zoom_pan_on_call_function && self.current_spectrum_index != -1)
+                {
+                    self.zoom_pan_on_call_function(self.current_spectrum_index);
+                }
+            }
         }
         /**
          * If the mouse is not down, we need to show the tooltip
@@ -420,8 +595,8 @@ class myplot_1d {
             let py = e.clientY - bound.top;
             if (px > self.margin.left && px < self.width - self.margin.right
                 && py > self.margin.top && py < self.height - self.margin.bottom) {
-                let ppm = self.x.invert(px);
-                let amp = self.y.invert(py);
+                let ppm = self.xscale.invert(px);
+                let amp = self.yscale.invert(py);
 
                 tooldiv.style("opacity", .9);
                 tooldiv.html(ppm.toFixed(4) + " " + amp.toExponential(1) + " ")
@@ -451,10 +626,10 @@ class myplot_1d {
                 /**
                  * Call parent function with the ppm and intensity of the clicked point
                  */
-                var ppm = self.x.invert(e.clientX - bound.left);
-                var amp = self.y.invert(e.clientY - bound.top);
+                var ppm = self.xscale.invert(e.clientX - bound.left);
+                var amp = self.yscale.invert(e.clientY - bound.top);
                 // console.log(ppm,amp);
-                user_click_on_plot(ppm, amp); //user_click_on_plot is defined out of this class (to revise later!!)
+                // user_click_on_plot(ppm, amp); //user_click_on_plot is defined out of this class (to revise later!!)
             }
         }
         this.mouse_is_down = false;
@@ -479,110 +654,6 @@ class myplot_1d {
 
     }
 
-
-    /**
-     * 
-     * @param {array} spectrum_recon spectrum_recon is an array of [x,y] pairs. X: chemical shift, Y: intensity
-     * @param {array} experimental_peaks //array of peaks, each peak is an array of ppm and intensity
-     * @param {array} peak_centers //array of peak centers, each peak center is one number.
-     * This function will add the reconstructed spectrum and peaks to the plot
-     */
-
-    show_recon(spectrum_recon, experimental_peaks, peak_params, peak_centers) {
-
-        if (!Array.isArray(spectrum_recon) || !Array.isArray(experimental_peaks)) {
-            throw new Error('colmar_1d_double_zoom function show_recon all arguments must be array');
-        }
-
-        var self = this;
-
-        this.recon_exist = true;
-        this.data_recon = spectrum_recon;
-        this.experimental_peaks = experimental_peaks;
-        this.experimental_peak_params = peak_params;
-        this.experimental_peaks_centers = peak_centers;
-        this.experimental_peaks_show = new Array(experimental_peaks.length);
-        this.experimental_peaks_line = new Array(this.experimental_peaks.length);
-
-        /**
-         * Get median of the peak width of the experimental spectrum
-         * for each peak, peak width is estimated as (sigma+gamma)*2.5
-         */
-        let peak_width = [];
-        for (var i = 0; i < this.experimental_peak_params.length; i++) {
-            peak_width.push((this.experimental_peak_params[i].sigma + this.experimental_peak_params[i].gamma) * 2.5);
-        }
-
-        this.median_experimental_peak_width = this.median(peak_width);
-
-
-        /**
-         * if this.reference is not 0, we need to shift the ppm of the reconstructed spectrum and experimental_peaks and peak_centers
-         */
-        if (this.reference != 0.0) {
-            for (var i = 0; i < this.data_recon.length; i++) {
-                this.data_recon[i][0] = this.data_recon[i][0] + this.reference;
-            }
-            for (var i = 0; i < this.experimental_peaks.length; i++) {
-                for (var j = 0; j < this.experimental_peaks[i].length; j++) {
-                    this.experimental_peaks[i][j][0] = this.experimental_peaks[i][j][0] + this.reference;
-                }
-                this.experimental_peaks_centers[i] = this.experimental_peaks_centers[i] + this.reference;
-            }
-        }
-
-        //remove old one if exists
-        this.vis.selectAll(".peak_recon").remove();
-
-        /**
-         * draw peaks. fake here. we will update the peaks later
-         */
-        for (var i = 0; i < this.experimental_peaks.length; i++) {
-            this.experimental_peaks_line[i] = this.vis.append('g')
-                .append("path")
-                .attr("clip-path", "url(#clip)")
-                .attr("class", "peak_recon")
-                .attr("fill", "none")
-                .style("stroke-width", this.recon_line_width+1)
-                // .style("stroke", "green")
-                .style("stroke", function () {
-                    if (self.experimental_peak_params[i].background == 0) {
-                        return "green";
-                    }
-                    else {
-                        return "blue";
-                    }
-                })
-                .attr("d", "M0 0");
-            this.experimental_peaks_show[i] = 0; // 0: not shown, 1: shown
-        }
-
-
-        //reconstruction
-        var data_recon_strided = this.data_recon;
-        if (data_recon_strided.length > 20000) {
-            let step = Math.ceil(data_recon_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_recon_strided = data_recon_strided.filter(function (x, i) {
-                return i % step == 0;
-            });
-        }
-
-        //remove old one if exists
-        this.vis.selectAll(".line_recon").remove();
-
-        this.line_recon = this.vis.append("g")
-            .append("path")
-            .attr("clip-path", "url(#clip)")
-            .attr("class", "line_recon")
-            .attr("fill", "none")
-            .style("stroke", "red")
-            .style("stroke-width", this.recon_line_width)
-            .attr("d", this.line(data_recon_strided));
-    };
 
     /**
      * This function will add a baseline to the plot and save the baseline in this.baseline
@@ -611,7 +682,7 @@ class myplot_1d {
             .attr("class", "line_baseline")
             .attr("fill", "none")
             .style("stroke", "green")
-            .attr("d", this.line(this.baseline));
+            .attr("d", this.lineGenerator(this.baseline));
     };
 
     /**
@@ -636,7 +707,7 @@ class myplot_1d {
     }
 
     /**
-     * Set new line width 
+     * Set new lineGenerator width 
      */
     reset_line_width(exp_line_width, recon_line_width,) {
         this.exp_line_width = parseFloat(exp_line_width);
@@ -647,6 +718,19 @@ class myplot_1d {
         this.redraw();
     }
 
+    redraw_order()
+    {
+        /**
+         * Redraw the order of the spectra in this.spectral_order
+         * this.spectral_order is an array of index of the spectra in this.allLines
+         * this.allLines is an object with keys as lineId and values as data
+         */
+        this.spectral_order.forEach((index) => {
+            const lineId = `line${index}`;
+            this.vis.select(`#${lineId}`).raise();  
+        });
+    }
+
     /**
      * This function will redraw the plot. It will be called when the user zooms or pans the plot
     */
@@ -654,83 +738,15 @@ class myplot_1d {
 
         var self = this;
 
-        this.line.x((d) => this.x(d[0])).y((d) => this.y(d[1]));
+        this.lineGenerator.x((d) => this.xscale(d[0])).y((d) => this.yscale(d[1]));
 
-        this.min_d = self.x.invert(self.margin.left);
-        this.max_d = self.x.invert(self.width - self.margin.right);
+        this.min_d = self.xscale.invert(self.margin.left);
+        this.max_d = self.xscale.invert(self.width - self.margin.right);
 
         if (this.min_d > this.max_d) {
             let temp = this.min_d;
             this.min_d = this.max_d;
             this.max_d = temp;
-        }
-        /** To save computational resource, we filter out data points that are out of visible range or too close to each other
-         * because this.data is an array of [x,y,z] pairs, this.data_strided is a shallow copy of this.data (share the same data!!)
-        */
-        this.data_strided = this.data.filter((row) => row[0] > this.min_d && row[0] < this.max_d);
-        if (this.data_strided.length > 20000) {
-            let step = Math.ceil(this.data_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            this.data_strided = this.data_strided.filter((x, i) => i % step == 0);
-        }
-        this.line_exp.attr("d", this.line(this.data_strided)).style("stroke-width", self.exp_line_width);
-
-        if (this.recon_exist) {
-            //Do save computational resource, we filter out data points that are out of visible range or too close to each other
-            let data_recon_strided = this.data_recon.filter((x) => x[0] > this.min_d && x[0] < this.max_d);
-            let step = Math.ceil(data_recon_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_recon_strided = data_recon_strided.filter((x, i) => i % step == 0);
-            this.line_recon.attr("d", this.line(data_recon_strided)).style("stroke-width", self.recon_line_width);
-
-            /**
-             * Redraw peaks. Only draw peaks that are in the visible range and only when zoom level is high enough
-             */
-            if (this.max_d - this.min_d < this.median_experimental_peak_width * 100.0) {
-                for (var i = 0; i < this.experimental_peaks.length; i++) {
-                    let vis_center = self.x(this.experimental_peaks_centers[i]); //get peak center in pixel
-
-                    if (vis_center < 90 || vis_center > self.width - 10) {
-                        this.experimental_peaks_line[i].attr("d", "M0 1000");
-                        this.experimental_peaks_show[i] = 0;
-                    }
-                    else {
-                        this.experimental_peaks_line[i].attr("d", this.line(this.experimental_peaks[i]));
-                        this.experimental_peaks_show[i] = 1;
-                    }
-                }
-            }
-            else {
-                for (var i = 0; i < this.experimental_peaks.length; i++) {
-                    this.experimental_peaks_line[i].attr("d", "M0 1000");
-                    this.experimental_peaks_show[i] = 0;
-                }
-            }
-        }
-
-       
-
-        if (this.baseline_exist) {
-            //Do save computational resource, we filter out data points that are out of visible range or too close to each other    
-            let data_baseline_strided = this.baseline.filter((x) => x[0] > this.min_d && x[0] < this.max_d);
-            let step = Math.ceil(data_baseline_strided.length / 20000);
-            //step is the number of data points to skip. Make sure step must <=4, otherwise the plot will be too sparse
-            if (step > 4) {
-                step = 4;
-            }
-            data_baseline_strided = data_baseline_strided.filter((x, i) => i % step == 0);
-            this.line_baseline.attr("d", this.line(data_baseline_strided));
-        }
-
-        // redraw peaks
-        if(this.peaks_symbol !== null) {
-            this.peaks_symbol.attr("cx", (d) => this.x(d[0])).attr("cy", (d) => this.y(d[1]));
         }
 
         //redraw the x axis and y axis
@@ -749,6 +765,41 @@ class myplot_1d {
             .each(function () {
                 d3.select(this).style("font", "italic 2.0em sans-serif");
             });
+
+        /**
+         * Redraw experimental spectrum
+         */
+         Object.entries(this.allLines).forEach(([lineId, data]) => {
+
+            const index = parseInt(lineId.replace('line', ''))
+            const scale = this.spectral_scale[index];
+            const reference = this.spectrum_reference[index];
+
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+            this.vis.select(`#${lineId}`)
+                .datum(downsampled)
+                .attr("d", this.lineGenerator);
+        });
+
+        /**
+         * Update peaks location if it is not null
+         */
+        if(this.$peaks_symbol) {
+            this.$peaks_symbol
+                .attr('cx', (d) => this.xscale(d[0]))
+                .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
+                ;
+        }
+
+
+        // Redraw all peak profiles
+        if(this.$reconstructed_peaks) {
+            const scale_factor = this.spectral_scale[this.current_spectrum_index];
+            this.$reconstructed_peaks
+            .attr('d', d => this.lineGenerator(
+                d.map(p => [p[0], p[1] * scale_factor])
+            ))
+        }
     }
 
     /**
@@ -803,7 +854,7 @@ class myplot_1d {
          * Now draw the experimental spectrum with phase correction.
          * this.data_strided is a shallow copy of this.data (share the same data!!)
          */
-        this.line_exp.attr("d", self.line(self.data_strided));
+        this.line_exp.attr("d", self.lineGenerator(self.data_strided));
     }
 
     /**
@@ -898,7 +949,7 @@ class myplot_1d {
             y_left.push(1.0);
             x = x_left.concat(x);
             y = y_left.concat(y);
-            //convert x,y to 2D array as required by d3.line
+            //convert x,y to 2D array as required by d3.lineGenerator
             let data_item = [];
             for (var j = 0; j < x.length; j++) {
                 data_item.push([x[j], y[j]]);
@@ -928,15 +979,54 @@ class myplot_1d {
      * Return array of 2, ppm_start and ppm_end (ppm_start > ppm_end per NMR convention)
      */
     get_visible_region() {
-        return this.x.domain();
+        return this.xscale.domain();
+    }
+
+    /**
+     * Show reconstructed peak profiles, as gray lines
+     * @param {array} filtered_peaks_recon: array of array of [x,y] pairs, where x is ppm and y is intensity
+     * filtered_peaks_recon[0] is the first peak profile, filtered_peaks_recon[1] is the second peak profile, etc.
+     * filtered_peaks_recon[0][1] is first point of the first peak profile, which has two numbers: ppm and intensity
+     */
+    update_reconstructed_peaks(filtered_peaks_recon)
+    {
+        /**
+         * Step 1, remove old peaks if they exist
+         */
+        if (this.$reconstructed_peaks) {
+            this.$reconstructed_peaks.remove();
+            this.$reconstructed_peaks = null;
+        }
+
+        if(filtered_peaks_recon == null || filtered_peaks_recon.length == 0) {
+            return; // No peaks to show
+        }
+
+        /**
+         * Step 2, add new peak profile. One peak profile is a path with multiple points
+         */
+        const scale_factor = this.spectral_scale[this.current_spectrum_index] || 1.0; // Get the scale factor for the current spectrum index, default to 1.0 if not defined
+        this.$reconstructed_peaks = this.vis.selectAll('path.reconstructed_peaks')
+            .data(filtered_peaks_recon)
+            .enter()
+            .append('path')
+            .attr('class', 'reconstructed_peaks')
+            .attr('clip-path', 'url(#clip)')
+            .attr('d', d => this.lineGenerator(
+                d.map(p => [p[0], p[1] * scale_factor])
+            ))
+            .attr('stroke', 'grey')
+            .attr('stroke-width', 1)
+            .attr('fill', 'none');
     }
 
     /**
      * Show peaks on the plot, as red circles
      * @param {Object} peak_obj: cpeaks class object
      */
-    add_peaks(peak_obj) {
+    add_peaks(peak_obj,peak_type='picked') {
         let self = this;
+        self.peak_type = peak_type; // save peak type for later use
         /**
          * Construct peak data, array of [x,y,z] 
          * x is ppm: peak_obj.column['X_PPM']
@@ -944,57 +1034,79 @@ class myplot_1d {
          */
         let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT','INDEX']);
 
-        this.peaks_symbol=this.vis.append('g')
-            .selectAll('circle')
+        this.$peaks_symbol=this.vis.append('g')
+            .selectAll("circle")
             .data(peak_data)
             .enter()
             .append('circle')
             .attr("clip-path", "url(#clip)")
-            .attr('cx', (d) => this.x(d[0]))
-            .attr('cy', (d) => this.y(d[1]))
-            .attr('r', 5)
-            .style("fill", "blue")
-            .style("stroke-width", 3.5)
-            .style("stroke", "blue")
-            .attr("class", "peak_circle");
-
-        /**
-         * Allow drag and drop of the peaks
-         */
-        this.peak_drag = d3.drag()
-            .on("start", function (event, d) {
-                d3.select(this).raise().classed("active", true);
+            .attr('cx', (d) => this.xscale(d[0]))
+            .attr('cy', (d) => this.yscale(d[1]* this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
+            .attr('r', self.peak_size) // radius of the circle
+            .style("fill", function (d) {
+                if (self.filled_peaks) {
+                    return self.peak_color; // filled peaks
+                } else {
+                    return "none"; // not filled peaks
+                }
             })
-            .on("drag", function (event, d) {
-                d3.select(this)
-                    .attr("cx", event.x)
-                    .attr("cy", event.y);
-                //update the peak data
-
-            })
-            .on("end", function (event, d) {
-                d3.select(this).classed("active", false);
-                let ppm = self.x.invert(event.x);
-                let intensity = self.y.invert(event.y);
-                console.log("ppm", ppm, "intensity", intensity);
-                //update the peak data, 
-                d[0] = ppm;
-                d[1] = intensity;
-                //update the peak object
-                peak_obj.update_row_1d(d[2], ppm, intensity);
-            });
-
-        this.peaks_symbol.call(this.peak_drag);
+            .style("stroke-width", self.peak_thickness) // thickness of the circle
+            .style("stroke",self.peak_color) // color of the circle
+            ;
     };
 
+    /**
+     * Redraw peaks on the plot, only need to update one style, depending on the flag
+     * Peak positions are not changed, so no need to update cx and cy
+     * @param {int} flag:
+     * 1: size changed
+     * 2: line thickness changed
+     * 3: filling changed
+     * 4: color changed
+     */
+    redraw_peaks(flag) {
+        if (this.$peaks_symbol) {
+            switch(flag) {
+                case 1:
+                    this.$peaks_symbol.attr('r', this.peak_size); // update radius of the circle
+                    break;
+                case 2:
+                    this.$peaks_symbol.style("stroke-width", this.peak_thickness); // update thickness of the circle
+                    break;
+                case 3:
+                    if (this.filled_peaks) {
+                        this.$peaks_symbol.style("fill", this.peak_color); // filled peaks
+                    } else {
+                        this.$peaks_symbol.style("fill", "none"); // not filled peaks
+                    }
+                    break;
+                case 4:
+                    this.$peaks_symbol.style("stroke", this.peak_color); // update color of the circle
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none"); // update fill color of the circle
+                    break;
+                default:
+                    console.warn("colmar_1d_double_zoom: redraw_peaks called with unknown flag: " + flag);
+                    break;
+            }
+        }
+    }
+
     remove_peaks() {
-        this.vis.selectAll(".peak_circle").remove();
-        this.peaks_symbol = null;
+        if(this.$peaks_symbol)
+        {
+            this.vis.selectAll("circle").remove();
+            this.$peaks_symbol = null;
+        }
+        this.peak_type = null; // reset peak type
+        /**
+         * also remove reconstructed peaks if they exist (if it is from fitted peaks)
+         */
+        this.update_reconstructed_peaks([]);
     };
 
     zoom_to = function (x_scale)
     {
-        this.x.domain(x_scale);
+        this.xscale.domain(x_scale);
         this.redraw();
     }
 

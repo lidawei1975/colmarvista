@@ -77,7 +77,11 @@ class spectrum {
          */
         this.pseudo3d_children = [];
 
-        this.mathTool  = new ldwmath();
+        /**
+         * By default, there is only one spectrum
+         */
+        this.nspect = 1; //number of spectra, default is 1
+
     };
 
     /**
@@ -709,12 +713,12 @@ class spectrum {
         /**
          * Get median of abs(z). If data_size is > 1024*1024, we will sample 1024*1024 points by stride
          */
-        this.noise_level = this.mathTool.estimate_noise_level(this.n_direct, this.n_indirect, this.raw_data);
+        this.noise_level = mathTool.estimate_noise_level(this.n_direct, this.n_indirect, this.raw_data);
 
         /**
          * Get max and min of z (z is sorted)
          */
-        [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
+        [this.spectral_max, this.spectral_min] = mathTool.find_max_min(this.raw_data);
 
         /**
          * If noise_level < spectral_max/1.4^30, set noise_level to spectral_max/1.4^30
@@ -750,8 +754,8 @@ class spectrum {
         /**
          * Get max,min of the projection
          */
-        [this.projection_direct_max, this.projection_direct_min] = this.mathTool.find_max_min(this.projection_direct);
-        [this.projection_indirect_max, this.projection_indirect_min] = this.mathTool.find_max_min(this.projection_indirect);
+        [this.projection_direct_max, this.projection_direct_min] = mathTool.find_max_min(this.projection_direct);
+        [this.projection_indirect_max, this.projection_indirect_min] = mathTool.find_max_min(this.projection_indirect);
 
         /**
          * In case of reconstructed spectrum from fitting or from NUS, noise_level is usually 0.
@@ -790,4 +794,361 @@ class spectrum {
         this.negative_contour_type = "logarithmic";
     };
 
+
+    run_peak_fitting(peak_fitting_parameters) {
+
+        /**
+         * Clear current fitted peak object
+         */
+        this.fitted_peaks_object = null;
+
+        /**
+         * 0  gaussian_type,
+         * 1  voigt_type,
+         * 2  exact_type,
+         * 3  voigt_lorentz_type, // voigt along x and lorentzian along y
+         * 4  null_type //this is an error!
+         */
+
+
+        this.user_scale = peak_fitting_parameters.user_scale ? peak_fitting_parameters.user_scale : 5.5;
+        this.user_scale2 = peak_fitting_parameters.user_scale2 ? peak_fitting_parameters.user_scale2 : 3.0;
+        this.peak_shape = peak_fitting_parameters.peak_shape ? peak_fitting_parameters.peak_shape : 0; //default is gaussian
+        this.too_near_cutoff = peak_fitting_parameters.too_near_cutoff ? peak_fitting_parameters.too_near_cutoff : 0.01; //default is 0.1 ppm
+        this.removal_cutoff = peak_fitting_parameters.removal_cutoff ? peak_fitting_parameters.removal_cutoff : 0.01; //default is 0.1 ppm
+        this.maxround = peak_fitting_parameters.maxround ? peak_fitting_parameters.maxrouns : 10; //default is 10 rounds
+
+        let x_ppm = this.picked_peaks_object.get_column_by_header("X_PPM");
+        let y_ppm = this.picked_peaks_object.get_column_by_header("Y_PPM");
+        this.p_intensity = this.picked_peaks_object.get_column_by_header("HEIGHT");
+        this.peak_assignments = this.picked_peaks_object.get_column_by_header("ASS");
+
+        this.sigmax = this.picked_peaks_object.get_column_by_header("XW").map((x) => x / 2.355);
+        this.sigmay = this.picked_peaks_object.get_column_by_header("YW").map((y) => y / 2.355);
+
+
+        /**
+         * User this.x_ppm_start and this.x_ppm_step to convert x_ppm to index
+         * index = (x_ppm - this.x_ppm_start) / this.x_ppm_step
+         */
+        let p1 = x_ppm.map((x) => Math.round((x - this.x_ppm_start) / this.x_ppm_step));
+        let p2 = y_ppm.map((y) => Math.round((y - this.y_ppm_start) / this.y_ppm_step));
+
+        /**
+         * Get peak widths from the picked peaks object
+         */
+        let x_width = this.picked_peaks_object.get_column_by_header("XW");
+        let y_width = this.picked_peaks_object.get_column_by_header("YW");
+
+        /**
+         * Get median of x_width and y_width
+         */
+        this.median_width_x = mathTool.get_median(x_width);
+        this.median_width_y = mathTool.get_median(y_width);
+        this.wx = this.median_width_x * 1.6;
+        this.wy = this.median_width_y * 1.6;
+
+        // Allocate arrays
+        this.peak_map = new Array(this.n_direct * this.n_indirect).fill(-1);
+        this.peak_map2 = new Array(this.n_direct * this.n_indirect).fill(0);
+        this.peak_map3 = new Array(this.n_direct * this.n_indirect).fill(0);
+
+        // Populate peak_map
+        for (let i = 0; i < p1.length; i++) {
+            let xx = Math.round(p1[i]);
+            let yy = Math.round(p2[i]);
+            if (xx >= this.n_direct || xx < 0 || yy < 0 || yy >= this.n_indirect) {
+                console.log("Something is wrong with the coordinates in peak_partition.");
+            }
+            this.peak_map[xx * this.n_indirect + yy] = i;
+        }
+
+        // Populate peak_map2 and peak_map3 for peak regions
+        for (let i = 0; i < p1.length; i++) {
+            let x_from = Math.round(p1[i] - this.wx * 1.5);
+            let x_to   = Math.round(p1[i] + this.wx * 1.5);
+            let y_from = Math.round(p2[i] - this.wy * 1.5) + 1;
+            let y_to   = Math.round(p2[i] + this.wy * 1.5) + 1;
+
+            if (x_from < 0) x_from = 0;
+            if (x_to > this.n_direct) x_to = this.n_direct;
+            if (y_from < 0) y_from = 0;
+            if (y_to > this.n_indirect) y_to = this.n_indirect;
+
+            for (let m = x_from; m < x_to; m++) {
+                for (let n = y_from; n < y_to; n++) {
+                    if (m >= this.n_direct || m < 0 || n < 0 || n >= this.n_indirect) {
+                        console.log("Something is wrong with the coordinates in peak_partition.");
+                    }
+                    if (this.p_intensity[i] > 0) {
+                        this.peak_map2[m * this.n_indirect + n] = 1;
+                    } else {
+                        this.peak_map3[m * this.n_indirect + n] = 1;
+                    }
+                }
+            }
+        }
+
+        this.cluster_counter = 0;
+        this.peak_partition_core(0); // positive peaks
+        // this.peak_partition_core(1); // negative peaks
+    };
+
+    async peak_partition_core(flag) {
+        // === Peak map is used to map the peak position to the data point index ===
+        let peak_segment_b = Array(this.n_indirect).fill(0).map(() => []);
+        let peak_segment_s = Array(this.n_indirect).fill(0).map(() => []);
+        let used = Array(this.n_indirect).fill(0).map(() => []);
+        let clusters = [];
+
+        const lowest_level = this.noise_level * this.user_scale2;
+
+        if (flag === 0) {
+            // Process positive peaks only
+            for (let j = 0; j < this.n_indirect; j++) {
+                if (this.raw_data[j * this.n_direct + 0] >= lowest_level && this.peak_map2[j] === 1) {
+                    peak_segment_b[j].push(0);
+                }
+                for (let i = 1; i < this.n_direct; i++) {
+                    if ((this.raw_data[j * this.n_direct + i - 1] < lowest_level || this.peak_map2[j + (i - 1) * this.n_indirect] === 0)
+                        && (this.raw_data[j * this.n_direct + i] >= lowest_level && this.peak_map2[j + i * this.n_indirect] === 1)) {
+                        peak_segment_b[j].push(i);
+                    }
+                    if ((this.raw_data[j * this.n_direct + i - 1] >= lowest_level && this.peak_map2[j + (i - 1) * this.n_indirect] === 1)
+                        && (this.raw_data[j * this.n_direct + i] < lowest_level || this.peak_map2[j + i * this.n_indirect] === 0)) {
+                        peak_segment_s[j].push(i);
+                    }
+                }
+                if (peak_segment_s[j].length < peak_segment_b[j].length) {
+                    peak_segment_s[j].push(this.n_direct);
+                }
+                for (let i = 0; i < peak_segment_s[j].length; i++) {
+                    used[j].push(0);
+                }
+            }
+        } else {
+            // Process negative peaks only
+            for (let j = 0; j < this.n_indirect; j++) {
+                if (this.raw_data[j * this.n_direct + 0] <= -lowest_level && this.peak_map3[j] === 1) {
+                    peak_segment_b[j].push(0);
+                }
+                for (let i = 1; i < this.n_direct; i++) {
+                    if ((this.raw_data[j * this.n_direct + i - 1] > -lowest_level || this.peak_map3[j + (i - 1) * this.n_indirect] === 0)
+                        && (this.raw_data[j * this.n_direct + i] <= -lowest_level && this.peak_map3[j + i * this.n_indirect] === 1)) {
+                        peak_segment_b[j].push(i);
+                    }
+                    if ((this.raw_data[j * this.n_direct + i - 1] <= -lowest_level && this.peak_map3[j + (i - 1) * this.n_indirect] === 1)
+                        && (this.raw_data[j * this.n_direct + i] > -lowest_level || this.peak_map3[j + i * this.n_indirect] === 0)) {
+                        peak_segment_s[j].push(i);
+                    }
+                }
+                if (peak_segment_s[j].length < peak_segment_b[j].length) {
+                    peak_segment_s[j].push(this.n_direct);
+                }
+                for (let i = 0; i < peak_segment_s[j].length; i++) {
+                    used[j].push(0);
+                }
+            }
+        }
+
+        // === Breadth-first search to find all clusters ===
+        let work = [];
+
+        for (let j = 0; j < this.n_indirect; j++) {
+            for (let i = 0; i < used[j].length; i++) {
+                if (used[j][i] === 0) {
+                    used[j][i] = 1;
+                    work.length = 0;
+                    work.push([j, i]);
+
+                    let position = 0;
+                    while (position < work.length) {
+                        const [c_row, c_idx] = work[position];
+                        position++;
+
+                        for (let jj = Math.max(0, c_row - 1); jj < Math.min(this.n_indirect, c_row + 2); jj++) {
+                            if (jj === c_row) continue;
+                            for (let ii = 0; ii < used[jj].length; ii++) {
+                                if (used[jj][ii] === 1) continue;
+                                if (peak_segment_s[jj][ii] >= peak_segment_b[c_row][c_idx] &&
+                                    peak_segment_b[jj][ii] <= peak_segment_s[c_row][c_idx]) {
+                                    work.push([jj, ii]);
+                                    used[jj][ii] = 1;
+                                }
+                            }
+                        }
+                    }
+
+                    clusters.push(work.slice());
+                }
+            }
+        }
+
+        if (flag === 0) {
+            console.log(`Total ${clusters.length} positive peak clusters.`);
+        } else {
+            console.log(`Total ${clusters.length} negative peak clusters.`);
+        }
+
+        // === Part II: prepare data for fitting ===
+        for (let i0 = 0; i0 < clusters.length; i0++) {
+            let min1 = Infinity, min2 = Infinity;
+            let max1 = -Infinity, max2 = -Infinity;
+
+            for (const [j, k] of clusters[i0]) {
+                const begin = peak_segment_b[j][k];
+                const stop = peak_segment_s[j][k];
+                if (begin < min1) min1 = begin;
+                if (stop > max1) max1 = stop;
+                if (j < min2) min2 = j;
+                if (j > max2) max2 = j;
+            }
+            max1++;
+            max2++;
+
+            if (max1 - min1 < 3 || max2 - min2 < 3) continue;
+
+            const xydim = (max1 - min1) * (max2 - min2);
+            const spect_parts = Array(this.nspect*xydim).fill(0);
+            const aas = [];
+            const xx = [], yy = [], sx = [], sy = [], gx = [], gy = [], ori_index = [], region_peak_cannot_move_flag = [];
+
+            for (const [j, k] of clusters[i0]) {
+                const begin = peak_segment_b[j][k];
+                const stop = peak_segment_s[j][k];
+                for (let kk = begin; kk < stop; kk++) {
+                    for (let kIdx = 0; kIdx < this.nspect; kIdx++) {
+                        spect_parts[kIdx*xydim+(kk - min1) * (max2 - min2) + (j - min2)] =
+                            this.raw_data[kk + j * this.n_direct];
+                    }
+
+                    const peak_ndx = this.peak_map[kk * this.n_indirect + j];
+                    if (peak_ndx >= 0) {
+                        xx.push(kk - min1);
+                        yy.push(j - min2);
+                        sx.push(this.sigmax[peak_ndx]);
+                        sy.push(this.sigmay[peak_ndx]);
+                        gx.push(0.00001);
+                        gy.push(0.00001);
+                        ori_index.push(peak_ndx);
+                        region_peak_cannot_move_flag.push(0);
+                        aas.push(this.p_intensity[peak_ndx]);
+                    }
+                }
+            }
+
+            if (xx.length > 0) {
+                const workerInput =
+                {
+                    webassembly_job: "gaussian_fitting",
+                    spectrum_index: this.spectrum_index,
+                    peak_shape: this.peak_shape,
+                    maxround: this.maxround,
+                    cluster_counter: this.cluster_counter,
+                    peak_assignments: this.peak_assignments,
+                    peak_sign: flag === 0 ? 1 : -1,
+                    min1, min2,
+                    size1: max1 - min1,
+                    size2: max2 - min2,
+                    nspect: this.nspect,
+                    spect_parts,
+                    xx, yy, aas, sx, sy, gx, gy, ori_index, region_peak_cannot_move_flag,
+                    median_width_x: this.median_width_x,
+                    median_width_y: this.median_width_y,
+                    wx: this.wx * 1.5,
+                    wy: this.wy * 1.5,
+                    noise_level: this.noise_level,
+                    user_scale2: this.user_scale2,
+                    too_near_cutoff: this.too_near_cutoff,
+                    step1: this.x_ppm_step,
+                    step2: this.y_ppm_step,
+                    removal_cutoff: this.removal_cutoff
+                };
+                this.cluster_counter++;
+
+                // Call the worker, wait for result:
+                webassembly_1d_worker_2.postMessage(workerInput);
+            }
+        }
+
+        return true;
+    };
+
+    /**
+     * result is from web worker, which use web assembly to do gaussian fitting
+     * @param {*} result 
+     */
+    process_gaussian_fitting_result(result) {
+        console.log("Processing gaussian fitting result...");
+        /**
+         * result is an object with the following properties:
+         *  webassembly_job: event.data.webassembly_job,
+            spectrum_index: event.data.spectrum_index,
+            peak_assignments: event.data.peak_assignments,
+            p1: p1,
+            p2: p2,
+            group: group,
+            nround: nround,
+            p_intensity: p_intensity,
+            sigmax: sigmax,
+            sigmay: sigmay,
+            peak_index: peak_index,
+            err: err,
+            num_sums: num_sums,
+            gammax: gammax,
+            gammay: gammay,
+            p_intensity_all_spectra: p_intensity_all_spectra,
+         */
+
+        if(this.fitted_peaks_object === null) {
+            this.fitted_peaks_object = new cpeaks();
+            /**
+             * Add column_headers and column_formats to fitted_peaks_object 
+             */
+            this.fitted_peaks_object.column_headers = [
+                "INDEX",'X_AXIS', "Y_AXIS", 
+                "X_PPM", "Y_PPM", "XW","YW","HEIGHT","ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
+                "GROUP", "NROUND"
+            ];
+            this.fitted_peaks_object.column_formats = [
+                "%5d", "%9.4f", "9.4f", 
+                "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%s", "%f", "%f", "%f", "%f",
+                "%5d", "%4d"
+            ];
+            /**
+             * DEfine this.fitted_peaks_object.columns as array of arrays, and out layer size is the same as column_headers
+             */
+            this.fitted_peaks_object.columns = [];
+            for (let i = 0; i < this.fitted_peaks_object.column_headers.length; i++) {
+                this.fitted_peaks_object.columns.push([]);
+            }
+        }
+        /**
+         * Add current result to fitted_peaks_object, one row per peak
+         */
+        for (let i = 0; i < result.p1.length; i++) {
+            let current_index = this.fitted_peaks_object.columns[0].length;
+            let row = [];
+            row.push(current_index + i);
+            row.push(result.p1[i]);
+            row.push(result.p2[i]);
+            row.push(this.x_ppm_start + result.p1[i] * this.x_ppm_step);
+            row.push(this.y_ppm_start + result.p2[i] * this.y_ppm_step);
+            let fwhhx = 1.0692 * result.gammax[i] + Math.sqrt(0.8664 * result.gammax[i] ** 2 + 5.5452 * result.sigmax[i] ** 2);
+            let fwhhy = 1.0692 * result.gammay[i] + Math.sqrt(0.8664 * result.gammay[i] ** 2 + 5.5452 * result.sigmay[i] ** 2);
+            row.push(fwhhx);
+            row.push(fwhhy);
+            row.push(result.p_intensity[i]);
+            let original_peak_index = result.peak_index[i];
+            row.push(this.peak_assignments[original_peak_index] ? this.peak_assignments[original_peak_index] : "peak");
+            row.push(result.sigmax[i]);
+            row.push(result.sigmay[i]);
+            row.push(result.gammax[i]);
+            row.push(result.gammay[i]);
+            row.push(result.group[i]);
+            row.push(result.nround[i]);
+
+            this.fitted_peaks_object.add_row(row);
+        }
+    };
 };
