@@ -22,11 +22,13 @@ class spectrum_1d {
         this.noise_level = 0.001; //noise level of the input spectrum_1d
         this.spectral_max = Number.MAX_VALUE; //maximum value of the spectrum_1d
         this.n_direct = 4096; //size of direct dimension of the input spectrum_1d. integer
+        this.n_indirect = 1; //size of indirect dimension of the input spectrum_1d. integer, must be 1 for 1D spectrum
         this.x_ppm_start = 12.0; //start ppm of direct dimension
         this.x_ppm_width = 12.0; //width of direct dimension
         this.x_ppm_step = -12.0 / 4096; //step of direct dimension
         this.x_ppm_ref = 0.0; //reference ppm of direct dimension
         this.frq1 = 850.0; //spectrometer frequency of direct dimension
+        this.datatype_direct = 1; //datatype of direct dimension, 1 for real, 0 for complex
         this.picked_peaks_object = new cpeaks(); //picked peaks object
         this.fitted_peaks_object = new cpeaks(); //fitted peaks object
         /**
@@ -74,7 +76,11 @@ class spectrum_1d {
         let new_spectrum = new Object();
         for(var key in this) {
             if (this.hasOwnProperty(key)) {
-                if (key === "header" || key === "raw_data" || key === "raw_data_i") {
+                if (key == "fid_process_parameters")
+                {
+                    // do not copy fid_process_parameters, it is not needed in the copied spectrum
+                }
+                else if (key === "header" || key === "raw_data" || key === "raw_data_i") {
                     new_spectrum[key + "_length"] = this[key].length;
                 }
                 else {
@@ -82,8 +88,19 @@ class spectrum_1d {
                 }
             }
         }
+
+        /**
+         * if spectrum_origin is -2 (from fid), change it to -1 (user uploaded frequency file)
+         * Because we removed the fid_process_parameters, which is only valid when spectrum_origin is -2
+         */
+        if (new_spectrum.spectrum_origin === -2) {
+            new_spectrum.spectrum_origin = -1;
+        }
+
         return new_spectrum;
     };
+
+
 
 
     update_x_ppm_ref(x_ppm_ref) {
@@ -576,7 +593,7 @@ class spectrum_1d {
         this.x_ppm_step = -this.x_ppm_width / this.n_direct; //step size in ppm
 
         this.raw_data = new Float32Array(this.n_direct);
-
+        this.raw_data_i = new Float32Array(0); //no imaginary part at this time for Sparky format
        
 
 
@@ -592,7 +609,8 @@ class spectrum_1d {
             temp.reverse();
         }
 
-        this.raw_data = new Float32Array(arrayBuffer, current_file_position, this.n_direct);
+        let temp_raw_data = new Float32Array(arrayBuffer, current_file_position, this.n_direct);
+        this.raw_data = new Float32Array(temp_raw_data); //copy with new buffer.
 
 
         /**

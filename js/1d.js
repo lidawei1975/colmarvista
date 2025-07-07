@@ -2263,6 +2263,9 @@ function save_to_file()
     const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength*Float32Array.BYTES_PER_ELEMENT);
     const combinedView = new Uint8Array(combinedBuffer);
 
+    console.log("Length of length: 4, Length of JSON data: " + jsonLength);
+    console.log("Total length of binary data: " + totalLength*Float32Array.BYTES_PER_ELEMENT);
+
     combinedView.set(new Uint8Array(lengthBuffer), 0);
     combinedView.set(jsonBytes, 4);
     /**
@@ -2271,12 +2274,16 @@ function save_to_file()
     let offset = 4 + jsonLength;
     for(let i=0;i<all_spectra.length;i++){
         combinedView.set(new Uint8Array(all_spectra[i].header.buffer, 0, 2048), offset);
-       
+        console.log("all_spectra[i].header.length: " + all_spectra[i].header.length);
+        console.log("set header at offset " + offset);
         offset += all_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data.buffer), offset);
+        combinedView.set(new Uint8Array(all_spectra[i].raw_data.buffer,0,all_spectra[i].raw_data.length*4), offset);
+        console.log("set raw_data at offset " + offset);
         offset += all_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data_i.buffer), offset);
+        combinedView.set(new Uint8Array(all_spectra[i].raw_data_i.buffer,0,all_spectra[i].raw_data_i.length*4), offset);
+        console.log("set raw_data_i at offset " + offset);
         offset += all_spectra[i].raw_data_i.length * Float32Array.BYTES_PER_ELEMENT;
+        console.log("After saving spectrum " + i + ", offset is " + offset);
     }    
 
     // Create Blob and download:
@@ -2300,6 +2307,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     // Read the length of the JSON data (first 4 bytes)
     const jsonLength = new DataView(arrayBuffer).getInt32(0, true); // true for little-endian
+    console.log("Length of JSON data: " + jsonLength);
 
     // Extract the JSON data
     const jsonBytes = uint8Array.slice(4, 4 + jsonLength);
@@ -2356,15 +2364,18 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     let offset = 4 + jsonLength;
     for(let m=0;m<all_spectra.length;m++){
         all_spectra[m].header = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT));
+        console.log("all_spectra[m].header_length: " + all_spectra[m].header_length);
         console.log('load header at offset ' + offset);
-        console.log(all_spectra[m].header);
         offset += all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT;
         
         all_spectra[m].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
+        console.log('load raw_data at offset ' + offset);
         offset += all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
 
         all_spectra[m].raw_data_i = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT));
+        console.log('load raw_data_i at offset ' + offset);
         offset += all_spectra[m].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT;
+        console.log("After loading spectrum " + m + ", offset is " + offset);
     
         if(b_plot_initialized === false)
         {
