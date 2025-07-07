@@ -1662,8 +1662,18 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
          * We need to make a data array of two numbers: ppm and amplitude
          */
         let data = [];
-        for (let i = 0; i < result_spectra[0].n_direct; i++) {
-            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        if(result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length)
+        {
+            for (let i = 0; i < result_spectra[0].n_direct; i++) {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
+            }
+        }    
+        else
+        {
+            for (let i = 0; i < result_spectra[0].n_direct; i++)
+            {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+            }
         }
         main_plot.add_data(data,result_spectra[0].spectrum_index,result_spectra[0].spectrum_color);
 
@@ -1672,8 +1682,18 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
     else
     {
         let data = [];
-        for (let i = 0; i < result_spectra[0].n_direct; i++) {
-            data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+        if(result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length)
+        {
+            for(let i=0; i < result_spectra[0].n_direct; i++)
+            {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
+            }
+        }
+        else
+        {
+            for (let i = 0; i < result_spectra[0].n_direct; i++) {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+            }
         }
         main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
     }

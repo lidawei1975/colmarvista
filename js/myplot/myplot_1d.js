@@ -92,6 +92,8 @@ class myplot_1d {
         this.spectrum_reference = [];   // This is the reference correction of each spectrum
 
         this.spectrum_visibility = []; // This is the visibility of each spectrum, used to show/hide the spectrum in the plot
+
+        this.spectrum_dimension = []; // This is the dimension of each spectrum, used to know if it is real only or real and imaginary
         
         this.peak_type = null;
 
@@ -358,6 +360,8 @@ class myplot_1d {
             }
 
 
+
+
             /**
              * Get the ppm and amp of the mouse position
              */
@@ -365,11 +369,53 @@ class myplot_1d {
             let ppm = self.xscale.invert(e.clientX - bound.left);
             let amp = self.yscale.invert(e.clientY - bound.top);
 
+            if (this.spectrum_dimension[this.current_spectrum_index] === 3  && (e.shiftKey || e.ctrlKey)) {
+                e.preventDefault();
+                let phase_adjust = 0.0;
+                if(e.shiftKey)
+                {
+                    phase_adjust = 0.0175; //In radians, about 1 degree
+                }
+                else if(e.ctrlKey)
+                {
+                    phase_adjust = 0.00175; //In radians, about 0.1 degree
+                }
+                if (e.deltaY < 0) {
+                    phase_adjust = -phase_adjust;
+                }
+                /**
+                 * Adjust p0 if anchor is not set
+                 */
+                if (this.anchor === false) {
+                    phase0_coarse += phase_adjust;
+                    let P0 = (phase0_coarse ) * 180.0 / Math.PI; //back to degree
+                    document.getElementById("P0").innerHTML = P0.toFixed(2);
+    
+                    phase_correction_at_min_ppm = phase0_coarse ;
+                    phase_correction_at_max_ppm = phase0_coarse ;
+                    console.log(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+                    this.apply_phase_correction(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+                }
+                /**
+                 * Adjust p1 if anchor is set
+                 */
+                else {
+                    phase1_coarse += phase_adjust;
+                    let P1 = (phase1_coarse ) * 180.0 / Math.PI; //back to degree
+                    document.getElementById("P1").innerHTML = P1.toFixed(2);
+                    let slope = -(phase1_coarse  ) / (this.max_ppm - this.min_ppm);
+                    let phase_at_anchor = phase0_coarse;
+                    phase_correction_at_min_ppm = phase_at_anchor - slope * (this.anchor_ppm - this.min_ppm);
+                    phase_correction_at_max_ppm = phase_at_anchor + slope * (this.max_ppm - this.anchor_ppm);
+                    console.log(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+                    this.apply_phase_correction(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+                }
+            }
 
             /**
             * left side of the Y axis or shift key is pressed, Y zoom only
             */
-            if (e.clientX - bound.left < self.margin.left || e.shiftKey == true) {
+            else if (e.clientX - bound.left < self.margin.left) {
                 /**
                  * Get top and bottom of the visible range
                  * We need to zoom in/out around the mouse position
@@ -408,6 +454,64 @@ class myplot_1d {
             this.redraw();
         });
 
+    }
+
+
+        /**
+     * This function will apply phase correction to the experimental spectrum.
+     * this.data is an array of [x,y,z] pairs. X is ppm, Y is read part and Z is imaginary part of the spectrum
+     * @param {double} phase0 phase correction for the experimental spectrum at the left end of the spectrum (smaller ppm)
+     * @param {double} phase1 phase correction for the experimental spectrum at the right end of the spectrum (largest ppm)
+     * But in visualization, max ppm is drawn on the left and min ppm is drawn on the right.
+     * This is opposite to what we save the spectrum in this.data
+     */
+    apply_phase_correction(phase0, phase1) {
+
+        /**
+         * Throw error if phase0 or phase1 is not a number or imagine_exist is false
+         */
+        if (typeof phase0 != 'number' || typeof phase1 != 'number') {
+            throw new Error('colmar_1d_double_zoom function apply_phase_correction phase0 and phase1 must be numbers');
+        }
+        if (this.imagine_exist === false) {
+            throw new Error('colmar_1d_double_zoom function apply_phase_correction cannot apply phase correction because imaginary part is not provided');
+        }
+
+        /**
+         * prevent re-interpretation of this inside some functions. we need to use self sometimes
+         */
+        var self = this;
+        const lineId = `line${self.current_spectrum_index}`;
+        let data = self.allLines[lineId];
+
+        /**
+         * var phase_correction is an array of phase correction for each data point. Same length as this.data
+         */
+        let phase_correction = new Array(data.length);
+        /**
+         * we can calculate the phase correction for each data point using linear interpolation, using index 
+         * ppm is linearly spaced. So, we can use index to calculate the phase correction for each data point
+         */
+        for (var i = 0; i < data.length; i++) {
+            phase_correction[i] = phase0 + (phase1 - phase0) * i / data.length;
+        }
+
+        /**
+         * Now apply phase correction to the experimental spectrum at each data point
+         * y ==> ori_y*cos(phase_correction) + ori_z * sin(phase_correction)
+         * z ==> ori_z*cos(phase_correction) - ori_y * sin(phase_correction)
+         * Infor: Angle is in radians in JS Math library
+         */
+        for (var i = 0; i < this.data.length; i++) {
+            data[i][1] = this.original_data[i][1] * Math.cos(phase_correction[i]) + this.original_data[i][2] * Math.sin(phase_correction[i]);
+            data[i][2] = this.original_data[i][2] * Math.cos(phase_correction[i]) - this.original_data[i][1] * Math.sin(phase_correction[i]);
+        }
+
+        /**
+         * Now draw the experimental spectrum with phase correction.
+         * this.data_strided is a shallow copy of this.data (share the same data!!)
+         */
+        this.line_exp.attr("d", self.line(self.data_strided));
     }
 
     /**
@@ -456,6 +560,8 @@ class myplot_1d {
         this.spectrum_reference.push(0.0); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
 
         this.spectrum_visibility.push(true); // This is the visibility of the spectrum, used to show/hide the spectrum in the plot
+
+        this.spectrum_dimension.push(data[0].length) // 2: real only, 3: real and imaginary.
 
         const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
