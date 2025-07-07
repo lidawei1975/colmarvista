@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>COLMARvista1D</title>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" type="text/css" href="colmarview.css">
+</head>
+
+
+<body>
+
+    <div id="body">
+
+        <span id="contour_message"></span>
+        <span id="webassembly_message"></span>
+
+        <div id="section1" style=" Padding: 10px; width: 100%">
+            <div>
+                <h1>COLMARvista 1D: a web-based 1D NMR viewer</h1>
+                <h2>For autonomous processing, peak picking, peak fitting, and pseudo-2D fitting</h2>
+                <h3><a target="_blank" rel="noopener noreferrer"
+                        href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a></h3>
+            </div>
+        </div>
+
+        <div id="section2">
+
+            <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <label for="button_save" id="button_save_label">Save current session to a local file </label>
+                <button id="button_save" onclick="save_to_file()">save</button>
+                <br>
+                <label id="load_file_label" for="load_file">Load previous session: </label>
+                <input type="file" id="load_file">
+                <br>
+            </div>
+
+            <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
+                        domain data for processing: <span class="information">(Console version >=3.0) </span></p>
+                </span>
+                <form id="fid_file_form" action="" enctype="multipart/form-data">
+                    <div class="drop-area input-section" id="input_files">
+                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file" name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called acqus):</label>
+                        <input type="file" name="acquisition_file" id="acquisition_file"><br>
+                        <span class="information"> You can also drag and drop Bruker folder (which contains required
+                            files here).</span><br>
+                    </div>
+
+                    <div class="input-section" id="input_options">
+                        <span>
+                            <label for="apodization_direct">Direct dimension apodization function</label>
+                            <input type="text" name="apodization_direct" id="apodization_direct"
+                                value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
+                        </span>
+
+                        <span>
+                            <label for="zf_direct">Zero filling factor for direct dimension (2, 4, 8): </label>
+                            <select name="zf_direct" id="zf_direct">
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <label for="phase_correction_direct_p0">Phase correction for direct dimension P0:
+                            </label>
+                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
+                                value="0" step="any">
+                            <label for="phase_correction_direct_p1">P1: </label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
+                                value="0" step="any">
+                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
+                            <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
+                            <label for="delete_imaginary">Delete imaginary data
+                        </span>
+
+                        <span>
+                            <input type="radio" name="Pseudo-2D-process" id="first_only" value="first_only" checked>
+                            <label for="first_only">Process the first 1D experiment only</label>
+                            <input type="radio" name="Pseudo-2D-process" id="all_traces" value="all_planes">
+                            <label for="all_planes">Process all pseudo 2D traces</label>
+                        </span>
+                    </div>
+                    <input type="submit" id="button_fid_process" name="button_fid_process"
+                        value="Upload experimental files and process">
+                    </br>
+
+                </form>
+            </div>
+
+
+            <div id="file_area" class="drop-area" style="width: 1200px;">
+                <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
+                    domain spectra:</p>
+                <form id="ft1_file_form" action="" enctype="multipart/form-data">
+                    <label for="userfile">Frequency domain spectral file (.ft1, .ucsf or .txt) </label><input
+                        type="file" multiple id="userfile"><br>
+                    <input type="submit" id="button_ft1_process" value="Upload and process spectra"></br>
+                </form>
+                <span class="information"> You can also drag and drop spectral file(s) in nmrPipe format or folder
+                    contains them here.</span>
+            </div>
+
+
+            <div id="spectra_list" style=" Padding: 10px; width: 1200px;" class="drop-area-neighbor">
+                <h4>Your spectra list:</h4>
+                <ol id="spectra_list_ol" type="1">
+                </ol>
+            </div>
+
+
+            <div class="flex-container">
+
+
+                <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
+
+                    <div>
+                        <strong>Control:</strong>
+                        <label for="plot_group">Plot group </label>
+                        <input type="number" id="plot_group" value="1" min="1" max="10">
+                        <button onclick="download_plot()">Download plot</button>
+                        <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
+                            PC</button>
+                        <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
+                            PC</button>
+                        <!-- Information for user: phase correction applied -->
+                        <span id="pc_info"></span>
+                        <br>
+
+
+                        <label for="peak_size">Peak size: </label>
+                        <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
+                        <label for="peak_thickness">Thickness: </label>
+                        <input type="number" id="peak_thickness" value="1" min="1" max="10">
+                        <input type="checkbox" id="filled_peaks" checked>
+                        <label for="filled_peaks"> Filled peaks</label>
+                        <label for="peak_color"> color </label>
+                        <input type="color" id="peak_color" value="#0000ff">&nbsp;&nbsp;
+                        <br>
+
+                        <input type="checkbox" id="allow_drag_and_drop" disabled>
+                        <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
+                        <br><br>
+                    </div>
+
+
+                    <!-- This is the main plot -->
+                    <div id="plot_1d" class="resizable" style="display: none;">
+                        <!-- The SVG based plot will be generated here -->
+                    </div>
+
+
+                </div>
+            </div>
+
+            <div id="peak_area" class="resizable scroll" style="min-width: 400px; min-height: 300px; display: none;">
+                <div id=" peak_area_header" class="header_sticky">
+                    <label for="peak_search_text">Search in peaks </label>
+                    <input type="text" id="peak_search_text" placeholder="peak text">
+                    <button id="peak_search" onclick="search_peak()">Search</button>
+                </div>
+                <table id="peak_table">
+                    <!-- table content will be managed by JS code -->
+                </table>
+            </div>
+
+        </div>
+
+        <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
+            <h4>Background server log:</h4>
+            <textarea id="log" rows="50" cols="120" readonly></textarea>
+            <button onclick="clear_log()">Clear log</button>
+            <button onclick="download_log()">Download log</button>
+        </div>
+
+    </div>
+
+    <div id="footer" style="width: 1200px;">
+        <p>For questions or comments, please contact us at <a href="mailto:lidawei@gmail.com">lidawei@gmail.com</a></p>
+        <div>
+            <p>References</p>
+            <ol>
+                <li>Li, DW., Brüschweiler, R.;
+                    COLMARvista: an open source 2D and pseudo-3D NMR spectral processing, visualization, and
+                    analysis software in JavaScript.
+                    J. Bio. NMR (in press)</a></li>
+                <li>Li, DW., Hansen, A.L., Yuan, C. et al. DEEP picker is a deep neural network for accurate
+                    deconvolution of complex two-dimensional NMR spectra.
+                    <a href="https://doi.org/10.1038/s41467-021-25496-5" target="_blank">Nat. Commun. 12, 5229
+                        (2021).</a>
+                </li>
+                <li>Ying J, Delaglio F, Torchia DA, Bax A. Sparse multidimensional iterative lineshape-enhanced
+                    (SMILE) reconstruction of both non-uniformly sampled and conventional NMR data.
+                    <a href="https://link.springer.com/article/10.1007/s10858-016-0072-7" target="_blank">J Biomol
+                        NMR. 2017 Jun;68(2):101-11</a>
+                </li>
+            </ol>
+        </div>
+
+    </div>
+
+    <!-- Hidden pop up div -->
+    <div id="peak_information_div" class="popup_div" style="display: block">
+        <div id="pseudo3d_fitting_plot"></div>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+    <script type="text/javascript" src="js/d3.7.min.js"></script>
+    <script type="text/javascript" src="js/ldwmath.js"></script>
+    <script type="text/javascript" src="js/file_drop.js"></script>
+    <script type="text/javascript" src="js/peaks.js"></script>
+    <script type="text/javascript" src="js/spectrum_1d.js"></script>
+    <script type="text/javascript" src="js/myplot/myplot_1d.js"></script>
+    <script type="text/javascript" src="js/make_table.js"></script>
+    <script type="text/javascript" src="js/1d.js"></script>
+    </div>
+</body>
+
+</html>

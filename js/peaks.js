@@ -397,6 +397,29 @@ class cpeaks {
         return result;
     }
 
+    
+    /**
+     * Get a array of array, each array is a row of the peaks object with only selected columns
+     * @param {string[]} column_header_names - the column header names to be selected
+     */
+    get_selected_columns_as_array(column_header_names) {
+        let indexes = column_header_names.map(header => this.column_headers.indexOf(header));
+        let result = [];
+        for (let i = 0; i < this.columns[0].length; i++) {
+            let row = [];
+            let counter = 0;
+            for (let j = 0; j < indexes.length; j++) {
+                if (indexes[j] === -1) {
+                    continue;
+                }
+                row[counter] = this.columns[indexes[j]][i];
+                counter++;
+            }
+            result.push(row);
+        }
+        return result;
+    }
+
     /**
      * Get an array of arrays of selected columns
      * result[column_index][row_index]
@@ -534,6 +557,28 @@ class cpeaks {
         return true;
     }
 
+        /**
+         * Update X_PPM and Y_PPM of a row, from index (value of the column with header "INDEX")
+         */
+        update_row_1d(index, x_ppm, height) {
+            let index_index = this.column_headers.indexOf('INDEX');
+            if (index_index === -1) {
+                return false;
+            }
+            let row_index = this.columns[index_index].indexOf(index);
+            if (row_index === -1) {
+                return false;
+            }
+            let x_ppm_index = this.column_headers.indexOf('X_PPM');
+            let height_index = this.column_headers.indexOf('HEIGHT');
+            if (x_ppm_index === -1 || height_index === -1) {
+                return false;
+            }
+            this.columns[x_ppm_index][row_index] = x_ppm;
+            this.columns[height_index][row_index] = height;
+            return true;
+        }
+
     /**
      * Add a row to the peaks object from a json object
      * {X_PPM: x_ppm,Y_PPM: y_ppm, HEIGHT: data_height};
@@ -562,7 +607,13 @@ class cpeaks {
                 this.columns[i].push(this.columns[i][0]);
             }
             else {
-                this.columns[i].push(this.columns[i].reduce((a, b) => a + b, 0) / this.columns[i].length);
+                /**
+                 * Keep original values in the column, then calculate median using a sorted copy of the column
+                 */
+                let temp=this.columns[i].slice();
+                temp.sort((a, b) => a - b);
+                let median_temp = temp[temp.length >> 1];
+                this.columns[i].push(median_temp);
             }
         }
         return true;
@@ -656,6 +707,34 @@ class cpeaks {
         else {
             return value.toString();
         }
+    };
+
+    /**
+     * Add a row to the peaks object. Length of row must be the same as the number of columns
+     * @param {array} row 
+     */
+    add_row(row)
+    {
+        if (row.length !== this.column_headers.length) {
+            return false;
+        }
+        /**
+         * Check if row has all values, if not, set to 0 or 'n.a.'
+         */
+        for (let i = 0; i < row.length; i++) {
+            if (row[i] === null || row[i] === undefined) {
+                if (this.column_formats[i].includes('s')) {
+                    row[i] = 'n.a.';
+                }
+                else {
+                    row[i] = 0;
+                }
+            }
+        }
+        this.columns.forEach((column, index) => {
+            column.push(row[index]);
+        });
+        return true;
     }
 
     /**

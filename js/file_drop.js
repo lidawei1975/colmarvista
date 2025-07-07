@@ -32,6 +32,11 @@ class file_drop_processor {
         return this;
     }
 
+    required_files(required_files) {
+        this.required_files = required_files;
+        return this;
+    }
+
     init() {
         /**
          *  Get the element that will be the drop target. 
@@ -149,15 +154,14 @@ class file_drop_processor {
             if(this.drop_area_id === "input_files")
             {
                 let filled = 0;
-                let required_files = [0,2,3];
-                for(let i=0;i<required_files.length;i++)
+                for(let i=0;i<this.required_files.length;i++)
                 {
-                    if(document.getElementById(this.files_id[required_files[i]]).files.length > 0)
+                    if(document.getElementById(this.files_id[this.required_files[i]]).files.length > 0)
                     {
                         filled++;
                     }
                 }
-                if(filled >= 3)
+                if(filled >= this.required_files.length)
                 {
                     document.getElementById("input_options").style.backgroundColor = "lightgreen";
                 }
