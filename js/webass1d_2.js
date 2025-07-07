@@ -434,7 +434,7 @@ self.onmessage = async function (event) {
          * Automatic phase correction part.
          */
         if(event.data.auto_direct) {
-            obj.set_up_parameters(5, 10, 3,true,true);
+            obj.set_up_parameters(5, 10, 3,true,false);
             obj.auto_phase_correction();
             const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
             

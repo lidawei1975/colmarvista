@@ -1494,6 +1494,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
 
             all_spectra.push(result_spectra[i]);
         }
+        spectrum_index = first_spectrum_index; //set the spectrum index to the first spectrum index
     }
     else if( b_reprocess === true)
     {
@@ -2228,46 +2229,63 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
-    for(let i=0;i<all_spectra.length;i++){
-        all_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT));
+    for(let m=0;m<all_spectra.length;m++){
+        all_spectra[m].header = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT));
         console.log('load header at offset ' + offset);
-        console.log(all_spectra[i].header);
-        offset += all_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT;
+        console.log(all_spectra[m].header);
+        offset += all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT;
         
-        all_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += all_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
+        all_spectra[m].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
 
-        all_spectra[i].raw_data_i = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[i].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += all_spectra[i].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT;
+        all_spectra[m].raw_data_i = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT));
+        offset += all_spectra[m].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT;
+    
+        if(b_plot_initialized === false)
+        {
+            b_plot_initialized = true;
+            main_plot = new myplot_1d(); //the plot object
+            document.getElementById("plot_1d").style.display = "block"; //show the plot
+            document.getElementById("plot_1d").style.width = "1200px";
+            document.getElementById("plot_1d").style.height = "800px";
+            const cr = document.getElementById("plot_1d").getBoundingClientRect();
+            /**
+             * Initialize the plot 
+             * and draw the first spectrum.
+             * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
+             * to fill the data
+             */
+            let peak_params = {
+                peak_color: document.getElementById("peak_color").value,
+                peak_size: parseFloat(document.getElementById("peak_size").value),
+                peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
+                filled_peaks: document.getElementById("filled_peaks").checked,
+
+            };
+            main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+
+            /**
+             * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
+             * We need to make a data array of two numbers: ppm and amplitude
+             */
+            let data = [];
+            for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i + all_spectra[m].x_ppm_ref, all_spectra[m].raw_data[i]]);
+            }
+            main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
+
+            plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
+        }
+        else
+        {
+            let data = [];
+            for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i + all_spectra[m].x_ppm_ref, all_spectra[m].raw_data[i]]);
+            }
+            main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
+        }
+        add_to_list(m,false,false);
     }
-
-    if(b_plot_initialized === false)
-    {
-        b_plot_initialized = true;
-        main_plot = new myplot_1d(); //the plot object
-        document.getElementById("plot_1d").style.display = "block"; //show the plot
-        document.getElementById("plot_1d").style.width = "1200px";
-        document.getElementById("plot_1d").style.height = "800px";
-        const cr = document.getElementById("plot_1d").getBoundingClientRect();
-        /**
-         * Initialize the plot 
-         * and draw the first spectrum.
-         * main_plot will read result_spectra[0].raw_data and result_spectra[0].raw_data_i (if complex)
-         * to fill the data
-         */
-        let peak_params = {
-            peak_color: document.getElementById("peak_color").value,
-            peak_size: parseFloat(document.getElementById("peak_size").value),
-            peak_thickness: parseFloat(document.getElementById("peak_thickness").value),
-            filled_peaks: document.getElementById("filled_peaks").checked,
-
-        };
-        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
-
-        plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
-    }
-
-    add_to_list(0,false,false);
 
   
 };
