@@ -410,8 +410,36 @@ class myplot_1d {
 
     }
 
-
+    /**
+     * Add a new spectrum to the plot
+     * or update an existing spectrum if index is less than current length of all spectra
+     * @param {*} data 
+     * @param {*} index 
+     * @param {*} color 
+     * @returns 
+     */
     add_data(data,index,color) {
+
+        /**
+         * Test whether index is already in (we are updating the spectrum, not adding a new one)
+         */
+        if(index>=0 && index < this.spectral_order.length) {
+            this.spectral_scale[index] = 1.0; // Reset the scale of the spectrum to 1.0
+            this.spectrum_reference[index] = 0.0; // Reset the reference correction of the spectrum to 0.0
+            /**
+             * Update data in this.allLines
+             */
+            const lineId = `line${index}`;
+            this.allLines[lineId] = data; // Store original data
+            const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+            this.vis.select(`#${lineId}`)
+                .datum(downsampled)
+                .attr("d", this.lineGenerator);
+
+            return;
+        }
+
+
         /**
          * Redefine x and y scales, according to the data only if this is the 1st time add_data is called
          */

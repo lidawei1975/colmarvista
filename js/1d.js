@@ -325,49 +325,87 @@ $(document).ready(function () {
      */
     document.getElementById('fid_file_form').addEventListener('submit', async function (e) {
         e.preventDefault();
-        let acquisition_file = document.getElementById('acquisition_file').files[0];
-        let fid_file = document.getElementById('fid_file').files[0];
 
-        if (acquisition_file && fid_file) {
-            let acquisition_string = await read_file_text(acquisition_file);
-            let fid_buffer = await read_file(fid_file);
+        /**
+         * The default button text is "Upload experimental files and process" 
+         * When we are in re-process mode, it will be changed to "Reprocess" by JS code
+         */
+        let button_text = document.getElementById("button_fid_process").value;
+        
+
+        if(button_text === "Reprocess"){
             /**
-             * Convert fid_buffer to Float32Array
+             * Copy fid_process_parameters from the current spectrum to the worker then
+             * update fid_process_parameters with the current values from the input fields
+             * all fields associated with fid and acqus files are already set in fid_process_parameters, not from form 
+             * because we are re-processing the same set of fid file
              */
-            let apodization_string = document.getElementById("apodization_direct").value;
-            let zf_direct = parseInt(document.getElementById("zf_direct").value);
-            let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
-            let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
-            let auto_direct = document.getElementById("auto_direct").checked;
-            let delete_imaginary = document.getElementById("delete_imaginary").checked;
-            /**
-             * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
-             */
-            let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+            fid_process_parameters = all_spectra[current_reprocess_spectrum_index].fid_process_parameters;
+            fid_process_parameters.apodization_string = document.getElementById("apodization_direct").value;
+            fid_process_parameters.zf_direct = parseInt(document.getElementById("zf_direct").value);
+            fid_process_parameters.phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+            fid_process_parameters.phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+            fid_process_parameters.auto_direct = document.getElementById("auto_direct").checked;
+            fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
+            fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
 
             /**
-             * fid_process_parameters is a GLOBAL object that will be sent to the webassembly worker
-             * It will be saved here, in case we need to re-process the fid file
+             * Send to webassembly worker
              */
-            fid_process_parameters = {
-                webassembly_job: "fid_processor_1d",
-                acquisition_string: acquisition_string,
-                fid_buffer: fid_buffer,
-                apodization_string: apodization_string,
-                zf_direct: zf_direct,
-                phase_correction_direct_p0: phase_correction_direct_p0,
-                phase_correction_direct_p1: phase_correction_direct_p1,
-                auto_direct: auto_direct,
-                delete_imaginary: delete_imaginary,
-                pseudo_2d_process: pseudo_2d_process,
-                reprocess: false, // this is not a re-process, it is a new fid file processing
-                spectrum_index: -1, // -1 is a flag, means to be decided later.
-            };
-
             webassembly_1d_worker_2.postMessage(fid_process_parameters);
+            document.getElementById("button_fid_process").disabled = true;
         }
-        else{
-            alert("Please select both acquisition and fid files.");
+        else //button_text == "Upload experimental files and process"
+        {
+
+            let acquisition_file = document.getElementById('acquisition_file').files[0];
+            let fid_file = document.getElementById('fid_file').files[0];
+
+            if (acquisition_file && fid_file) {
+                let acquisition_string = await read_file_text(acquisition_file);
+                let fid_buffer = await read_file(fid_file);
+                /**
+                 * Convert fid_buffer to Float32Array
+                 */
+                let apodization_string = document.getElementById("apodization_direct").value;
+                let zf_direct = parseInt(document.getElementById("zf_direct").value);
+                let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+                let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+                let auto_direct = document.getElementById("auto_direct").checked;
+                let delete_imaginary = document.getElementById("delete_imaginary").checked;
+                /**
+                 * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
+                 */
+                let pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+
+                /**
+                 * fid_process_parameters is a GLOBAL object that will be sent to the webassembly worker
+                 * It will be saved here, in case we need to re-process the fid file
+                 */
+                fid_process_parameters = {
+                    webassembly_job: "fid_processor_1d",
+                    acquisition_string: acquisition_string,
+                    fid_buffer: fid_buffer,
+                    apodization_string: apodization_string,
+                    zf_direct: zf_direct,
+                    phase_correction_direct_p0: phase_correction_direct_p0,
+                    phase_correction_direct_p1: phase_correction_direct_p1,
+                    auto_direct: auto_direct,
+                    delete_imaginary: delete_imaginary,
+                    pseudo_2d_process: pseudo_2d_process,
+                    reprocess: false, // this is not a re-process, it is a new fid file processing
+                    spectrum_index: -1, // -1 is a flag, means to be decided later.
+                };
+
+                webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                /**
+                 * Disable the submit button of this form
+                 */
+                document.getElementById("button_fid_process").disabled = true;
+            }
+            else{
+                alert("Please select both acquisition and fid files.");
+            }
         }
     });
 
@@ -392,32 +430,6 @@ $(document).ready(function () {
     });
 });
 
-/**
- * user click button to re-process fid file
- */
-function reprocess_fid(spectrum_index) {
-    let apodization_string = document.getElementById("apodization_direct").value;
-    let zf_direct = parseInt(document.getElementById("zf_direct").value);
-    let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
-    let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
-    let auto_direct = document.getElementById("auto_direct").checked;
-    let delete_imaginary = document.getElementById("delete_imaginary").checked;
-
-    /**
-     * Only update above parameters, keep the rest the same
-     */
-    fid_process_parameters.apodization_string = apodization_string;
-    fid_process_parameters.zf_direct = zf_direct;
-    fid_process_parameters.phase_correction_direct_p0 = phase_correction_direct_p0;
-    fid_process_parameters.phase_correction_direct_p1 = phase_correction_direct_p1;
-    fid_process_parameters.auto_direct = auto_direct;
-    fid_process_parameters.delete_imaginary = delete_imaginary;
-    fid_drop_process.reprocess = true; // this is a re-process, not a new fid file processing
-    fid_drop_process.spectrum_index = spectrum_index; // save the spectrum index to re-process
-
-    webassembly_1d_worker_2.postMessage(fid_process_parameters);
-}
-
 webassembly_1d_worker_2.onmessage = function (e) {
     
     if(e.data.webassembly_job === "fid_processor_1d"){
@@ -439,6 +451,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
         const buffer = combined.buffer;
         result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+        result_spectrum.spectrum_index = e.data.spectrum_index; //spectrum_index is set to what is in reprocess_spectrum_index
 
         /**
          * Update fid processing box parameters
@@ -446,7 +459,11 @@ webassembly_1d_worker_2.onmessage = function (e) {
         document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
 
-        draw_spectrum([result_spectrum],true/**from fid */,false/** re-process of fid or ft2 */);
+        draw_spectrum([result_spectrum],true/**from fid */,e.data.reprocess/** re-process of fid or ft2 */);
+        /**
+         * Re-enable the button to process fid file
+         */
+        document.getElementById("button_fid_process").disabled = false;
     }
 
 
@@ -918,7 +935,7 @@ function add_to_list(index) {
     /**
      * Add a "Reprocess" button to the new spectrum_1d div if
      * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 2D)
-     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_i or raw_data_ir is not empty
+     * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_i or raw_data_i is not empty
      */
     if(new_spectrum.spectrum_origin === -2)
     {
@@ -966,7 +983,7 @@ function add_to_list(index) {
             /**
              * If this new spectrum_1d has no imaginary part, disable auto phase correction button
              */
-            if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_ir.length > 0 && all_spectra[index].raw_data_ii.length > 0 && all_spectra[index].spectrum_origin === -1)
+            if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_i.length > 0 )
             {
                 document.getElementById("automatic_pc").disabled = false;
             }
@@ -1434,6 +1451,110 @@ function download_spectrum(index, flag) {
 }
 
 /**
+ * Called when the user clicks the "Reprocess" button in the spectrum_1d list to reprocess
+ * or quit reprocessing the spectrum.
+ * @param {*} button: the button element that was clicked
+ * @param {*} spectrum_index: the index of the spectrum in the all_spectra array
+ */
+function reprocess_spectrum(button, spectrum_index) {
+
+    function set_fid_parameters(fid_process_parameters){
+        /**
+         * Set fid_process_parameters to the input fields
+         */
+        document.getElementById("apodization_direct").value = fid_process_parameters.apodization_string;
+        document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
+        document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
+        document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
+        document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
+        document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
+    }
+
+    function set_default_fid_parameters(){
+        /**
+         * Set fid_process_parameters to the default values
+         */
+        document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
+        document.getElementById("zf_direct").value = "2";
+        document.getElementById("phase_correction_direct_p0").value = "0.0";
+        document.getElementById("phase_correction_direct_p1").value = "0.0";
+        document.getElementById("auto_direct").checked = true;
+        document.getElementById("delete_imaginary").checked = false;
+    }
+
+    /**
+     * Get button text
+     */
+    let button_text = button.innerText;
+    /**
+     * If the button text is "Reprocess", we need to prepare for reprocess the spectrum
+     */
+    if(button_text === "Reprocess")
+    {
+        /**
+         * hide input fid files
+         */
+        document.getElementById("input_files").style.display = "none";
+        /**
+         * Set all_spectra[spectrum_index] as the current spectrum
+         */
+        document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+        document.getElementById("input_options").style.backgroundColor = "lightgreen";
+        /**
+         * Change button text to "Quit reprocessing"
+         */
+        button.innerText = "Quit reprocessing";
+        /**
+         * Hide div "file_area" and "input_files" (of fid_file_area). 
+         * Change the button "button_fid_process" text to "Reprocess"
+         */
+        document.getElementById("file_area").style.display = "none";
+        document.getElementById("input_files").style.display = "none";
+        document.getElementById("button_fid_process").value = "Reprocess";
+
+        /**
+         * Copy saved save parameters to html elements
+         * (because user may change the parameters in the input fields before reprocessing)
+         */
+        all_spectra[spectrum_index].fid_process_parameters.reprocess = true; //set reprocess to true
+        set_fid_parameters(all_spectra[spectrum_index].fid_process_parameters);
+
+        current_reprocess_spectrum_index = spectrum_index;
+        set_current_spectrum(spectrum_index);
+    }
+    else
+    {
+        /**
+         * Undo hide of input fid files
+         */
+        document.getElementById("input_files").style.display = "flex";
+        /**
+         * Change button text back to "Reprocess"
+         */
+        button.innerText = "Reprocess";
+        /**
+         * Un-highlight the user option div
+         */
+        document.getElementById("input_options").style.backgroundColor = "white";
+        /**
+         * Show div "file_area" and "input_files" (of fid_file_area).
+         * Change the button "button_fid_process"text back to "Upload experimental files and process"
+         */
+        document.getElementById("file_area").style.display = "block";
+        document.getElementById("input_files").style.display = "flex";
+        document.getElementById("button_fid_process").value = "Upload experimental files and process";
+        current_reprocess_spectrum_index = -1;
+
+        /**
+         * Restore default values for html elements
+         */
+        set_default_fid_parameters();
+    }
+}
+
+
+
+/**
  * Add a new spectrum_1d to the list and update the contour plot. When contour is updated, add_to_list() is called to update the list of spectra
  * in the uses interface
  * @param {*} result_spectra: an array of object of hsqc_spectrum
@@ -1483,6 +1604,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
              */
             if(i==0)
             {
+                fid_process_parameters.spectrum_index = result_spectra[i].spectrum_index; //set the spectrum index in fid_process_parameters
                 result_spectra[i].fid_process_parameters = fid_process_parameters;
                 first_spectrum_index = result_spectra[i].spectrum_index;
                 result_spectra[i].spectrum_origin = -2; //from fid
@@ -1556,7 +1678,10 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
     }
 
-    add_to_list(spectrum_index,b_from_fid,b_reprocess);
+    if(b_reprocess === false)
+    {
+        add_to_list(spectrum_index,b_from_fid,b_reprocess);
+    }
 
 }
 

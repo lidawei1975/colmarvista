@@ -472,6 +472,8 @@ self.onmessage = async function (event) {
             spectrum_header : header_data,
             real_spectrum_data: real_spectrum_data,
             image_spectrum_data: image_spectrum_data,
+            reprocess: event.data.reprocess, // reprocess is a boolean flag to indicate whether this is a reprocessing job
+            spectrum_index: event.data.spectrum_index, // spectrum index is the index of the spectrum in the list of spectra
             p0: p0,
             p1: p1 - p0, // p1 from C++ code is PC at the right end, so p1 is p1 - p0 in traditional NMRPipe format
         });
