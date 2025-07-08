@@ -965,7 +965,7 @@ function add_to_list(index) {
                 current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
-        main_plot.current_spectrum_index = index;
+        main_plot.update_current_spectrum_index(index);
         /**
          * Highlight the current spectrum in the list
          */
@@ -2683,7 +2683,7 @@ function set_current_spectrum(spectrum_index)
             document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
         }
     }
-    main_plot.current_spectrum_index = spectrum_index;
+    main_plot.update_current_spectrum_index(spectrum_index);
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
 
     /**
@@ -2720,4 +2720,12 @@ function get_center(peaks) {
         peaks_center[i] = (x_min + x_max) / 2.0;
     }
     return peaks_center;
+}
+
+/**
+ * On-call when button is clicked
+ */
+function permanently_apply_phase_correction()
+{
+    main_plot.permanently_apply_phase_correction();
 }
