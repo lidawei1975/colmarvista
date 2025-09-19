@@ -99,10 +99,10 @@ class myplot_1d {
         this.spectrum_dimension = []; // This is the dimension of each spectrum, used to know if it is real only or real and imaginary
         this.anchor = [];
         this.anchor_ppm =[];
-        this.phase0 = []; // Phase correction at the left end of the spectrum (smaller ppm)
-        this.phase1 = []; // Phase correction at the right end of the spectrum (largest ppm)
         this.phase_correction_at_min_ppm = [];
         this.phase_correction_at_max_ppm = [];
+        this.left_end_ppm = [];
+        this.right_end_ppm = [];
         this.current_actively_corrected_spectrum_index = -1; // -1 means no current actively corrected spectrum index
         this.current_actively_corrected_spectrum_data = []; // This is the data of the current actively corrected spectrum index after phase correction
 
@@ -276,6 +276,31 @@ class myplot_1d {
         });
 
         /**
+         * Right click to set anchor for phase correction
+         */
+        this.vis.on('contextmenu', (e) => {
+            e.preventDefault();
+
+            this.current_actively_corrected_spectrum_index = this.current_spectrum_index
+
+            if (this.current_spectrum_index != -1 && this.spectrum_dimension[this.current_spectrum_index] === 3) {
+                let bound = document.getElementById('main_plot').getBoundingClientRect();
+                let px = e.clientX - bound.left;
+                let py = e.clientY - bound.top;
+                if (px > self.margin.left && px < self.width - self.margin.right
+                    && py > self.margin.top && py < self.height - self.margin.bottom) {
+                    let ppm = self.xscale.invert(px);
+                    this.anchor[this.current_spectrum_index] = true;
+                    this.anchor_ppm[this.current_spectrum_index] = ppm;
+                    console.log('Set anchor at ppm: ', ppm);
+                    document.getElementById("anchor").innerHTML = ppm.toFixed(4);
+                }
+            }
+            return false; // To prevent the context menu from appearing
+
+        });
+
+        /**
          * mouse wheel event to zoom the plot
          */
         this.vis.on('wheel', (e) => {
@@ -412,24 +437,28 @@ class myplot_1d {
                  * Adjust p0 if anchor is not set
                  */
                 if (this.anchor[index] === false) {
-                    this.phase0[index] += phase_adjust;
-                    // let P0 = this.phase0[this.current_spectrum_index]  * 180.0 / Math.PI; //back to degree
                     // document.getElementById("P0").innerHTML = P0.toFixed(2);
     
-                    this.phase_correction_at_min_ppm[index] = this.phase0[index]  ;
-                    this.phase_correction_at_max_ppm[index] = this.phase0[index]  ;
+                    this.phase_correction_at_min_ppm[index] += phase_adjust;
+                    this.phase_correction_at_max_ppm[index] += phase_adjust;
+                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
+                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
                 /**
                  * Adjust p1 if anchor is set
                  */
                 else {
-                    this.phase1[index] += phase_adjust;
+
+                    let current_slop = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) / (this.right_end_ppm[index] - this.left_end_ppm[index]);
+                    let phase_at_anchor = this.phase_correction_at_min_ppm[index] + current_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
+                    let new_slop = current_slop + phase_adjust / (this.right_end_ppm[index] - this.left_end_ppm[index]);
+                    
                     // let P1 = (this.phase1[this.current_spectrum_index] ) * 180.0 / Math.PI; //back to degree
                     // document.getElementById("P1").innerHTML = P1.toFixed(2);
-                    let slope = -(this.phase1[this.current_spectrum_index]  ) / (this.max_ppm[index] - this.min_ppm[index]);
-                    let phase_at_anchor = this.phase0[index];
-                    this.phase_correction_at_min_ppm[index] = phase_at_anchor - slope * (this.anchor_ppm[index] - this.min_ppm[index]);
-                    this.phase_correction_at_max_ppm[index] = phase_at_anchor + slope * (this.max_ppm[index] - this.anchor_ppm[index]);
+                    this.phase_correction_at_min_ppm[index] = phase_at_anchor - new_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
+                    this.phase_correction_at_max_ppm[index] = phase_at_anchor + new_slop * (this.right_end_ppm[index] - this.anchor_ppm[index]);
+                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
+                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
 
                 this.apply_phase_correction();
@@ -551,10 +580,10 @@ class myplot_1d {
         this.spectrum_dimension.push(data[0].length) // 2: real only, 3: real and imaginary.
         this.anchor.push(false);
         this.anchor_ppm.push(0.0); // Anchor ppm for phase correction, not applicable for real only spectra or if anchor is false
-        this.phase0.push(0.0); // Phase correction at the left end of the spectrum (smaller ppm)
-        this.phase1.push(0.0); // Phase correction at the right end of the spectrum (largest ppm)
         this.phase_correction_at_min_ppm.push(0.0); // Phase correction at the left end of the spectrum (smaller ppm)
         this.phase_correction_at_max_ppm.push(0.0); // Phase correction at the right end of the spectrum (largest ppm)
+        this.right_end_ppm.push(data[data.length - 1][0]); // Left end ppm of the spectrum (smallest ppm)
+        this.left_end_ppm.push(data[0][0]); // Right end ppm of the spectrum (largest ppm)
 
 
 
@@ -1054,15 +1083,24 @@ class myplot_1d {
             /**
              * Also clear phase correction parameters
              */
-            this.phase0[this.current_actively_corrected_spectrum_index] = 0.0;
-            this.phase1[this.current_actively_corrected_spectrum_index] = 0.0;
             this.phase_correction_at_min_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
             this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
             this.anchor[this.current_actively_corrected_spectrum_index] = false;
             this.anchor_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
 
+
+            /**
+             * Also update all_spectra
+            */
+            for(var i=0; i < this.current_actively_corrected_spectrum_data.length; i++) {
+                all_spectra[this.current_actively_corrected_spectrum_index].raw_data[i] = this.current_actively_corrected_spectrum_data[i][1];
+                all_spectra[this.current_actively_corrected_spectrum_index].raw_data_i[i] = this.current_actively_corrected_spectrum_data[i][2];
+            }
+            
+
             this.current_actively_corrected_spectrum_index = -1;
             this.current_actively_corrected_spectrum_data = [];
+
         }
     }
     /** helper function to get full peak profile from the right side only
