@@ -1078,6 +1078,13 @@ class myplot_1d {
      */
     permanently_apply_phase_correction() {
         if(this.current_actively_corrected_spectrum_index !=-1) {
+
+            let return_data = {
+                index: this.current_actively_corrected_spectrum_index,
+                phase0: this.phase_correction_at_min_ppm[this.current_actively_corrected_spectrum_index],
+                phase1: this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index],
+            }
+
             this.allLines['line' + this.current_actively_corrected_spectrum_index] = this.current_actively_corrected_spectrum_data;
 
             /**
@@ -1100,7 +1107,7 @@ class myplot_1d {
 
             this.current_actively_corrected_spectrum_index = -1;
             this.current_actively_corrected_spectrum_data = [];
-
+            return return_data;
         }
     }
     /** helper function to get full peak profile from the right side only

@@ -69,10 +69,9 @@ var oOutput;
 
 /**
  * Current phase correction values:
- * direct_p0, direct_p1, indirect_p0, indirect_p1
+ * direct_p0, direct_p1
  */
 var current_phase_correction = [0, 0];
-
 
 
 
@@ -363,6 +362,10 @@ $(document).ready(function () {
         }
         else //button_text == "Upload experimental files and process"
         {
+            /**
+             * UN-highlight the input_options div
+             */
+            document.getElementById("input_options").style.backgroundColor = "white";
 
             let acquisition_file = document.getElementById('acquisition_file').files[0];
             let fid_file = document.getElementById('fid_file').files[0];
@@ -402,6 +405,12 @@ $(document).ready(function () {
                     reprocess: false, // this is not a re-process, it is a new fid file processing
                     spectrum_index: -1, // -1 is a flag, means to be decided later.
                 };
+
+                /**
+                 * Clear file input
+                 */
+                document.getElementById('acquisition_file').value = "";
+                document.getElementById('fid_file').value = "";
 
                 webassembly_1d_worker_2.postMessage(fid_process_parameters);
                 /**
@@ -458,6 +467,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
         const buffer = combined.buffer;
         result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
         result_spectrum.spectrum_index = e.data.spectrum_index; //spectrum_index is set to what is in reprocess_spectrum_index
+
+        /**
+         * Save the phase correction values to fid_process_parameters
+         */
+        fid_process_parameters.phase_correction_direct_p0 = e.data.p0;
+        fid_process_parameters.phase_correction_direct_p1 = e.data.p1;
 
         /**
          * Update fid processing box parameters
@@ -1470,8 +1485,8 @@ function reprocess_spectrum(button, spectrum_index) {
          */
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_string;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
-        document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
-        document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
+        document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
     }
@@ -2733,5 +2748,33 @@ function get_center(peaks) {
  */
 function permanently_apply_phase_correction()
 {
-    main_plot.permanently_apply_phase_correction();
+    let ndx = main_plot.current_actively_corrected_spectrum_index;
+    return_data = main_plot.permanently_apply_phase_correction();
+    /**
+     * Also need to update fid_processing_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
+     */
+    all_spectra[ndx].fid_processing_parameters.phase_correction_direct_p0 += return_data.phase0;
+    all_spectra[ndx].fid_processing_parameters.phase_correction_direct_p1 += return_data.phase1;
+
+    /**
+     * main_plot only change data within itself. 
+     * We need to update all_spectra[main_plot.current_spectrum_index].raw_data and raw_data_i as well.
+     * See apply_phase_correction in myplot_1d.js for details
+     */
+    let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
+    let new_raw_data_i = new Float32Array(all_spectra[ndx].raw_data_i.length);
+    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
+
+    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_correction[i] = return_data.phase0 + (return_data.phase1 - return_data.phase0) * i / all_spectra[ndx].raw_data.length;
+        }
+
+    for(let m=0;m<return_data.new_spectrum_data.length;m++){
+        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m] * Math.PI / 180.0) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m] * Math.PI / 180.0);
+        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] * Math.PI / 180.0) - all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] * Math.PI / 180.0);
+    }
+
+    all_spectra[ndx].raw_data = new_raw_data;
+    all_spectra[ndx].raw_data_i = new_raw_data_i;
+
 }
