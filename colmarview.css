@@ -17,6 +17,42 @@ a:active {
     color: #000;
 }
 
+/* Style the navigation bar container */
+.navbar {
+    background-color: #d0d0d0;
+    /* Dark gray background */
+    overflow: hidden;
+    /* Ensures the background contains the floated links */
+    width: 100%;
+    /* Make the bar span the full width */
+    top: 0;
+    /* Position it at the top */
+    left: 0;
+}
+
+/* Style the links inside the navigation bar */
+.navbar a {
+    float: left;
+    /* Align items horizontally */
+    display: block;
+    /* Make the entire area clickable */
+    color: black;
+    /* Text color */
+    text-align: center;
+    /* Center the text */
+    padding: 14px 20px;
+    /* Add some padding (top/bottom and left/right) */
+    text-decoration: none;
+    /* Remove the default underline from links */
+}
+
+/* Change color on hover for interactivity */
+.navbar a:hover {
+    background-color: #555;
+    /* A slightly lighter gray on hover */
+    color: white;
+}
+
 
 h1,
 h2,

@@ -1,0 +1,143 @@
+
+
+        /* Style the navigation bar container */
+        .navbar {
+            background-color: #d0d0d0;
+            /* Dark gray background */
+            overflow: hidden;
+            /* Ensures the background contains the floated links */
+            width: 100%;
+            /* Make the bar span the full width */
+            top: 0;
+            /* Position it at the top */
+            left: 0;
+        }
+
+        /* Style the links inside the navigation bar */
+        .navbar a {
+            float: left;
+            /* Align items horizontally */
+            display: block;
+            /* Make the entire area clickable */
+            color: black;
+            /* Text color */
+            text-align: center;
+            /* Center the text */
+            padding: 14px 20px;
+            /* Add some padding (top/bottom and left/right) */
+            text-decoration: none;
+            /* Remove the default underline from links */
+        }
+
+        /* Change color on hover for interactivity */
+                .navbar a:hover {
+                    background-color: #555;
+                    /* A slightly lighter gray on hover */
+                    color: white;
+                }
+        
+                /* Main Content Container */
+                .container {
+                    max-width: 960px;
+                    margin: 0 auto;
+                    /* Center the container */
+                    padding: 30px;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        
+                    font-family: Arial;
+                    border-width: 2px;
+                    clear: both;
+                    display: flex;
+                    flex-direction: column;
+                    margin-top: 10px;
+                    margin-bottom: 10px;
+                    min-width: 1024px;
+                    justify-content: center;
+                    align-items: center;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+
+        /* --- GitHub Links Section --- */
+        .github-links {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #eaeaea;
+        }
+
+        .github-btn {
+            display: inline-flex;
+            /* Aligns icon and text */
+            align-items: center;
+            background-color: #24292e;
+            /* GitHub's dark color */
+            color: #ffffff;
+            padding: 12px 20px;
+            margin: 8px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        .github-btn:hover {
+            background-color: #4a5157;
+            /* Darken on hover */
+            transform: translateY(-2px);
+            /* Slight lift effect */
+        }
+
+        /* SVG Icon inside the button */
+        .github-btn svg {
+            margin-right: 8px;
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+            /* Match the text color */
+        }
+
+        /* --- References Section --- */
+        .references h2 {
+            border-bottom: 2px solid #0366d6;
+            /* Blue accent color */
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .references ol {
+            padding-left: 25px;
+        }
+
+        .references li {
+            margin-bottom: 15px;
+            /* Space out list items */
+        }
+
+        .references a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        .references a:hover {
+            text-decoration: underline;
+        }
+
+        /* --- Footer Section --- */
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        footer a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }

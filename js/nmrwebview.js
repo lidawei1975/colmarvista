@@ -160,6 +160,12 @@ const read_file_text = (file) => {
 
 $(document).ready(function () {
 
+    fetch('navbar.html')
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('navbar-placeholder').innerHTML = data;
+            });
+
     /**
      * This is the main information output area
      */
