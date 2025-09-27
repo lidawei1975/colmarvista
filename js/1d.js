@@ -2748,13 +2748,15 @@ function get_center(peaks) {
  */
 function permanently_apply_phase_correction()
 {
-    let ndx = main_plot.current_actively_corrected_spectrum_index;
+    // let ndx = main_plot.current_actively_corrected_spectrum_index;
     return_data = main_plot.permanently_apply_phase_correction();
+    let ndx = return_data.index;
     /**
-     * Also need to update fid_processing_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
+     * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
+     * return_data.phase0 and phase1 are in radians, need to convert to degrees
      */
-    all_spectra[ndx].fid_processing_parameters.phase_correction_direct_p0 += return_data.phase0;
-    all_spectra[ndx].fid_processing_parameters.phase_correction_direct_p1 += return_data.phase1;
+    all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0 * 180 / Math.PI;
+    all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0) * 180 / Math.PI;
 
     /**
      * main_plot only change data within itself. 
@@ -2769,12 +2771,28 @@ function permanently_apply_phase_correction()
             phase_correction[i] = return_data.phase0 + (return_data.phase1 - return_data.phase0) * i / all_spectra[ndx].raw_data.length;
         }
 
-    for(let m=0;m<return_data.new_spectrum_data.length;m++){
-        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m] * Math.PI / 180.0) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m] * Math.PI / 180.0);
-        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] * Math.PI / 180.0) - all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] * Math.PI / 180.0);
+    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
+        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m] ) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m] );
+        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] ) - all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] );
     }
 
     all_spectra[ndx].raw_data = new_raw_data;
     all_spectra[ndx].raw_data_i = new_raw_data_i;
 
+    /**
+     * Clear shown phase correction in the main page.
+     */
+    document.getElementById("pc_left_end").textContent  = "0.0";
+    document.getElementById("pc_right_end").textContent  = "0.0";
+    document.getElementById("anchor").textContent  = "not set";
+
+    /**
+     * If we are in reprocessing mode (spectrum_origin >= 10000),
+     * Change input field phase_correction_direct_p0 and p1 to the new values
+     */
+    if(current_reprocess_spectrum_index === ndx)
+    {
+        document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+        document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+    }
 }
