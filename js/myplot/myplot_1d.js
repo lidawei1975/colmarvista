@@ -62,9 +62,9 @@ function lttb(data, threshold) {
 }
 
 
-function downsampleData(data, threshold, xDomain)
+function downsampleData(data, threshold, xDomain, ref)
 {
-    const visible = data.filter(d => d[0] >= xDomain[0] && d[0] <= xDomain[1]);
+    const visible = data.filter(d => d[0]+ref >= xDomain[0] && d[0]+ref <= xDomain[1]);
     if (visible.length <= threshold) return visible;
     return lttb(visible, threshold);
 }
@@ -93,8 +93,19 @@ class myplot_1d {
 
         this.spectrum_visibility = []; // This is the visibility of each spectrum, used to show/hide the spectrum in the plot
 
+        /**
+         * Variables to run phase correction on the fly
+         */
         this.spectrum_dimension = []; // This is the dimension of each spectrum, used to know if it is real only or real and imaginary
-        
+        this.anchor = [];
+        this.anchor_ppm =[];
+        this.phase_correction_at_min_ppm = [];
+        this.phase_correction_at_max_ppm = [];
+        this.left_end_ppm = [];
+        this.right_end_ppm = [];
+        this.current_actively_corrected_spectrum_index = -1; // -1 means no current actively corrected spectrum index
+        this.current_actively_corrected_spectrum_data = []; // This is the data of the current actively corrected spectrum index after phase correction
+
         this.peak_type = null;
 
         this.current_spectrum_index = -1; // -1 means no current spectrum is selected
@@ -106,7 +117,7 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params,zoom_pan_on_call_function) {
+    init(width, height, peak_params,zoom_pan_on_call_function,apply_ps_on_call_function) {
 
         let self = this; // to use this inside some functions
         
@@ -116,6 +127,7 @@ class myplot_1d {
          * ON call function we need to call when user zoom out the plot using mouse wheel
          */
         this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
+        this.apply_phase_correction_on_call_function = apply_ps_on_call_function || null;
 
         if(peak_params)
         {
@@ -265,6 +277,31 @@ class myplot_1d {
         });
 
         /**
+         * Right click to set anchor for phase correction
+         */
+        this.vis.on('contextmenu', (e) => {
+            e.preventDefault();
+
+            this.current_actively_corrected_spectrum_index = this.current_spectrum_index
+
+            if (this.current_spectrum_index != -1 && this.spectrum_dimension[this.current_spectrum_index] === 3) {
+                let bound = document.getElementById('main_plot').getBoundingClientRect();
+                let px = e.clientX - bound.left;
+                let py = e.clientY - bound.top;
+                if (px > self.margin.left && px < self.width - self.margin.right
+                    && py > self.margin.top && py < self.height - self.margin.bottom) {
+                    let ppm = self.xscale.invert(px);
+                    this.anchor[this.current_spectrum_index] = true;
+                    this.anchor_ppm[this.current_spectrum_index] = ppm;
+                    console.log('Set anchor at ppm: ', ppm);
+                    document.getElementById("anchor").innerHTML = ppm.toFixed(4);
+                }
+            }
+            return false; // To prevent the context menu from appearing
+
+        });
+
+        /**
          * mouse wheel event to zoom the plot
          */
         this.vis.on('wheel', (e) => {
@@ -304,7 +341,7 @@ class myplot_1d {
                     this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
                     const scale = this.spectral_scale[index]; // Update the scale of the spectrum
                     const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
-                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                     this.vis.select(`#${lineId}`)
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
@@ -322,7 +359,7 @@ class myplot_1d {
                         if (data) {
                             const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
                             const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
-                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                             this.vis.select(`#${lineId}`)
                                 .datum(downsampled)
                                 .attr("d", this.lineGenerator);
@@ -370,6 +407,19 @@ class myplot_1d {
             let amp = self.yscale.invert(e.clientY - bound.top);
 
             if (this.spectrum_dimension[this.current_spectrum_index] === 3  && (e.shiftKey || e.ctrlKey)) {
+
+                /**
+                 * Set current actively corrected spectrum index.
+                 * If user change current_spectrum_index, we need to update current_actively_corrected_spectrum_index
+                 */
+                if(this.current_actively_corrected_spectrum_index != this.current_spectrum_index) {
+                    this.current_actively_corrected_spectrum_index = this.current_spectrum_index;
+                    /**
+                     * Make a deep copy of the data of the current_actively_corrected_spectrum_index
+                     */
+                    this.current_actively_corrected_spectrum_data = JSON.parse(JSON.stringify(this.allLines[`line${this.current_actively_corrected_spectrum_index}`]));
+                }
+
                 e.preventDefault();
                 let phase_adjust = 0.0;
                 if(e.shiftKey)
@@ -383,33 +433,36 @@ class myplot_1d {
                 if (e.deltaY < 0) {
                     phase_adjust = -phase_adjust;
                 }
+                const index = this.current_spectrum_index;
                 /**
                  * Adjust p0 if anchor is not set
                  */
-                if (this.anchor === false) {
-                    phase0_coarse += phase_adjust;
-                    let P0 = (phase0_coarse ) * 180.0 / Math.PI; //back to degree
-                    document.getElementById("P0").innerHTML = P0.toFixed(2);
+                if (this.anchor[index] === false) {
+                    // document.getElementById("P0").innerHTML = P0.toFixed(2);
     
-                    phase_correction_at_min_ppm = phase0_coarse ;
-                    phase_correction_at_max_ppm = phase0_coarse ;
-                    console.log(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
-                    this.apply_phase_correction(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+                    this.phase_correction_at_min_ppm[index] += phase_adjust;
+                    this.phase_correction_at_max_ppm[index] += phase_adjust;
+                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
+                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
                 /**
                  * Adjust p1 if anchor is set
                  */
                 else {
-                    phase1_coarse += phase_adjust;
-                    let P1 = (phase1_coarse ) * 180.0 / Math.PI; //back to degree
-                    document.getElementById("P1").innerHTML = P1.toFixed(2);
-                    let slope = -(phase1_coarse  ) / (this.max_ppm - this.min_ppm);
-                    let phase_at_anchor = phase0_coarse;
-                    phase_correction_at_min_ppm = phase_at_anchor - slope * (this.anchor_ppm - this.min_ppm);
-                    phase_correction_at_max_ppm = phase_at_anchor + slope * (this.max_ppm - this.anchor_ppm);
-                    console.log(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
-                    this.apply_phase_correction(phase_correction_at_min_ppm, phase_correction_at_max_ppm);
+
+                    let current_slop = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) / (this.right_end_ppm[index] - this.left_end_ppm[index]);
+                    let phase_at_anchor = this.phase_correction_at_min_ppm[index] + current_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
+                    let new_slop = current_slop + phase_adjust / (this.right_end_ppm[index] - this.left_end_ppm[index]);
+                    
+                    // let P1 = (this.phase1[this.current_spectrum_index] ) * 180.0 / Math.PI; //back to degree
+                    // document.getElementById("P1").innerHTML = P1.toFixed(2);
+                    this.phase_correction_at_min_ppm[index] = phase_at_anchor - new_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
+                    this.phase_correction_at_max_ppm[index] = phase_at_anchor + new_slop * (this.right_end_ppm[index] - this.anchor_ppm[index]);
+                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
+                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
+
+                this.apply_phase_correction();
             }
 
             /**
@@ -456,63 +509,24 @@ class myplot_1d {
 
     }
 
+    update_current_spectrum_index(index) {
+        if (index >= 0 && index < this.spectral_order.length) {
 
-        /**
-     * This function will apply phase correction to the experimental spectrum.
-     * this.data is an array of [x,y,z] pairs. X is ppm, Y is read part and Z is imaginary part of the spectrum
-     * @param {double} phase0 phase correction for the experimental spectrum at the left end of the spectrum (smaller ppm)
-     * @param {double} phase1 phase correction for the experimental spectrum at the right end of the spectrum (largest ppm)
-     * But in visualization, max ppm is drawn on the left and min ppm is drawn on the right.
-     * This is opposite to what we save the spectrum in this.data
-     */
-    apply_phase_correction(phase0, phase1) {
+            /**
+             * If we are actively phasing correcting a spectrum, we need to save the data of the current_actively_corrected_spectrum_index
+             */
+            if(this.current_actively_corrected_spectrum_index !=-1 && this.current_actively_corrected_spectrum_index != index)
+            {
+                this.apply_phase_correction_on_call_function();
+            }
 
-        /**
-         * Throw error if phase0 or phase1 is not a number or imagine_exist is false
-         */
-        if (typeof phase0 != 'number' || typeof phase1 != 'number') {
-            throw new Error('colmar_1d_double_zoom function apply_phase_correction phase0 and phase1 must be numbers');
+            this.current_spectrum_index = index;
         }
-        if (this.imagine_exist === false) {
-            throw new Error('colmar_1d_double_zoom function apply_phase_correction cannot apply phase correction because imaginary part is not provided');
+        else {
+            this.current_spectrum_index = -1;
         }
-
-        /**
-         * prevent re-interpretation of this inside some functions. we need to use self sometimes
-         */
-        var self = this;
-        const lineId = `line${self.current_spectrum_index}`;
-        let data = self.allLines[lineId];
-
-        /**
-         * var phase_correction is an array of phase correction for each data point. Same length as this.data
-         */
-        let phase_correction = new Array(data.length);
-        /**
-         * we can calculate the phase correction for each data point using linear interpolation, using index 
-         * ppm is linearly spaced. So, we can use index to calculate the phase correction for each data point
-         */
-        for (var i = 0; i < data.length; i++) {
-            phase_correction[i] = phase0 + (phase1 - phase0) * i / data.length;
-        }
-
-        /**
-         * Now apply phase correction to the experimental spectrum at each data point
-         * y ==> ori_y*cos(phase_correction) + ori_z * sin(phase_correction)
-         * z ==> ori_z*cos(phase_correction) - ori_y * sin(phase_correction)
-         * Infor: Angle is in radians in JS Math library
-         */
-        for (var i = 0; i < this.data.length; i++) {
-            data[i][1] = this.original_data[i][1] * Math.cos(phase_correction[i]) + this.original_data[i][2] * Math.sin(phase_correction[i]);
-            data[i][2] = this.original_data[i][2] * Math.cos(phase_correction[i]) - this.original_data[i][1] * Math.sin(phase_correction[i]);
-        }
-
-        /**
-         * Now draw the experimental spectrum with phase correction.
-         * this.data_strided is a shallow copy of this.data (share the same data!!)
-         */
-        this.line_exp.attr("d", self.line(self.data_strided));
     }
+
 
     /**
      * Add a new spectrum to the plot
@@ -535,7 +549,7 @@ class myplot_1d {
              */
             const lineId = `line${index}`;
             this.allLines[lineId] = data; // Store original data
-            const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+            const downsampled = downsampleData(data, this.true_width, this.xscale.domain(), this.spectrum_reference[index]).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
             this.vis.select(`#${lineId}`)
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
@@ -561,12 +575,23 @@ class myplot_1d {
 
         this.spectrum_visibility.push(true); // This is the visibility of the spectrum, used to show/hide the spectrum in the plot
 
+        /**
+         * For phase correction
+         */
         this.spectrum_dimension.push(data[0].length) // 2: real only, 3: real and imaginary.
+        this.anchor.push(false);
+        this.anchor_ppm.push(0.0); // Anchor ppm for phase correction, not applicable for real only spectra or if anchor is false
+        this.phase_correction_at_min_ppm.push(0.0); // Phase correction at the left end of the spectrum (smaller ppm)
+        this.phase_correction_at_max_ppm.push(0.0); // Phase correction at the right end of the spectrum (largest ppm)
+        this.right_end_ppm.push(data[data.length - 1][0]); // Left end ppm of the spectrum (smallest ppm)
+        this.left_end_ppm.push(data[0][0]); // Right end ppm of the spectrum (largest ppm)
+
+
 
         const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
 
-        const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+        const downsampled = downsampleData(data, this.true_width, this.xscale.domain(), this.spectrum_reference[index]).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
 
         this.vis.append("path")
             .datum(downsampled)
@@ -710,7 +735,7 @@ class myplot_1d {
                 if (data) {
                     const scale = this.spectral_scale[index]; // Get the current scale of the spectrum
                     const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
-                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                     this.vis.select(`#${lineId}`)
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
@@ -727,7 +752,7 @@ class myplot_1d {
                         if (data) {
                             const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
                             const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
-                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                             this.vis.select(`#${lineId}`)
                                 .datum(downsampled)
                                 .attr("d", this.lineGenerator);
@@ -959,7 +984,14 @@ class myplot_1d {
             const scale = this.spectral_scale[index];
             const reference = this.spectrum_reference[index];
 
-            const downsampled = downsampleData(data,this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+            if(this.current_actively_corrected_spectrum_index === index){
+                /**
+                 * We draw the actively corrected spectrum with the current_actively_corrected_spectrum_data instead of this.allLines[lineId]
+                 */
+                data = this.current_actively_corrected_spectrum_data;
+            }
+
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
             this.vis.select(`#${lineId}`)
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
@@ -989,39 +1021,32 @@ class myplot_1d {
 
     /**
      * This function will apply phase correction to the experimental spectrum.
-     * this.data is an array of [x,y,z] pairs. X is ppm, Y is read part and Z is imaginary part of the spectrum
-     * @param {double} phase0 phase correction for the experimental spectrum at the left end of the spectrum (smaller ppm)
-     * @param {double} phase1 phase correction for the experimental spectrum at the right end of the spectrum (largest ppm)
-     * But in visualization, max ppm is drawn on the left and min ppm is drawn on the right.
-     * This is opposite to what we save the spectrum in this.data
      */
-    apply_phase_correction(phase0, phase1) {
+    apply_phase_correction() {
 
-        /**
-         * Throw error if phase0 or phase1 is not a number or imagine_exist is false
-         */
-        if (typeof phase0 != 'number' || typeof phase1 != 'number') {
-            throw new Error('colmar_1d_double_zoom function apply_phase_correction phase0 and phase1 must be numbers');
-        }
-        if (this.imagine_exist === false) {
-            throw new Error('colmar_1d_double_zoom function apply_phase_correction cannot apply phase correction because imaginary part is not provided');
-        }
-
-        /**
-         * prevent re-interpretation of this inside some functions. we need to use self sometimes
-         */
         var self = this;
+        let spectrum_index = this.current_spectrum_index;
+
+        if (spectrum_index === -1 || this.spectrum_dimension[spectrum_index] != 3) {
+            throw new Error('colmar_1d_double_zoom function apply_phase_correction cannot apply phase correction because no spectrum is selected');
+        }
+
+        /**
+         * This is the phase correction at the two ends of the spectrum
+         */
+        let phase0 = this.phase_correction_at_min_ppm[spectrum_index];
+        let phase1 = this.phase_correction_at_max_ppm[spectrum_index];
 
         /**
          * var phase_correction is an array of phase correction for each data point. Same length as this.data
          */
-        let phase_correction = new Array(this.data.length);
+        let phase_correction = new Array(this.allLines['line' + spectrum_index].length);
         /**
          * we can calculate the phase correction for each data point using linear interpolation, using index 
          * ppm is linearly spaced. So, we can use index to calculate the phase correction for each data point
          */
-        for (var i = 0; i < this.data.length; i++) {
-            phase_correction[i] = phase0 + (phase1 - phase0) * i / this.data.length;
+        for (var i = 0; i < this.allLines['line' + spectrum_index].length; i++) {
+            phase_correction[i] = phase0 + (phase1 - phase0) * i / this.allLines['line' + spectrum_index].length;
         }
 
         /**
@@ -1030,91 +1055,62 @@ class myplot_1d {
          * z ==> ori_z*cos(phase_correction) - ori_y * sin(phase_correction)
          * Infor: Angle is in radians in JS Math library
          */
-        for (var i = 0; i < this.data.length; i++) {
-            this.data[i][1] = this.original_data[i][1] * Math.cos(phase_correction[i]) + this.original_data[i][2] * Math.sin(phase_correction[i]);
-            this.data[i][2] = this.original_data[i][2] * Math.cos(phase_correction[i]) - this.original_data[i][1] * Math.sin(phase_correction[i]);
+
+        for (var i = 0; i < this.allLines['line' + spectrum_index].length; i++) {
+            this.current_actively_corrected_spectrum_data[i][1] = this.allLines['line' + spectrum_index][i][1] * Math.cos(phase_correction[i]) + this.allLines['line' + spectrum_index][i][2] * Math.sin(phase_correction[i]);
+            this.current_actively_corrected_spectrum_data[i][2] = this.allLines['line' + spectrum_index][i][2] * Math.cos(phase_correction[i]) - this.allLines['line' + spectrum_index][i][1] * Math.sin(phase_correction[i]);
         }
 
         /**
-         * Now draw the experimental spectrum with phase correction.
-         * this.data_strided is a shallow copy of this.data (share the same data!!)
+         * Now re-draw the experimental spectrum with phase correction.
          */
-        this.line_exp.attr("d", self.lineGenerator(self.data_strided));
+        const downsampled = downsampleData(this.current_actively_corrected_spectrum_data, this.true_width, this.xscale.domain(), this.spectrum_reference[spectrum_index]).map(d => [d[0] + this.spectrum_reference[spectrum_index], d[1] * this.spectral_scale[spectrum_index]]);
+        
+        this.vis.select(`#line${spectrum_index}`)
+            .datum(downsampled)
+            .attr("d", this.lineGenerator);
+
     }
 
     /**
-     * This function will set the experimental spectrum to phase corrected spectrum
-     * All subsequent phase correction will be applied to the phase corrected spectrum
+     * This function will permanently apply the phase correction to the experimental spectrum
+     * with index this.current_actively_corrected_spectrum_index
+     * then set this.current_actively_corrected_spectrum_index to -1
      */
-    permanent_phase_correction() {
-        /**
-         * Throw error if imagine_exist is false
-        */
-        if (this.imagine_exist === false) {
-            throw new Error('colmar_1d_double_zoom function permanent_phase_correction cannot apply phase correction because imaginary part is not provided');
-        }
-        this.original_data = this.data.map((x) => [x[0], x[1], x[2]]);
-    }
+    permanently_apply_phase_correction() {
+        if(this.current_actively_corrected_spectrum_index !=-1) {
 
-    /**
-     * return the middle of the X axis
-     */
-    get_anchor() {
-        return (this.min_d + this.max_d) / 2;
-    }
-
-
-    /**
-     * This function will add a reference correction (in ppm) to the X axis of experimental spectrum only
-     * Reconstruction spectrum and simulated spectrum are generated after the reference correction is applied,
-     * so there is no need to apply reference correction to them 
-     * Baseline use same x axis as the experimental spectrum, so there is no need to apply reference correction to it
-    */
-    apply_reference(reference) {
-        /**
-         * reference is the total reference correction in ppm applied by the user
-         * this.reference is the total reference correction in ppm applied by the user, before this function is called
-         * So, we need to subtract this.reference from reference to get the reference correction to be applied to the experimental spectrum
-         */
-
-        let current_reference = this.reference;
-
-
-        /**
-         * Add reference to the ppm of the experimental spectrum
-         */
-        for (var i = 0; i < this.data.length; i++) {
-            this.data[i][0] = this.data[i][0] + reference - current_reference;
-        }
-
-        /**
-         * If reconstruction spectrum exists, add reference to the ppm of the reconstruction spectrum
-         */
-        if (this.recon_exist) {
-            for (var i = 0; i < this.data_recon.length; i++) {
-                this.data_recon[i][0] = this.data_recon[i][0] + reference - current_reference;
+            let return_data = {
+                index: this.current_actively_corrected_spectrum_index,
+                phase0: this.phase_correction_at_min_ppm[this.current_actively_corrected_spectrum_index],
+                phase1: this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index],
             }
+
+            this.allLines['line' + this.current_actively_corrected_spectrum_index] = this.current_actively_corrected_spectrum_data;
+
             /**
-             * Need to apply to this.experimental_peaks and experimental_peaks_centers too
+             * Also clear phase correction parameters
              */
-            for (var i = 0; i < this.experimental_peaks.length; i++) {
-                for (var j = 0; j < this.experimental_peaks[i].length; j++) {
-                    this.experimental_peaks[i][j][0] = this.experimental_peaks[i][j][0] + reference - current_reference;
-                }
-                this.experimental_peaks_centers[i] = this.experimental_peaks_centers[i] + reference - current_reference;
+            this.phase_correction_at_min_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
+            this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
+            this.anchor[this.current_actively_corrected_spectrum_index] = false;
+            this.anchor_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
+
+
+            /**
+             * Also update all_spectra
+            */
+            for(var i=0; i < this.current_actively_corrected_spectrum_data.length; i++) {
+                all_spectra[this.current_actively_corrected_spectrum_index].raw_data[i] = this.current_actively_corrected_spectrum_data[i][1];
+                all_spectra[this.current_actively_corrected_spectrum_index].raw_data_i[i] = this.current_actively_corrected_spectrum_data[i][2];
             }
+            
+
+            this.current_actively_corrected_spectrum_index = -1;
+            this.current_actively_corrected_spectrum_data = [];
+            return return_data;
         }
-
-        this.reference = reference; //update this.reference
-
-        /**
-         * Now draw the experimental spectrum with reference correction.
-         */
-        this.redraw();
     }
-
-
-
     /** helper function to get full peak profile from the right side only
      * @param {Object Array} data has following keys
      * Return @param {Object Array} peak_data [?][Array of {x, y}]

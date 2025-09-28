@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Colmar Viewer 3D</title>
+    <link rel="stylesheet" type="text/css" href="colmarview.css">
+</head>
+
+
+<body>
+
+    <div id="navbar-placeholder"></div>
+
+    <div id="body">
+
+        <span id="contour_message"></span>
+
+        <div>
+            <h1>2D NMR spectra viewer in 3D</h1>
+        </div>
+
+        <div id="canvas_container" class="resizable" style="width: 1200px; margin: 0 auto; text-align: center;">
+        <canvas id="canvas1"></canvas>
+        </div>
+
+        <div style="clear: both">
+            <label for="rotation_x">Tilt</label>
+            <input type="range" id="rotation_x" min="-200" max="200" value="-45" step="1" />
+            <label for="rotation_z">Rotation</label>
+            <input type="range" id="rotation_z" min="0" max="360" value="0" step="1" />
+            <label for="scale_z">Scale Z</label>
+            <input type="range" id="scale_z" min="0.1" max="20" value="1" step="0.1" />
+            <label for="scale_y">Scale Y</label>
+            <input type="range" id="scale_y" min="0.2" max="5" value="1" step="0.1" />
+        </div>
+
+        <div style="clear: both">
+            <label for="light_tilt">Light Angle</label>
+            <input type="range" id="light_tilt" min="-90" max="90" value="0" step="1" />
+            <label for="light_orientation">Light Orientation</label>
+            <input type="range" id="light_orientation" min="0" max="360" value="120" step="5" />
+            <br>
+            <label for="color_surface">Surface color</label>
+            <input type="color" id="color_surface" value="#ffd700" onchange="update_color(0)">
+            <label for="color_contour">Contour color</label>
+            <input type="color" id="color_contour" value="#0000ff" onchange="update_color(1)">
+            <button id="button_download" onclick="download_figure()">Download figure</button>
+            <br>
+        </div>
+
+
+        <div id="file_area" class="drop-area" style="width: 1200px;">
+            <h4>Upload frequency domain spectra:</h4>
+            <form id="ft2_file_form" action="" enctype="multipart/form-data">
+                <label for="userfile">Frequency domain spectral file (.ft2) </label><input type="file" 
+                    id="userfile"><br>
+                    <fieldset class="fieldset-auto-width">
+                        <legend>3D plot options</legend>
+                        <input type="radio" id="smooth" name="plot_type" value="smooth" checked>
+                        <label for="surface">3D surface</label>
+                        <br>
+                        <input type="radio" id="terrace" name="plot_type" value="terrace">
+                        <label for="terrace">3D terrace</label>
+                        <br>
+                        <br>
+                    </fieldset>
+                    
+                    <fieldset class = "fieldset-auto-width">
+                        <legend>Contour options</legend>
+                        <input type="radio" id="Logarithmic_Linear" name="contour_type" value="Logarithmic_Linear" checked>
+                        <label for="Logarithmic_Linear">Logarithmic-linear contour</label>
+                        <br>
+                        <input type="radio" id="Logarithmic" name="contour_type" value="Logarithmic" >
+                        <label for="Logarithmic">Logarithmic contour</label>
+                        <br>
+                        <input type="radio" id="Linear" name="contour_type" value="Linear">
+                        <label for="Linear">Linear contour</label>
+                    </fieldset>
+                    <br>
+                <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
+            </form>
+        </div>
+
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+    <script type="text/javascript" src="js/ldwmath.js"></script>
+    <script type="text/javascript" src="js/webgl-utils.js"></script>
+    <script type="text/javascript" src="js/m3.js"></script>
+    <script type="text/javascript" src="js/m4.js"></script>
+    <script type="text/javascript" src="js/myplot/myplot_webgl2.js"></script>
+    <script type="text/javascript" src="js/peaks.js"></script>
+    <script type="text/javascript" src="js/spectrum.js"></script>
+    <script type="text/javascript" src="js/file_drop.js"></script>
+    <script type="text/javascript" src="js/index_3d.js"></script>
+    </div>
+</body>
+
+</html>
