@@ -125,8 +125,6 @@
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
-                        <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
-                            PC</button>
                         <button id="button_apply_ps" onclick="permanently_apply_phase_correction()">Apply
                             PC</button>
                         Anchor: <span id="anchor"> Not set </span>
@@ -157,7 +155,16 @@
                         <!-- The SVG based plot will be generated here -->
                     </div>
 
-
+                    <div id="plot_1d_instructions">
+                        <h4>Instructions:</h4>
+                        <p>Use wheel to zoom in  and out along the frequency axis (when cursor is over the plot area) or 
+                            along the vertical axis (when cursor is on the left of the Y-axis).
+                        </p>
+                        <p>Click and drag to pan the plot.</p>
+                        <p>Hold Alt then drag to referencing or use wheel to rescale the current spectrum, while keep others fixed.</p>
+                        <p>Hold Shift (rough) or Control(fine) then use wheel to adjust P0 (with anchor unset) or P1 phase (with anchor set).</p>
+                        <p>Use right click to set/unset anchor point. </p>
+                    </div>
                 </div>
             </div>
 
