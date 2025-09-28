@@ -117,7 +117,7 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params,zoom_pan_on_call_function) {
+    init(width, height, peak_params,zoom_pan_on_call_function,apply_ps_on_call_function) {
 
         let self = this; // to use this inside some functions
         
@@ -127,6 +127,7 @@ class myplot_1d {
          * ON call function we need to call when user zoom out the plot using mouse wheel
          */
         this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
+        this.apply_phase_correction_on_call_function = apply_ps_on_call_function || null;
 
         if(peak_params)
         {
@@ -516,7 +517,7 @@ class myplot_1d {
              */
             if(this.current_actively_corrected_spectrum_index !=-1 && this.current_actively_corrected_spectrum_index != index)
             {
-                this.permanently_apply_phase_correction();
+                this.apply_phase_correction_on_call_function();
             }
 
             this.current_spectrum_index = index;

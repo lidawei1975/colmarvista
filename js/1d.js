@@ -1676,7 +1676,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced,permanently_apply_phase_correction);
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -2751,12 +2751,16 @@ function permanently_apply_phase_correction()
     // let ndx = main_plot.current_actively_corrected_spectrum_index;
     return_data = main_plot.permanently_apply_phase_correction();
     let ndx = return_data.index;
-    /**
-     * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
-     * return_data.phase0 and phase1 are in radians, need to convert to degrees
-     */
-    all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0 * 180 / Math.PI;
-    all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0) * 180 / Math.PI;
+
+    if ( all_spectra[ndx].fid_process_parameters !== null)
+    {
+        /**
+         * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
+         * return_data.phase0 and phase1 are in radians, need to convert to degrees
+         */
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0 * 180 / Math.PI;
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0) * 180 / Math.PI;
+    }
 
     /**
      * main_plot only change data within itself. 
@@ -2790,7 +2794,7 @@ function permanently_apply_phase_correction()
      * If we are in reprocessing mode (spectrum_origin >= 10000),
      * Change input field phase_correction_direct_p0 and p1 to the new values
      */
-    if(current_reprocess_spectrum_index === ndx)
+    if(current_reprocess_spectrum_index === ndx && all_spectra[ndx].fid_process_parameters !== null)
     {
         document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
