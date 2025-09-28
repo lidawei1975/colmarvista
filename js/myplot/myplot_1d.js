@@ -62,9 +62,9 @@ function lttb(data, threshold) {
 }
 
 
-function downsampleData(data, threshold, xDomain)
+function downsampleData(data, threshold, xDomain, ref)
 {
-    const visible = data.filter(d => d[0] >= xDomain[0] && d[0] <= xDomain[1]);
+    const visible = data.filter(d => d[0]+ref >= xDomain[0] && d[0]+ref <= xDomain[1]);
     if (visible.length <= threshold) return visible;
     return lttb(visible, threshold);
 }
@@ -340,7 +340,7 @@ class myplot_1d {
                     this.spectral_scale[index] *= delta; // Get the current scale of the spectrum
                     const scale = this.spectral_scale[index]; // Update the scale of the spectrum
                     const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
-                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                     this.vis.select(`#${lineId}`)
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
@@ -358,7 +358,7 @@ class myplot_1d {
                         if (data) {
                             const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
                             const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
-                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                             this.vis.select(`#${lineId}`)
                                 .datum(downsampled)
                                 .attr("d", this.lineGenerator);
@@ -548,7 +548,7 @@ class myplot_1d {
              */
             const lineId = `line${index}`;
             this.allLines[lineId] = data; // Store original data
-            const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+            const downsampled = downsampleData(data, this.true_width, this.xscale.domain(), this.spectrum_reference[index]).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
             this.vis.select(`#${lineId}`)
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
@@ -590,7 +590,7 @@ class myplot_1d {
         const lineId = `line${index}`;
         this.allLines[lineId] = data; // Store original data
 
-        const downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
+        const downsampled = downsampleData(data, this.true_width, this.xscale.domain(), this.spectrum_reference[index]).map(d => [d[0] + this.spectrum_reference[index], d[1] * this.spectral_scale[index]]); // Downsample data and scale it
 
         this.vis.append("path")
             .datum(downsampled)
@@ -734,7 +734,7 @@ class myplot_1d {
                 if (data) {
                     const scale = this.spectral_scale[index]; // Get the current scale of the spectrum
                     const reference = this.spectrum_reference[index]; // Get the reference correction for the spectrum.
-                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                    let downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                     this.vis.select(`#${lineId}`)
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
@@ -751,7 +751,7 @@ class myplot_1d {
                         if (data) {
                             const scale = this.spectral_scale[recon_index]; // Get the current scale of the spectrum
                             const reference = this.spectrum_reference[recon_index]; // Get the reference correction for the spectrum.
-                            downsampled = downsampleData(data, this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+                            downsampled = downsampleData(data, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
                             this.vis.select(`#${lineId}`)
                                 .datum(downsampled)
                                 .attr("d", this.lineGenerator);
@@ -990,7 +990,7 @@ class myplot_1d {
                 data = this.current_actively_corrected_spectrum_data;
             }
 
-            const downsampled = downsampleData(data,this.true_width, this.xscale.domain()).map(d => [d[0] + reference, d[1] * scale]);
+            const downsampled = downsampleData(data,this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1] * scale]);
             this.vis.select(`#${lineId}`)
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
@@ -1063,7 +1063,7 @@ class myplot_1d {
         /**
          * Now re-draw the experimental spectrum with phase correction.
          */
-        const downsampled = downsampleData(this.current_actively_corrected_spectrum_data, this.true_width, this.xscale.domain()).map(d => [d[0] + this.spectrum_reference[spectrum_index], d[1] * this.spectral_scale[spectrum_index]]);
+        const downsampled = downsampleData(this.current_actively_corrected_spectrum_data, this.true_width, this.xscale.domain(), this.spectrum_reference[spectrum_index]).map(d => [d[0] + this.spectrum_reference[spectrum_index], d[1] * this.spectral_scale[spectrum_index]]);
         
         this.vis.select(`#line${spectrum_index}`)
             .datum(downsampled)
