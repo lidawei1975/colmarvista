@@ -2811,7 +2811,8 @@ async function runPrediction(data) {
     // 1. Load the model
     console.log('Loading model...');
     // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
-    const model = await tf.loadGraphModel('./saved_model/model.json');
+    const model_p0 = await tf.loadGraphModel('./saved_model_p0/model.json');
+    const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
     console.log('Model loaded successfully!');
 
     // 2. Preprocess Input Data (Example)
@@ -2838,23 +2839,27 @@ async function runPrediction(data) {
 
     // 3. Run the prediction with the input object
     console.log('Running prediction with named inputs...');
-    const prediction = model.predict(inputs);
+    const prediction_p0 = model_p0.predict(inputs);
+    const prediction_p1 = model_p1.predict(inputs);
 
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
     console.log('Processing output...');
     // Use .dataSync() or .data() (async) to get the raw values from the tensor
-    const outputData = prediction.dataSync();
+    const outputData_p0 = prediction_p0.dataSync();
+    const outputData_p1 = prediction_p1.dataSync();
 
-    const probabilities = Array.from(outputData);
+    const probabilities_p0 = Array.from(outputData_p0);
+    const probabilities_p1 = Array.from(outputData_p1);
 
     console.log(`Prediction finished.`);
-    console.log('Output Data:', outputData);
-    console.log('Output Probabilities:', probabilities);
+    console.log('Output Probabilities P0:', probabilities_p0);
+    console.log('Output Probabilities P1:', probabilities_p1);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
     maskTensor.dispose();
-    prediction.dispose();
+    prediction_p0.dispose();
+    prediction_p1.dispose();
 }
