@@ -2802,22 +2802,39 @@ function permanently_apply_phase_correction()
 }
 
 
-function test_phase(ndx,phase_start)
+function test_phase(ndx,phase_start,n_grid=9)
 {
     const data_step = all_spectra[ndx].raw_data.length/131072; 
-    let data = new Float32Array(131072*9);
-    let phase_step = Math.abs(phase_start)/4.0;
-    for(let count = 0; count < 9; count++){
-        let phase = phase_start + count * phase_step;
-        let max_value = 0;
-        for(let i=0;i<131072;i++){
-            data[count*131072 + i] = all_spectra[ndx].raw_data[i*data_step] * Math.cos(phase* Math.PI/180) + all_spectra[ndx].raw_data_i[i*data_step] * Math.sin(phase* Math.PI/180);
-            if(data[count*131072 + i] > max_value) {
-                max_value = data[count*131072 + i];
+    let data = new Float32Array(131072*n_grid*n_grid); //9*9 phase values, each with 131072 points
+    let phase_step = Math.abs(phase_start)/((n_grid-1)/2);
+    for(let count1 = 0; count1 < n_grid; count1++)
+    {
+        let phase1 = phase_start + count1 * phase_step;
+        for(let count2 = 0; count2 < n_grid; count2++)
+        {
+            let phase2 = -phase_start + count2 * phase_step;
+            /**
+             * Make a phase_array with length of 131072, with linear interpolation from phase1 to phase2
+             */
+            let phase_array = new Float32Array(131072);
+            for(let i=0;i<131072;i++)
+            {
+                phase_array[i] = phase1 + (phase2 - phase1) * i / 131072;
             }
-        }
-        for(let i=0;i<131072;i++){
-            data[count*131072 + i] = data[count*131072 + i]/max_value;
+            let max_val = -1e10;
+            for(let i=0;i<131072;i++)
+            {
+                data[(count1*n_grid+count2)*131072 + i] = all_spectra[ndx].raw_data[i*data_step] * Math.cos(phase_array[i] * Math.PI/180) + all_spectra[ndx].raw_data_i[i*data_step] * Math.sin(phase_array[i] * Math.PI/180);
+                if(data[(count1*n_grid+count2)*131072 + i] > max_val)
+                {
+                    max_val = data[(count1*n_grid+count2)*131072 + i];
+                }
+            }
+            /** Normalize the data */
+            for(let i=0;i<131072;i++)
+            {
+                data[(count1*9+count2)*131072 + i] /= max_val;
+            }
         }
     }
     runPrediction(data,131072);
@@ -2831,7 +2848,7 @@ function test_phase(ndx,phase_start)
  * @param {Float32Array} data This is many 1D spectrum data
  * @param {int} data_length Length of each 1D spectrum, should be 65536
  */
-async function runPrediction(data, data_length) {
+async function runPrediction(data, data_length, n_grid=9) {
     // 1. Load the model
     console.log('Loading model...');
     // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
