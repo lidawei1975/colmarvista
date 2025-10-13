@@ -2802,17 +2802,41 @@ function permanently_apply_phase_correction()
 }
 
 
+function test_phase(ndx,phase_start)
+{
+    const data_step = all_spectra[ndx].raw_data.length/131072; 
+    let data = new Float32Array(131072*9);
+    let phase_step = Math.abs(phase_start)/4.0;
+    for(let count = 0; count < 9; count++){
+        let phase = phase_start + count * phase_step;
+        let max_value = 0;
+        for(let i=0;i<131072;i++){
+            data[count*131072 + i] = all_spectra[ndx].raw_data[i*data_step] * Math.cos(phase* Math.PI/180) + all_spectra[ndx].raw_data_i[i*data_step] * Math.sin(phase* Math.PI/180);
+            if(data[count*131072 + i] > max_value) {
+                max_value = data[count*131072 + i];
+            }
+        }
+        for(let i=0;i<131072;i++){
+            data[count*131072 + i] = data[count*131072 + i]/max_value;
+        }
+    }
+    runPrediction(data,131072);
+}
+
+
+
 // Wrap the logic in an async function to use 'await'
 /**
- * 
- * @param {Float32Array} data This is one 1D spectrum data, length is 65536 
+ * Run prediction using TensorFlow.js
+ * @param {Float32Array} data This is many 1D spectrum data
+ * @param {int} data_length Length of each 1D spectrum, should be 65536
  */
-async function runPrediction(data) {
+async function runPrediction(data, data_length) {
     // 1. Load the model
     console.log('Loading model...');
     // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
     const model_p0 = await tf.loadGraphModel('./saved_model_p0/model.json');
-    const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
+    // const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
     console.log('Model loaded successfully!');
 
     // 2. Preprocess Input Data (Example)
@@ -2823,13 +2847,13 @@ async function runPrediction(data) {
     // --- 1. Generate the Main Input ---
     // This creates a placeholder tensor with random data.
     // In your real application, you would replace this with your actual 1D array data.
-    const data_length = data.length; // Should be 65536
-    const mainTensor = tf.tensor(data).reshape([1, data_length, 1]);
+    const n_data = data.length / data_length; //number of spectra
+    const mainTensor = tf.tensor(data).reshape([n_data, data_length, 1]);
 
     // --- 2. Generate the Mask Input ---
     // This creates a tensor of shape [1, 512] filled with the value 1.0.
     const mask_length = data_length/128; // Example length, replace with actual if different
-    const maskTensor = tf.ones([1, mask_length],'bool');
+    const maskTensor = tf.ones([n_data, mask_length],'bool');
 
 
     const inputs = {
@@ -2840,7 +2864,7 @@ async function runPrediction(data) {
     // 3. Run the prediction with the input object
     console.log('Running prediction with named inputs...');
     const prediction_p0 = model_p0.predict(inputs);
-    const prediction_p1 = model_p1.predict(inputs);
+    // const prediction_p1 = model_p1.predict(inputs);
 
     // The output 'prediction' is a tensor.
 
@@ -2848,18 +2872,28 @@ async function runPrediction(data) {
     console.log('Processing output...');
     // Use .dataSync() or .data() (async) to get the raw values from the tensor
     const outputData_p0 = prediction_p0.dataSync();
-    const outputData_p1 = prediction_p1.dataSync();
+    // const outputData_p1 = prediction_p1.dataSync();
 
     const probabilities_p0 = Array.from(outputData_p0);
-    const probabilities_p1 = Array.from(outputData_p1);
+    // const probabilities_p1 = Array.from(outputData_p1);
 
     console.log(`Prediction finished.`);
+    console.log("outputData_p0: ", outputData_p0);
     console.log('Output Probabilities P0:', probabilities_p0);
-    console.log('Output Probabilities P1:', probabilities_p1);
+    // console.log('Output Probabilities P1:', probabilities_p1);
+
+    /**
+     * Convert probabilities_p0 from 1*27 to 9*3
+     */
+    const reshapedProbabilities_p0 = [];
+    for (let i = 0; i < 9; i++) {
+        reshapedProbabilities_p0.push(probabilities_p0.slice(i * 3, (i + 1) * 3));
+    }
+    console.log('Reshaped Probabilities P0 (9x3):', reshapedProbabilities_p0);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
     maskTensor.dispose();
     prediction_p0.dispose();
-    prediction_p1.dispose();
+    // prediction_p1.dispose();
 }
