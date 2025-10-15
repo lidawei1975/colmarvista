@@ -2777,7 +2777,7 @@ function permanently_apply_phase_correction()
 
     for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
         new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m] ) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m] );
-        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] ) - all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] );
+        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] ) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] );
     }
 
     all_spectra[ndx].raw_data = new_raw_data;
@@ -2802,45 +2802,252 @@ function permanently_apply_phase_correction()
 }
 
 
-function test_phase(ndx,phase_start,n_grid=9)
+
+/**
+ * Walk on 2D surface (phase correction at left end and right end) to get a line
+ * on which the predicted probabilities of being "good without p0 error" is the highest
+ * if no such data point, get the cross point from negative to positive phase error.
+ * @param {*} ndx 
+ */
+async function get_p0_line(ndx)
 {
-    const data_step = all_spectra[ndx].raw_data.length/131072; 
-    let data = new Float32Array(131072*n_grid*n_grid); //9*9 phase values, each with 131072 points
-    let phase_step = Math.abs(phase_start)/((n_grid-1)/2);
-    for(let count1 = 0; count1 < n_grid; count1++)
-    {
-        let phase1 = phase_start + count1 * phase_step;
-        for(let count2 = 0; count2 < n_grid; count2++)
-        {
-            let phase2 = -phase_start + count2 * phase_step;
-            /**
-             * Make a phase_array with length of 131072, with linear interpolation from phase1 to phase2
-             */
-            let phase_array = new Float32Array(131072);
-            for(let i=0;i<131072;i++)
-            {
-                phase_array[i] = phase1 + (phase2 - phase1) * i / 131072;
-            }
-            let max_val = -1e10;
-            for(let i=0;i<131072;i++)
-            {
-                data[(count1*n_grid+count2)*131072 + i] = all_spectra[ndx].raw_data[i*data_step] * Math.cos(phase_array[i] * Math.PI/180) + all_spectra[ndx].raw_data_i[i*data_step] * Math.sin(phase_array[i] * Math.PI/180);
-                if(data[(count1*n_grid+count2)*131072 + i] > max_val)
-                {
-                    max_val = data[(count1*n_grid+count2)*131072 + i];
-                }
-            }
-            /** Normalize the data */
-            for(let i=0;i<131072;i++)
-            {
-                data[(count1*9+count2)*131072 + i] /= max_val;
-            }
-        }
-    }
-    runPrediction(data,131072);
+    let result = await get_best_location_diagonal(ndx,0,0);
+    console.log("Best location along diagonal: ",result);
 }
 
 
+/**
+ * Move along the diagonal line (additional phase correction at left end and right end are the same)
+ * to find a point where the predicted probability of being "good without p0 error" is the highest
+ * If no such point, find the cross point from negative to positive phase error
+ * @param {*} ndx: index of the spectrum in all_spectra to be corrected
+ * @param {*} current_phase_left: current additional phase correction at left end (on top of current data in all_spectra[ndx])
+ * @param {*} current_phase_right: current additional phase correction at right end (on top of current data in all_spectra[ndx])
+ * @returns: best location (additional phase correction at left and right, same value)
+ */
+async function get_best_location_diagonal(ndx,current_phase_left,current_phase_right)
+{
+    let result = [];
+    /**
+     * Step 1, run prediction at current phase correction
+     * prediction array of size 3, from logistic regression
+     * index 0: score of being "negative phase error"
+     * index 1: score of being "good (no phase error)"
+     * index 2: score of being "positive phase error"
+     */
+    /**
+     * make a copy of raw_data with current phase correction applied
+     */
+    let data = new Float32Array(all_spectra[ndx].raw_data.length);
+    let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+
+    for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / all_spectra[ndx].raw_data.length) * Math.PI / 180;
+    }
+    for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
+    }
+    const prediction_all = await runPrediction(data,131072);
+    let prediction = prediction_all[0];
+
+    /**
+     * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
+     */
+    if(prediction[1] > prediction[0] && prediction[1] > prediction[2])
+    {
+        result = await get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,prediction[1]);
+    }
+    else
+    {
+        /**
+         * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         */
+
+        let b_cross = false;
+        let current_additional_phase = prediction[0] > prediction[2] ? 5.0 : -5.0; //start with 5 degrees additional phase correction
+        while (!b_cross) {
+            // Perform a small phase correction
+            let phase_correction_left = current_phase_left + current_additional_phase;
+            let phase_correction_right = current_phase_right + current_additional_phase;
+
+            let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+            for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+                phase_array[i] = (phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length) * Math.PI / 180;
+            }
+            let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
+            for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+                new_raw_data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
+            }
+
+            // Rerun prediction
+            const new_prediction_all = await runPrediction(new_raw_data, 131072);
+            const new_prediction = new_prediction_all[0];
+            console.log("Current phase left: ", phase_correction_left, " right: ", phase_correction_right, " prediction: ", new_prediction);
+
+            if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
+            {
+                // switch to method solely searching for maximum of prediction[1]
+                b_cross = true;
+                result = await get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,new_prediction[1]);
+            }
+            // Check if we have crossed over
+            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
+            {
+                // Crossed from negative to positive
+                result= await get_cross_point(ndx,current_phase_left,current_phase_right,current_additional_phase);
+                b_cross = true;
+            }
+            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2])
+            {
+                // Crossed from positive to negative, so we exchange start and end points (keep in mind current_additional_phase is negative here)
+                result= await get_cross_point(ndx,current_phase_left+current_additional_phase,current_phase_right+current_additional_phase,-current_additional_phase);
+                b_cross = true;
+            }
+            /**
+             * We don't cross yet, update prediction and current phase correction
+             */
+            prediction = new_prediction;
+            current_phase_left = phase_correction_left;
+            current_phase_right = phase_correction_right;
+        }
+    }
+    return result;
+}
+
+/**
+ * Run section search to find the cross point from negative to positive phase error (or from positive to negative phase error)
+ * IMPORTANT: this is a recursive function !!
+ * @param {*} ndx: index of the spectrum in all_spectra to be corrected
+ * @param {*} current_phase_left:  current phase correction at left end
+ * @param {*} current_phase_right: current phase correction at right end
+ * @param {*} initial_additional_phase: initial additional phase (same for left and right) that defines the search range (initial_additional_phase>0)
+ * @returns: cross point (additional phase correction at left and right, same value)
+ */
+async function get_cross_point(ndx,current_phase_left,current_phase_right,initial_additional_phase)
+{
+    let mid_phase_left = current_phase_left + initial_additional_phase/2.0;
+    let mid_phase_right = current_phase_right + initial_additional_phase/2.0;
+    /**
+     * If the search range is very small, return the current mid points
+     */
+    if(initial_additional_phase<0.1) 
+    {
+        return [mid_phase_left, mid_phase_right];
+    }
+
+    /**
+     * Make new data at mid phase correction
+     */
+    let data = new Float32Array(131072);
+    let phase_array = new Float32Array(131072);
+
+    for (let i = 0; i < 131072; i++) {
+        phase_array[i] = (mid_phase_left + (mid_phase_right - mid_phase_left) * i / 131072) * Math.PI / 180;
+    }   
+    for(let i=0;i<131072;i++){
+        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
+    }
+
+    const new_prediction_all = await runPrediction(data,131072);
+    const new_prediction = new_prediction_all[0];
+
+    console.log("Cross point search at left: ", mid_phase_left, " right: ", mid_phase_right, " prediction: ", new_prediction);
+
+    if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
+    {
+        // switch to method solely searching for maximum of prediction[1]
+        return await get_maximum_pre1_location(ndx,mid_phase_left,mid_phase_right,new_prediction[1]);
+    }
+    else if (new_prediction[0] > new_prediction[2]) {
+        // Crossed from negative to positive
+        return await get_cross_point(ndx, mid_phase_left, mid_phase_right, initial_additional_phase / 2.0);
+    } else {
+        // Crossed from positive to negative
+        return await get_cross_point(ndx, current_phase_left, current_phase_right, initial_additional_phase / 2.0);
+    }
+}
+
+async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
+{
+    const phase_step = 0.0175/2.0; //0.5 degree in radians
+    /**
+     * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
+     */
+    let data = new Float32Array(131072*2);
+    let phase_array = new Float32Array(131072);
+
+    for (let i = 0; i < 131072; i++) {
+        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / 131072) * Math.PI / 180;
+    }
+
+    for(let i=0;i<131072;i++){
+        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]-phase_step) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]-phase_step);
+    }
+    for(let i=0;i<131072;i++){
+        data[131072 + i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]+phase_step) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]+phase_step);
+    }
+    /**
+     * Run prediction on the two new data points
+     */
+    const new_predictions = await runPrediction(data,131072);   
+    /**
+     * if current prediction[1] is the maximum, we are done
+     */
+    if(current_prediction1 > new_predictions[0][1] && current_prediction1 > new_predictions[1][1]) {
+        return [current_phase_left, current_phase_right];
+    }
+    else if(new_predictions[0][1] > current_prediction1 && new_predictions[0][1] > new_predictions[1][1]) {
+        // the first new prediction is the maximum, move to that point and continue searching
+        return await get_maximum_pre1_location_2(ndx,current_phase_left-phase_step*180/Math.PI,current_phase_right-phase_step*180/Math.PI,new_predictions[0][1],current_prediction1,-1);
+    }
+    else {
+        // the second new prediction is the maximum, move to that point and continue searching
+        return await get_maximum_pre1_location_2(ndx,current_phase_left+phase_step*180/Math.PI,current_phase_right+phase_step*180/Math.PI,new_predictions[1][1],current_prediction1,1);
+    }
+}
+
+/**
+ * 
+ * @param {*} ndx: index of the spectrum in all_spectra to be corrected 
+ * @param {*} current_phase_left: current phase correction at left end 
+ * @param {*} current_phase_right: current phase correction at right end
+ * @param {*} current_prediction1: current highest score
+ * @param {*} current_prediction2: current second highest score
+ * @param {*} direction: direction to search (-1 for left (reduce), 1 for right(increase))
+ */
+async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
+{
+    let data = new Float32Array(131072);
+    let phase_array = new Float32Array(131072);
+    let add_phase = direction * 0.0175; //move 1 degree in the given direction 0.017 radians = 1 degree
+
+    for (let i = 0; i < 131072; i++) {
+        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / 131072) * Math.PI / 180;
+    }
+
+    for(let i=0;i<131072;i++){
+        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]+add_phase) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]+add_phase);
+    }
+
+    const new_prediction_all = await runPrediction(data,131072);   
+    const new_prediction = new_prediction_all[0];
+
+    if(current_prediction1 > new_prediction[1]) {
+        /**
+         * Begin to decrease, we are done.
+         */
+        return [current_phase_left, current_phase_right];
+    }
+    else {
+        /** 
+         * continue to move in the given direction
+         */
+        return await get_maximum_pre1_location_2(ndx,current_phase_left+add_phase,current_phase_right+add_phase,new_prediction[1],current_prediction1,direction);
+    }
+};
 
 // Wrap the logic in an async function to use 'await'
 /**
@@ -2848,23 +3055,41 @@ function test_phase(ndx,phase_start,n_grid=9)
  * @param {Float32Array} data This is many 1D spectrum data
  * @param {int} data_length Length of each 1D spectrum, should be 65536
  */
-async function runPrediction(data, data_length, n_grid=9) {
+async function runPrediction(data, data_length) {
     // 1. Load the model
-    console.log('Loading model...');
+    // console.log('Loading model...');
     // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
     const model_p0 = await tf.loadGraphModel('./saved_model_p0/model.json');
     // const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
-    console.log('Model loaded successfully!');
+    // console.log('Model loaded successfully!');
 
     // 2. Preprocess Input Data (Example)
     // Let's assume your model expects a tensor of shape [1, 224, 224, 3]
     // representing a single normalized image.
     // NOTE: This is a placeholder! You must replace this with your actual input data.
-    console.log('Creating input tensor...');
+    // console.log('Creating input tensor...');
     // --- 1. Generate the Main Input ---
     // This creates a placeholder tensor with random data.
     // In your real application, you would replace this with your actual 1D array data.
     const n_data = data.length / data_length; //number of spectra
+
+    /**
+     * Normalize data to range [0,1], for each spectrum separately
+     */
+    for(let i=0;i<n_data;i++){
+        let offset = i * data_length;
+        let max_val = -Infinity;
+
+        for(let j=0;j<data_length;j++){
+            if(data[offset + j] > max_val) max_val = data[offset + j];
+        }
+
+        // Normalize the data to [0,1]
+        for(let j=0;j<data_length;j++){
+            data[offset + j] = data[offset + j]  / max_val;
+        }
+    }
+
     const mainTensor = tf.tensor(data).reshape([n_data, data_length, 1]);
 
     // --- 2. Generate the Mask Input ---
@@ -2879,14 +3104,14 @@ async function runPrediction(data, data_length, n_grid=9) {
         };
 
     // 3. Run the prediction with the input object
-    console.log('Running prediction with named inputs...');
+    // console.log('Running prediction with named inputs...');
     const prediction_p0 = model_p0.predict(inputs);
     // const prediction_p1 = model_p1.predict(inputs);
 
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
-    console.log('Processing output...');
+    // console.log('Processing output...');
     // Use .dataSync() or .data() (async) to get the raw values from the tensor
     const outputData_p0 = prediction_p0.dataSync();
     // const outputData_p1 = prediction_p1.dataSync();
@@ -2894,23 +3119,25 @@ async function runPrediction(data, data_length, n_grid=9) {
     const probabilities_p0 = Array.from(outputData_p0);
     // const probabilities_p1 = Array.from(outputData_p1);
 
-    console.log(`Prediction finished.`);
-    console.log("outputData_p0: ", outputData_p0);
-    console.log('Output Probabilities P0:', probabilities_p0);
+    // console.log(`Prediction finished.`);
+    // console.log("outputData_p0: ", outputData_p0);
+    // console.log('Output Probabilities P0:', probabilities_p0);
     // console.log('Output Probabilities P1:', probabilities_p1);
 
     /**
      * Convert probabilities_p0 from 1*27 to 9*3
      */
     const reshapedProbabilities_p0 = [];
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < n_data; i++) {
         reshapedProbabilities_p0.push(probabilities_p0.slice(i * 3, (i + 1) * 3));
     }
-    console.log('Reshaped Probabilities P0 (9x3):', reshapedProbabilities_p0);
+    // console.log('Reshaped Probabilities P0 (n_data x 3):', reshapedProbabilities_p0);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
     maskTensor.dispose();
     prediction_p0.dispose();
     // prediction_p1.dispose();
+
+    return reshapedProbabilities_p0;
 }
