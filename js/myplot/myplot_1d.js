@@ -1095,19 +1095,12 @@ class myplot_1d {
             this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
             this.anchor[this.current_actively_corrected_spectrum_index] = false;
             this.anchor_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
-
-
-            /**
-             * Also update all_spectra
-            */
-            for(var i=0; i < this.current_actively_corrected_spectrum_data.length; i++) {
-                all_spectra[this.current_actively_corrected_spectrum_index].raw_data[i] = this.current_actively_corrected_spectrum_data[i][1];
-                all_spectra[this.current_actively_corrected_spectrum_index].raw_data_i[i] = this.current_actively_corrected_spectrum_data[i][2];
-            }
-            
-
             this.current_actively_corrected_spectrum_index = -1;
             this.current_actively_corrected_spectrum_data = [];
+            /**
+             * IMPORTANT: we do not update all_spectra here, because all_spectra is defined outside of this class
+             * We will update all_spectra in the function that calls $this->permanently_apply_phase_correction()
+             */
             return return_data;
         }
     }
