@@ -2827,6 +2827,46 @@ async function get_p0_line(ndx)
         new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]*Math.PI/180) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]*Math.PI/180);
     }
 
+    /**
+     * Now run p1 prediction on the new data to make sure we are at the maximum
+     */
+    const prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    let prediction = prediction_all[0];
+
+    /**
+     * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
+    */
+    if(prediction[1] > prediction[0] && prediction[1] > prediction[2])
+    {
+        result = await get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,prediction[1]);
+    }
+    else
+    {
+        /**
+         * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         */
+        let b_cross = false;
+        let advance_direction = -Math.PI/4; //-45 degree: phase_at_left += current_additional_phase*cos(-45), phase_at_right += current_additional_phase*sin(-45)
+        let current_additional_phase = prediction[0] > prediction[2] ? 5.0 : -5.0;
+         while (!b_cross) {
+            // Perform a small phase correction
+            let data = new Float32Array(all_spectra[ndx].raw_data.length);
+            let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+            for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+                let at_left  = result[0] + current_additional_phase * Math.cos(advance_direction);
+                let at_right = result[1] + current_additional_phase * Math.sin(advance_direction);
+                phase_array[i] = (at_left + (at_right - at_left) * i / all_spectra[ndx].raw_data.length) * Math.PI / 180;
+            }
+           
+
+        }
+    }
+
+
+
     all_spectra[ndx].raw_data = new_raw_data;
     all_spectra[ndx].raw_data_i = new_raw_data_i;
 
@@ -3103,24 +3143,17 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
 /**
  * Run prediction using TensorFlow.js
  * @param {Float32Array} data This is many 1D spectrum data
- * @param {int} data_length Length of each 1D spectrum, should be 65536
+ * @param {int} data_length Length of each 1D spectrum, e.g., 131072, 65536, or 32768
+ * @param {int} flag 0 for p0 model, 1 for p1 model
+ * @returns {Array} reshapedProbabilities_p0 An array of probabilities for each spectrum
  */
-async function runPrediction(data, data_length) {
+async function runPrediction(data, data_length, flag=0) {
     // 1. Load the model
-    // console.log('Loading model...');
-    // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
-    const model_p0 = await tf.loadGraphModel('./saved_model_p0/model.json');
-    // const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
+    const model = await (flag === 0 ? tf.loadGraphModel('./saved_model_p0/model.json') : tf.loadGraphModel('./saved_model_p1/model.json'));
     // console.log('Model loaded successfully!');
 
-    // 2. Preprocess Input Data (Example)
-    // Let's assume your model expects a tensor of shape [1, 224, 224, 3]
-    // representing a single normalized image.
-    // NOTE: This is a placeholder! You must replace this with your actual input data.
-    // console.log('Creating input tensor...');
-    // --- 1. Generate the Main Input ---
-    // This creates a placeholder tensor with random data.
-    // In your real application, you would replace this with your actual 1D array data.
+    // 2. Preprocess Input Data (Example). n_data is batch size in our prediction
+    // Because of limited resources in browser, we only process one or two spectrum at a time.
     const n_data = data.length / data_length; //number of spectra
 
     /**
@@ -3154,40 +3187,34 @@ async function runPrediction(data, data_length) {
         };
 
     // 3. Run the prediction with the input object
-    // console.log('Running prediction with named inputs...');
-    const prediction_p0 = model_p0.predict(inputs);
-    // const prediction_p1 = model_p1.predict(inputs);
-
+    const prediction = model.predict(inputs);
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
     // console.log('Processing output...');
-    // Use .dataSync() or .data() (async) to get the raw values from the tensor
-    const outputData_p0 = prediction_p0.dataSync();
-    // const outputData_p1 = prediction_p1.dataSync();
+    const outputData = prediction.dataSync();
 
-    const probabilities_p0 = Array.from(outputData_p0);
-    // const probabilities_p1 = Array.from(outputData_p1);
+    const probabilities = Array.from(outputData);
 
     // console.log(`Prediction finished.`);
-    // console.log("outputData_p0: ", outputData_p0);
-    // console.log('Output Probabilities P0:', probabilities_p0);
-    // console.log('Output Probabilities P1:', probabilities_p1);
+    // console.log("outputData: ", outputData);
+    // console.log('Output Probabilities:', probabilities);
 
     /**
      * Convert probabilities_p0 from 1*27 to 9*3
      */
-    const reshapedProbabilities_p0 = [];
+    const reshapedProbabilities = [];
     for (let i = 0; i < n_data; i++) {
-        reshapedProbabilities_p0.push(probabilities_p0.slice(i * 3, (i + 1) * 3));
+        reshapedProbabilities.push(probabilities.slice(i * 3, (i + 1) * 3));
     }
-    // console.log('Reshaped Probabilities P0 (n_data x 3):', reshapedProbabilities_p0);
+    // console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
     maskTensor.dispose();
-    prediction_p0.dispose();
+    prediction.dispose();
     // prediction_p1.dispose();
 
-    return reshapedProbabilities_p0;
+    return reshapedProbabilities;
 }
+
