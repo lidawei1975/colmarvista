@@ -2802,6 +2802,37 @@ function permanently_apply_phase_correction()
 }
 
 
+function get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right)
+{
+    let data = new Float32Array(all_spectra[ndx].raw_data.length);
+    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
+
+    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length;
+            phase_correction[i] = phase_correction[i] * Math.PI / 180;
+        }
+
+    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
+        data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m]);
+    }
+    return data;
+}
+
+function get_data_from_phase_correction_i(ndx,phase_correction_left,phase_correction_right)
+{
+    let data = new Float32Array(all_spectra[ndx].raw_data.length);
+    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
+
+    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length;
+            phase_correction[i] = phase_correction[i] * Math.PI / 180;
+        }
+
+    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
+        data[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]);
+    }
+    return data;
+}
 
 /**
  * Walk on 2D surface (phase correction at left end and right end) to get a line
@@ -2812,34 +2843,95 @@ function permanently_apply_phase_correction()
 async function get_p0_line(ndx)
 {
     let result = await get_best_location_diagonal(ndx,0,0);
-    console.log("Best location along diagonal: ",result); //unit is degrees, not radians
+
+    let current_phase_left = result[0];
+    let current_phase_right = result[1];
 
     let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
-    let new_raw_data_i = new Float32Array(all_spectra[ndx].raw_data_i.length);
-    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
 
-    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-            phase_correction[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
-        }
-
-    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
-        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m]*Math.PI/180) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m]*Math.PI/180);
-        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]*Math.PI/180) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]*Math.PI/180);
-    }
-
-    all_spectra[ndx].raw_data = new_raw_data;
-    all_spectra[ndx].raw_data_i = new_raw_data_i;
+    let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
 
     /**
-     * need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
-     * result[0] and result[1] are in degrees, need to convert to radians
+     * Now run p1 prediction on the new data to make sure we are at the maximum
      */
-    if ( all_spectra[ndx].fid_process_parameters !== null)
+    const prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    let prediction = prediction_all[0];
+
+    /**
+     * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
+    */
+    if(prediction[1] > prediction[0] && prediction[1] > prediction[2])
     {
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
+        result = await get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,prediction[1]);
     }
-    
+    else
+    {
+        /**
+         * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
+         * then we can run section search to find the cross point from negative to positive phase error
+         */
+        let b_cross = false;
+        let advance_direction_left =   1;
+        let advance_direction_right = -1;
+        let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
+         while (!b_cross) {
+            // Perform a small phase correction along anti-diagonal direction
+            let current_additional_phase_left = current_additional_phase * advance_direction_left
+            let current_additional_phase_right = current_additional_phase * advance_direction_right;
+            let phase_correction_left = current_phase_left + current_additional_phase_left;
+            let phase_correction_right = current_phase_right + current_additional_phase_right;
+
+            // move phase correction along diagonal line to reach optimal point
+            let p0_result = await get_best_location_diagonal(ndx,phase_correction_left,phase_correction_right);
+            phase_correction_left = p0_result[0];
+            phase_correction_right = p0_result[1];
+            /**
+             * Also use current data to update advance_direction_left and advance_direction_right
+             */
+            advance_direction_left =  (phase_correction_left - current_phase_left)/current_additional_phase;
+            advance_direction_right = (phase_correction_right - current_phase_right)/current_additional_phase;
+
+            let data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
+
+            const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+            let new_prediction = new_prediction_all[0];
+
+            if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
+            {
+                b_cross = true;
+                result = await get_maximum_pre1_location_p1(ndx,phase_correction_left,phase_correction_right);
+            }
+            //check if we cross the boundary, no need to advance further
+            else if(prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
+            {
+                b_cross = true;
+                result = await get_cross_point_p1(ndx,phase_correction_left,phase_correction_right,current_additional_phase_left,current_additional_phase_right);
+            }
+            else if(prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2])
+            {
+                b_cross = true;
+                result = await get_cross_point_p1(ndx,phase_correction_left-current_additional_phase_left,phase_correction_right-current_additional_phase_right,-current_additional_phase_left,-current_additional_phase_right);
+            }
+            /**
+             * We haven't crossed yet, continue
+             */
+            prediction = new_prediction;
+            current_phase_left = phase_correction_left;
+            current_phase_right = phase_correction_right;
+        }
+    }
+
+    console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
+
+    /**
+     * result is the best location (phase correction at left end and right end)
+     * Apply the phase correction to raw_data and raw_data_i
+     */
+    all_spectra[ndx].raw_data = get_data_from_phase_correction(ndx,result[0],result[1]);
+    all_spectra[ndx].raw_data_i = get_data_from_phase_correction_i(ndx,result[0],result[1]);
+
     /**
      * Need to update the plot as well
      */
@@ -2862,6 +2954,121 @@ async function get_p0_line(ndx)
             }
         }
         main_plot.add_data(data,ndx);
+    }
+}
+
+/**
+ * Run section search to find the maximum point near current phase correction.
+ * IMPORTANT: this is a recursive function
+ * @param {*} ndx: index of the spectrum in all_spectra to be corrected
+ * @param {*} current_phase_left: current additional phase correction at left end (on top of current data in all_spectra[ndx])
+ * @param {*} current_phase_right: current additional phase correction at right end (on top of current data in all_spectra[ndx])
+ * @param {*} initial_additional_phase_left: initial additional phase correction to be applied at left end
+ * @param {*} initial_additional_phase_right: initial additional phase correction to be applied at right end
+ * @returns: best location (additional phase correction at left and right, same value)
+ */
+async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,initial_additional_phase_left,initial_additional_phase_right)
+{
+    let mid_phase_left = current_phase_left + initial_additional_phase_left / 2.0;
+    let mid_phase_right = current_phase_right + initial_additional_phase_right / 2.0;
+    let tolerance = 0.1; //0.1 degree
+    if(initial_additional_phase_left < tolerance && initial_additional_phase_right < tolerance)
+    {
+        return [mid_phase_left,mid_phase_right];
+    }
+
+    /**
+     * Move along diagonal line until reach optimal point
+     */
+    let result = await get_best_location_diagonal(ndx,mid_phase_left,mid_phase_right);
+    mid_phase_left = result[0];
+    mid_phase_right = result[1];
+
+    let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
+
+    const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    let new_prediction = new_prediction_all[0]; 
+
+    if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
+    {
+        //switch to method solely searching for maximum of prediction[1]
+        return await get_maximum_pre1_location_p1(ndx,mid_phase_left,mid_phase_right);
+    }
+    else if (new_prediction[0] > new_prediction[2])
+    {
+        //crossed from negative to positive 
+        return await get_cross_point_p1(ndx,mid_phase_left,mid_phase_right,initial_additional_phase_left/2.0,initial_additional_phase_right/2.0);
+    }
+    else
+    {
+        //crossed from positive to negative
+        return await get_cross_point_p1(ndx,current_phase_left,current_phase_right,initial_additional_phase_left/2.0,initial_additional_phase_right/2.0);
+    }
+}
+
+async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,current_prediction1)
+{
+    const phase_step = 0.5; //0.5 degree step
+    const phase_direction = -Math.PI / 4; //-45 degree direction
+
+    /**
+     * Test two new prediction points at current_phase_left +/- phase_step, current_phase_right +/- phase_step
+     */
+    let test_phase_left_1 = current_phase_left - phase_step * Math.cos(phase_direction);
+    let test_phase_right_1 = current_phase_right - phase_step * Math.sin(phase_direction);
+    let result_1 = await get_best_location_diagonal(ndx,test_phase_left_1,test_phase_right_1);
+    let test_phase_left_2 = current_phase_left + phase_step * Math.cos(phase_direction);
+    let test_phase_right_2 = current_phase_right + phase_step * Math.sin(phase_direction);
+    let result_2 = await get_best_location_diagonal(ndx,test_phase_left_2,test_phase_right_2);
+
+    let data_1 = get_data_from_phase_correction(ndx,result_1[0],result_1[1]);
+    const prediction_all_1 = await runPrediction(data_1,131072,1 /** flag=1 means p1 prediction */);
+    let prediction_1 = prediction_all_1[0];
+    let data_2 = get_data_from_phase_correction(ndx,result_2[0],result_2[1]);
+    const prediction_all_2 = await runPrediction(data_2,131072,1 /** flag=1 means p1 prediction */);
+    let prediction_2 = prediction_all_2[0];
+
+    /**
+     * If current_prediction1 is the maximum, return current location
+     * If prediction_1[1] is the maximum, continue search in that direction
+     * If prediction_2[1] is the maximum, continue search in that direction
+     */
+    if(current_prediction1 > prediction_1[1] && current_prediction1 > prediction_2[1])
+    {
+        //current location is the best
+        return [current_phase_left,current_phase_right];
+    }
+    else if(prediction_1[1] > prediction_2[1])
+    {
+        //search in direction of prediction_1
+        return await get_maximum_pre1_location_2_p1(ndx,result_1[0],result_1[1],prediction_1[1],current_prediction1,-1);
+    }
+    else
+    {
+        //search in direction of prediction_2
+        return await get_maximum_pre1_location_2_p1(ndx,result_2[0],result_2[1],prediction_2[1],current_prediction1,1);
+    }
+}
+
+async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
+{
+    const phase_direction = -Math.PI / 4; //-45 degree direction
+    const phase_step = 1.0;
+    let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
+
+    let data = get_data_from_phase_correction(ndx,result[0],result[1]);
+    const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    let new_prediction = new_prediction_all[0];
+
+    if(current_prediction1 > new_prediction[1])
+    {
+        //current location is the best
+        return [current_phase_left,current_phase_right];
+    }
+    else
+    {
+        //continue search in the same direction
+        return await get_maximum_pre1_location_2_p1(ndx,result[0],result[1],new_prediction[1],current_prediction1,direction);
     }
 }
 
@@ -2991,15 +3198,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
     /**
      * Make new data at mid phase correction
      */
-    let data = new Float32Array(131072);
-    let phase_array = new Float32Array(131072);
-
-    for (let i = 0; i < 131072; i++) {
-        phase_array[i] = (mid_phase_left + (mid_phase_right - mid_phase_left) * i / 131072) * Math.PI / 180;
-    }   
-    for(let i=0;i<131072;i++){
-        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
-    }
+    let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
 
     const new_prediction_all = await runPrediction(data,131072);
     const new_prediction = new_prediction_all[0];
@@ -3103,24 +3302,17 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
 /**
  * Run prediction using TensorFlow.js
  * @param {Float32Array} data This is many 1D spectrum data
- * @param {int} data_length Length of each 1D spectrum, should be 65536
+ * @param {int} data_length Length of each 1D spectrum, e.g., 131072, 65536, or 32768
+ * @param {int} flag 0 for p0 model, 1 for p1 model
+ * @returns {Array} reshapedProbabilities_p0 An array of probabilities for each spectrum
  */
-async function runPrediction(data, data_length) {
+async function runPrediction(data, data_length, flag=0) {
     // 1. Load the model
-    // console.log('Loading model...');
-    // Use tf.loadGraphModel for SavedModel format, or tf.loadLayersModel for Keras
-    const model_p0 = await tf.loadGraphModel('./saved_model_p0/model.json');
-    // const model_p1 = await tf.loadGraphModel('./saved_model_p1/model.json');
+    const model = await (flag === 0 ? tf.loadGraphModel('./saved_model_p0/model.json') : tf.loadGraphModel('./saved_model_p1/model.json'));
     // console.log('Model loaded successfully!');
 
-    // 2. Preprocess Input Data (Example)
-    // Let's assume your model expects a tensor of shape [1, 224, 224, 3]
-    // representing a single normalized image.
-    // NOTE: This is a placeholder! You must replace this with your actual input data.
-    // console.log('Creating input tensor...');
-    // --- 1. Generate the Main Input ---
-    // This creates a placeholder tensor with random data.
-    // In your real application, you would replace this with your actual 1D array data.
+    // 2. Preprocess Input Data (Example). n_data is batch size in our prediction
+    // Because of limited resources in browser, we only process one or two spectrum at a time.
     const n_data = data.length / data_length; //number of spectra
 
     /**
@@ -3154,40 +3346,34 @@ async function runPrediction(data, data_length) {
         };
 
     // 3. Run the prediction with the input object
-    // console.log('Running prediction with named inputs...');
-    const prediction_p0 = model_p0.predict(inputs);
-    // const prediction_p1 = model_p1.predict(inputs);
-
+    const prediction = model.predict(inputs);
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
     // console.log('Processing output...');
-    // Use .dataSync() or .data() (async) to get the raw values from the tensor
-    const outputData_p0 = prediction_p0.dataSync();
-    // const outputData_p1 = prediction_p1.dataSync();
+    const outputData = prediction.dataSync();
 
-    const probabilities_p0 = Array.from(outputData_p0);
-    // const probabilities_p1 = Array.from(outputData_p1);
+    const probabilities = Array.from(outputData);
 
     // console.log(`Prediction finished.`);
-    // console.log("outputData_p0: ", outputData_p0);
-    // console.log('Output Probabilities P0:', probabilities_p0);
-    // console.log('Output Probabilities P1:', probabilities_p1);
+    // console.log("outputData: ", outputData);
+    // console.log('Output Probabilities:', probabilities);
 
     /**
      * Convert probabilities_p0 from 1*27 to 9*3
      */
-    const reshapedProbabilities_p0 = [];
+    const reshapedProbabilities = [];
     for (let i = 0; i < n_data; i++) {
-        reshapedProbabilities_p0.push(probabilities_p0.slice(i * 3, (i + 1) * 3));
+        reshapedProbabilities.push(probabilities.slice(i * 3, (i + 1) * 3));
     }
-    // console.log('Reshaped Probabilities P0 (n_data x 3):', reshapedProbabilities_p0);
+    // console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
     maskTensor.dispose();
-    prediction_p0.dispose();
+    prediction.dispose();
     // prediction_p1.dispose();
 
-    return reshapedProbabilities_p0;
+    return reshapedProbabilities;
 }
+
