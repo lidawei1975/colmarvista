@@ -2812,7 +2812,57 @@ function permanently_apply_phase_correction()
 async function get_p0_line(ndx)
 {
     let result = await get_best_location_diagonal(ndx,0,0);
-    console.log("Best location along diagonal: ",result);
+    console.log("Best location along diagonal: ",result); //unit is degrees, not radians
+
+    let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
+    let new_raw_data_i = new Float32Array(all_spectra[ndx].raw_data_i.length);
+    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
+
+    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_correction[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
+        }
+
+    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
+        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m]*Math.PI/180) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m]*Math.PI/180);
+        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]*Math.PI/180) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]*Math.PI/180);
+    }
+
+    all_spectra[ndx].raw_data = new_raw_data;
+    all_spectra[ndx].raw_data_i = new_raw_data_i;
+
+    /**
+     * need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
+     * result[0] and result[1] are in degrees, need to convert to radians
+     */
+    if ( all_spectra[ndx].fid_process_parameters !== null)
+    {
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
+    }
+    
+    /**
+     * Need to update the plot as well
+     */
+    if(main_plot !== null)
+    {
+        /**
+         * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
+         */
+        let data = [];
+        if(all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length)
+        {
+            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i + all_spectra[ndx].x_ppm_ref, all_spectra[ndx].raw_data[i],all_spectra[ndx].raw_data_i[i]]);
+            }
+        }    
+        else
+        {
+            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i + all_spectra[ndx].x_ppm_ref, all_spectra[ndx].raw_data[i]]);
+            }
+        }
+        main_plot.add_data(data,ndx);
+    }
 }
 
 
