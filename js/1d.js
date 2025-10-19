@@ -2852,8 +2852,6 @@ async function run_ann_phase_correction(ndx)
     let current_phase_left = result[0];
     let current_phase_right = result[1];
 
-    let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
-
     let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
 
     /**
@@ -2903,21 +2901,26 @@ async function run_ann_phase_correction(ndx)
             const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
             let new_prediction = new_prediction_all[0];
 
+            console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
+            console.log("Current P1 prediction: " + new_prediction);
+
             if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
             {
                 b_cross = true;
-                result = await get_maximum_pre1_location_p1(ndx,phase_correction_left,phase_correction_right);
+                result = await get_maximum_pre1_location_p1(ndx,phase_correction_left,phase_correction_right,new_prediction[1]);
             }
             //check if we cross the boundary, no need to advance further
             else if(prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
             {
                 b_cross = true;
-                result = await get_cross_point_p1(ndx,phase_correction_left,phase_correction_right,current_additional_phase_left,current_additional_phase_right);
+                result = await get_cross_point_p1(ndx,phase_correction_left-current_additional_phase_left,phase_correction_right-current_additional_phase_right,current_additional_phase_left,current_additional_phase_right);
+
             }
             else if(prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2])
             {
                 b_cross = true;
-                result = await get_cross_point_p1(ndx,phase_correction_left-current_additional_phase_left,phase_correction_right-current_additional_phase_right,-current_additional_phase_left,-current_additional_phase_right);
+                result = await get_cross_point_p1(ndx,phase_correction_left,phase_correction_right,-current_additional_phase_left,-current_additional_phase_right);
+
             }
             /**
              * We haven't crossed yet, continue
@@ -3001,10 +3004,13 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
     const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
     let new_prediction = new_prediction_all[0]; 
 
+    console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
+    console.log("in get_cross_point_p1: P1 prediction = " + new_prediction);
+
     if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
     {
         //switch to method solely searching for maximum of prediction[1]
-        return await get_maximum_pre1_location_p1(ndx,mid_phase_left,mid_phase_right);
+        return await get_maximum_pre1_location_p1(ndx,mid_phase_left,mid_phase_right,new_prediction[1]);
     }
     else if (new_prediction[0] > new_prediction[2])
     {
@@ -3020,7 +3026,7 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
 async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.5; //0.5 degree step
+    const phase_step = 0.7071; //0.7071 degree step
     const phase_direction = -Math.PI / 4; //-45 degree direction
 
     /**
@@ -3065,7 +3071,7 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
 async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
     const phase_direction = -Math.PI / 4; //-45 degree direction
-    const phase_step = 1.0;
+    const phase_step = 0.7071;
     let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
 
     let data = get_data_from_phase_correction(ndx,result[0],result[1]);
@@ -3136,7 +3142,6 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             // Rerun prediction
             const new_prediction_all = await runPrediction(new_raw_data, 131072);
             const new_prediction = new_prediction_all[0];
-            console.log("Current phase left: ", phase_correction_left, " right: ", phase_correction_right, " prediction: ", new_prediction);
 
             if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
             {
@@ -3165,6 +3170,9 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             current_phase_right = phase_correction_right;
         }
     }
+
+    console.log("P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1]);
+
     return result;
 }
 
@@ -3197,8 +3205,6 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
     const new_prediction_all = await runPrediction(data,131072);
     const new_prediction = new_prediction_all[0];
 
-    console.log("Cross point search at left: ", mid_phase_left, " right: ", mid_phase_right, " prediction: ", new_prediction);
-
     if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
     {
         // switch to method solely searching for maximum of prediction[1]
@@ -3215,7 +3221,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
 
 async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.5; //0.5 degree step
+    const phase_step = 0.3; //0.3 degree step
     /**
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
      */
@@ -3236,7 +3242,7 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
     /**
      * Run prediction on the two new data points
      */
-    const new_predictions = await runPrediction(data,131072);   
+    const new_predictions = await runPrediction(data,131072); 
     /**
      * if current prediction[1] is the maximum, we are done
      */
@@ -3264,8 +3270,7 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
  */
 async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
-    let phase_array = new Float32Array(131072);
-    let add_phase = direction * 1.0; //move 1 degree in the given direction 0.017 radians = 1 degree
+    let add_phase = direction * 0.3; //move 0.3 degree in the given direction
 
     let data = get_data_from_phase_correction(ndx,current_phase_left+add_phase,current_phase_right+add_phase);
 
@@ -3277,6 +3282,9 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
         /**
          * Begin to decrease, we are done.
          */
+        // console.log("Current phase correction: left end = " + current_phase_left + ", right end = " + current_phase_right);
+        // console.log("previous P0 prediction: " + current_prediction1);
+        // console.log("Current P0 prediction: " + new_prediction[1]);
         return [current_phase_left, current_phase_right];
     }
     else {
