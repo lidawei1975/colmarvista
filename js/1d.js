@@ -2804,35 +2804,40 @@ function permanently_apply_phase_correction()
 
 function get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right)
 {
-    let data = new Float32Array(all_spectra[ndx].raw_data.length);
-    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
-
-    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length;
-            phase_correction[i] = phase_correction[i] * Math.PI / 180;
+    /**
+     * If input size is > 131072, we need to down sample to 131072
+     */
+    let resampled_data_r;
+    let resampled_data_i;
+    if (all_spectra[ndx].raw_data.length > 131072) {
+        resampled_data_r = new Float32Array(131072);
+        resampled_data_i = new Float32Array(131072);
+        for (let i = 0; i < 131072; i++) {
+            resampled_data_r[i] = all_spectra[ndx].raw_data[i * Math.floor(all_spectra[ndx].raw_data.length / 131072)];
+            resampled_data_i[i] = all_spectra[ndx].raw_data_i[i * Math.floor(all_spectra[ndx].raw_data.length / 131072)];
         }
+    }
+    else
+    {
+        resampled_data_r = all_spectra[ndx].raw_data;
+        resampled_data_i = all_spectra[ndx].raw_data_i;
+    }
 
-    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
-        data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m]);
+
+    let data = new Float32Array(resampled_data_r.length);
+    let phase_correction = new Float32Array(resampled_data_r.length);
+
+    for (var i = 0; i < resampled_data_r.length; i++) {
+            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / resampled_data_r.length;
+            phase_correction[i] = phase_correction[i] * Math.PI / 180;
+    }
+
+    for(let m=0;m<resampled_data_r.length;m++){
+        data[m] = resampled_data_r[m] * Math.cos(phase_correction[m]) + resampled_data_i[m] * Math.sin(phase_correction[m]);
     }
     return data;
 }
 
-function get_data_from_phase_correction_i(ndx,phase_correction_left,phase_correction_right)
-{
-    let data = new Float32Array(all_spectra[ndx].raw_data.length);
-    let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
-
-    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length;
-            phase_correction[i] = phase_correction[i] * Math.PI / 180;
-        }
-
-    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
-        data[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]);
-    }
-    return data;
-}
 
 /**
  * Walk on 2D surface (phase correction at left end and right end) to get a line
@@ -2840,7 +2845,7 @@ function get_data_from_phase_correction_i(ndx,phase_correction_left,phase_correc
  * if no such data point, get the cross point from negative to positive phase error.
  * @param {*} ndx 
  */
-async function get_p0_line(ndx)
+async function run_ann_phase_correction(ndx)
 {
     let result = await get_best_location_diagonal(ndx,0,0);
 
@@ -2929,8 +2934,15 @@ async function get_p0_line(ndx)
      * result is the best location (phase correction at left end and right end)
      * Apply the phase correction to raw_data and raw_data_i
      */
-    all_spectra[ndx].raw_data = get_data_from_phase_correction(ndx,result[0],result[1]);
-    all_spectra[ndx].raw_data_i = get_data_from_phase_correction_i(ndx,result[0],result[1]);
+    let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
+            phase_array[i] = phase_array[i] * Math.PI / 180;
+    }
+    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
+        all_spectra[ndx].raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
+        all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
+    }
 
     /**
      * Need to update the plot as well
@@ -3092,18 +3104,7 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
      * index 1: score of being "good (no phase error)"
      * index 2: score of being "positive phase error"
      */
-    /**
-     * make a copy of raw_data with current phase correction applied
-     */
-    let data = new Float32Array(all_spectra[ndx].raw_data.length);
-    let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
-
-    for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / all_spectra[ndx].raw_data.length) * Math.PI / 180;
-    }
-    for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
-    }
+    let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
     const prediction_all = await runPrediction(data,131072);
     let prediction = prediction_all[0];
 
@@ -3130,14 +3131,7 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             let phase_correction_left = current_phase_left + current_additional_phase;
             let phase_correction_right = current_phase_right + current_additional_phase;
 
-            let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
-            for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-                phase_array[i] = (phase_correction_left + (phase_correction_right - phase_correction_left) * i / all_spectra[ndx].raw_data.length) * Math.PI / 180;
-            }
-            let new_raw_data = new Float32Array(all_spectra[ndx].raw_data.length);
-            for (let i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-                new_raw_data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]);
-            }
+            let new_raw_data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
 
             // Rerun prediction
             const new_prediction_all = await runPrediction(new_raw_data, 131072);
@@ -3221,23 +3215,24 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
 
 async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.0175/2.0; //0.5 degree in radians
+    const phase_step = 0.5; //0.5 degree step
     /**
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
      */
-    let data = new Float32Array(131072*2);
-    let phase_array = new Float32Array(131072);
 
-    for (let i = 0; i < 131072; i++) {
-        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / 131072) * Math.PI / 180;
-    }
+    let data = new Float32Array(131072 * 2);
 
-    for(let i=0;i<131072;i++){
-        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]-phase_step) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]-phase_step);
-    }
-    for(let i=0;i<131072;i++){
-        data[131072 + i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]+phase_step) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]+phase_step);
-    }
+    // 2. Call the first function and "set" its result at the beginning (offset 0)
+    data.set(
+    get_data_from_phase_correction(ndx, current_phase_left - phase_step, current_phase_right + phase_step),
+    0
+    );
+
+    // 3. Call the second function and "set" its result at the offset
+    data.set(
+    get_data_from_phase_correction(ndx, current_phase_left + phase_step, current_phase_right - phase_step),
+    131072
+    );
     /**
      * Run prediction on the two new data points
      */
@@ -3250,11 +3245,11 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
     }
     else if(new_predictions[0][1] > current_prediction1 && new_predictions[0][1] > new_predictions[1][1]) {
         // the first new prediction is the maximum, move to that point and continue searching
-        return await get_maximum_pre1_location_2(ndx,current_phase_left-phase_step*180/Math.PI,current_phase_right-phase_step*180/Math.PI,new_predictions[0][1],current_prediction1,-1);
+        return await get_maximum_pre1_location_2(ndx,current_phase_left-phase_step,current_phase_right-phase_step,new_predictions[0][1],current_prediction1,-1);
     }
     else {
         // the second new prediction is the maximum, move to that point and continue searching
-        return await get_maximum_pre1_location_2(ndx,current_phase_left+phase_step*180/Math.PI,current_phase_right+phase_step*180/Math.PI,new_predictions[1][1],current_prediction1,1);
+        return await get_maximum_pre1_location_2(ndx,current_phase_left+phase_step,current_phase_right+phase_step,new_predictions[1][1],current_prediction1,1);
     }
 }
 
@@ -3269,17 +3264,11 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
  */
 async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
-    let data = new Float32Array(131072);
     let phase_array = new Float32Array(131072);
-    let add_phase = direction * 0.0175; //move 1 degree in the given direction 0.017 radians = 1 degree
+    let add_phase = direction * 1.0; //move 1 degree in the given direction 0.017 radians = 1 degree
 
-    for (let i = 0; i < 131072; i++) {
-        phase_array[i] = (current_phase_left + (current_phase_right - current_phase_left) * i / 131072) * Math.PI / 180;
-    }
+    let data = get_data_from_phase_correction(ndx,current_phase_left+add_phase,current_phase_right+add_phase);
 
-    for(let i=0;i<131072;i++){
-        data[i] = all_spectra[ndx].raw_data[i] * Math.cos(phase_array[i]+add_phase) + all_spectra[ndx].raw_data_i[i] * Math.sin(phase_array[i]+add_phase);
-    }
 
     const new_prediction_all = await runPrediction(data,131072);   
     const new_prediction = new_prediction_all[0];
