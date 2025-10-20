@@ -282,7 +282,13 @@ class myplot_1d {
         this.vis.on('contextmenu', (e) => {
             e.preventDefault();
 
-            this.current_actively_corrected_spectrum_index = this.current_spectrum_index
+            if (this.current_actively_corrected_spectrum_index != this.current_spectrum_index) {
+                this.current_actively_corrected_spectrum_index = this.current_spectrum_index;
+                /**
+                 * Make a deep copy of the data of the current_actively_corrected_spectrum_index
+                 */
+                this.current_actively_corrected_spectrum_data = JSON.parse(JSON.stringify(this.allLines[`line${this.current_actively_corrected_spectrum_index}`]));
+            }
 
             if (this.current_spectrum_index != -1 && this.spectrum_dimension[this.current_spectrum_index] === 3) {
                 let bound = document.getElementById('main_plot').getBoundingClientRect();

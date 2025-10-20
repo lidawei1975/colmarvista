@@ -72,10 +72,18 @@
                             <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
                                 value="0" step="any">
                             <label for="phase_correction_direct_p1">P1: </label>
-                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
-                                value="0" step="any">
-                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
-                            <label for="auto_direct">Automated PC</label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1" value="0" step="any">
+                            <fieldset>
+                                <legend>Phase correction:</legend>
+                                <input type="radio" name="pc_method" id="auto_direct" value="1">
+                                <label for="auto_direct">Peak centric CNN</label>
+                                <input type="radio" name="pc_method" id="auto_direct_2" value="2" checked>
+                                <label for="auto_direct_2">Full spectrum ANN</label>
+                                <input type="radio" name="pc_method" id="auto_direct_3" value="3">
+                                <label for="auto_direct_3">Entropy based</label>
+                                <input type="radio" name="pc_method" id="manual" value="0">
+                                <label for="manual">Manual</label>
+                            </fieldset>
                             <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes" hidden>
                             <!-- <label for="delete_imaginary">Delete imaginary data after FT</label> -->
                         </span>

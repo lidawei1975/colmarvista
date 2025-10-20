@@ -351,6 +351,8 @@ $(document).ready(function () {
             fid_process_parameters.phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
             fid_process_parameters.phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
             fid_process_parameters.auto_direct = document.getElementById("auto_direct").checked;
+            fid_process_parameters.auto_direct_2 = document.getElementById("auto_direct_2").checked;
+            fid_process_parameters.auto_direct_3 = document.getElementById("auto_direct_3").checked;
             fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
             fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
 
@@ -381,6 +383,8 @@ $(document).ready(function () {
                 let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
                 let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
                 let auto_direct = document.getElementById("auto_direct").checked;
+                let auto_direct_2 = document.getElementById("auto_direct_2").checked;
+                let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
@@ -400,6 +404,8 @@ $(document).ready(function () {
                     phase_correction_direct_p0: phase_correction_direct_p0,
                     phase_correction_direct_p1: phase_correction_direct_p1,
                     auto_direct: auto_direct,
+                    auto_direct_2: auto_direct_2,
+                    auto_direct_3: auto_direct_3,
                     delete_imaginary: delete_imaginary,
                     pseudo_2d_process: pseudo_2d_process,
                     reprocess: false, // this is not a re-process, it is a new fid file processing
@@ -480,7 +486,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
         document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
 
-        draw_spectrum([result_spectrum],true/**from fid */,e.data.reprocess/** re-process of fid or ft2 */);
+        draw_spectrum(
+            [result_spectrum],
+            true/**from fid */,
+            e.data.reprocess,/** re-process of fid or ft2 */
+            e.data.auto_direct_2, /** whether auto direct_2 was used. If so, need to run tfjs */
+        );
         /**
          * Re-enable the button to process fid file
          */
@@ -1004,14 +1015,14 @@ function add_to_list(index) {
             /**
              * If this new spectrum_1d has no imaginary part, disable auto phase correction button
              */
-            if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_i.length > 0 )
-            {
-                document.getElementById("automatic_pc").disabled = false;
-            }
-            else
-            {
-                document.getElementById("automatic_pc").disabled = true;
-            }
+            // if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_i.length > 0 )
+            // {
+            //     document.getElementById("automatic_pc").disabled = false;
+            // }
+            // else
+            // {
+            //     document.getElementById("automatic_pc").disabled = true;
+            // }
         }
         /**
          * Add filename as a text node
@@ -1488,6 +1499,8 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
+        document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
+        document.getElementById("auto_direct_3").disabled = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
     }
 
@@ -1499,7 +1512,9 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";
         document.getElementById("phase_correction_direct_p1").value = "0.0";
-        document.getElementById("auto_direct").checked = true;
+        document.getElementById("auto_direct").checked = false;
+        document.getElementById("auto_direct_2").checked = true;
+        document.getElementById("auto_direct_3").checked = false;
         document.getElementById("delete_imaginary").checked = false;
     }
 
@@ -1583,7 +1598,7 @@ function reprocess_spectrum(button, spectrum_index) {
  * @param {*} b_reprocess: boolean, whether this is a new spectrum_1d or a reprocessed spectrum
  * @returns 
  */
-function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
+function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correction=false)
 {
 
     let spectrum_index;
@@ -1636,6 +1651,12 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
             }
 
             all_spectra.push(result_spectra[i]);
+            if(b_ann_phase_correction === true){
+                /**
+                 * Apply tfjs phase correction to the spectrum
+                 */
+                run_ann_phase_correction(all_spectra.length -1);
+            }
         }
         spectrum_index = first_spectrum_index; //set the spectrum index to the first spectrum index
     }
@@ -1649,6 +1670,12 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess)
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra[spectrum_index] = result_spectra[0];
+        if(b_ann_phase_correction === true){
+                /**
+                 * Apply tfjs phase correction to the spectrum
+                 */
+                run_ann_phase_correction(spectrum_index);
+        }
     }
     
 
@@ -2748,7 +2775,6 @@ function get_center(peaks) {
  */
 function permanently_apply_phase_correction()
 {
-    // let ndx = main_plot.current_actively_corrected_spectrum_index;
     return_data = main_plot.permanently_apply_phase_correction();
     let ndx = return_data.index;
 
@@ -2807,20 +2833,30 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
     /**
      * If input size is > 131072, we need to down sample to 131072
      */
+    let max_number_of_points = 65536*2;
     let resampled_data_r;
     let resampled_data_i;
-    if (all_spectra[ndx].raw_data.length > 131072) {
-        resampled_data_r = new Float32Array(131072);
-        resampled_data_i = new Float32Array(131072);
-        for (let i = 0; i < 131072; i++) {
-            resampled_data_r[i] = all_spectra[ndx].raw_data[i * Math.floor(all_spectra[ndx].raw_data.length / 131072)];
-            resampled_data_i[i] = all_spectra[ndx].raw_data_i[i * Math.floor(all_spectra[ndx].raw_data.length / 131072)];
+    if (all_spectra[ndx].raw_data.length > max_number_of_points) {
+        resampled_data_r = new Float32Array(max_number_of_points);
+        resampled_data_i = new Float32Array(max_number_of_points);
+        for (let i = 0; i < max_number_of_points; i++) {
+            resampled_data_r[i] = all_spectra[ndx].raw_data[i * Math.floor(all_spectra[ndx].raw_data.length / max_number_of_points)];
+            resampled_data_i[i] = all_spectra[ndx].raw_data_i[i * Math.floor(all_spectra[ndx].raw_data.length / max_number_of_points)];
         }
     }
     else
     {
         resampled_data_r = all_spectra[ndx].raw_data;
         resampled_data_i = all_spectra[ndx].raw_data_i;
+    }
+
+    /**
+     * Our model was trained using data length of at least 32768,65536 and 131072 points
+     * If data length is less than 32768, alert user but still proceed
+     */
+    if(all_spectra[ndx].raw_data.length < 32768)
+    {
+        alert("Data length is too short for phase correction using ANN model. Minimum length is 32768 points.");
     }
 
 
@@ -3147,7 +3183,7 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             {
                 // switch to method solely searching for maximum of prediction[1]
                 b_cross = true;
-                result = await get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,new_prediction[1]);
+                result = await get_maximum_pre1_location(ndx,phase_correction_left,phase_correction_right,new_prediction[1]);
             }
             // Check if we have crossed over
             else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
@@ -3221,7 +3257,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
 
 async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.3; //0.3 degree step
+    const phase_step = 0.2; //0.2 degree step
     /**
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
      */

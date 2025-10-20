@@ -433,11 +433,21 @@ self.onmessage = async function (event) {
         /**
          * Automatic phase correction part.
          */
-        if(event.data.auto_direct) {
-            obj.set_up_parameters(5, 10, 3,true,false);
+        if(event.data.auto_direct_2 || event.data.auto_direct_3) {
+            /**
+             * Only run Entropy minimization based automatic phase correction part.
+             */
+            obj.set_up_parameters(0/**n_iter, 0 means not run */, 10/** n_peak used */, 3/**n_dis, 1=500,2=1000 */,true/**b_end */,false/**b_smooth_baseline */); 
             obj.auto_phase_correction();
             const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
             
+            p0 = v.get(0);
+            p1 = v.get(1);
+        }
+        else if(event.data.auto_direct) {
+            obj.set_up_parameters(5/**n_iter, 0 means not run */, 10/** n_peak used */, 3/**n_dis, 1=500,2=1000 */,true/**b_end */,false/**b_smooth_baseline */); 
+            obj.auto_phase_correction();
+            const v = obj.get_phase_correction(); // Get the phase correction parameters as a vector of float32
             p0 = v.get(0);
             p1 = v.get(1);
         }
@@ -468,6 +478,8 @@ self.onmessage = async function (event) {
              * Passthrough the webassembly job type, spectrum index, and peak assignment
              */
             webassembly_job: event.data.webassembly_job,
+            auto_direct: event.data.auto_direct,
+            auto_direct_2: event.data.auto_direct_2, // need to know which auto pc method was used, if _2: need to run tfjs code in main thread.
             fid_json: fid_json,
             spectrum_header : header_data,
             real_spectrum_data: real_spectrum_data,
