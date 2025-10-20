@@ -2857,7 +2857,7 @@ async function run_ann_phase_correction(ndx)
     /**
      * Now run p1 prediction on the new data to make sure we are at the maximum
      */
-    const prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    const prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
     let prediction = prediction_all[0];
 
     /**
@@ -2898,7 +2898,7 @@ async function run_ann_phase_correction(ndx)
 
             let data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
 
-            const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+            const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
             let new_prediction = new_prediction_all[0];
 
             console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
@@ -3001,7 +3001,7 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
     let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
 
-    const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
     let new_prediction = new_prediction_all[0]; 
 
     console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
@@ -3040,10 +3040,10 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
     let result_2 = await get_best_location_diagonal(ndx,test_phase_left_2,test_phase_right_2);
 
     let data_1 = get_data_from_phase_correction(ndx,result_1[0],result_1[1]);
-    const prediction_all_1 = await runPrediction(data_1,131072,1 /** flag=1 means p1 prediction */);
+    const prediction_all_1 = await runPrediction(data_1,data_1.length,1 /** flag=1 means p1 prediction */);
     let prediction_1 = prediction_all_1[0];
     let data_2 = get_data_from_phase_correction(ndx,result_2[0],result_2[1]);
-    const prediction_all_2 = await runPrediction(data_2,131072,1 /** flag=1 means p1 prediction */);
+    const prediction_all_2 = await runPrediction(data_2,data_2.length,1 /** flag=1 means p1 prediction */);
     let prediction_2 = prediction_all_2[0];
 
     /**
@@ -3075,7 +3075,7 @@ async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_pha
     let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
 
     let data = get_data_from_phase_correction(ndx,result[0],result[1]);
-    const new_prediction_all = await runPrediction(data,131072,1 /** flag=1 means p1 prediction */);
+    const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
     let new_prediction = new_prediction_all[0];
 
     if(current_prediction1 > new_prediction[1])
@@ -3111,7 +3111,7 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
      * index 2: score of being "positive phase error"
      */
     let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
-    const prediction_all = await runPrediction(data,131072);
+    const prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);
     let prediction = prediction_all[0];
 
     /**
@@ -3140,7 +3140,7 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             let new_raw_data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
 
             // Rerun prediction
-            const new_prediction_all = await runPrediction(new_raw_data, 131072);
+            const new_prediction_all = await runPrediction(new_raw_data, new_raw_data.length, 0 /** flag=0 means p0 prediction */);
             const new_prediction = new_prediction_all[0];
 
             if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
@@ -3202,7 +3202,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
      */
     let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
 
-    const new_prediction_all = await runPrediction(data,131072);
+    const new_prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);
     const new_prediction = new_prediction_all[0];
 
     if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
@@ -3226,23 +3226,16 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
      */
 
-    let data = new Float32Array(131072 * 2);
+    let data1 = get_data_from_phase_correction(ndx, current_phase_left - phase_step, current_phase_right + phase_step);
+    let data2 = get_data_from_phase_correction(ndx, current_phase_left + phase_step, current_phase_right - phase_step);
+    let data = new Float32Array(data1.length * 2);
+    data.set(data1,0);
+    data.set(data2,data1.length);
 
-    // 2. Call the first function and "set" its result at the beginning (offset 0)
-    data.set(
-    get_data_from_phase_correction(ndx, current_phase_left - phase_step, current_phase_right + phase_step),
-    0
-    );
-
-    // 3. Call the second function and "set" its result at the offset
-    data.set(
-    get_data_from_phase_correction(ndx, current_phase_left + phase_step, current_phase_right - phase_step),
-    131072
-    );
     /**
      * Run prediction on the two new data points
      */
-    const new_predictions = await runPrediction(data,131072); 
+    const new_predictions = await runPrediction(data,data.length/2,0 /** flag=0 means p0 prediction */); 
     /**
      * if current prediction[1] is the maximum, we are done
      */
@@ -3275,7 +3268,7 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
     let data = get_data_from_phase_correction(ndx,current_phase_left+add_phase,current_phase_right+add_phase);
 
 
-    const new_prediction_all = await runPrediction(data,131072);   
+    const new_prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);   
     const new_prediction = new_prediction_all[0];
 
     if(current_prediction1 > new_prediction[1]) {
