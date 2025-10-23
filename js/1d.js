@@ -3257,7 +3257,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
 
 async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.2; //0.2 degree step
+    const phase_step = 0.1; //0.1 degree step
     /**
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
      */
@@ -3299,7 +3299,7 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
  */
 async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
-    let add_phase = direction * 0.3; //move 0.3 degree in the given direction
+    let add_phase = direction * 0.1; //move 0.1 degree in the given direction
 
     let data = get_data_from_phase_correction(ndx,current_phase_left+add_phase,current_phase_right+add_phase);
 
