@@ -282,6 +282,11 @@ class myplot_1d {
         this.vis.on('contextmenu', (e) => {
             e.preventDefault();
 
+            if(b_allow_manual_phase_correction == false)
+            {
+                return false; // To prevent the context menu from appearing
+            }
+
             if (this.current_actively_corrected_spectrum_index != this.current_spectrum_index) {
                 this.current_actively_corrected_spectrum_index = this.current_spectrum_index;
                 /**
@@ -412,7 +417,10 @@ class myplot_1d {
             let ppm = self.xscale.invert(e.clientX - bound.left);
             let amp = self.yscale.invert(e.clientY - bound.top);
 
-            if (this.spectrum_dimension[this.current_spectrum_index] === 3  && (e.shiftKey || e.ctrlKey)) {
+            /**
+             * Manual phase correction using mouse wheel when shift key or control key is pressed
+             */
+            if (b_allow_manual_phase_correction && this.spectrum_dimension[this.current_spectrum_index] === 3  && (e.shiftKey || e.ctrlKey)) {
 
                 /**
                  * Set current actively corrected spectrum index.

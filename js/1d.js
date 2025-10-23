@@ -33,6 +33,7 @@ var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently show
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo2d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
+var b_allow_manual_phase_correction = true; //flag to allow manual phase correction using mouse wheel and shift(control) key on the main plot
 
 /**
  * For FID re-processing. Saved file data
@@ -141,6 +142,8 @@ const read_file_text = (file) => {
 
 
 $(document).ready(function () {
+
+    b_allow_manual_phase_correction = true; //This is default. 
 
     fetch('navbar.html')
         .then(response => response.text())
@@ -1500,7 +1503,7 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
-        document.getElementById("auto_direct_3").disabled = fid_process_parameters.auto_direct_3;
+        document.getElementById("auto_direct_3").checked = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
     }
 
@@ -2817,13 +2820,21 @@ function permanently_apply_phase_correction()
     document.getElementById("anchor").textContent  = "not set";
 
     /**
-     * If we are in reprocessing mode (spectrum_origin >= 10000),
-     * Change input field phase_correction_direct_p0 and p1 to the new values
+     * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if(current_reprocess_spectrum_index === ndx && all_spectra[ndx].fid_process_parameters !== null)
+    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
     {
-        document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
-        document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0;
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0);
+        /**
+         * If we are in reprocessing mode,
+         * Update input field phase_correction_direct_p0 and p1 to the new values
+         */
+        if(current_reprocess_spectrum_index === ndx)
+        {
+            document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+            document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+        }
     }
 }
 
@@ -2864,6 +2875,23 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
     return data;
 }
 
+/**
+ * ONCLICK event for auto phase correction button
+ * @returns: none
+ */
+async function run_auto_pc()
+{
+    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
+    {
+        alert("No spectrum selected for phase correction.");
+        return;
+    }
+    /**
+     * Run ANN phase correction
+     */
+    run_ann_phase_correction(main_plot.current_spectrum_index);
+}
+
 
 /**
  * Walk on 2D surface (phase correction at left end and right end) to get a line
@@ -2879,8 +2907,14 @@ async function run_ann_phase_correction(ndx)
      */
     if(all_spectra[ndx].raw_data.length < 32768)
     {
-        alert("Data length is too short for phase correction using ANN model. Minimum length is 32768 points.");
+        alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
     }
+    /**
+     * Disable manual phase correction and myself button during auto phase correction
+     */
+    document.getElementById("button_auto_pc").disabled = true;
+    document.getElementById("button_apply_ps").disabled = true;
+    b_allow_manual_phase_correction = false;
 
 
     let result = await get_best_location_diagonal(ndx,0,0);
@@ -2984,6 +3018,24 @@ async function run_ann_phase_correction(ndx)
     }
 
     /**
+     * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
+     */
+    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
+    {
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1]-result[0]);
+        /**
+         * If we are in reprocessing mode,
+         * Update input field phase_correction_direct_p0 and p1 to the new valu
+         */
+        if(current_reprocess_spectrum_index === ndx)
+        {
+            document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+            document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+        }
+    }
+
+    /**
      * Need to update the plot as well
      */
     if(main_plot !== null)
@@ -3006,6 +3058,12 @@ async function run_ann_phase_correction(ndx)
         }
         main_plot.add_data(data,ndx);
     }
+    /**
+     * Enable manual phase correction and myself button after auto phase correction
+     */
+    document.getElementById("button_auto_pc").disabled = false;
+    document.getElementById("button_apply_ps").disabled = false;
+    b_allow_manual_phase_correction = true;
 }
 
 /**
