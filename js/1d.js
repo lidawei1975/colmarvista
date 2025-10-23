@@ -2850,16 +2850,6 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
         resampled_data_i = all_spectra[ndx].raw_data_i;
     }
 
-    /**
-     * Our model was trained using data length of at least 32768,65536 and 131072 points
-     * If data length is less than 32768, alert user but still proceed
-     */
-    if(all_spectra[ndx].raw_data.length < 32768)
-    {
-        alert("Data length is too short for phase correction using ANN model. Minimum length is 32768 points.");
-    }
-
-
     let data = new Float32Array(resampled_data_r.length);
     let phase_correction = new Float32Array(resampled_data_r.length);
 
@@ -2883,6 +2873,16 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
  */
 async function run_ann_phase_correction(ndx)
 {
+    /**
+     * Our model was trained using data length of at least 32768,65536 and 131072 points
+     * If data length is less than 32768, alert user but still proceed
+     */
+    if(all_spectra[ndx].raw_data.length < 32768)
+    {
+        alert("Data length is too short for phase correction using ANN model. Minimum length is 32768 points.");
+    }
+
+
     let result = await get_best_location_diagonal(ndx,0,0);
 
     let current_phase_left = result[0];
