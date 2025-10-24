@@ -1716,14 +1716,14 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
         if(result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length)
         {
             for (let i = 0; i < result_spectra[0].n_direct; i++) {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
             }
         }    
         else
         {
             for (let i = 0; i < result_spectra[0].n_direct; i++)
             {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i]]);
             }
         }
         main_plot.add_data(data,result_spectra[0].spectrum_index,result_spectra[0].spectrum_color);
@@ -1737,13 +1737,13 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
         {
             for(let i=0; i < result_spectra[0].n_direct; i++)
             {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
             }
         }
         else
         {
             for (let i = 0; i < result_spectra[0].n_direct; i++) {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i + result_spectra[0].x_ppm_ref, result_spectra[0].raw_data[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i]]);
             }
         }
         main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
@@ -2388,6 +2388,17 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     all_spectra = to_save.all_spectra;
 
     /**
+     * backward compatibility: if any spectrum doesn't have spectrum_scale, assign 1.0 to it
+     */
+    for(let i=0;i<all_spectra.length;i++)
+    {
+        if(!all_spectra[i].hasOwnProperty('spectrum_scale'))
+        {
+            all_spectra[i].spectrum_scale = 1.0;
+        }
+    }
+
+    /**
      * Reattach methods defined in spectrum.js to all all_spectra objects
      */
     for(let i=0;i<all_spectra.length;i++)
@@ -2477,7 +2488,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
              */
             let data = [];
             for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i + all_spectra[m].x_ppm_ref, all_spectra[m].raw_data[i]]);
+                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
 
@@ -2487,7 +2498,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         {
             let data = [];
             for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i + all_spectra[m].x_ppm_ref, all_spectra[m].raw_data[i]]);
+                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
         }
@@ -2973,6 +2984,10 @@ async function run_ann_phase_correction(ndx)
 
             console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
             console.log("Current P1 prediction: " + new_prediction);
+            document.getElementById("log").value += "Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right + "\n";
+            document.getElementById("log").value += "Current P1 prediction: " + new_prediction + "\n";
+            document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+
 
             if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
             {
@@ -3002,6 +3017,8 @@ async function run_ann_phase_correction(ndx)
     }
 
     console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
+    document.getElementById("log").value += "Final phase correction: left end = " + result[0] + ", right end = " + result[1] + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     /**
      * result is the best location (phase correction at left end and right end)
@@ -3047,13 +3064,13 @@ async function run_ann_phase_correction(ndx)
         if(all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length)
         {
             for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i + all_spectra[ndx].x_ppm_ref, all_spectra[ndx].raw_data[i],all_spectra[ndx].raw_data_i[i]]);
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i , all_spectra[ndx].raw_data[i],all_spectra[ndx].raw_data_i[i]]);
             }
         }    
         else
         {
             for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i + all_spectra[ndx].x_ppm_ref, all_spectra[ndx].raw_data[i]]);
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i , all_spectra[ndx].raw_data[i]]);
             }
         }
         main_plot.add_data(data,ndx);
@@ -3100,6 +3117,9 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
     console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
     console.log("in get_cross_point_p1: P1 prediction = " + new_prediction);
+    document.getElementById("log").value += "in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right + "\n";
+    document.getElementById("log").value += "in get_cross_point_p1: P1 prediction = " + new_prediction + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
     {
@@ -3266,6 +3286,8 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
     }
 
     console.log("P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1]);
+    document.getElementById("log").value += "P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1] + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     return result;
 }
