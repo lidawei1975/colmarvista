@@ -2973,6 +2973,10 @@ async function run_ann_phase_correction(ndx)
 
             console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
             console.log("Current P1 prediction: " + new_prediction);
+            document.getElementById("log").value += "Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right + "\n";
+            document.getElementById("log").value += "Current P1 prediction: " + new_prediction + "\n";
+            document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+
 
             if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
             {
@@ -3002,6 +3006,8 @@ async function run_ann_phase_correction(ndx)
     }
 
     console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
+    document.getElementById("log").value += "Final phase correction: left end = " + result[0] + ", right end = " + result[1] + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     /**
      * result is the best location (phase correction at left end and right end)
@@ -3100,6 +3106,9 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
     console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
     console.log("in get_cross_point_p1: P1 prediction = " + new_prediction);
+    document.getElementById("log").value += "in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right + "\n";
+    document.getElementById("log").value += "in get_cross_point_p1: P1 prediction = " + new_prediction + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
     {
@@ -3266,6 +3275,8 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
     }
 
     console.log("P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1]);
+    document.getElementById("log").value += "P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1] + "\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
     return result;
 }
