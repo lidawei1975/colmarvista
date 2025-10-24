@@ -72,10 +72,18 @@
                             <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
                                 value="0" step="any">
                             <label for="phase_correction_direct_p1">P1: </label>
-                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
-                                value="0" step="any">
-                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
-                            <label for="auto_direct">Automated PC</label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1" value="0" step="any">
+                            <fieldset>
+                                <legend>Phase correction:</legend>
+                                <input type="radio" name="pc_method" id="auto_direct" value="1">
+                                <label for="auto_direct">Peak centric CNN</label>
+                                <input type="radio" name="pc_method" id="auto_direct_2" value="2" checked>
+                                <label for="auto_direct_2">Full spectrum ANN</label>
+                                <input type="radio" name="pc_method" id="auto_direct_3" value="3">
+                                <label for="auto_direct_3">Entropy based</label>
+                                <input type="radio" name="pc_method" id="manual" value="0">
+                                <label for="manual">Manual</label>
+                            </fieldset>
                             <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes" hidden>
                             <!-- <label for="delete_imaginary">Delete imaginary data after FT</label> -->
                         </span>
@@ -125,8 +133,8 @@
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
-                        <button id="button_apply_ps" onclick="permanently_apply_phase_correction()">Apply
-                            PC</button>
+                        <button id="button_auto_pc" onclick="run_auto_pc()">Automatic PC</button>
+                        <button id="button_apply_ps" onclick="permanently_apply_phase_correction()">Apply PC</button>
                         Anchor: <span id="anchor"> Not set </span>
                         Phase correction at left end: <span id="pc_left_end"> 0 </span>, at right end: <span id="pc_right_end"> 0 </span>.
                         <!-- Information for user: phase correction applied -->
@@ -220,6 +228,7 @@
     </div>
 
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script type="text/javascript" src="js/d3.7.min.js"></script>
     <script type="text/javascript" src="js/ldwmath.js"></script>
     <script type="text/javascript" src="js/file_drop.js"></script>
