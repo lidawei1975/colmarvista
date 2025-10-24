@@ -2399,6 +2399,18 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 
     /**
+     * Change spectrum_origin from -2 to -1 for all spectra loaded from file
+     * because we do not save/load fid data
+     */
+    for(let i=0;i<all_spectra.length;i++)
+    {
+        if(all_spectra[i].spectrum_origin === -2)
+        {
+            all_spectra[i].spectrum_origin = -1;
+        }
+    }
+
+    /**
      * Reattach methods defined in spectrum.js to all all_spectra objects
      */
     for(let i=0;i<all_spectra.length;i++)
@@ -2487,8 +2499,16 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
              * We need to make a data array of two numbers: ppm and amplitude
              */
             let data = [];
-            for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length)
+            {
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                }
+            }
+            else{
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                }
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
 
@@ -2497,8 +2517,15 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         else
         {
             let data = [];
-            for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length){
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                }
+            }
+            else{
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                }
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
         }
@@ -2792,7 +2819,7 @@ function permanently_apply_phase_correction()
     return_data = main_plot.permanently_apply_phase_correction();
     let ndx = return_data.index;
 
-    if ( all_spectra[ndx].fid_process_parameters !== null)
+    if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         /**
          * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
@@ -2833,7 +2860,7 @@ function permanently_apply_phase_correction()
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
+    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0;
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0);
@@ -3037,7 +3064,7 @@ async function run_ann_phase_correction(ndx)
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
+    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1]-result[0]);
@@ -3140,7 +3167,7 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
 async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.7071; //0.7071 degree step
+    const phase_step = 0.7071/4; //0.7071 degree step
     const phase_direction = -Math.PI / 4; //-45 degree direction
 
     /**
@@ -3185,7 +3212,7 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
 async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
     const phase_direction = -Math.PI / 4; //-45 degree direction
-    const phase_step = 0.7071;
+    const phase_step = 0.7071/4;
     let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
 
     let data = get_data_from_phase_correction(ndx,result[0],result[1]);
