@@ -31,6 +31,7 @@ class spectrum_1d {
         this.datatype_direct = 1; //datatype of direct dimension, 1 for real, 0 for complex
         this.picked_peaks_object = new cpeaks(); //picked peaks object
         this.fitted_peaks_object = new cpeaks(); //fitted peaks object
+        this.spectrum_scale = 1.0; //scale factor to scale the spectrum for display purpose
         /**
          * spectrum_1d origin: 
          * -4: unknown,

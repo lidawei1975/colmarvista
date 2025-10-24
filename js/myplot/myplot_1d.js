@@ -357,6 +357,11 @@ class myplot_1d {
                         .datum(downsampled)
                         .attr("d", this.lineGenerator);
 
+                    /**
+                     * Need to update data in all_spectra[index] as well
+                     */
+                    all_spectra[index].spectrum_scale = this.spectral_scale[index];
+
 
                     /**
                      * We also need to rescale all in all_spectra[index].reconstructed_indices
@@ -556,8 +561,8 @@ class myplot_1d {
          * Test whether index is already in (we are updating the spectrum, not adding a new one)
          */
         if(index>=0 && index < this.spectral_order.length) {
-            this.spectral_scale[index] = 1.0; // Reset the scale of the spectrum to 1.0
-            this.spectrum_reference[index] = 0.0; // Reset the reference correction of the spectrum to 0.0
+            this.spectral_scale[index] = all_spectra[index].spectrum_scale; // Update the scale of the spectrum
+            this.spectrum_reference[index] = all_spectra[index].x_ppm_ref; // Update the reference correction of the spectrum
             /**
              * Update data in this.allLines
              */
@@ -583,9 +588,9 @@ class myplot_1d {
 
         this.spectral_order.push(index); // Keep track of the order of spectra
 
-        this.spectral_scale.push(1.0); // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
+        this.spectral_scale.push(all_spectra[index].spectrum_scale); // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
 
-        this.spectrum_reference.push(0.0); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
+        this.spectrum_reference.push(all_spectra[index].x_ppm_ref); // This is the reference correction of the spectrum, used to adjust the ppm of the spectrum in the plot
 
         this.spectrum_visibility.push(true); // This is the visibility of the spectrum, used to show/hide the spectrum in the plot
 
@@ -735,6 +740,7 @@ class myplot_1d {
 
                 
                 this.spectrum_reference[index] += delta_ppm; // Update reference correction for the spectrum
+                all_spectra[index].x_ppm_ref = this.spectrum_reference[index];
                 
                 /**
                  * Update the scale of the spectrum to user (span element with id 'spectrum-reference-<index>')
