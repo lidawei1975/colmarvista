@@ -149,44 +149,30 @@ class spectrum_1d {
         let number_of_info_retrieved = 0;
         let data_start = 0;
         this.n_direct = undefined;
-        this.n_indirect = undefined;
+        this.n_indirect = 1;
         this.x_ppm_start = undefined;
         this.y_ppm_start = undefined;
         this.x_ppm_width = undefined;
         this.y_ppm_width = undefined;
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].includes("F1LEFT") && lines[i].includes("F1RIGHT")) {
+            if (lines[i].includes("LEFT") && lines[i].includes("RIGHT")) {
                 /**
                  * Separate the line by any number of space(s) and get the location of F1LEFT and F1RIGHT
                  */
                 let temp = lines[i].split(/\s+/); //split by any number of space(s)
-                let left = temp.indexOf("F1LEFT");
-                let right = temp.indexOf("F1RIGHT");
-                this.y_ppm_start = parseFloat(temp[left + 2]);
-                this.y_ppm_width = parseFloat(temp[right + 2]) - parseFloat(temp[left + 2]);
-                number_of_info_retrieved++;
-            }
-            if (lines[i].includes("F2LEFT") && lines[i].includes("F2RIGHT")) {
-                let temp = lines[i].split(/\s+/);
-                let left = temp.indexOf("F2LEFT");
-                let right = temp.indexOf("F2RIGHT");
+                let left = temp.indexOf("LEFT");
+                let right = temp.indexOf("RIGHT");
                 this.x_ppm_start = parseFloat(temp[left + 2]);
                 this.x_ppm_width = parseFloat(temp[right + 2]) - parseFloat(temp[left + 2]);
                 number_of_info_retrieved++;
             }
-            if (lines[i].includes("NROWS")) {
+            if (lines[i].includes("SIZE")) {
                 let temp = lines[i].split(/\s+/);
-                let location = temp.indexOf("NROWS");
-                this.n_indirect = parseInt(temp[location + 2]);
-                number_of_info_retrieved++;
-            }
-            if (lines[i].includes("NCOLS")) {
-                let temp = lines[i].split(/\s+/);
-                let location = temp.indexOf("NCOLS");
+                let location = temp.indexOf("SIZE");
                 this.n_direct = parseInt(temp[location + 2]);
                 number_of_info_retrieved++;
             }
-            if (number_of_info_retrieved >= 4 && this.n_direct !== undefined && this.n_indirect !== undefined && this.x_ppm_start !== undefined && this.y_ppm_start !== undefined) {
+            if (number_of_info_retrieved >= 2 && this.n_direct !== undefined && this.x_ppm_start !== undefined ) {
                 number_of_info_retrieved = -1; //this is a flag to show that we have found all 4 values
                 data_start = i + 1;
                 break;
@@ -203,39 +189,17 @@ class spectrum_1d {
          */
         this.raw_data = new Float32Array(this.n_direct * this.n_indirect);
         let col_counter = 0;
-        let row_counter = 0;
         for (let i = data_start; i < lines.length; i++) {
-            /**
-             * If line start with "# row = ", this is a start of a new row, we reset column counter to 0
-             * and get row counter from the line immediately after "# row = "
-             */
-            if (lines[i].startsWith("# row = ")) {
-                col_counter = 0;
-                row_counter = parseInt(lines[i].substring(8));
-                continue;
-            }
-            /**
-             * Other lines start with # are comments, we skip them
-             * and also skip empty lines
-             */
-            else if (lines[i].startsWith("#") || lines[i] === "") {
+            if (lines[i].startsWith("#") || lines[i] === "") {
                 continue;
             }
             /**
              * Others are data line, only one number per line in Topspin totxt format
              */
             else {
-                this.raw_data[row_counter * this.n_direct + col_counter] = parseFloat(lines[i]);
+                this.raw_data[col_counter] = parseFloat(lines[i]);
                 col_counter++;
             }
-        }
-
-        /**
-         * At the end, we should have col_counter = this.n_direct and row_counter = this.n_indirect-1
-         */
-        if (col_counter !== this.n_direct || row_counter !== this.n_indirect - 1) {
-            this.error = "Cannot find all data in the file";
-            return result;
         }
 
         /**
@@ -243,15 +207,12 @@ class spectrum_1d {
          * Set this.x_ppm_step and this.y_ppm_step. Note that the ppm_step is negative
          */
         this.x_ppm_width = Math.abs(this.x_ppm_width);
-        this.y_ppm_width = Math.abs(this.y_ppm_width);
         this.x_ppm_step = -this.x_ppm_width / this.n_direct;
-        this.y_ppm_step = -this.y_ppm_width / this.n_indirect;
 
         /**
          * Set default ref to 0
          */
         this.x_ppm_ref = 0;
-        this.y_ppm_ref = 0;
 
         /**
          * Noise level, spectral_max and min, projection, levels, negative_levels code.
