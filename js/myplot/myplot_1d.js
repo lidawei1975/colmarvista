@@ -77,7 +77,8 @@ class myplot_1d {
         if (!d3) throw Error('d3 library not set');
         this.margin = ({ top: 10, right: 10, bottom: 80, left: 120 });
         
-        this.baseline_exist = false;
+        this.baseline = [];
+        this.baseline_index = -1;
         /**
          * Default lineGenerator width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
          */
@@ -890,28 +891,33 @@ class myplot_1d {
      * @param {*} baseline 
      * @returns 
      */
-    show_baseline(baseline) {
-        if (!Array.isArray(baseline)) {
-            throw new Error('colmar_1d_double_zoom function show_baseline argument must be array');
-        }
+    show_baseline(baseline,index) {
 
-        if (baseline.length != this.data.length) {
-            throw new Error('colmar_1d_double_zoom function show_baseline argument must have same length as the experimental spectrum');
-        }
+        this.baseline = baseline;
+        this.baseline_index = index;
 
-        this.baseline_exist = true;
+        const reference = this.spectrum_reference[index]; 
+        let downsampled = downsampleData(this.baseline, this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1]]);
 
+        this.areaGenerator = d3.area()
+            .x(d => this.xscale(d[0]))       // X-position (from your data)
+            .y0(d3.max(downsampled, d => this.yscale(d[1])) + 10)                   // <-- Bottom edge is the straight line
+            .y1(d => this.yscale(d[1]));  // <-- Top edge is the data curve
 
         //remove old one if exists
-        this.vis.selectAll(".line_baseline").remove();
+        this.vis.selectAll(".area_baseline").remove();
 
-        this.line_baseline = this.vis.append("g")
+        this.area_baseline = this.vis.append("g")
             .append("path")
             .attr("clip-path", "url(#clip)")
-            .attr("class", "line_baseline")
-            .attr("fill", "none")
-            .style("stroke", "green")
-            .attr("d", this.lineGenerator(this.baseline));
+            .attr("class", "area_baseline") // You may want to rename this class to .area_baseline
+            
+            // --- Key Changes Here ---
+            .attr("fill", "rgba(0, 255, 0, 0.3)") // Set a fill color (e.g., light green)
+            .style("stroke", "green")            // This will stroke the *entire* shape
+            .style("stroke-width", 1.5)
+            .attr("d", this.areaGenerator(downsampled)); // Use the area generator
+
     };
 
     /**
@@ -920,19 +926,10 @@ class myplot_1d {
      * When this function is called. this.original_data === this.data
      * After this point, we do not need this.original_data anymore
      */
-    apply_baseline() {
-        if (this.baseline_exist === false) return;
-
-        for (var i = 0; i < this.data.length; i++) {
-            this.data[i][1] = this.data[i][1] - this.baseline[i][1];
-        }
-
-        this.baseline_exist = false;
+    remove_baseline_area() {
+        this.baseline_index = -1;
         this.baseline = [];
-        this.vis.selectAll(".line_baseline").remove();
-
-        //redraw the experimental spectrum after this.data is updated
-        this.redraw();
+        this.vis.selectAll(".area_baseline").remove();
     }
 
     /**
@@ -1016,6 +1013,19 @@ class myplot_1d {
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
         });
+
+        /**
+         * If baseline exists, redraw the baseline
+         */
+        if (this.baseline_index >= 0 ) {
+            const reference = this.spectrum_reference[this.baseline_index];
+            const downsampled = downsampleData(this.baseline,this.true_width, this.xscale.domain(), reference).map(d => [d[0] + reference, d[1]]);
+            
+            this.areaGenerator.y0(d3.max(downsampled, d => this.yscale(d[1])) + 10); // Update bottom edge Y position
+            
+            this.area_baseline.attr("d", this.areaGenerator(downsampled));
+
+            }
 
         /**
          * Update peaks location if it is not null

@@ -613,6 +613,26 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
+    else if(e.data.webassembly_job === "baseline_correction")
+    {
+        let spectrum_index = e.data.spectrum_index;
+        if(spectrum_index >=0 && spectrum_index < all_spectra.length)
+        {
+            all_spectra[spectrum_index].baseline = e.data.baseline;
+            /**
+             * Convert e.data.baseline from Float32Array to regular array baseline
+             * baseline is an array of array of 2: [[ppm1, value1], [ppm2, value2], ...]
+             */
+            let baseline = [];
+            for(let i=0;i<e.data.baseline.length;i++)
+            {
+                let ppm_value = all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i;
+                baseline.push([ppm_value,e.data.baseline[i]]);
+            }
+            main_plot.show_baseline(baseline,spectrum_index);
+        }
+    }
+
 
     else if(e.data.stdout)
     {
@@ -3538,4 +3558,35 @@ function run_baseline_correction()
         b0: 1.5,
         n_water: 64,
     });
+}
+
+/**
+ * User click button to apply baseline correction
+ */
+function apply_baseline_correction()
+{
+    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
+    {
+        alert("No spectrum selected for baseline correction.");
+        return;
+    }
+    let spectrum_index = main_plot.current_spectrum_index;
+
+    for(let i=0;i<all_spectra[spectrum_index].n_direct;i++){
+        all_spectra[spectrum_index].raw_data[i] = all_spectra[spectrum_index].raw_data[i] - all_spectra[spectrum_index].baseline[i];
+    }
+    /**
+     * Remove imaginary part if exists, because baseline correction is only applied to real part and after that, imaginary part is not valid anymore
+     */
+    all_spectra[spectrum_index].raw_data_i = new Float32Array(0);
+
+    //update the plot
+    main_plot.remove_baseline_area();
+    let data = [];
+
+    for (let i = 0; i < all_spectra[spectrum_index].n_direct; i++) {
+        data.push([all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i, all_spectra[spectrum_index].raw_data[i]]);
+    }
+    
+    main_plot.add_data(data, all_spectra[spectrum_index].spectrum_index, all_spectra[spectrum_index].spectrum_color);
 }
