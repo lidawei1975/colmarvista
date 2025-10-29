@@ -492,6 +492,58 @@ self.onmessage = async function (event) {
 
         obj.delete(); // Clean up the object to free memory
     }
+
+    else if( event.data.webassembly_job === "baseline_correction") {
+
+        console.log('Baseline correction job received');
+        Module.shared_data_1d.n_verbose = 1;
+        const obj = new Module.spectrum_baseline_1d();
+        
+       
+        // for baseline, these values are ignored, but need to call  init.
+        obj.init(5.5, 3.0, 0.0);
+
+        
+        /**
+         * Need to convert event.data.spectrum_data (Float32Array) to webassembly VectorFloat
+         */
+        const spectrum_data = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_data.length; ++i) {
+            spectrum_data.push_back(event.data.spectrum_data[i]);
+        }
+
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
+
+        // Read the first spectrum from buffer
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data, spectrum_data_imaginary);
+
+        /**
+         * Main function to do baseline correction
+         * work(a0,b0,n_water,method,outfname_baseline);
+         */
+        obj.work(event.data.a0, event.data.b0, event.data.n_water, 0 /** 0 only at this time */, "none" /** no file output */);
+
+        const baseline_size = event.data.spectrum_data.length; //baseline has same size as original spectrum
+        const baseline_ptr = obj.get_data_of_baseline(0); // Get the pointer to the baseline data
+        const baseline = new Float32Array(Module.HEAPF32.buffer, baseline_ptr, baseline_size);    
+
+        self.postMessage({
+            webassembly_job: event.data.webassembly_job,
+            spectrum_index: event.data.spectrum_index,
+            baseline: baseline,
+        });
+
+        // Clean up the object to free memory
+        obj.delete(); // Clean up the object to free memory
+    }
     
 
     else {

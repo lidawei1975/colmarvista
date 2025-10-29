@@ -1951,7 +1951,6 @@ function run_DEEP_Picker(spectrum_index,flag)
     header[56] = 1.0; //keep real part only
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
-    let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
 
 
     /**
@@ -3510,3 +3509,33 @@ async function runPrediction(data, data_length, flag=0) {
     return reshapedProbabilities;
 }
 
+
+/**
+ * User click button to run baseline estimation
+ */
+function run_baseline_correction()
+{
+    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
+    {
+        alert("No spectrum selected for baseline correction.");
+        return;
+    }
+    let spectrum_index = main_plot.current_spectrum_index;
+
+    let header = new Float32Array(all_spectra[spectrum_index].header);
+    header[55] = 1.0; //keep real part only
+    header[56] = 1.0; //keep real part only
+    header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
+    header[219] = 1; //size of indirect dimension of the input spectrum (always 1 for 1D)
+
+
+    webassembly_1d_worker_2.postMessage({
+        webassembly_job: 'baseline_correction',
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
+        spectrum_index: spectrum_index,
+        a0: 1e12,
+        b0: 1.5,
+        n_water: 64,
+    });
+}
