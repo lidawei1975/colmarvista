@@ -2789,6 +2789,8 @@ function set_current_spectrum_0(spectrum_index)
 
 function set_current_spectrum(spectrum_index)
 {
+    abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
+
     if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
         if (main_plot.current_spectrum_index !== spectrum_index) {
             document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
@@ -2807,6 +2809,8 @@ function set_current_spectrum(spectrum_index)
         remove_peak_table();
         main_plot.remove_peaks();
     }
+
+    
 }
 
 
@@ -2841,6 +2845,7 @@ function permanently_apply_phase_correction()
     return_data = main_plot.permanently_apply_phase_correction();
     if(typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
+    abandon_baseline_correction(ndx);//need to run before changing current spectrum
 
     if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
@@ -2942,6 +2947,7 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
  */
 async function run_auto_pc()
 {
+    abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
     if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
     {
         alert("No spectrum selected for phase correction.");
@@ -3583,12 +3589,22 @@ function run_baseline_correction()
  */
 function apply_baseline_correction()
 {
-    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
+    let spectrum_index = main_plot.current_spectrum_index;
+    if(spectrum_index < 0 || spectrum_index >= all_spectra.length)
     {
         alert("No spectrum selected for baseline correction.");
         return;
     }
-    let spectrum_index = main_plot.current_spectrum_index;
+    
+
+    if(typeof all_spectra[spectrum_index].baseline === "undefined" 
+        || all_spectra[spectrum_index].baseline.length ===0 
+        || all_spectra[spectrum_index].raw_data.length !== all_spectra[spectrum_index].baseline.length)
+    {
+        return;
+    }
+
+    
     disable_enable_phase_baseline_buttons(false);
 
     for(let i=0;i<all_spectra[spectrum_index].n_direct;i++){
@@ -3598,6 +3614,10 @@ function apply_baseline_correction()
      * Remove imaginary part if exists, because baseline correction is only applied to real part and after that, imaginary part is not valid anymore
      */
     all_spectra[spectrum_index].raw_data_i = new Float32Array(0);
+    /**
+     * Clear saved baseline as well
+     */
+    all_spectra[spectrum_index].baseline = new Float32Array(0);
 
     //update the plot
     main_plot.remove_baseline_area();
@@ -3611,7 +3631,29 @@ function apply_baseline_correction()
     disable_enable_phase_baseline_buttons(true);
 }
 
+/**
+ * When user run phase correction without applying baseline or rerun baseline calculation, abandon the baseline correction
+ * User can also click a button to abandon baseline correction
+ */
+function abandon_baseline_correction(ndx)
+{
+    if(ndx < 0 )
+    {
+        ndx = main_plot.current_spectrum_index;
+    }
+    // Clear the baseline and raw data
+    all_spectra[ndx].baseline = new Float32Array(0);
 
+    // Update the plot
+    main_plot.remove_baseline_area();
+}
+
+/**
+ * When auto phase correction or baseline correction is running, disable manual phase correction and baseline correction buttons
+ * Also disable dragging of spectrum to re-order
+ * Also disable click to reset current spectrum
+ * @param {*} enable 
+ */
 function disable_enable_phase_baseline_buttons(enable=true)
 {
     document.getElementById("button_auto_pc").disabled = !enable;

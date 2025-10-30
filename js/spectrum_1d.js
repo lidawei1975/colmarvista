@@ -18,6 +18,7 @@ class spectrum_1d {
         this.spectrum_format = "ft1"; //ft2 is the default format
         this.header = new Float32Array(512); //header of the spectrum_1d, 512 float32 numbers
         this.raw_data = new Float32Array(0); //raw data, real real
+        this.baseline = new Float32Array(0); //baseline data, same size as raw_data
         this.raw_data_i = new Float32Array(0); //raw data for real (along indirect dimension) and imaginary (along indirect dimension) part
         this.noise_level = 0.001; //noise level of the input spectrum_1d
         this.spectral_max = Number.MAX_VALUE; //maximum value of the spectrum_1d
