@@ -2836,6 +2836,7 @@ function get_center(peaks) {
 function permanently_apply_phase_correction()
 {
     return_data = main_plot.permanently_apply_phase_correction();
+    if(return_data === null) return; //user didn't run any manual phase correction
     let ndx = return_data.index;
 
     if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
@@ -2941,6 +2942,16 @@ async function run_auto_pc()
     if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
     {
         alert("No spectrum selected for phase correction.");
+        return;
+    }
+    /**
+     * If current spectrum is not complex, alert user and return
+     */
+    if(typeof all_spectra[main_plot.current_spectrum_index].raw_data_i === "undefined" 
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i === null 
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i.length !== all_spectra[main_plot.current_spectrum_index].raw_data.length)
+    {
+        alert("Current spectrum is not complex or imaginary part is invalid (which will happen after baseline correction).");
         return;
     }
     /**

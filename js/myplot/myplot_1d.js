@@ -574,6 +574,8 @@ class myplot_1d {
                 .datum(downsampled)
                 .attr("d", this.lineGenerator);
 
+            this.spectrum_dimension[index] = data[0].length; // 2: real only, 3: real and imaginary.
+
             return;
         }
 
