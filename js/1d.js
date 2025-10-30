@@ -34,6 +34,7 @@ var total_number_of_experimental_spectra = 0; //total number of experimental spe
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo2d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
 var b_allow_manual_phase_correction = true; //flag to allow manual phase correction using mouse wheel and shift(control) key on the main plot
+var b_allow_dragging_spectrum = false; //flag to allow dragging spectrum to reorder them
 
 /**
  * For FID re-processing. Saved file data
@@ -144,6 +145,7 @@ const read_file_text = (file) => {
 $(document).ready(function () {
 
     b_allow_manual_phase_correction = true; //This is default. 
+    b_allow_dragging_spectrum = true; //This is default.
 
     fetch('navbar.html')
         .then(response => response.text())
@@ -714,6 +716,7 @@ const sortableList = document.getElementById("spectra_list_ol");
 sortableList.addEventListener(
     "dragstart",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         /**
          * We will move the parent element (div)'s parent (li) of the dragged item
          */
@@ -727,6 +730,7 @@ sortableList.addEventListener(
 sortableList.addEventListener(
     "dragend",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         setTimeout(() => {
             e.target.parentElement.style.display = "";
             draggedItem = null;
@@ -757,6 +761,7 @@ sortableList.addEventListener(
 sortableList.addEventListener(
     "dragover",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         e.preventDefault();
         /**
          * If draggedItem is null, return (user is dragging something else)
@@ -1032,21 +1037,7 @@ function add_to_list(index) {
          * Add a onclick function to the new spectrum_1d div to set the current spectrum index
          */
         span_for_index.onclick = function () {
-            /**
-             * Un-highlight the current spectrum in the list
-             */
-            set_current_spectrum(index);
-            /**
-             * If this new spectrum_1d has no imaginary part, disable auto phase correction button
-             */
-            // if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_i.length > 0 )
-            // {
-            //     document.getElementById("automatic_pc").disabled = false;
-            // }
-            // else
-            // {
-            //     document.getElementById("automatic_pc").disabled = true;
-            // }
+            set_current_spectrum_0(index);
         }
         /**
          * Add filename as a text node
@@ -2785,6 +2776,17 @@ function search_peak()
     }
 };
 
+function set_current_spectrum_0(spectrum_index)
+{
+    /**
+     * If b_allow_dragging_spectrum is false, do nothing
+     */
+    if (b_allow_dragging_spectrum === false) {
+        return;
+    }
+    set_current_spectrum(spectrum_index);
+}
+
 function set_current_spectrum(spectrum_index)
 {
     if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
@@ -3617,4 +3619,5 @@ function disable_enable_phase_baseline_buttons(enable=true)
     document.getElementById("button_baseline_correction").disabled = !enable;
     document.getElementById("button_apply_baseline_correction").disabled = !enable;
     b_allow_manual_phase_correction = enable;
+    b_allow_dragging_spectrum = enable;
 }
