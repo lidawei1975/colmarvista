@@ -3547,7 +3547,11 @@ function run_baseline_correction()
     header[56] = 1.0; //keep real part only
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = 1; //size of indirect dimension of the input spectrum (always 1 for 1D)
-
+    let n_water = 0; //default value
+    if(document.getElementById("exclude_water").checked)
+    {
+        n_water=all_spectra[spectrum_index].n_direct/512; //number of water points to be excluded in baseline correction
+    }
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: 'baseline_correction',
@@ -3556,7 +3560,7 @@ function run_baseline_correction()
         spectrum_index: spectrum_index,
         a0: 1e12,
         b0: 1.5,
-        n_water: 64,
+        n_water: n_water,
     });
 }
 

@@ -133,14 +133,21 @@
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
-                        <button id="button_auto_pc" onclick="run_auto_pc()">Automatic PC</button>
-                        <button id="button_apply_ps" onclick="permanently_apply_phase_correction()">Apply PC</button>
+                        <br>
+                        
+                        <button id="button_auto_pc" onclick="run_auto_pc()">Run automatic phase correction</button>
+                        <button id="button_apply_ps" onclick="permanently_apply_phase_correction()">Apply manual phase correction</button>
                         Anchor: <span id="anchor"> Not set </span>
                         Phase correction at left end: <span id="pc_left_end"> 0 </span>, at right end: <span id="pc_right_end"> 0 </span>.
-                        <!-- Information for user: phase correction applied -->
-                        <span id="pc_info"></span>
                         <br>
 
+                        <label for="smooth_parameter">Baseline smooth parameter(8-15): </label>
+                        <input type="number" id="smooth_parameter" value="12" min="6" max="16">&nbsp;&nbsp;
+                        <label for ="exclude_water">Exclude water suppression region </label>
+                        <input type="checkbox" id="exclude_water" checked>
+                        <button id="button_baseline_correction" onclick="run_baseline_correction()">Calculate baseline</button>
+                        <button id="button_apply_baseline_correction" onclick="apply_baseline_correction()">Apply baseline correction</button>
+                        <br>
 
                         <label for="peak_size">Peak size: </label>
                         <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
@@ -150,11 +157,9 @@
                         <label for="filled_peaks"> Filled peaks</label>
                         <label for="peak_color"> color </label>
                         <input type="color" id="peak_color" value="#0000ff">&nbsp;&nbsp;
-                        <br>
-
                         <input type="checkbox" id="allow_drag_and_drop" disabled>
                         <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
-                        <br><br>
+                        <br>
                     </div>
 
 
