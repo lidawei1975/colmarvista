@@ -630,6 +630,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
                 baseline.push([ppm_value,e.data.baseline[i]]);
             }
             main_plot.show_baseline(baseline,spectrum_index);
+            disable_enable_phase_baseline_buttons(true);
         }
     }
 
@@ -2836,7 +2837,7 @@ function get_center(peaks) {
 function permanently_apply_phase_correction()
 {
     return_data = main_plot.permanently_apply_phase_correction();
-    if(return_data === null) return; //user didn't run any manual phase correction
+    if(typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
 
     if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
@@ -2980,9 +2981,10 @@ async function run_ann_phase_correction(ndx)
     /**
      * Disable manual phase correction and myself button during auto phase correction
      */
-    document.getElementById("button_auto_pc").disabled = true;
-    document.getElementById("button_apply_ps").disabled = true;
-    b_allow_manual_phase_correction = false;
+    disable_enable_phase_baseline_buttons(false);
+
+    document.getElementById("log").value += "Starting automatic phase correction using ANN model...\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
 
     let result = await get_best_location_diagonal(ndx,0,0);
@@ -3135,9 +3137,7 @@ async function run_ann_phase_correction(ndx)
     /**
      * Enable manual phase correction and myself button after auto phase correction
      */
-    document.getElementById("button_auto_pc").disabled = false;
-    document.getElementById("button_apply_ps").disabled = false;
-    b_allow_manual_phase_correction = true;
+    disable_enable_phase_baseline_buttons(true);
 }
 
 /**
@@ -3573,6 +3573,7 @@ function run_baseline_correction()
         b0: 1.5,
         n_water: n_water,
     });
+    disable_enable_phase_baseline_buttons(false);
 }
 
 /**
@@ -3586,6 +3587,7 @@ function apply_baseline_correction()
         return;
     }
     let spectrum_index = main_plot.current_spectrum_index;
+    disable_enable_phase_baseline_buttons(false);
 
     for(let i=0;i<all_spectra[spectrum_index].n_direct;i++){
         all_spectra[spectrum_index].raw_data[i] = all_spectra[spectrum_index].raw_data[i] - all_spectra[spectrum_index].baseline[i];
@@ -3604,4 +3606,15 @@ function apply_baseline_correction()
     }
     
     main_plot.add_data(data, all_spectra[spectrum_index].spectrum_index, all_spectra[spectrum_index].spectrum_color);
+    disable_enable_phase_baseline_buttons(true);
+}
+
+
+function disable_enable_phase_baseline_buttons(enable=true)
+{
+    document.getElementById("button_auto_pc").disabled = !enable;
+    document.getElementById("button_apply_pc").disabled = !enable;
+    document.getElementById("button_baseline_correction").disabled = !enable;
+    document.getElementById("button_apply_baseline_correction").disabled = !enable;
+    b_allow_manual_phase_correction = enable;
 }
