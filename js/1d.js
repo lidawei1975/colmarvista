@@ -3572,12 +3572,15 @@ function run_baseline_correction()
         n_water=all_spectra[spectrum_index].n_direct/512; //number of water points to be excluded in baseline correction
     }
 
+    let smooth_parameter = document.getElementById("smooth_parameter").value;
+    smooth_parameter = parseFloat(smooth_parameter);
+
     webassembly_1d_worker_2.postMessage({
         webassembly_job: 'baseline_correction',
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
-        a0: 1e12,
+        a0: Math.pow(10, smooth_parameter),
         b0: 1.5,
         n_water: n_water,
     });
