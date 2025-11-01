@@ -1026,7 +1026,20 @@ function add_to_list(index) {
                 current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
-        main_plot.update_current_spectrum_index(index);
+
+        if(index>=0 && index < all_spectra.length)
+        {
+            if(main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != index)
+            {
+                permanently_apply_phase_correction();
+            }
+            main_plot.current_spectrum_index = index;
+        }
+        else
+        {
+            main_plot.current_spectrum_index = -1;
+        }
+
         /**
          * Highlight the current spectrum in the list
          */
@@ -1718,7 +1731,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced,permanently_apply_phase_correction);
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -2216,23 +2229,7 @@ function update_reconstructed_peaks(index) {
      */
     if (median_peak_width_pixel > 4) {
         let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
-
         main_plot.update_reconstructed_peaks(filtered_peaks_recon);
-
-        /**
-         * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
-         * Step 2: for each peak, generate a profile
-         * We need web assembly worker to generate the profile (pseudo Voigt profile)
-         */
-        // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
-        //         .filter(peak => {
-        //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
-        //         });
-        // webassembly_1d_worker_2.postMessage({
-        //     webassembly_job: "generate_voigt_profiles",
-        //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
-        //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
-        // });
     }
 }
 
@@ -2796,7 +2793,18 @@ function set_current_spectrum(spectrum_index)
             document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
         }
     }
-    main_plot.update_current_spectrum_index(spectrum_index);
+
+    if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != spectrum_index) {
+            permanently_apply_phase_correction();
+        }
+        main_plot.current_spectrum_index = spectrum_index;
+    }
+    else {
+        main_plot.current_spectrum_index = -1;
+    }
+
+
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
 
     /**

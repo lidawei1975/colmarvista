@@ -111,12 +111,7 @@ class myplot_1d {
 
         this.current_spectrum_index = -1; // -1 means no current spectrum is selected
 
-
-        /**
-         * For COLMAR web server 
-         */
-        this.compound_peaks = []; // Array of compound peaks, each element is a d3 selection of peaks for a compound
-        this.compound_line_width = 1.0; // Default line width for compound peaks
+        this.b_allow_individual_spectrum_scale = true; // Allow individual spectrum scale when alt key is pressed during mouse wheel event
     }
 
     /**
@@ -330,7 +325,7 @@ class myplot_1d {
             /**
              * If alt key is pressed, we rescale one spectrum only (this.current_spectrum_index)
              */
-            if (e.altKey == true && this.current_spectrum_index != -1) {
+            if (this.b_allow_individual_spectrum_scale && e.altKey == true && this.current_spectrum_index != -1) {
 
                 if (delta > 0) {
                     delta = 0.99;
@@ -721,7 +716,7 @@ class myplot_1d {
              * If alt key is pressed, we need to pan only the current spectral index and along the X axis only.
              * We do not change xscale, instead, we change data of this.current_spectrum_index
              */
-            if (e.altKey == true && this.current_spectrum_index != -1) {
+            if (this.b_allow_individual_spectrum_scale &&e.altKey == true && this.current_spectrum_index != -1) {
 
                 let index = this.current_spectrum_index;
                 
@@ -923,17 +918,6 @@ class myplot_1d {
         this.vis.selectAll(".area_baseline").remove();
     }
 
-    /**
-     * Set new lineGenerator width 
-     */
-    reset_line_width(exp_line_width, recon_line_width,) {
-        this.exp_line_width = parseFloat(exp_line_width);
-        this.recon_line_width = parseFloat(recon_line_width);
-        /** 
-        * Redraw compound peaks will be done in redraw function
-        */
-        this.redraw();
-    }
 
     redraw_order()
     {
@@ -1043,9 +1027,11 @@ class myplot_1d {
          * Redraw compound peaks (only if they exist)
          * not to be confused with reconstructed peaks of a single spectrum
          */
-        for (var i = 0; i < this.compound_peaks.length; i++) {
-            for (var j = 0; j < this.compound_peaks[i].length; j++) {
-                this.compound_peaks[i][j].attr("d", this.line(self.peak_datas[i][j])).style("stroke-width", self.compound_line_width);
+        if(typeof this.$compound_peaks !== 'undefined' && this.$compound_peaks !== null) {
+            for (var i = 0; i < this.$compound_peaks.length; i++) {
+                for (var j = 0; j < this.$compound_peaks[i].length; j++) {
+                    this.$compound_peaks[i][j].attr("d", this.lineGenerator(self.peak_datas[i][j])).style("stroke-width", self.compound_line_width);
+                }
             }
         }
     }
@@ -1328,260 +1314,4 @@ class myplot_1d {
         this.redraw();
     }
 
-    /**
-     * Code for COLMAR1d and COLMAR-deep1d plotting only.
-     * These are not used for COLMARvista
-     */
-    set_server_url(url) {
-        this.baseUrl = server_url;
-    }
-
-    
-    remove_all_compounds() {
-        var self = this;
-        /**
-         * remove all compound_peak from the plot
-         */
-        self.vis.selectAll(".compound_peak").remove();
-
-        /**
-         * Clear data too
-         */
-        self.compound_peaks = [];
-        self.compound_peaks_name = [];
-        self.peak_datas = [];
-
-    }
-
-    /**
-     * 
-     * @param {Object} compound has following keys
-     * base_name: string, database_gamma: float array, database_intensity: float array, database_ppm: float, database_sigma: float, match: int array, match_type: int array, v_fitted: number
-     * this function will add all peaks of a compound to the plot. Peak profile (Voigt) is calculated using the parameters in the compound object on the fly at backend (xhttp request)
-     * There is no need to apply calibration to the compound object.
-    */
-
-    add_compound(compound) {
-
-        var self = this;
-
-        if (!compound || typeof compound != 'object') {
-            throw new Error('myplot_1d function add_compound argument must be an object');
-        }
-
-        if (!compound.base_name || !compound.database_gamma || !compound.database_intensity || !compound.database_ppm || !compound.database_sigma || !compound.match || !compound.match_type || !compound.v_fitted) {
-            throw new Error('myplot_1d function add_compound argument must have following keys: base_name, database_gamma, database_intensity, database_ppm, database_sigma, match, match_type, v_fitted');
-        }
-
-        /**
-         * Check compound_peaks_name to see if the compound is already added to the plot. If so, return
-         */
-        if (self.compound_peaks_name.includes(compound.base_name)) {
-            return;
-        }
-
-
-        //get peak profile from backend
-        var oReq = new XMLHttpRequest();
-        var fd = new FormData(); //empty form data
-
-        /**
-         * data is a string that contains all parameters needed to calculate peak profile
-         * 1 first number define how far the peak profile is from the center of the peak. Same for all peaks
-         * Then each 3 number define a peak profile. The first number is sigma, the second number is the gamma and 3rd is sub-pixed shift
-         */
-        let data = "0.01";
-        for (var i = 0; i < compound.match_ppm.length; i++) {
-            data = data + " " + compound.match_sigma[i] + " " + compound.match_gamma[i] + " 0.0";
-        }
-
-        /**
-         * Use compound.pms_group to 
-         */
-        let pms_group_begin = [];
-        let pms_group_end = [];
-        let n_counter = 0;
-
-        for (var i = 0; i < compound.pms_group.length; i++) {
-            pms_group_begin.push(n_counter);
-            n_counter = n_counter + compound.pms_group[i].n_peaks;
-            pms_group_end.push(n_counter);
-        }
-
-        /**
-         * Define color for each peak group. 0-9 colors are predefined in d3.schemeCategory10
-         * 10 will be interpreted as 0 by D3 scaleOrdinal
-         */
-        const color = d3.scaleOrdinal(d3.schemeCategory10).domain([...Array(10).keys()]);
-
-
-        fd.append("data", data);
-        let csrfName = document.getElementsByName("csrf_test_name")[0].name; // CSRF Token name
-        let csrfHash = document.getElementsByName("csrf_test_name")[0].value; // CSRF hash
-        fd.append([csrfName], csrfHash);
-
-
-        oReq.open("POST", this.baseUrl + "/index.php/colmar1d/voigt", true);
-        oReq.onload = function () {
-            if (oReq.status === 200) {
-                let data = JSON.parse(oReq.responseText); //data["x"] and data["y"] are the x and y values of the peak profile, right side only without center
-
-                /**
-                 * self.peak_data is an array of array
-                 * 1st dimension is the peak index
-                 * 2nd dimension is the peak profile. Each peak profile is an array of 2 numbers [x, y]
-                 */
-                self.peak_data = self.get_full_peak_profile(data);
-
-                //scale the peak profile to the intensity (y) of the peak for self.peak_data[i]
-                //shift the peak profile to the correct ppm position (x) of the peak for self.peak_data[i]
-                for (var i = 0; i < compound.database_ppm.length; i++) {
-                    self.peak_data[i] = self.peak_data[i].map((x) => [x[0], x[1] * (compound.match_amplitude[i] * compound.v_fitted / self.maxv)]);
-                    self.peak_data[i] = self.peak_data[i].map((x) => [x[0] + compound.match_ppm[i], x[1]]);
-                }
-
-                /**
-                 * self.compound_peak is an array of d3 path
-                 */
-                self.compound_peak = new Array(compound.database_ppm.length);
-
-                let my_compound_index = self.compound_peaks_name.length;
-                let n3 = my_compound_index % 9; //use 9 colors only. n3 is from 0 to 8
-                /**
-                 * Skip Magenta (0,1,2,3,4,5 then 6=>7, 7=>8, 8=>9)
-                 * Then use const color to get the color for the peak group
-                 */
-                if (n3 >= 6) {
-                    n3 = n3 + 1;
-                }
-
-                /**
-                 * if my_compound_index == 1 (second compound) We need to recolor peaks from the first compound to color(0)
-                 */
-                if (my_compound_index == 1) {
-                    for (var i = 0; i < self.compound_peaks[0].length; i++) {
-                        self.compound_peaks[0][i].style("stroke", color(0));
-                    }
-                }
-
-
-                /**
-                 * Add the peak profile to the plot. User pms_group_begin and pms_group_end to draw different peak groups in different colors
-                 */
-                for (var n = 0; n < pms_group_begin.length; n++) {
-
-                    let n2 = n % 9; //use 9 colors only. n2 is from 0 to 8
-
-                    /**
-                     * Skip Magenta (0,1,2,3,4,5 then 6=>7, 7=>8, 8=>9)
-                     * Then use const color to get the color for the peak group
-                     */
-                    if (n2 >= 6) {
-                        n2 = n2 + 1;
-                    }
-
-                    for (var i = pms_group_begin[n]; i < pms_group_end[n]; i++) {
-                        self.compound_peak[i]
-                            = self.vis.append("g")
-                                .append("path")
-                                .attr("clip-path", "url(#clip)")
-                                .attr("class", "compound_peak")
-                                .attr("fill", "none")
-                                .style("stroke", () => {
-                                    /**
-                                     * 1st compounds, peak are colored by the order of the peak group
-                                     */
-                                    if (my_compound_index == 0) {
-                                        return color(n2);
-                                    }
-                                    /**
-                                     * More than 1 compound, peaks are colored compound index
-                                     */
-                                    else {
-                                        return color(n3);
-                                    }
-
-                                })
-                                .style("stroke-width", this.compound_line_width)
-                                .attr("d", self.line(self.peak_data[i]));
-                    }
-                }
-                self.compound_peaks.push(self.compound_peak);
-                self.compound_peaks_name.push(compound.base_name);
-                self.peak_datas.push(self.peak_data);
-            }
-            else //400 or 500
-            {
-                var infor = document.getElementById("infor");
-                infor.appendChild(process_error(oReq.responseText, oReq.status));
-            }
-        };
-        oReq.send(fd);
-
-    }
-
-    /** helper function to get full peak profile from the right side only
-     * @param {Object Array} data has following keys
-     * Return @param {Object Array} peak_data [?][Array of {x, y}]
-     *  data[?]["x"] and data[?]["y"] are the x and y values of the peak profile, right side only without center
-    */
-    get_full_peak_profile(data) {
-        var peak_data = new Array();
-        for (var i = 0; i < data.length; i++) {
-            let x = data[i]["x"];
-            let y = data[i]["y"];
-            //invert x and y to get the left side of the peak profile, concatenate the two sides, and add the center in the middle
-            let x_left = x.map((x) => -x);
-            let y_left = y.map((y) => y);
-            x_left.reverse();
-            y_left.reverse();
-            x_left.push(0);
-            y_left.push(1.0);
-            x = x_left.concat(x);
-            y = y_left.concat(y);
-            //convert x,y to 2D array as required by d3.line
-            let data_item = [];
-            for (var j = 0; j < x.length; j++) {
-                data_item.push([x[j], y[j]]);
-            }
-            peak_data.push(data_item);
-        }
-        return peak_data;
-    }
-
-    /**
-     * Set new line width 
-     */
-    reset_line_width(exp_line_width, recon_line_width, simulated_line_width, compound_line_width) {
-        this.exp_line_width = parseFloat(exp_line_width);
-        this.recon_line_width = parseFloat(recon_line_width);
-        this.simulated_line_width = parseFloat(simulated_line_width);
-        this.compound_line_width = parseFloat(compound_line_width);
-        /** 
-        * In COLMAR web server environment, 
-        * we may have 1,2, or 3 spectra (experimental, reconstructed, simulated) to draw
-        */
-
-        for(var i=0; i< this.spectral_order.length; i++) {
-            const index = this.spectral_order[i];
-            const lineId = `line${index}`;
-            if(i === 0) // experimental spectrum
-                d3.select(`#${lineId}`).style("stroke-width", this.exp_line_width);
-            else if(i ===1) // reconstructed spectrum
-                d3.select(`#${lineId}`).style("stroke-width", this.recon_line_width);
-            else if(i ===2) // simulated spectrum
-                d3.select(`#${lineId}`).style("stroke-width", this.simulated_line_width);
-        }
-
-        /**
-         * Redraw compound peaks here as well
-         */
-        for (var i = 0; i < this.compound_peaks.length; i++) {
-            for (var j = 0; j < this.compound_peaks[i].length; j++) {
-                this.compound_peaks[i][j].style("stroke-width", this.compound_line_width);
-            }
-        }
-    }
-
-};
-
+}
