@@ -34,6 +34,7 @@ var total_number_of_experimental_spectra = 0; //total number of experimental spe
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo2d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
 var b_allow_manual_phase_correction = true; //flag to allow manual phase correction using mouse wheel and shift(control) key on the main plot
+var b_allow_dragging_spectrum = false; //flag to allow dragging spectrum to reorder them
 
 /**
  * For FID re-processing. Saved file data
@@ -144,6 +145,7 @@ const read_file_text = (file) => {
 $(document).ready(function () {
 
     b_allow_manual_phase_correction = true; //This is default. 
+    b_allow_dragging_spectrum = true; //This is default.
 
     fetch('navbar.html')
         .then(response => response.text())
@@ -613,6 +615,27 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
+    else if(e.data.webassembly_job === "baseline_correction")
+    {
+        let spectrum_index = e.data.spectrum_index;
+        if(spectrum_index >=0 && spectrum_index < all_spectra.length)
+        {
+            all_spectra[spectrum_index].baseline = e.data.baseline;
+            /**
+             * Convert e.data.baseline from Float32Array to regular array baseline
+             * baseline is an array of array of 2: [[ppm1, value1], [ppm2, value2], ...]
+             */
+            let baseline = [];
+            for(let i=0;i<e.data.baseline.length;i++)
+            {
+                let ppm_value = all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i;
+                baseline.push([ppm_value,e.data.baseline[i]]);
+            }
+            main_plot.show_baseline(baseline,spectrum_index);
+            disable_enable_phase_baseline_buttons(true);
+        }
+    }
+
 
     else if(e.data.stdout)
     {
@@ -693,6 +716,7 @@ const sortableList = document.getElementById("spectra_list_ol");
 sortableList.addEventListener(
     "dragstart",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         /**
          * We will move the parent element (div)'s parent (li) of the dragged item
          */
@@ -706,6 +730,7 @@ sortableList.addEventListener(
 sortableList.addEventListener(
     "dragend",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         setTimeout(() => {
             e.target.parentElement.style.display = "";
             draggedItem = null;
@@ -736,6 +761,7 @@ sortableList.addEventListener(
 sortableList.addEventListener(
     "dragover",
     (e) => {
+        if (!b_allow_dragging_spectrum) return;
         e.preventDefault();
         /**
          * If draggedItem is null, return (user is dragging something else)
@@ -1000,7 +1026,20 @@ function add_to_list(index) {
                 current_spectrum_div.querySelector("div").style.backgroundColor = "white";
             }
         }
-        main_plot.update_current_spectrum_index(index);
+
+        if(index>=0 && index < all_spectra.length)
+        {
+            if(main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != index)
+            {
+                permanently_apply_phase_correction();
+            }
+            main_plot.current_spectrum_index = index;
+        }
+        else
+        {
+            main_plot.current_spectrum_index = -1;
+        }
+
         /**
          * Highlight the current spectrum in the list
          */
@@ -1011,21 +1050,7 @@ function add_to_list(index) {
          * Add a onclick function to the new spectrum_1d div to set the current spectrum index
          */
         span_for_index.onclick = function () {
-            /**
-             * Un-highlight the current spectrum in the list
-             */
-            set_current_spectrum(index);
-            /**
-             * If this new spectrum_1d has no imaginary part, disable auto phase correction button
-             */
-            // if(all_spectra[index].raw_data_i.length > 0 && all_spectra[index].raw_data_i.length > 0 )
-            // {
-            //     document.getElementById("automatic_pc").disabled = false;
-            // }
-            // else
-            // {
-            //     document.getElementById("automatic_pc").disabled = true;
-            // }
+            set_current_spectrum_0(index);
         }
         /**
          * Add filename as a text node
@@ -1706,7 +1731,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced,permanently_apply_phase_correction);
+        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -1951,7 +1976,6 @@ function run_DEEP_Picker(spectrum_index,flag)
     header[56] = 1.0; //keep real part only
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
-    let data = Float32Concat(header, all_spectra[spectrum_index].raw_data);
 
 
     /**
@@ -2205,23 +2229,7 @@ function update_reconstructed_peaks(index) {
      */
     if (median_peak_width_pixel > 4) {
         let filtered_peaks_recon = all_spectra[index].recon_peaks.filter((value, i) => all_spectra[index].recon_peaks_center[i] >= x_ppm_visible_start && all_spectra[index].recon_peaks_center[i] <= x_ppm_visible_end);
-
         main_plot.update_reconstructed_peaks(filtered_peaks_recon);
-
-        /**
-         * Each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX], that is, 4 numbers
-         * Step 2: for each peak, generate a profile
-         * We need web assembly worker to generate the profile (pseudo Voigt profile)
-         */
-        // const peaks_as_array = all_spectra[index].fitted_peaks_object.get_selected_columns_as_array(["X_PPM","HEIGHT","SIGMAX","GAMMAX"])
-        //         .filter(peak => {
-        //             return peak[0] >= x_ppm_visible_start && peak[0] <= x_ppm_visible_end;
-        //         });
-        // webassembly_1d_worker_2.postMessage({
-        //     webassembly_job: "generate_voigt_profiles",
-        //     peaks: peaks_as_array, //array of peaks, each peak is an array of [X_AXIS, HEIGHT, SIGMAX, GAMMAX]
-        //     step: Math.abs(all_spectra[index].x_ppm_step), //step of the spectrum
-        // });
     }
 }
 
@@ -2399,6 +2407,18 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 
     /**
+     * Change spectrum_origin from -2 to -1 for all spectra loaded from file
+     * because we do not save/load fid data
+     */
+    for(let i=0;i<all_spectra.length;i++)
+    {
+        if(all_spectra[i].spectrum_origin === -2)
+        {
+            all_spectra[i].spectrum_origin = -1;
+        }
+    }
+
+    /**
      * Reattach methods defined in spectrum.js to all all_spectra objects
      */
     for(let i=0;i<all_spectra.length;i++)
@@ -2487,8 +2507,16 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
              * We need to make a data array of two numbers: ppm and amplitude
              */
             let data = [];
-            for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length)
+            {
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                }
+            }
+            else{
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                }
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
 
@@ -2497,8 +2525,15 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         else
         {
             let data = [];
-            for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length){
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                }
+            }
+            else{
+                for (let i = 0; i < all_spectra[m].n_direct; i++) {
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                }
             }
             main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
         }
@@ -2738,14 +2773,38 @@ function search_peak()
     }
 };
 
+function set_current_spectrum_0(spectrum_index)
+{
+    /**
+     * If b_allow_dragging_spectrum is false, do nothing
+     */
+    if (b_allow_dragging_spectrum === false) {
+        return;
+    }
+    set_current_spectrum(spectrum_index);
+}
+
 function set_current_spectrum(spectrum_index)
 {
+    abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
+
     if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
         if (main_plot.current_spectrum_index !== spectrum_index) {
             document.getElementById("spectrum-" + main_plot.current_spectrum_index).querySelector("div").style.backgroundColor = "white";
         }
     }
-    main_plot.update_current_spectrum_index(spectrum_index);
+
+    if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
+        if (main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != spectrum_index) {
+            permanently_apply_phase_correction();
+        }
+        main_plot.current_spectrum_index = spectrum_index;
+    }
+    else {
+        main_plot.current_spectrum_index = -1;
+    }
+
+
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
 
     /**
@@ -2758,6 +2817,8 @@ function set_current_spectrum(spectrum_index)
         remove_peak_table();
         main_plot.remove_peaks();
     }
+
+    
 }
 
 
@@ -2790,9 +2851,11 @@ function get_center(peaks) {
 function permanently_apply_phase_correction()
 {
     return_data = main_plot.permanently_apply_phase_correction();
+    if(typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
+    abandon_baseline_correction(ndx);//need to run before changing current spectrum
 
-    if ( all_spectra[ndx].fid_process_parameters !== null)
+    if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         /**
          * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
@@ -2833,7 +2896,7 @@ function permanently_apply_phase_correction()
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
+    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0;
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0);
@@ -2892,9 +2955,20 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
  */
 async function run_auto_pc()
 {
+    abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
     if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
     {
         alert("No spectrum selected for phase correction.");
+        return;
+    }
+    /**
+     * If current spectrum is not complex, alert user and return
+     */
+    if(typeof all_spectra[main_plot.current_spectrum_index].raw_data_i === "undefined" 
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i === null 
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i.length !== all_spectra[main_plot.current_spectrum_index].raw_data.length)
+    {
+        alert("Current spectrum is not complex or imaginary part is invalid (which will happen after baseline correction).");
         return;
     }
     /**
@@ -2923,9 +2997,10 @@ async function run_ann_phase_correction(ndx)
     /**
      * Disable manual phase correction and myself button during auto phase correction
      */
-    document.getElementById("button_auto_pc").disabled = true;
-    document.getElementById("button_apply_ps").disabled = true;
-    b_allow_manual_phase_correction = false;
+    disable_enable_phase_baseline_buttons(false);
+
+    document.getElementById("log").value += "Starting automatic phase correction using ANN model...\n";
+    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
 
     let result = await get_best_location_diagonal(ndx,0,0);
@@ -3037,7 +3112,7 @@ async function run_ann_phase_correction(ndx)
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && all_spectra[ndx].fid_process_parameters !== null)
+    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
     {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1]-result[0]);
@@ -3078,9 +3153,7 @@ async function run_ann_phase_correction(ndx)
     /**
      * Enable manual phase correction and myself button after auto phase correction
      */
-    document.getElementById("button_auto_pc").disabled = false;
-    document.getElementById("button_apply_ps").disabled = false;
-    b_allow_manual_phase_correction = true;
+    disable_enable_phase_baseline_buttons(true);
 }
 
 /**
@@ -3140,7 +3213,7 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
 
 async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,current_prediction1)
 {
-    const phase_step = 0.7071; //0.7071 degree step
+    const phase_step = 0.7071/4; //0.7071 degree step
     const phase_direction = -Math.PI / 4; //-45 degree direction
 
     /**
@@ -3185,7 +3258,7 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
 async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
 {
     const phase_direction = -Math.PI / 4; //-45 degree direction
-    const phase_step = 0.7071;
+    const phase_step = 0.7071/4;
     let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
 
     let data = get_data_from_phase_correction(ndx,result[0],result[1]);
@@ -3483,3 +3556,121 @@ async function runPrediction(data, data_length, flag=0) {
     return reshapedProbabilities;
 }
 
+
+/**
+ * User click button to run baseline estimation
+ */
+function run_baseline_correction()
+{
+    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
+    {
+        alert("No spectrum selected for baseline correction.");
+        return;
+    }
+    let spectrum_index = main_plot.current_spectrum_index;
+
+    let header = new Float32Array(all_spectra[spectrum_index].header);
+    header[55] = 1.0; //keep real part only
+    header[56] = 1.0; //keep real part only
+    header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
+    header[219] = 1; //size of indirect dimension of the input spectrum (always 1 for 1D)
+    let n_water = 0; //default value
+    if(document.getElementById("exclude_water").checked)
+    {
+        n_water=all_spectra[spectrum_index].n_direct/512; //number of water points to be excluded in baseline correction
+    }
+
+    let smooth_parameter = document.getElementById("smooth_parameter").value;
+    smooth_parameter = parseFloat(smooth_parameter);
+
+    webassembly_1d_worker_2.postMessage({
+        webassembly_job: 'baseline_correction',
+        spectrum_header: header, //float32 array
+        spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
+        spectrum_index: spectrum_index,
+        a0: Math.pow(10, smooth_parameter),
+        b0: 1.5,
+        n_water: n_water,
+    });
+    disable_enable_phase_baseline_buttons(false);
+}
+
+/**
+ * User click button to apply baseline correction
+ */
+function apply_baseline_correction()
+{
+    let spectrum_index = main_plot.current_spectrum_index;
+    if(spectrum_index < 0 || spectrum_index >= all_spectra.length)
+    {
+        alert("No spectrum selected for baseline correction.");
+        return;
+    }
+    
+
+    if(typeof all_spectra[spectrum_index].baseline === "undefined" 
+        || all_spectra[spectrum_index].baseline.length ===0 
+        || all_spectra[spectrum_index].raw_data.length !== all_spectra[spectrum_index].baseline.length)
+    {
+        return;
+    }
+
+    
+    disable_enable_phase_baseline_buttons(false);
+
+    for(let i=0;i<all_spectra[spectrum_index].n_direct;i++){
+        all_spectra[spectrum_index].raw_data[i] = all_spectra[spectrum_index].raw_data[i] - all_spectra[spectrum_index].baseline[i];
+    }
+    /**
+     * Remove imaginary part if exists, because baseline correction is only applied to real part and after that, imaginary part is not valid anymore
+     */
+    all_spectra[spectrum_index].raw_data_i = new Float32Array(0);
+    /**
+     * Clear saved baseline as well
+     */
+    all_spectra[spectrum_index].baseline = new Float32Array(0);
+
+    //update the plot
+    main_plot.remove_baseline_area();
+    let data = [];
+
+    for (let i = 0; i < all_spectra[spectrum_index].n_direct; i++) {
+        data.push([all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i, all_spectra[spectrum_index].raw_data[i]]);
+    }
+    
+    main_plot.add_data(data, all_spectra[spectrum_index].spectrum_index, all_spectra[spectrum_index].spectrum_color);
+    disable_enable_phase_baseline_buttons(true);
+}
+
+/**
+ * When user run phase correction without applying baseline or rerun baseline calculation, abandon the baseline correction
+ * User can also click a button to abandon baseline correction
+ */
+function abandon_baseline_correction(ndx)
+{
+    if(ndx < 0 )
+    {
+        ndx = main_plot.current_spectrum_index;
+    }
+    // Clear the baseline and raw data
+    all_spectra[ndx].baseline = new Float32Array(0);
+
+    // Update the plot
+    main_plot.remove_baseline_area();
+}
+
+/**
+ * When auto phase correction or baseline correction is running, disable manual phase correction and baseline correction buttons
+ * Also disable dragging of spectrum to re-order
+ * Also disable click to reset current spectrum
+ * @param {*} enable 
+ */
+function disable_enable_phase_baseline_buttons(enable=true)
+{
+    document.getElementById("button_auto_pc").disabled = !enable;
+    document.getElementById("button_apply_pc").disabled = !enable;
+    document.getElementById("button_baseline_correction").disabled = !enable;
+    document.getElementById("button_apply_baseline_correction").disabled = !enable;
+    b_allow_manual_phase_correction = enable;
+    b_allow_dragging_spectrum = enable;
+}
