@@ -654,6 +654,47 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
     }
 });
 
+/**
+ * Save current size and zoom level to the input field "size_and_zoom_string"
+ */
+function write_current_size()
+{
+    let width = document.getElementById("plot_1d").style.width;
+    let height = document.getElementById("plot_1d").style.height;
+    /**
+     * Remove "px" from width and height
+     */
+    width = parseFloat(width.replace("px",""));
+    height = parseFloat(height.replace("px",""));
+    
+    let xscale = main_plot.xscale.domain();
+    let yscale = main_plot.yscale.domain();
+
+    let size_info = width.toString().concat(" ",height.toString()," ",xscale[0].toFixed(3)," ",xscale[1].toFixed(3)," ",yscale[0].toFixed(3)," ",yscale[1].toFixed(3));
+
+    document.getElementById("size_and_zoom_string").value = size_info;
+}
+
+/**
+ * Apply size and zoom level from the input field "size_and_zoom_string"
+ */
+function apply_size_and_zoom()
+{
+    let size_info = document.getElementById("size_and_zoom_string").value.split(" ");
+    if(size_info.length === 6 && main_plot !== null)
+    {
+        let width = parseFloat(size_info[0]);
+        let height = parseFloat(size_info[1]);
+        let xscale = [parseFloat(size_info[2]), parseFloat(size_info[3])];
+        let yscale = [parseFloat(size_info[4]), parseFloat(size_info[5])];
+
+        document.getElementById("plot_1d").style.width = width.toString().concat("px");
+        document.getElementById("plot_1d").style.height = height.toString().concat("px");
+        main_plot.xscale.domain(xscale);
+        main_plot.yscale.domain(yscale);
+    }
+}
+
 
 function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom)
 {
@@ -1104,6 +1145,23 @@ function add_to_list(index) {
     line_color_input.addEventListener("change", (e) => { update_line_color(e, index); });
     new_spectrum_div.appendChild(line_color_label);
     new_spectrum_div.appendChild(line_color_input);
+
+    /**
+     * A line width input element (type number) with ID "line_width-".concat(index)
+     * Set the value of the input to default value of 2
+     * Also add an event listener to update the line width of the contour plot
+     */
+    let line_width_label = document.createElement("label");
+    line_width_label.setAttribute("for", "line_width-".concat(index));
+    line_width_label.innerText = " Line width: ";
+    let line_width_input = document.createElement("input");
+    line_width_input.setAttribute("type", "number");
+    line_width_input.setAttribute("min", "1");
+    line_width_input.setAttribute("value", "2");
+    line_width_input.style.width = '48px';
+    line_width_input.addEventListener("change", (e) => { update_line_width(e, index); });
+    new_spectrum_div.appendChild(line_width_label);
+    new_spectrum_div.appendChild(line_width_input);
 
     /**
      * For no-reconstructed spectra or add spectra from pseudo 2D, add 
@@ -2335,6 +2393,11 @@ function update_line_color(e,index) {
     let color = e.target.value;  //hex format
     all_spectra[index].spectrum_color = (color);
     main_plot.update_spectrum_color(index, color);
+}
+
+function update_line_width(e,index) {
+    let width = parseFloat(e.target.value);
+    main_plot.update_spectrum_line_width(index, width);
 }
 
 /**

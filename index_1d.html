@@ -133,6 +133,9 @@
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
+                        <button onclick="write_current_size()">Fill plot size and zoom</button>
+                        <input type = "text" id="size_and_zoom_string" placeholder="size and zoom level of plot" style="width: 300px;">
+                        <button onclick="apply_size_and_zoom()">Apply plot size and zoom</button>
                         <br>
                         
                         <button id="button_auto_pc" onclick="run_auto_pc()">Run automatic phase correction</button>

@@ -636,6 +636,14 @@ class myplot_1d {
         }
     }
 
+    update_spectrum_line_width(index, line_width) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.vis.select(`#${lineId}`)
+                .attr("stroke-width", line_width);
+        }
+    }
+
     update_visibility(index, visibility) {
         const lineId = `line${index}`;
         if (this.allLines[lineId]) {
