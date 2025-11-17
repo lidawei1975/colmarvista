@@ -442,7 +442,7 @@ plotit.prototype.send_scales_to_other_window = function () {
      */
         if(this.inter_window_channel) {
             this.inter_window_channel.postMessage({
-                type: 'zoom',
+                type: '2d_zoom',
                 peak_group: peak_group,
                 xscale: this.xscale,
                 yscale: this.yscale

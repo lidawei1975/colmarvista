@@ -531,10 +531,23 @@ class myplot_1d {
             }
 
             this.redraw();
+            this.send_scales_to_other_windows();
         });
 
     }
 
+    send_scales_to_other_windows()
+    {
+        if(document.getElementById("plot_group") && this.inter_window_channel)
+        {
+            let peak_group = document.getElementById("plot_group").value;
+            this.inter_window_channel.postMessage({
+                type: '1d_zoom',
+                peak_group: peak_group,
+                xscale: this.xscale.domain(),
+            });
+        }
+    }
 
 
     /**
@@ -620,6 +633,14 @@ class myplot_1d {
         if (this.allLines[lineId]) {
             this.vis.select(`#${lineId}`)
                 .attr("stroke", color);
+        }
+    }
+
+    update_spectrum_line_width(index, line_width) {
+        const lineId = `line${index}`;
+        if (this.allLines[lineId]) {
+            this.vis.select(`#${lineId}`)
+                .attr("stroke-width", line_width);
         }
     }
 
@@ -801,6 +822,7 @@ class myplot_1d {
                  * Redraw the plot
                  */
                 self.redraw();
+                this.send_scales_to_other_windows();
                 if(this.peak_type === "fitted" && self.zoom_pan_on_call_function && self.current_spectrum_index != -1)
                 {
                     self.zoom_pan_on_call_function(self.current_spectrum_index);

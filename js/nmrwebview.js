@@ -2809,14 +2809,23 @@ function init_plot(input) {
          */
         let peak_group = document.getElementById("plot_group").value;
 
-        if (event.data.type === 'zoom' && event.data.peak_group === peak_group) {
+        if (event.data.type === '2d_zoom' && event.data.peak_group === peak_group) {
             if(main_plot !== null)
             {
                 main_plot.zoom_to(event.data.xscale, event.data.yscale);
             }
         }
 
-        if(event.data.type === 'cross_line' && event.data.peak_group === peak_group)
+        else if (event.data.type === '1d_zoom' && event.data.peak_group === peak_group) {
+            if(main_plot !== null)
+            {
+                let y_scale = main_plot.yscale;
+                let x_scale = [event.data.xscale[1], event.data.xscale[0]];
+                main_plot.zoom_to(x_scale, y_scale);
+            }
+        }
+
+        else if (event.data.type === 'cross_line' && event.data.peak_group === peak_group)
         {
             if(main_plot !== null)
             {
