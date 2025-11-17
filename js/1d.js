@@ -1732,6 +1732,43 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
 
         };
         main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+        
+        /**
+         * When initializing the plot, we also initialize the BroadcastChannel
+         */
+        inter_window_channel = new BroadcastChannel('plot_ppm_region');
+        /**
+         * Listen to channel message from other windows
+         */
+        inter_window_channel.onmessage = (event) => {
+
+            console.log('Received message from other window:', event.data);
+
+            /**
+             * Get plot_group number (from 1 to 10)
+             */
+            let peak_group = document.getElementById("plot_group").value;
+
+            if (event.data.type === '1d_zoom' && event.data.peak_group === peak_group) {
+                if(main_plot !== null)
+                {
+                    main_plot.zoom_to(event.data.xscale);
+                }
+            }
+            else if(event.data.type === '2d_zoom' && event.data.peak_group === peak_group)
+            {
+                if(main_plot !== null)
+                {
+                    /**
+                     * For some reason, event.data.xscale from 2D plot is in ascending order, we need to switch
+                     * before passing to main_plot.zoom_to()
+                     */
+                    let xscale = [event.data.xscale[1], event.data.xscale[0]];
+                    main_plot.zoom_to(xscale);
+                }
+            }
+        }
+        main_plot.inter_window_channel = inter_window_channel;
 
         /**
          * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
@@ -2501,6 +2538,38 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
             };
             main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+            /**
+             * When initializing the plot, we also initialize the BroadcastChannel
+             */
+            inter_window_channel = new BroadcastChannel('plot_ppm_region');
+            /**
+             * Listen to channel message from other windows
+             */
+            inter_window_channel.onmessage = (event) => {
+                /**
+                 * Get plot_group number (from 1 to 10)
+                 */
+                let peak_group = document.getElementById("plot_group").value;
+
+                if (event.data.type === '1d_zoom' && event.data.peak_group === peak_group) {
+                    if(main_plot !== null)
+                    {
+                        main_plot.zoom_to(event.data.xscale);
+                    }
+                }
+                else if(event.data.type === '2d_zoom' && event.data.peak_group === peak_group)
+                {
+                    /**
+                     * From 2d, we need to swap xscale[0] and xscale[1]
+                     */
+                    let xscale = [event.data.xscale[1], event.data.xscale[0]];
+                    if(main_plot !== null)
+                    {
+                        main_plot.zoom_to(xscale);
+                    }
+                }
+            }
+            main_plot.inter_window_channel = inter_window_channel;
 
             /**
              * Add first spectrum to the plot (result_spectra[0] is the first spectrum)
