@@ -24,7 +24,7 @@ catch (err) {
     }
 }
 
-
+var plot_font_size = 24; //default plot font size
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
@@ -695,6 +695,28 @@ function apply_size_and_zoom()
         document.getElementById("plot_1d").style.height = height.toString().concat("px");
         main_plot.xscale.domain(xscale);
         main_plot.yscale.domain(yscale);
+        main_plot.redraw();
+    }
+}
+
+/**
+ * Change font size of the plot
+ */
+function apply_font_size()
+{
+    let new_size = parseFloat(document.getElementById("fontsize").value);
+    if (!isNaN(new_size)) {
+        plot_font_size = new_size;
+        /**
+         * Calculate new margins based on the new font size
+         */
+        let new_margin = {
+            left: 15 + plot_font_size * 5,
+            right: 10,
+            top: 10,
+            bottom: 15 + plot_font_size * 3
+        };
+        main_plot.update_margins_and_font(new_margin,plot_font_size);
     }
 }
 

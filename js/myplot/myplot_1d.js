@@ -125,12 +125,13 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params,zoom_pan_on_call_function) {
+    init(width, height, peak_params,zoom_pan_on_call_function, fontsize) {
 
         let self = this; // to use this inside some functions
         
         this.width = width;
         this.height = height;
+        this.fontsize = fontsize || 24;
         /**
          * ON call function we need to call when user zoom out the plot using mouse wheel
          */
@@ -196,9 +197,11 @@ class myplot_1d {
             = this.vis.append("text")
                 .attr("class", "x-label")
                 .attr("text-anchor", "center")
-                .attr("x", this.width / 2)
-                .attr("y", this.height - 10)
-                .attr("font-size", "1.5em")
+                // .attr("x", this.width / 2)
+                .attr("x",this.margin.left + this.true_width / 2 - this.fontsize*8)
+                // .attr("y", this.height - 10)
+                .attr("y", this.height - this.margin.bottom / 2 + this.fontsize / 2 + 20)
+                .attr("font-size", this.fontsize + "px")
                 .text("Proton Chemical Shift (ppm)");
 
         /**
@@ -221,7 +224,7 @@ class myplot_1d {
                 .attr("x", 16)
                 .attr("cx", 0).attr("cy", 0)
                 .attr("transform", "rotate(-90 30," + this.height / 2 + ")")
-                .attr("font-size", "1.5em")
+                .attr("font-size", this.fontsize + "px")
                 .text("Intensity");
 
         /**
@@ -229,12 +232,12 @@ class myplot_1d {
          */
         d3.selectAll(".yaxis>.tick>text")
             .each(function () {
-                d3.select(this).style("font", "italic 2.0em sans-serif");
+                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
             });
 
         d3.selectAll(".xaxis>.tick>text")
             .each(function () {
-                d3.select(this).style("font", "italic 2.0em sans-serif");
+                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
             });
 
 
@@ -656,6 +659,16 @@ class myplot_1d {
         }
     }
 
+
+    update_margins_and_font(new_margins,new_fontsize) {
+        this.margin = new_margins;
+        this.fontsize = new_fontsize;
+        /**
+         * Need to re-calculate the true width and true height, move axis, etc. 
+         */
+        this.recalculate_true_size_and_redraw();
+    }
+
    
 
     resize(width, height) {
@@ -671,6 +684,14 @@ class myplot_1d {
          */
         this.width = width;
         this.height = height;
+        this.recalculate_true_size_and_redraw();
+    }
+
+    recalculate_true_size_and_redraw() {
+        /**
+         * Recalculate true width and true height
+         */
+
         this.true_width = this.width - this.margin.left - this.margin.right;
         this.true_height = this.height - this.margin.top - this.margin.bottom;
         this.xscale.range([this.width - this.margin.right, this.margin.left]);
@@ -681,8 +702,8 @@ class myplot_1d {
          */
         this.$clip_space
             .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-            .attr("width", width - this.margin.left - this.margin.right)
-            .attr("height", height - this.margin.top - this.margin.bottom);
+            .attr("width", this.width - this.margin.left - this.margin.right)
+            .attr("height", this.height - this.margin.top - this.margin.bottom);
 
 
         /**
@@ -694,8 +715,10 @@ class myplot_1d {
             .call(this.xAxis);
 
         this.xLabel
-            .attr("x", this.width / 2)
-            .attr("y", this.height - 10);
+            .attr("x",this.margin.left + this.true_width / 2 - this.fontsize*8)
+            .attr("y",this.margin.top + this.true_height + 10)
+            .attr("y", this.height - this.margin.bottom / 2 + this.fontsize / 2 + 20)
+            .attr("font-size", this.fontsize + "px")
 
         this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / 100.0).tickFormat(d3.format(".1e"));
         this.yAxis_element
@@ -705,7 +728,8 @@ class myplot_1d {
         this.yLabel
             .attr("y", this.height / 2)
             .attr("x", 16)
-            .attr("transform", "rotate(-90 30," + this.height / 2 + ")");
+            .attr("transform", "rotate(-90 30," + this.height / 2 + ")")
+            .attr("font-size", this.fontsize + "px");
 
         /**
          * Redraw the plot
@@ -997,12 +1021,12 @@ class myplot_1d {
          */
         d3.selectAll(".yaxis>.tick>text")
             .each(function () {
-                d3.select(this).style("font", "italic 2.0em sans-serif");
+                d3.select(this).style("font"," sans-serif").style("font-size", self.fontsize + "px");
             });
 
         d3.selectAll(".xaxis>.tick>text")
             .each(function () {
-                d3.select(this).style("font", "italic 2.0em sans-serif");
+                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
             });
 
         /**
