@@ -424,6 +424,13 @@ self.onmessage = async function (event) {
         }
 
         obj.set_fid_data(fid_data);
+
+        if(event.data.reduced_fid_size > 0)
+        {
+            console.log('Reducing FID size to ' + event.data.reduced_fid_size);
+            obj.reduce_fid_size(event.data.reduced_fid_size);
+        }
+
         obj.run_zf(event.data.zf_direct); // Zero filling
         obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
 

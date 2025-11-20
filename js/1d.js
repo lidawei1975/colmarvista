@@ -24,7 +24,7 @@ catch (err) {
     }
 }
 
-
+var plot_font_size = 24; //default plot font size
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
@@ -351,6 +351,7 @@ $(document).ready(function () {
              * because we are re-processing the same set of fid file
              */
             fid_process_parameters = all_spectra[current_reprocess_spectrum_index].fid_process_parameters;
+            fid_drop_process.reduce_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
             fid_process_parameters.apodization_string = document.getElementById("apodization_direct").value;
             fid_process_parameters.zf_direct = parseInt(document.getElementById("zf_direct").value);
             fid_process_parameters.phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -383,6 +384,7 @@ $(document).ready(function () {
                 /**
                  * Convert fid_buffer to Float32Array
                  */
+                let reduced_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
                 let apodization_string = document.getElementById("apodization_direct").value;
                 let zf_direct = parseInt(document.getElementById("zf_direct").value);
                 let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -402,6 +404,7 @@ $(document).ready(function () {
                  */
                 fid_process_parameters = {
                     webassembly_job: "fid_processor_1d",
+                    reduced_fid_size: reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
                     apodization_string: apodization_string,
@@ -692,6 +695,28 @@ function apply_size_and_zoom()
         document.getElementById("plot_1d").style.height = height.toString().concat("px");
         main_plot.xscale.domain(xscale);
         main_plot.yscale.domain(yscale);
+        main_plot.redraw();
+    }
+}
+
+/**
+ * Change font size of the plot
+ */
+function apply_font_size()
+{
+    let new_size = parseFloat(document.getElementById("fontsize").value);
+    if (!isNaN(new_size)) {
+        plot_font_size = new_size;
+        /**
+         * Calculate new margins based on the new font size
+         */
+        let new_margin = {
+            left: 15 + plot_font_size * 5,
+            right: 10,
+            top: 10,
+            bottom: 15 + plot_font_size * 3
+        };
+        main_plot.update_margins_and_font(new_margin,plot_font_size);
     }
 }
 
@@ -1580,6 +1605,7 @@ function reprocess_spectrum(button, spectrum_index) {
         /**
          * Set fid_process_parameters to the input fields
          */
+        document.getElementById("reduced_fid_size").value = fid_process_parameters.reduced_fid_size;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_string;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0.toFixed(2);
@@ -1594,6 +1620,7 @@ function reprocess_spectrum(button, spectrum_index) {
         /**
          * Set fid_process_parameters to the default values
          */
+        document.getElementById("reduced_fid_size").value = "0";
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";

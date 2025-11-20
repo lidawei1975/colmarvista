@@ -7,6 +7,16 @@
     <link rel="stylesheet" type="text/css" href="colmarview.css">
 </head>
 
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TWNDSX3RVS"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-TWNDSX3RVS');
+</script>
+
 
 <body>
     <div id="navbar-placeholder"></div>
@@ -51,6 +61,10 @@
                     </div>
 
                     <div class="input-section" id="input_options">
+                        <span>
+                            <label for="spectral_width_direct">Reduce FID size to (in Bruker conversion, 0 means no reduction):</label>
+                            <input type="number" name="reduced_fid_size" id="reduced_fid_size" value="0" step="1">
+                        </span>
                         <span>
                             <label for="apodization_direct">Apodization function</label>
                             <input type="text" name="apodization_direct" id="apodization_direct"
@@ -136,6 +150,9 @@
                         <button onclick="write_current_size()">Fill plot size and zoom</button>
                         <input type = "text" id="size_and_zoom_string" placeholder="size and zoom level of plot" style="width: 300px;">
                         <button onclick="apply_size_and_zoom()">Apply plot size and zoom</button>
+                        <label for="fontsize"> Font size: </label>
+                        <input type="number" id="fontsize" value="24" min="8" max="72">
+                        <button onclick="apply_font_size()">Apply</button>
                         <br>
                         
                         <button id="button_auto_pc" onclick="run_auto_pc()">Run automatic phase correction</button>
