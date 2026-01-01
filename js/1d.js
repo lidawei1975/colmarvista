@@ -1083,22 +1083,6 @@ function add_to_list(index) {
 
 
         new_spectrum_div.appendChild(document.createTextNode("Noise: " + new_spectrum.noise_level.toExponential(4) + ","));
-        /**
-         * Add two input text element with ID ref1 and ref2, default value is 0 and 0
-         * They also have a label element with text "Ref direct: " and "Ref indirect: "
-         * They also have an onblur event to update the ref_direct and ref_indirect values
-         */
-        let ref_direct_label = document.createElement("label");
-        ref_direct_label.setAttribute("for", "ref1-".concat(index));
-        ref_direct_label.innerText = " Ref direct: ";
-        let ref_direct_input = document.createElement("input");
-        ref_direct_input.setAttribute("type", "text");
-        ref_direct_input.setAttribute("id", "ref1-".concat(index));
-        ref_direct_input.setAttribute("size", "4");
-        ref_direct_input.setAttribute("value", "0.0");
-        ref_direct_input.onblur = function () { adjust_ref(index, 0); };
-        new_spectrum_div.appendChild(ref_direct_label);
-        new_spectrum_div.appendChild(ref_direct_input);
     }
 
 
