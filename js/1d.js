@@ -560,6 +560,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.negative_levels = all_spectra[e.data.spectrum_origin].negative_levels;
         result_spectrum.spectral_max = all_spectra[e.data.spectrum_origin].spectral_max;
         result_spectrum.spectral_min = all_spectra[e.data.spectrum_origin].spectral_min;
+        result_spectrum.x_ppm_ref = all_spectra[e.data.spectrum_origin].x_ppm_ref;
+        result_spectrum.spectral_scale = all_spectra[e.data.spectrum_origin].spectral_scale;
 
         /**
          * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
