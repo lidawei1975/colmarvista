@@ -26,7 +26,7 @@ catch (err) {
 var plot_font_size = 24; //default plot font size
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
-var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
+var $tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 2D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
@@ -66,7 +66,7 @@ var fid_drop_process;
 /**
  * DOM div for the processing message
  */
-var oOutput;
+var $oOutput;
 
 /**
  * Current phase correction values:
@@ -155,12 +155,12 @@ $(document).ready(function () {
     /**
      * This is the main information output area
      */
-    oOutput = document.getElementById("infor");
+    $oOutput = document.getElementById("infor");
 
     /**
      * Tooltip div. Set the opacity to 0
      */
-    tooldiv = d3.select("body")
+    $tooldiv = d3.select("body")
         .append("div")
         .attr("class", "tooltip2")
         .style("opacity", 0);
