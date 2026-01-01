@@ -191,14 +191,17 @@ class myplot_1d {
         /**
          * Add x label to the plot
          */
+        /**
+         * Add x label to the plot
+         */
         this.xLabel
             = this.vis.append("text")
                 .attr("class", "x-label")
-                .attr("text-anchor", "center")
+                .attr("text-anchor", "middle")
                 // .attr("x", this.width / 2)
-                .attr("x", this.margin.left + this.true_width / 2 - this.fontsize * 8)
+                .attr("x", this.margin.left + this.true_width / 2)
                 // .attr("y", this.height - 10)
-                .attr("y", this.height - this.margin.bottom / 2 + this.fontsize / 2 + 20)
+                .attr("y", this.height - 10)
                 .attr("font-size", this.fontsize + "px")
                 .text("Proton Chemical Shift (ppm)");
 
@@ -217,11 +220,10 @@ class myplot_1d {
         this.yLabel
             = this.vis.append("text")
                 .attr("class", "y-label")
-                .attr("text-anchor", "center")
-                .attr("y", this.height / 2)
-                .attr("x", 16)
-                .attr("cx", 0).attr("cy", 0)
-                .attr("transform", "rotate(-90 30," + this.height / 2 + ")")
+                .attr("text-anchor", "middle")
+                .attr("y", this.fontsize * 1.0)
+                .attr("x", 0 - (this.height / 2))
+                .attr("transform", "rotate(-90)")
                 .attr("font-size", this.fontsize + "px")
                 .text("Intensity");
 
@@ -708,9 +710,8 @@ class myplot_1d {
             .call(this.xAxis);
 
         this.xLabel
-            .attr("x", this.margin.left + this.true_width / 2 - this.fontsize * 8)
-            .attr("y", this.margin.top + this.true_height + 10)
-            .attr("y", this.height - this.margin.bottom / 2 + this.fontsize / 2 + 20)
+            .attr("x", this.margin.left + this.true_width / 2)
+            .attr("y", this.height - 10)
             .attr("font-size", this.fontsize + "px")
 
         this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
@@ -719,9 +720,9 @@ class myplot_1d {
             .call(this.yAxis);
 
         this.yLabel
-            .attr("y", this.height / 2)
-            .attr("x", 16)
-            .attr("transform", "rotate(-90 30," + this.height / 2 + ")")
+            .attr("y", this.fontsize * 1.0)
+            .attr("x", 0 - (this.height / 2))
+            .attr("transform", "rotate(-90)")
             .attr("font-size", this.fontsize + "px");
 
         /**
