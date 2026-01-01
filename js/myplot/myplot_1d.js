@@ -191,19 +191,31 @@ class myplot_1d {
         /**
          * Add x label to the plot
          */
-        /**
-         * Add x label to the plot
-         */
-        this.xLabel
-            = this.vis.append("text")
-                .attr("class", "x-label")
-                .attr("text-anchor", "middle")
-                // .attr("x", this.width / 2)
-                .attr("x", this.margin.left + this.true_width / 2)
-                // .attr("y", this.height - 10)
-                .attr("y", this.height - 10)
-                .attr("font-size", this.fontsize + "px")
-                .text("Proton Chemical Shift (ppm)");
+        this.xLabelGroup = this.vis.append("g")
+            .attr("class", "x-label-group")
+            .attr("transform", `translate(${this.margin.left + this.true_width / 2}, ${this.height - 10})`)
+            .call(d3.drag().on("drag", function (event) {
+                const transform = d3.select(this).attr("transform");
+                // Parse existing translate. Regex matched integers/floats
+                const match = /translate\(([^,]+),([^)]+)\)/.exec(transform);
+                let x = parseFloat(match[1]);
+                let y = parseFloat(match[2]);
+                // Add delta
+                x += event.dx;
+                y += event.dy;
+                d3.select(this).attr("transform", `translate(${x},${y})`);
+            }));
+
+        this.xLabel = this.xLabelGroup.append("text")
+            .attr("class", "x-label")
+            .attr("text-anchor", "middle")
+            .attr("font-size", this.fontsize + "px")
+            .text("Proton Chemical Shift (ppm)")
+            .on("click", function (event) {
+                let e = event;
+                if (!e || !e.target) e = d3.event;
+                self.handleLabelClick(e, this, false);
+            });
 
         /**
          * Define y axis object. Add y axis to the plot and y label
@@ -217,15 +229,34 @@ class myplot_1d {
                 .style("stroke-width", 3.5)
                 .call(this.yAxis);
 
-        this.yLabel
-            = this.vis.append("text")
-                .attr("class", "y-label")
-                .attr("text-anchor", "middle")
-                .attr("y", this.fontsize * 1.0)
-                .attr("x", 0 - (this.height / 2))
-                .attr("transform", "rotate(-90)")
-                .attr("font-size", this.fontsize + "px")
-                .text("Intensity");
+        this.yLabelGroup = this.vis.append("g")
+            .attr("class", "y-label-group")
+            // Initial position: x = fontsize*1.0, y = height/2. Rotation handled here.
+            .attr("transform", `translate(${this.fontsize * 1.0}, ${this.height / 2}) rotate(-90)`)
+            .call(d3.drag().on("drag", function (event) {
+                const transform = d3.select(this).attr("transform");
+                // Parse existing translate.
+                const match = /translate\(([^,]+),([^)]+)\)/.exec(transform);
+                if (match) {
+                    let x = parseFloat(match[1]);
+                    let y = parseFloat(match[2]);
+                    x += event.dx;
+                    y += event.dy;
+                    // Maintain rotation
+                    d3.select(this).attr("transform", `translate(${x},${y}) rotate(-90)`);
+                }
+            }));
+
+        this.yLabel = this.yLabelGroup.append("text")
+            .attr("class", "y-label")
+            .attr("text-anchor", "middle")
+            .attr("font-size", this.fontsize + "px")
+            .text("Intensity")
+            .on("click", function (event) {
+                let e = event;
+                if (!e || !e.target) e = d3.event;
+                self.handleLabelClick(e, this, true);
+            });
 
         /**
          * Because d3 des not support axis font size. We have to use css to change the font size of the axis
@@ -683,6 +714,8 @@ class myplot_1d {
     }
 
     recalculate_true_size_and_redraw() {
+        if (!this.xLabelGroup) return;
+
         /**
          * Recalculate true width and true height
          */
@@ -709,9 +742,9 @@ class myplot_1d {
             .attr('transform', 'translate(0,' + (this.height - this.margin.bottom) + ')')
             .call(this.xAxis);
 
+        this.xLabelGroup.attr("transform", `translate(${this.margin.left + this.true_width / 2}, ${this.height - 10})`);
+
         this.xLabel
-            .attr("x", this.margin.left + this.true_width / 2)
-            .attr("y", this.height - 10)
             .attr("font-size", this.fontsize + "px")
 
         this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
@@ -719,10 +752,9 @@ class myplot_1d {
             .attr('transform', 'translate(' + (this.margin.left) + ',0)')
             .call(this.yAxis);
 
+        this.yLabelGroup.attr("transform", `translate(${this.fontsize * 1.0}, ${this.height / 2}) rotate(-90)`);
+
         this.yLabel
-            .attr("y", this.fontsize * 1.0)
-            .attr("x", 0 - (this.height / 2))
-            .attr("transform", "rotate(-90)")
             .attr("font-size", this.fontsize + "px");
 
         /**
@@ -1615,5 +1647,89 @@ class myplot_1d {
         }
     }
 
-};
+    handleLabelClick(event, target, isRotated) {
+        // Prevent event bubbling so dragging doesn't start immediately or cause issues
+        if (event && event.stopPropagation) event.stopPropagation();
 
+        const textNode = d3.select(target);
+        // If already editing, ignore
+        if (textNode.style("display") === "none") return;
+
+        const currentText = textNode.text();
+        const fontSize = parseFloat(textNode.attr("font-size"));
+
+        // Hide the text node
+        textNode.style("display", "none");
+
+        // Append foreign object to the PARENT group
+        const parentGroup = d3.select(target.parentNode);
+
+        // Calculate appropriate dimensions for input
+        // Approximate width based on characters
+        const inputWidth = (currentText.length + 10) * (fontSize * 0.6);
+        const inputHeight = fontSize + 10;
+
+        const foreignObject = parentGroup.append("foreignObject")
+            .attr("width", inputWidth)
+            .attr("height", inputHeight)
+            // Center the input relative to the group origin (0,0) since text-anchor is middle
+            .attr("x", -inputWidth / 2)
+            .attr("y", -fontSize) // approximate vertical alignment
+            .style("overflow", "visible");
+
+        const input = foreignObject.append("xhtml:input")
+            .attr("type", "text")
+            .attr("value", currentText)
+            .style("font-size", fontSize + "px")
+            .style("width", "100%")
+            .style("height", "100%")
+            .style("border", "1px dashed #333")
+            .style("background", "rgba(255,255,255,0.8)")
+            .style("text-align", "center")
+            .style("color", "black");
+
+        // Focus and select all text
+        const inputNode = input.node();
+        inputNode.focus();
+        inputNode.select();
+
+        let isClosed = false;
+
+        // Save on Enter or Blur
+        const saveAndClose = () => {
+            if (isClosed) return;
+            isClosed = true;
+            const newText = inputNode.value;
+            textNode.text(newText);
+            textNode.style("display", null);
+            foreignObject.remove();
+        };
+
+        const cancelAndClose = () => {
+            if (isClosed) return;
+            isClosed = true;
+            textNode.style("display", null);
+            foreignObject.remove();
+        }
+
+        input.on("mousedown", function (event) {
+            let e = event || d3.event;
+            e.stopPropagation();
+        });
+
+        input.on("keydown", function (event) {
+            let e = event || d3.event;
+            if (e.keyCode === 13) { // Enter
+                saveAndClose();
+            }
+            if (e.keyCode === 27) { // Escape
+                cancelAndClose();
+            }
+        });
+
+        input.on("blur", function () {
+            saveAndClose();
+        });
+    }
+
+};
