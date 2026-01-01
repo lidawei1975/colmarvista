@@ -10,11 +10,11 @@
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-TWNDSX3RVS"></script>
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
 
-  gtag('config', 'G-TWNDSX3RVS');
+    gtag('config', 'G-TWNDSX3RVS');
 </script>
 
 
@@ -28,8 +28,8 @@
 
         <div id="section1" style=" Padding: 10px; width: 100%">
             <div>
-                <h1>COLMARvista 1D: a web-based 1D NMR viewer</h1>
-                <h2>For autonomous processing, peak picking, peak fitting, and pseudo-2D fitting</h2>
+                <h1>COLMARvista 1D: a browser based 1D NMR viewer</h1>
+                <h2>For automatic processing, peak picking, peak fitting, and pseudo-2D fitting</h2>
                 <h3><a target="_blank" rel="noopener noreferrer"
                         href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a></h3>
             </div>
@@ -53,8 +53,10 @@
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
-                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file" name="fid_file" id="fid_file" multiple><br>
-                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called acqus):</label>
+                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file"
+                            name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called
+                            acqus):</label>
                         <input type="file" name="acquisition_file" id="acquisition_file"><br>
                         <span class="information"> You can also drag and drop Bruker folder (which contains required
                             files here).</span><br>
@@ -62,7 +64,8 @@
 
                     <div class="input-section" id="input_options">
                         <span>
-                            <label for="spectral_width_direct">Reduce FID size to (in Bruker conversion, 0 means no reduction):</label>
+                            <label for="spectral_width_direct">Reduce FID size to (in Bruker conversion, 0 means no
+                                reduction):</label>
                             <input type="number" name="reduced_fid_size" id="reduced_fid_size" value="0" step="1">
                         </span>
                         <span>
@@ -86,7 +89,8 @@
                             <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
                                 value="0" step="any">
                             <label for="phase_correction_direct_p1">P1: </label>
-                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1" value="0" step="any">
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
+                                value="0" step="any">
                             <fieldset>
                                 <legend>Phase correction:</legend>
                                 <input type="radio" name="pc_method" id="auto_direct" value="1">
@@ -148,25 +152,30 @@
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
                         <button onclick="write_current_size()">Fill plot size and zoom</button>
-                        <input type = "text" id="size_and_zoom_string" placeholder="size and zoom level of plot" style="width: 300px;">
+                        <input type="text" id="size_and_zoom_string" placeholder="size and zoom level of plot"
+                            style="width: 300px;">
                         <button onclick="apply_size_and_zoom()">Apply plot size and zoom</button>
                         <label for="fontsize"> Font size: </label>
                         <input type="number" id="fontsize" value="24" min="8" max="72">
                         <button onclick="apply_font_size()">Apply</button>
                         <br>
-                        
+
                         <button id="button_auto_pc" onclick="run_auto_pc()">Run automatic phase correction</button>
-                        <button id="button_apply_pc" onclick="permanently_apply_phase_correction()">Apply manual phase correction</button>
-                        Anchor: <span id="anchor"> Not set </span>
-                        Phase correction at left end: <span id="pc_left_end"> 0 </span>, at right end: <span id="pc_right_end"> 0 </span>.
+                        <button id="button_apply_pc" onclick="permanently_apply_phase_correction()">Apply manual phase
+                            correction</button>
+                        Pivot: <span id="pivot"> Not set </span>
+                        Phase correction at left end: <span id="pc_left_end"> 0 </span>, at right end: <span
+                            id="pc_right_end"> 0 </span>.
                         <br>
 
                         <label for="smooth_parameter">Baseline smooth parameter(8-15): </label>
                         <input type="number" id="smooth_parameter" value="11" min="6" max="16">&nbsp;&nbsp;
-                        <label for ="exclude_water">Exclude water suppression region </label>
+                        <label for="exclude_water">Exclude water suppression region </label>
                         <input type="checkbox" id="exclude_water" checked>
-                        <button id="button_baseline_correction" onclick="run_baseline_correction()">Calculate baseline</button>
-                        <button id="button_apply_baseline_correction" onclick="apply_baseline_correction()">Apply baseline correction</button>
+                        <button id="button_baseline_correction" onclick="run_baseline_correction()">Calculate
+                            baseline</button>
+                        <button id="button_apply_baseline_correction" onclick="apply_baseline_correction()">Apply
+                            baseline correction</button>
                         <br>
 
                         <label for="peak_size">Peak size: </label>
@@ -174,11 +183,11 @@
                         <label for="peak_thickness">Thickness: </label>
                         <input type="number" id="peak_thickness" value="1" min="1" max="10">
                         <input type="checkbox" id="filled_peaks" checked>
-                        <label for="filled_peaks"> Filled peaks</label>
+                        <label for="filled_peaks"> Filled peak</label>
                         <label for="peak_color"> color </label>
                         <input type="color" id="peak_color" value="#0000ff">&nbsp;&nbsp;
                         <input type="checkbox" id="allow_drag_and_drop" disabled>
-                        <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
+                        <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peak.</label>
                         <br>
                     </div>
 
@@ -190,13 +199,15 @@
 
                     <div id="plot_1d_instructions">
                         <h4>Instructions:</h4>
-                        <p>Use wheel to zoom in  and out along the frequency axis (when cursor is over the plot area) or 
+                        <p>Use wheel to zoom in and out along the frequency axis (when cursor is over the plot area) or
                             along the vertical axis (when cursor is on the left of the Y-axis).
                         </p>
                         <p>Click and drag to pan the plot.</p>
-                        <p>Hold Alt then drag to referencing or use wheel to rescale the current spectrum, while keep others fixed.</p>
-                        <p>Hold Shift (rough) or Control(fine) then use wheel to adjust P0 (with anchor unset) or P1 phase (with anchor set).</p>
-                        <p>Use right click to set/unset anchor point. </p>
+                        <p>Hold Alt then drag to referencing or use wheel to rescale the current spectrum, while keep
+                            others fixed.</p>
+                        <p>Hold Shift (rough) or Control(fine) then use wheel to adjust P0 (with pivot unset) or P1
+                            phase (with pivot set).</p>
+                        <p>Use right click to set/unset pivot point. </p>
                     </div>
                 </div>
             </div>
