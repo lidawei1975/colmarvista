@@ -68,6 +68,17 @@ function downsampleData(data, threshold, xDomain, ref) {
     return lttb(visible, threshold);
 }
 
+/**
+ * The main class for 1D plot. It is used to plot experimental spectrum, reconstructed spectrum, simulated spectrum, and peaks.
+ * This is used by 1d.js in COLMARvista project and also by COLMAR web server COLMAR1d.
+ * At this moment, the object will access the following global variables:
+ * 1. d3, document, window (for browser). This should be set before creating the object but usually it is set in the HTML file.
+ * 2. all_spectra: This is an array of spectral.
+ * 3. current_spectrum_index_of_peaks
+ * 4. b_allow_manual_phase_correction 
+ * 5. $tooldiv (for some visualization)
+ */
+
 
 class myplot_1d {
     constructor() {
