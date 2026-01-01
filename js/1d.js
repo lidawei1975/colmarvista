@@ -185,6 +185,23 @@ $(document).ready(function () {
 
 
     /**
+     * Make div (id="fid_file_area") also accept drag and drop. 
+     * Once it detected a dragged folder moved over, it should expand itself, so that its child can accept the drop.
+     */
+    const fid_area = document.getElementById("fid_file_area");
+    fid_area.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        const btn = document.getElementById("button_minimize_fid_area");
+        if (btn.innerText === "+") {
+            minimize_fid_area(btn);
+        }
+    });
+    fid_area.addEventListener("dragover", (e) => {
+        e.preventDefault();
+    });
+
+
+    /**
      * ft2 file drop processor
      */
     ft1_file_drop_processor = new file_drop_processor()

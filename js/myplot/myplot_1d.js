@@ -355,8 +355,8 @@ class myplot_1d {
                     let ppm = self.xscale.invert(px);
                     this.anchor[this.current_spectrum_index] = true;
                     this.anchor_ppm[this.current_spectrum_index] = ppm;
-                    console.log('Set anchor at ppm: ', ppm);
-                    document.getElementById("anchor").innerHTML = ppm.toFixed(4);
+                    console.log('Set pivot at ppm: ', ppm);
+                    document.getElementById("pivot").innerHTML = ppm.toFixed(4);
                 }
             }
             return false; // To prevent the context menu from appearing
