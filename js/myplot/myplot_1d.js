@@ -77,6 +77,7 @@ function downsampleData(data, threshold, xDomain, ref) {
  * 3. current_spectrum_index_of_peaks
  * 4. b_allow_manual_phase_correction 
  * 5. $tooldiv (for some visualization)
+ * 6. DOMs with ID: main_plot, plot_group, pivot, infor, spectrum-scale-xx, spectrum-reference-xx, pc_left_end, pc_right_end
  */
 
 
