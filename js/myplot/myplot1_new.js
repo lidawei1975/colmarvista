@@ -1,5 +1,31 @@
 
 /**
+ * GLOBAL VARIABLES AND DIRECT DOM ELEMENT REFERENCES
+ * 
+ * Other classes and libraries required.
+ * - d3: Used for visualization (lines 58, 158, etc.)
+ * - cross_section_plot: Constructor (lines 79, 81)
+ * - webgl_contour_plot: Constructor (line 762)
+ * - fitting_plot: Constructor (line 1798)
+ * 
+ * 
+ * Global Variables:
+ * - hsqc_spectra: Global spectra state
+ * - current_reprocess_spectrum_index: State variable
+ * - tooldiv: Tooltip element 
+ * - zoom_on_call_function: global on-call function
+ * 
+ * Direct DOM References:
+ * - document.getElementById("pause_cursor") 
+ * - document.getElementById("plot_group") 
+ * - document.getElementById("infor")
+ * - document.getElementById("right_click") 
+ * - document.getElementById("peak_information_div") 
+ * - document.getElementById("pseudo3d_fitting_plot")
+ * - document.activeElement
+ */
+
+/**
  * Constructor for plotit object.
  * @param {*} input 
  */
@@ -12,7 +38,7 @@ function plotit(input) {
     this.xscale = [input.x_ppm_start, input.x_ppm_start + input.x_ppm_step * input.n_direct];
     this.yscale = [input.y_ppm_start, input.y_ppm_start + input.y_ppm_step * input.n_indirect];
 
-    
+
 
     this.HEIGHT = input.HEIGHT;
     this.WIDTH = input.WIDTH;
@@ -75,11 +101,11 @@ function plotit(input) {
      */
     this.current_spectral_index = 0;
     this.b_show_cross_section = false;
-    this.b_show_projection = false; 
+    this.b_show_projection = false;
     this.x_cross_section_plot = new cross_section_plot(this);
-    this.x_cross_section_plot.init( this.WIDTH, 200, this.xscale, [0, 1],{ top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x","horizontal");
+    this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
     this.y_cross_section_plot = new cross_section_plot(this);
-    this.y_cross_section_plot.init(200, this.HEIGHT,[0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y",'vertical');
+    this.y_cross_section_plot.init(200, this.HEIGHT, [0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y", 'vertical');
 
     this.lastCallTime_zoom_x = Date.now();
     this.lastCallTime_zoom_y = Date.now();
@@ -99,7 +125,7 @@ function plotit(input) {
     this.magnifying_glass_size = 10; //default is 10% of the plot size
 };
 
-plotit.prototype.enable_magnifying_glass = function (flag,ratio, size) {
+plotit.prototype.enable_magnifying_glass = function (flag, ratio, size) {
     this.magnifying_glass = flag ? flag : false; //default is false
     this.magnifying_glass_ratio = ratio ? ratio : 4.0; //default is 4.0
     this.magnifying_glass_size = size ? size : 10; //default is 10% of the plot size
@@ -111,13 +137,13 @@ plotit.prototype.enable_magnifying_glass = function (flag,ratio, size) {
  * Set a on call function for zoom event
  */
 plotit.prototype.set_zoom_on_call_function = function (func) {
-    if(zoom_on_call_function === null) {
+    if (zoom_on_call_function === null) {
         this.zoom_on_call_function = func;
     }
     else {
         console.log("zoom_on_call_function is already set. Can't set it again");
     }
-    
+
 };
 
 /**
@@ -148,16 +174,16 @@ plotit.prototype.update = function (input) {
         thickness = 1;
     }
 
-    this.xAxis.scale(this.xRange).tickSizeInner(6* thickness);
-    this.yAxis.scale(this.yRange).tickSizeInner(6* thickness);
+    this.xAxis.scale(this.xRange).tickSizeInner(6 * thickness);
+    this.yAxis.scale(this.yRange).tickSizeInner(6 * thickness);
 
 
     /**
      * Update brush extent
      */
     this.brush = d3.brush()
-    .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
-    .on("end", this.brushend.bind(this));
+        .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
+        .on("end", this.brushend.bind(this));
 
     this.brush_element.call(this.brush);
 
@@ -170,11 +196,11 @@ plotit.prototype.update = function (input) {
     this.xAxis_svg.attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')').call(this.xAxis);
     this.yAxis_svg.attr('transform', 'translate(' + (this.MARGINS.left) + ',0)').call(this.yAxis);
 
-    this.xAxis_svg.select(".domain").style("stroke-width",thickness + "px");
+    this.xAxis_svg.select(".domain").style("stroke-width", thickness + "px");
     this.xAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
     this.yAxis_svg.select(".domain").style("stroke-width", thickness + "px");
-    this.yAxis_svg.selectAll(".tick line").style("stroke-width",thickness + "px");
+    this.yAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
 
     this.vis.selectAll('.xlabel')
@@ -183,10 +209,10 @@ plotit.prototype.update = function (input) {
         .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30);
 
     this.vis.selectAll('.ylabel')
-        .attr("font-size",  this.fontsize + "px")
+        .attr("font-size", this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2 )
-        .attr("y", this.MARGINS.left / 2 -  this.fontsize / 2 - 30);
+        .attr("x", -this.HEIGHT / 2)
+        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 30);
 
 
 
@@ -208,8 +234,8 @@ plotit.prototype.update = function (input) {
      */
     this.reset_axis();
 
-    this.x_cross_section_plot.resize_x(this.WIDTH,{ top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
-    this.y_cross_section_plot.resize_y(this.HEIGHT,  { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
+    this.x_cross_section_plot.resize_x(this.WIDTH, { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
+    this.y_cross_section_plot.resize_y(this.HEIGHT, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
 
 };
 
@@ -283,36 +309,28 @@ plotit.prototype.reset_axis = function () {
             return self.yRange(d.Y_PPM);
         })
         .attr('x1', function (d) {
-            if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
-            {
-                if(d.x > self.xRange(d.X_PPM))
-                {
-                    return d.x - d.text_width/2;
+            if (Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM))) {
+                if (d.x > self.xRange(d.X_PPM)) {
+                    return d.x - d.text_width / 2;
                 }
-                else
-                {
-                    return d.x + d.text_width/2;
+                else {
+                    return d.x + d.text_width / 2;
                 }
             }
-            else
-            {
+            else {
                 return d.x;
             }
         })
         .attr('y1', function (d) {
-            if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
-            {
+            if (Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM))) {
                 return d.y;
             }
-            else
-            {
-                if(d.y > self.yRange(d.Y_PPM))
-                {
-                    return d.y - 0.5*self.peak_fontsize;
+            else {
+                if (d.y > self.yRange(d.Y_PPM)) {
+                    return d.y - 0.5 * self.peak_fontsize;
                 }
-                else
-                {
-                    return d.y + 0.5*self.peak_fontsize;
+                else {
+                    return d.y + 0.5 * self.peak_fontsize;
                 }
             }
         });
@@ -321,17 +339,17 @@ plotit.prototype.reset_axis = function () {
      * Reset position of predicted peaks, if any
      */
     self.x = d3.scaleLinear().range([self.MARGINS.left, self.WIDTH - self.MARGINS.right])
-    .domain(self.xscale);
+        .domain(self.xscale);
     self.y = d3.scaleLinear().range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top])
         .domain(self.yscale);
 
     self.line = d3.line()
-    .x((d) => self.x(d[0]))
-    .y((d) => self.y(d[1]));
+        .x((d) => self.x(d[0]))
+        .y((d) => self.y(d[1]));
 
-    for(let i=0;i<this.predicted_peaks.length;i++) {
-        this.vis.selectAll('.predicted_peak_'+i)
-        .attr("d", self.line(this.predicted_peaks[i]));
+    for (let i = 0; i < this.predicted_peaks.length; i++) {
+        this.vis.selectAll('.predicted_peak_' + i)
+            .attr("d", self.line(this.predicted_peaks[i]));
     }
 
 
@@ -341,7 +359,7 @@ plotit.prototype.reset_axis = function () {
     this.vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
     this.vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
 
-    if(this.zoom_on_call_function) {
+    if (this.zoom_on_call_function) {
         this.zoom_on_call_function();
     }
 };
@@ -368,21 +386,21 @@ plotit.prototype.brushend = function (e) {
      * Remove all peaks within the brush
      * Remove the brush and return
      */
-    if(this.allow_brush_to_remove && self.spectrum != null && self.peak_flag ==='picked') {
+    if (this.allow_brush_to_remove && self.spectrum != null && self.peak_flag === 'picked') {
         this.vis.select(".brush").call(this.brush.move, null);
         let brush_x_ppm_start = self.xRange.invert(e.selection[0][0]);
-        let brush_x_ppm_end   = self.xRange.invert(e.selection[1][0]);
+        let brush_x_ppm_end = self.xRange.invert(e.selection[1][0]);
         let brush_y_ppm_start = self.yRange.invert(e.selection[1][1]);
-        let brush_y_ppm_end   = self.yRange.invert(e.selection[0][1]);
+        let brush_y_ppm_end = self.yRange.invert(e.selection[0][1]);
 
         /**
          * Make sure brush_x_ppm_start < brush_x_ppm_end and brush_y_ppm_start < brush_y_ppm_end
          * Their order depends on the direction of the brush operation by the user
          */
-        if(brush_x_ppm_start > brush_x_ppm_end) {
+        if (brush_x_ppm_start > brush_x_ppm_end) {
             [brush_x_ppm_start, brush_x_ppm_end] = [brush_x_ppm_end, brush_x_ppm_start];
         }
-        if(brush_y_ppm_start > brush_y_ppm_end) {
+        if (brush_y_ppm_start > brush_y_ppm_end) {
             [brush_y_ppm_start, brush_y_ppm_end] = [brush_y_ppm_end, brush_y_ppm_start];
         }
 
@@ -391,9 +409,9 @@ plotit.prototype.brushend = function (e) {
          * This step can't be undone !!
          */
         self.spectrum.picked_peaks_object.filter_by_columns_range(
-            ["X_PPM","Y_PPM"],
-            [brush_x_ppm_start,brush_y_ppm_start],
-            [brush_x_ppm_end,brush_y_ppm_end],false);
+            ["X_PPM", "Y_PPM"],
+            [brush_x_ppm_start, brush_y_ppm_start],
+            [brush_x_ppm_end, brush_y_ppm_end], false);
 
         /**
          * Redraw peaks
@@ -440,15 +458,15 @@ plotit.prototype.send_scales_to_other_window = function () {
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
      */
-        if(this.inter_window_channel) {
-            this.inter_window_channel.postMessage({
-                type: '2d_zoom',
-                peak_group: peak_group,
-                xscale: this.xscale,
-                yscale: this.yscale
-            });
-        }
+    if (this.inter_window_channel) {
+        this.inter_window_channel.postMessage({
+            type: '2d_zoom',
+            peak_group: peak_group,
+            xscale: this.xscale,
+            yscale: this.yscale
+        });
     }
+}
 
 plotit.prototype.zoom_to = function (x_scale, y_scale) {
     this.xscales.push(this.xscale);
@@ -468,7 +486,7 @@ plotit.prototype.zoom_to = function (x_scale, y_scale) {
 }
 
 plotit.prototype.zoom_x = function (x_ppm) {
-    
+
     let self = this;
     this.xscale = x_ppm;
     /**
@@ -527,7 +545,7 @@ plotit.prototype.popzoom = function () {
     }
 };
 
-plotit.prototype.resetzoom = function (x,y) {
+plotit.prototype.resetzoom = function (x, y) {
     /**
      * Clear the zoom stack
      */
@@ -629,11 +647,11 @@ plotit.prototype.draw = function () {
     /**
      * Place holder vline and hline, not visible
      */
-    this.hline_data = [[0.1,-1000],[0,-1000]];
-    this.vline_data = [[-1000,0],[-1000,1]];
+    this.hline_data = [[0.1, -1000], [0, -1000]];
+    this.vline_data = [[-1000, 0], [-1000, 1]];
     this.vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
     this.vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
-    
+
     this.reset_axis();
 
     this.vis.append("text")
@@ -641,7 +659,7 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize  / 2 + 30)
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
@@ -650,8 +668,8 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2 )
-        .attr("y", this.MARGINS.left / 2 - this.fontsize  / 2 - 30)
+        .attr("x", -this.HEIGHT / 2)
+        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 30)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
@@ -761,22 +779,21 @@ plotit.prototype.draw = function () {
      */
     this.contour_plot = new webgl_contour_plot(this.drawto_contour);
 
-    if(self.b_show_projection) {
-        self.show_projection();    
+    if (self.b_show_projection) {
+        self.show_projection();
     }
 };
 
-plotit.prototype.setup_cross_line = function (event)
-{
+plotit.prototype.setup_cross_line = function (event) {
     let self = this;
     let coordinates = [event.offsetX, event.offsetY];
     let x_ppm = self.xRange.invert(coordinates[0]);
     let y_ppm = self.yRange.invert(coordinates[1]);
-    
+
     /**
      * Send the cross line to other window
      */
-    if(this.inter_window_channel) {
+    if (this.inter_window_channel) {
         this.inter_window_channel.postMessage({
             type: 'cross_line',
             y_ppm: y_ppm,
@@ -825,23 +842,20 @@ plotit.prototype.setup_cross_line = function (event)
     /**
      * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
      */
-    if(self.b_show_cross_section && (hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && ( current_reprocess_spectrum_index == self.current_spectral_index || hsqc_spectra.length==1))
-    {
-        self.setup_cross_line_from_ppm(x_ppm, y_ppm,self.current_spectral_index,1/**flag for phase correction */);
+    if (self.b_show_cross_section && (hsqc_spectra[self.current_spectral_index].spectrum_origin == -2 || hsqc_spectra[self.current_spectral_index].spectrum_origin == -1) && (current_reprocess_spectrum_index == self.current_spectral_index || hsqc_spectra.length == 1)) {
+        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1/**flag for phase correction */);
     }
     /**
      * else, show cross section of all spectra (except removed spectra)
      * Loop through all spectra and show cross section
      */
-    else if(self.b_show_cross_section)
-    {
-        this.x_cross_section_plot.clear_data();  
-        this.y_cross_section_plot.clear_data(); 
-        for (let i = 0; i < hsqc_spectra.length; i++)
-        {
+    else if (self.b_show_cross_section) {
+        this.x_cross_section_plot.clear_data();
+        this.y_cross_section_plot.clear_data();
+        for (let i = 0; i < hsqc_spectra.length; i++) {
             if (hsqc_spectra[i].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
             {
-                self.setup_cross_line_from_ppm(x_ppm, y_ppm,i,0);
+                self.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
             }
         }
     }
@@ -849,12 +863,10 @@ plotit.prototype.setup_cross_line = function (event)
 };
 
 
-plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction)
-{
+plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction) {
     let self = this;
 
-    if (flag_manual_phase_correction || self.b_show_cross_section)
-    {   
+    if (flag_manual_phase_correction || self.b_show_cross_section) {
         /**
          * Show cross section along x-axis (direct dimension).
          * 1. Find the closest point in the data hsqc_spectra[spe_index].raw_data (1D Float32 array with size hsqc_spectra[spe_index].n_direct*hsqc_spectra[spe_index].n_indirect)
@@ -921,15 +933,14 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             /**
              * Draw cross section line plot on the cross_section_svg_x
              */
-            if(flag_manual_phase_correction == 1) {
+            if (flag_manual_phase_correction == 1) {
                 self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
                 self.x_cross_section_plot.update_data([hsqc_spectra[spectrum_index].x_ppm_start + hsqc_spectra[spectrum_index].x_ppm_ref, hsqc_spectra[spectrum_index].x_ppm_step, hsqc_spectra[spectrum_index].n_direct],
                     [data_ppm, data_height, data_height_i]);
             }
-            else
-            {
+            else {
                 self.x_cross_section_plot.zoom(self.xscale, [data_min, data_max]);
-                self.x_cross_section_plot.add_data([data_ppm, data_height],spectrum_index);
+                self.x_cross_section_plot.add_data([data_ppm, data_height], spectrum_index);
             }
         }
 
@@ -960,8 +971,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
         /**
          * if x_pos is out of range, do nothing and return
          */
-        if (x_pos >= 0 && x_pos < hsqc_spectra[spectrum_index].n_direct)
-        {
+        if (x_pos >= 0 && x_pos < hsqc_spectra[spectrum_index].n_direct) {
             /**
              * Get ppm values for the data, which is an array stats from hsqc_spectra[spectrum_index].y_ppm_start + y_pos_start * hsqc_spectra[spectrum_index].y_ppm_step
              * to hsqc_spectra[spectrum_index].y_ppm_start + y_pos_end * hsqc_spectra[spectrum_index].y_ppm_step
@@ -987,7 +997,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
              * If hsqc_spectra[spectrum_index].raw_data_ir is not empty 
              * then use it to get the data_height_i
              */
-            if (hsqc_spectra[spectrum_index].raw_data_ir.length > 0 ) {
+            if (hsqc_spectra[spectrum_index].raw_data_ir.length > 0) {
                 for (let i = 0; i < hsqc_spectra[spectrum_index].n_indirect; i++) {
                     data_height_i.push(hsqc_spectra[spectrum_index].raw_data_ir[i * hsqc_spectra[spectrum_index].n_direct + x_pos]);
                 }
@@ -1009,16 +1019,14 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             /**
              * Draw cross section line plot on the cross_section_svg_y
              */
-            if(flag_manual_phase_correction ==1)
-            {
+            if (flag_manual_phase_correction == 1) {
                 self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
                 self.y_cross_section_plot.update_data([hsqc_spectra[spectrum_index].y_ppm_start + hsqc_spectra[spectrum_index].y_ppm_ref, hsqc_spectra[spectrum_index].y_ppm_step, hsqc_spectra[spectrum_index].n_indirect],
                     [data_ppm, data_height, data_height_i]);
             }
-            else
-            {
+            else {
                 self.y_cross_section_plot.zoom([data_min, data_max], self.yscale);
-                self.y_cross_section_plot.add_data([data_ppm, data_height],spectrum_index);
+                self.y_cross_section_plot.add_data([data_ppm, data_height], spectrum_index);
             }
         }
     } //end of show cross section
@@ -1048,51 +1056,44 @@ plotit.prototype.show_projection = function () {
     /**
      * Loop all spectrum, except unknown and removed
      */
-    for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++)
-    {
+    for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++) {
         if (hsqc_spectra[spe_index].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
         {
 
             /**
              * data is an array of 2 numbers, [x_ppm, x_height]
              */
-            let ppm =[];
-            for(let i = 0; i < hsqc_spectra[spe_index].n_direct; i++)
-            {
+            let ppm = [];
+            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
-            self.x_cross_section_plot.zoom(self.xscale,[hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm,hsqc_spectra[spe_index].projection_direct],spe_index);
+            self.x_cross_section_plot.zoom(self.xscale, [hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
+            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index);
 
 
             /**
              * data2 is an array of 2 numbers, [y_height,y_ppm]
              */
-            let ppm2 =[];
-            for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++)
-            {
+            let ppm2 = [];
+            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max],self.yscale);
-            self.y_cross_section_plot.add_data([ppm2,hsqc_spectra[spe_index].projection_indirect],spe_index);
+            self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max], self.yscale);
+            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index);
         }
-    }   
+    }
 }
 
-plotit.prototype.redraw_1d = function()
-{
-    if(this.x_cross_section_plot !== null)
-    {
+plotit.prototype.redraw_1d = function () {
+    if (this.x_cross_section_plot !== null) {
         this.x_cross_section_plot.redraw();
     }
-    if(this.y_cross_section_plot !== null)
-    {
+    if (this.y_cross_section_plot !== null) {
         this.y_cross_section_plot.redraw();
     }
 }
 
-plotit.prototype.redraw_contour = function ()
-{
+plotit.prototype.redraw_contour = function () {
     /**
      * Update webgl contour data.
      */
@@ -1115,7 +1116,7 @@ plotit.prototype.redraw_contour = function ()
         this.levels_length_negative,
         this.colors_negative,
         this.contour_lbs_negative
-        );
+    );
 
     this.contour_plot.spectral_order = this.spectral_order;
 
@@ -1123,26 +1124,24 @@ plotit.prototype.redraw_contour = function ()
     this.contour_plot.drawScene();
 }
 
-plotit.prototype.update_cross_section = function (spe_index,flag) {
+plotit.prototype.update_cross_section = function (spe_index, flag) {
     /**
      * Only need to update when current cross section is the same as the spectral_index
      */
-    if(this.current_spectral_index === spe_index) {
-        if(flag === 0) {
-            let ppm =[];
-            for(let i = 0; i < hsqc_spectra[spe_index].n_direct; i++)
-            {
+    if (this.current_spectral_index === spe_index) {
+        if (flag === 0) {
+            let ppm = [];
+            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
-            this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref,hsqc_spectra[spe_index].x_ppm_step,hsqc_spectra[spe_index].n_direct],ppm,spe_index);
+            this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref, hsqc_spectra[spe_index].x_ppm_step, hsqc_spectra[spe_index].n_direct], ppm, spe_index);
         }
-        else if(flag === 1) {
-            let ppm2 =[];
-            for(let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++)
-            {
+        else if (flag === 1) {
+            let ppm2 = [];
+            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref,hsqc_spectra[spe_index].y_ppm_step,hsqc_spectra[spe_index].n_indirect],ppm2,spe_index);
+            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref, hsqc_spectra[spe_index].y_ppm_step, hsqc_spectra[spe_index].n_indirect], ppm2, spe_index);
         }
     }
 };
@@ -1150,10 +1149,9 @@ plotit.prototype.update_cross_section = function (spe_index,flag) {
 /**
  * Redraw contour plot with new order of spectra
  */
-plotit.prototype.redraw_contour_order = function ()
-{
+plotit.prototype.redraw_contour_order = function () {
     this.contour_plot.spectral_order = this.spectral_order;
-    this.contour_plot.drawScene();   
+    this.contour_plot.drawScene();
 }
 
 /**
@@ -1170,7 +1168,7 @@ plotit.prototype.set_peak_level_negative = function (level) {
 /**
  * Set peaks for the plot
  */
-plotit.prototype.add_peaks = function (spectrum,flag,properties,peak_color_flag) {
+plotit.prototype.add_peaks = function (spectrum, flag, properties, peak_color_flag) {
     this.spectrum = spectrum;
     this.peak_flag = flag;
     this.peak_properties = properties;
@@ -1184,14 +1182,13 @@ plotit.prototype.add_peaks = function (spectrum,flag,properties,peak_color_flag)
  * @param {string} assignment: new assignment
  * @returns 
  */
-plotit.prototype.update_peak_ass_property = function(index,assignment)
-{
+plotit.prototype.update_peak_ass_property = function (index, assignment) {
     let self = this;
     for (let i = 0; i < self.new_peaks.length; i++) {
         const obj = self.new_peaks[i];
-    
+
         if (obj && obj['INDEX'] == index) {
-          obj['ASS'] = assignment;
+            obj['ASS'] = assignment;
         }
     }
 
@@ -1199,61 +1196,54 @@ plotit.prototype.update_peak_ass_property = function(index,assignment)
      * Need to update this.visible_peaks as well, which is a deep copy of sub array of this.new_peaks
      * note: it is possible this.visible_peaks does NOT include index
      */
-    for(let i=0; i < self.visible_peaks.length; i++)
-    {
+    for (let i = 0; i < self.visible_peaks.length; i++) {
         const obj = self.visible_peaks[i];
         if (obj && obj['INDEX'] == index) {
             obj['ASS'] = assignment;
-          }
+        }
     }
 
     /**
      * Update text on the plot
      */
-    if(this.$peaks_text_svg !== null)
-    {
+    if (this.$peaks_text_svg !== null) {
         this.$peaks_text_svg
-        .text(function (d) {
-            if(typeof d[self.text_label] === "number")
-            {
-                if(Number.isInteger(d[self.text_label]) && d[self.text_label] < 1000 )
-                {
-                    return d[self.text_label].toFixed(0);
+            .text(function (d) {
+                if (typeof d[self.text_label] === "number") {
+                    if (Number.isInteger(d[self.text_label]) && d[self.text_label] < 1000) {
+                        return d[self.text_label].toFixed(0);
+                    }
+                    else if (d[self.text_label] > 1000) {
+                        return d[self.text_label].toExponential(2);
+                    }
+                    else if (d[self.text_label] < 0.01) {
+                        return d[self.text_label].toExponential(2);
+                    }
+                    else {
+                        return d[self.text_label].toFixed(2);
+                    }
                 }
-                else if(d[self.text_label] > 1000)
-                {
-                    return d[self.text_label].toExponential(2);
+                else {
+                    return d[self.text_label];
                 }
-                else if(d[self.text_label] < 0.01)
-                {
-                    return d[self.text_label].toExponential(2);
-                }
-                else
-                {
-                    return d[self.text_label].toFixed(2);
-                }
-            }
-            else{
-                return d[self.text_label];
-            }
-        })
-        .attr('dx', function (d) {
-            /**
-             * Save the text width to d.text_width. to be used in the tick function
-             * to update line position
-             */
-            d.text_width = this.getComputedTextLength();
-            return -this.getComputedTextLength()/2;
-        });
+            })
+            .attr('dx', function (d) {
+                /**
+                 * Save the text width to d.text_width. to be used in the tick function
+                 * to update line position
+                 */
+                d.text_width = this.getComputedTextLength();
+                return -this.getComputedTextLength() / 2;
+            });
     }
-   
+
 }
 
 /**
  * Add peak labels to the plot. Only show the labels for the peaks that are visible
  * That is, this function need to be called after any zoom, pan, resize or contour level change to be valid
  */
-plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_force,peak_fontsize,color,label) {
+plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsive_force, peak_fontsize, color, label) {
     let self = this;
 
     self.peak_fontsize = peak_fontsize;
@@ -1262,8 +1252,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     /**
      * In case of new simulation, stop the old one
      */
-    if( this.sim != null)
-    {
+    if (this.sim != null) {
         this.sim.stop();
     }
 
@@ -1273,21 +1262,18 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
      */
     function text_force() {
         var strength = 0.1;
-        
-        function force(alpha)
-        {
+
+        function force(alpha) {
             for (var i = 0; i < nodes.length; ++i) {
                 let node = nodes[i];
                 let distance1 = (self.xRange(node.X_PPM) - node.x);
                 let distance2 = (self.yRange(node.Y_PPM) - node.y);
-                let distance = Math.sqrt(distance1*distance1+distance2*distance2);
+                let distance = Math.sqrt(distance1 * distance1 + distance2 * distance2);
                 let force_amplitude = 0;
-                if(distance > max_dis)
-                {
+                if (distance > max_dis) {
                     force_amplitude = (distance - max_dis) * strength * alpha / distance;
                 }
-                else if(distance < min_dis)
-                {
+                else if (distance < min_dis) {
                     force_amplitude = (distance - min_dis) * strength * alpha / distance
                 }
                 let force_x = distance1 * force_amplitude;
@@ -1298,16 +1284,15 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             }
         }
 
-        force.initialize = function(_) {
+        force.initialize = function (_) {
             nodes = _;
-          };
+        };
 
         return force;
     };
 
 
-    function avoid_peaks()
-    {
+    function avoid_peaks() {
         let nodes;
         var strength = repulsive_force;
 
@@ -1316,23 +1301,20 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
          * @param {*} alpha 
          */
         function force(alpha) {
-            for (let j=0;j<nodes.length;j++)
-            {
+            for (let j = 0; j < nodes.length; j++) {
                 let node = nodes[j];
-                for (let i=0;i<nodes.length;i++)
-                {
-                    if(i===j){
+                for (let i = 0; i < nodes.length; i++) {
+                    if (i === j) {
                         continue;
                     }
                     let peak = nodes[i];
                     let distance1 = self.xRange(peak.X_PPM) - node.x;
                     let distance2 = self.yRange(peak.Y_PPM) - node.y;
-                    let distance_square = distance1*distance1+distance2*distance2;
-                    if(distance_square < 40000)
-                    {                        
+                    let distance_square = distance1 * distance1 + distance2 * distance2;
+                    if (distance_square < 40000) {
                         let force_amplitude = strength * alpha;
-                        let force_x = distance1 * force_amplitude/distance_square;
-                        let force_y = distance2 * force_amplitude/distance_square;
+                        let force_x = distance1 * force_amplitude / distance_square;
+                        let force_y = distance2 * force_amplitude / distance_square;
 
                         node.vx -= force_x;
                         node.vy -= force_y;
@@ -1346,8 +1328,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         return force;
     }
 
-    function boundary_force()
-    {
+    function boundary_force() {
         let nodes;
         var strength = 10.0;
         var buffer = 30.0;
@@ -1356,29 +1337,23 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
          * Require all nodes to avoid all peaks. Brute force method
          * @param {*} alpha 
          */
-        function force(alpha)
-        {
-            for (let j=0;j<nodes.length;j++)
-            {
+        function force(alpha) {
+            for (let j = 0; j < nodes.length; j++) {
                 let node = nodes[j];
                 /**
                  * if node is out of boundary, then apply a force to move it back
                  * Linear soft core repulsion with a buffer of 10 pixels
                  */
-                if(node.x < self.MARGINS.left + buffer)
-                {
+                if (node.x < self.MARGINS.left + buffer) {
                     node.vx -= strength * alpha * (node.x - self.MARGINS.left - buffer);
                 }
-                if(node.x > self.WIDTH - self.MARGINS.right - buffer)
-                {
-                    node.vx -= strength * alpha * (node.x - self.WIDTH + self.MARGINS.right +buffer);
+                if (node.x > self.WIDTH - self.MARGINS.right - buffer) {
+                    node.vx -= strength * alpha * (node.x - self.WIDTH + self.MARGINS.right + buffer);
                 }
-                if(node.y < self.MARGINS.top + buffer)
-                {
+                if (node.y < self.MARGINS.top + buffer) {
                     node.vy -= strength * alpha * (node.y - self.MARGINS.top - buffer);
                 }
-                if(node.y > self.HEIGHT - self.MARGINS.bottom - buffer)
-                {
+                if (node.y > self.HEIGHT - self.MARGINS.bottom - buffer) {
                     node.vy -= strength * alpha * (node.y - self.HEIGHT + self.MARGINS.bottom + buffer);
                 }
             }
@@ -1415,30 +1390,28 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     /**
      * Make a deep copy of visible_peaks to this.visible_peaks
      */
-    this.visible_peaks=JSON.parse(JSON.stringify(visible_peaks));
+    this.visible_peaks = JSON.parse(JSON.stringify(visible_peaks));
 
-     /**
-     * Init new_peaks[i].x and y property for the force simulation
-     */
-     for(let i=0;i<self.visible_peaks.length;i++)
-     {
-         self.visible_peaks[i].x = self.xRange(self.visible_peaks[i].X_PPM) + 20 * Math.random() - 10.0;
-         self.visible_peaks[i].y = self.yRange(self.visible_peaks[i].Y_PPM) + 20 * Math.random() - 10.0;  
-     }
+    /**
+    * Init new_peaks[i].x and y property for the force simulation
+    */
+    for (let i = 0; i < self.visible_peaks.length; i++) {
+        self.visible_peaks[i].x = self.xRange(self.visible_peaks[i].X_PPM) + 20 * Math.random() - 10.0;
+        self.visible_peaks[i].y = self.yRange(self.visible_peaks[i].Y_PPM) + 20 * Math.random() - 10.0;
+    }
 
     self.vis.selectAll('.peak_text').remove();
     self.vis.selectAll('.peak_line').remove();
     self.$peaks_text_svg = null;
 
-    if(flag==false)
-    {
+    if (flag == false) {
         return;
     }
 
     const peak_text_drag = d3.drag()
         .on("start", function () {
         })
-        .on("drag", function (event,d) {
+        .on("drag", function (event, d) {
             /**
              * Update the x and y of the peak_text
              */
@@ -1451,7 +1424,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
              * Also update the x1 and y1 of the peak_line_svg,
              */
         })
-        .on("end", function (event,d) {
+        .on("end", function (event, d) {
             /**
              * Start the simulation again
              */
@@ -1466,31 +1439,26 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .enter()
         .append('text')
         .attr('class', 'peak_text')
-        .attr('font-size',peak_fontsize)
+        .attr('font-size', peak_fontsize)
         .style('fill', function () {
-                return self.peak_color;
+            return self.peak_color;
         })
         .text(function (d) {
-            if(typeof d[label] === "number")
-            {
-                if(Number.isInteger(d[label]) && d[label] < 1000 )
-                {
+            if (typeof d[label] === "number") {
+                if (Number.isInteger(d[label]) && d[label] < 1000) {
                     return d[label].toFixed(0);
                 }
-                else if(d[label] > 1000)
-                {
+                else if (d[label] > 1000) {
                     return d[label].toExponential(2);
                 }
-                else if(d[label] < 0.01)
-                {
+                else if (d[label] < 0.01) {
                     return d[label].toExponential(2);
                 }
-                else
-                {
+                else {
                     return d[label].toFixed(2);
                 }
             }
-            else{
+            else {
                 return d[label];
             }
         })
@@ -1501,7 +1469,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             return self.yRange(d.Y_PPM);
         })
         .attr("clip-path", "url(#clip)");
-        
+
     /**
      * Update pos using dx,dy and save text length (width) to visible_peaks as well
      * to be used in drawing of line
@@ -1513,10 +1481,10 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
              * to update line position
              */
             d.text_width = this.getComputedTextLength();
-            return -this.getComputedTextLength()/2;
+            return -this.getComputedTextLength() / 2;
         })
         .attr('dy', function () {
-            return 0.5*peak_fontsize;
+            return 0.5 * peak_fontsize;
         });
 
     /**
@@ -1526,8 +1494,8 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .data(self.visible_peaks)
         .enter()
         .append('line')
-        .attr('class','peak_line')
-        .attr('stroke',color)
+        .attr('class', 'peak_line')
+        .attr('stroke', color)
         /**
          * x1 and y1 is the peak label position
          */
@@ -1537,7 +1505,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
         .attr('y1', function (d) {
             return d.y;
         })
-        .attr('x2', function(d) {
+        .attr('x2', function (d) {
             /**
              * x2 and y2 is the peak position
              */
@@ -1547,7 +1515,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             return self.yRange(d.Y_PPM);
         })
         .attr("clip-path", "url(#clip)");
-    
+
     self.$peaks_text_svg.call(peak_text_drag);
 
     /**
@@ -1557,7 +1525,7 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
     this.sim = d3.forceSimulation(self.visible_peaks)
         .force("near_peak", text_force())
         .force("inter_collide", d3.forceCollide().radius(40).strength(1).iterations(1))
-        .force('exclude',d3.forceManyBody().strength(-10))
+        .force('exclude', d3.forceManyBody().strength(-10))
         .force("avoid", avoid_peaks())
         .force("boundary", boundary_force())
         .stop();
@@ -1570,55 +1538,47 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
             .attr("x", d => d.x)
             .attr("y", d => d.y)
             .attr('dx', function (d) {
-                return -this.getComputedTextLength()/2;
+                return -this.getComputedTextLength() / 2;
             })
             .attr('dy', function () {
-                return 0.5*peak_fontsize
+                return 0.5 * peak_fontsize
             });
 
-            /**
-             * Need to update X_TEXT_PPM and Y_TEXT_PPM, so that reset_axis will work properly
-             */
+        /**
+         * Need to update X_TEXT_PPM and Y_TEXT_PPM, so that reset_axis will work properly
+         */
         this.visible_peaks.forEach(peak => {
             peak.X_TEXT_PPM = self.xRange.invert(peak.x);
             peak.Y_TEXT_PPM = self.yRange.invert(peak.y);
         });
 
         self.$peak_line_svg
-        .attr('x1', function (d) {
-            if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
-            {
-                if(d.x > self.xRange(d.X_PPM))
-                {
-                    return d.x - d.text_width/2;
+            .attr('x1', function (d) {
+                if (Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM))) {
+                    if (d.x > self.xRange(d.X_PPM)) {
+                        return d.x - d.text_width / 2;
+                    }
+                    else {
+                        return d.x + d.text_width / 2;
+                    }
                 }
-                else
-                {
-                    return d.x + d.text_width/2;
+                else {
+                    return d.x;
                 }
-            }
-            else
-            {
-                return d.x;
-            }
-        })
-        .attr('y1', function (d) {
-            if(Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM)))
-            {
-                return d.y;
-            }
-            else
-            {
-                if(d.y > self.yRange(d.Y_PPM))
-                {
-                    return d.y - 0.5*peak_fontsize;
+            })
+            .attr('y1', function (d) {
+                if (Math.abs(d.x - self.xRange(d.X_PPM)) > Math.abs(d.y - self.yRange(d.Y_PPM))) {
+                    return d.y;
                 }
-                else
-                {
-                    return d.y + 0.5*peak_fontsize;
+                else {
+                    if (d.y > self.yRange(d.Y_PPM)) {
+                        return d.y - 0.5 * peak_fontsize;
+                    }
+                    else {
+                        return d.y + 0.5 * peak_fontsize;
+                    }
                 }
-            }
-        })
+            })
     });
 
     this.sim.on("end", () => {
@@ -1634,13 +1594,12 @@ plotit.prototype.update_peak_labels = function(flag,min_dis,max_dis,repulsive_fo
  * Draw peaks on the plot
  */
 plotit.prototype.draw_peaks = function () {
-    
+
     let self = this;
-    if(typeof self.peak_flag ===  'undefined' || self.peak_flag === null)
-    {
+    if (typeof self.peak_flag === 'undefined' || self.peak_flag === null) {
         return;
     }
-    
+
     /**
      * Remove all peaks if there is any
      */
@@ -1649,23 +1608,22 @@ plotit.prototype.draw_peaks = function () {
     /**
      * Filter peaks based on peak level
      */
-    if(self.peak_flag === 'picked') {
+    if (self.peak_flag === 'picked') {
         this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
     }
-    else{
+    else {
         this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
     }
-    
-    for(let i=0;i<self.new_peaks.length;i++)
-    {
+
+    for (let i = 0; i < self.new_peaks.length; i++) {
         self.new_peaks[i].radius = 10.0;
     }
-    
+
 
     /**
      * Draw peaks, red circles without fill
      */
-    this.$peaks_svg=self.vis.selectAll('.peak')
+    this.$peaks_svg = self.vis.selectAll('.peak')
         .data(self.new_peaks)
         .enter()
         .append('circle')
@@ -1676,18 +1634,17 @@ plotit.prototype.draw_peaks = function () {
         .attr('cy', function (d) {
             return self.yRange(d.Y_PPM);
         })
-        .attr('visibility',function(d) {
-            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level || d.HEIGHT < self.peak_level_negative)
-            {
+        .attr('visibility', function (d) {
+            if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
                 return "visible";
             }
-            else{
+            else {
                 return "hidden";
             }
         })
         .attr("clip-path", "url(#clip)")
         .attr('r', self.peak_size)
-        .attr('stroke', function(){
+        .attr('stroke', function () {
             return self.peak_color;
         })
         .attr('fill', function () {
@@ -1751,10 +1708,9 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * x is this.pseudo3d_plane_value
              * y is d[this.pseudo3d_plane_y_value]
              */
-            
-            let data =[];
-            if(pseudo3d_plane_y_std_value.length === pseudo3d_plane_y_value.length -1)
-            {
+
+            let data = [];
+            if (pseudo3d_plane_y_std_value.length === pseudo3d_plane_y_value.length - 1) {
                 data = [{
                     x: 0,
                     y: Math.log(d[pseudo3d_plane_y_value[0]]),
@@ -1762,15 +1718,14 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
                 }];
                 for (let i = 1; i < self.pseudo3d_plane_value.length; i++) {
                     let y_value = Math.log(d[pseudo3d_plane_y_value[i]]);
-                    let y_value_std = Math.log(d[pseudo3d_plane_y_value[i]]+d[pseudo3d_plane_y_std_value[i-1]]) - y_value;
+                    let y_value_std = Math.log(d[pseudo3d_plane_y_value[i]] + d[pseudo3d_plane_y_std_value[i - 1]]) - y_value;
                     data.push({ x: self.pseudo3d_plane_value[i], y: y_value, y_std: y_value_std });
                 }
             }
             /**
              * Else, there is no STD value. 
              */
-            else
-            {
+            else {
                 data = [{
                     x: 0,
                     y: Math.log(d[pseudo3d_plane_y_value[0]]),
@@ -1825,15 +1780,15 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             peak_information_div.style.display = 'block';
             clearTimeout(timeout_id); // clear the timeout if any
         })
-        .on('mouseout', function () {
-            /**
-             * Hide the div #peak_information_div after 5 seconds
-             */
-            timeout_id=setTimeout(function () {
-                let peak_information_div = document.getElementById('peak_information_div');
-                peak_information_div.style.display = 'none';
-            }, 5000);
-        });
+            .on('mouseout', function () {
+                /**
+                 * Hide the div #peak_information_div after 5 seconds
+                 */
+                timeout_id = setTimeout(function () {
+                    let peak_information_div = document.getElementById('peak_information_div');
+                    peak_information_div.style.display = 'none';
+                }, 5000);
+            });
     }
     else {
         self.vis.selectAll('.peak').on('mouseover', null);
@@ -1846,16 +1801,16 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
  * @param {*} flag: true to allow right click, false to disable.
  * For both case, we will disable the default right click menu
  */
-plotit.prototype.allow_right_click = function(flag) {
+plotit.prototype.allow_right_click = function (flag) {
     let self = this;
-    if(flag === true) {
+    if (flag === true) {
         self.vis.on('contextmenu', function (event) {
             event.preventDefault();
             self.setup_cross_line(event);
         });
     }
     else {
-        self.vis.on('contextmenu', function(event) {
+        self.vis.on('contextmenu', function (event) {
             event.preventDefault();
         });
     }
@@ -1871,34 +1826,31 @@ plotit.prototype.redraw_peaks = function () {
     let self = this;
     self.vis.selectAll('.peak')
         .attr('r', self.peak_size)
-        .attr('stroke', function(d){
-            if(self.peak_color_flag === "SOLID"){
+        .attr('stroke', function (d) {
+            if (self.peak_color_flag === "SOLID") {
                 return self.peak_color;
             }
             else {
-                if(d[self.peak_color_flag]>=self.peak_color_flag_limit[0] && d[self.peak_color_flag]<=self.peak_color_flag_limit[1])
-                {
+                if (d[self.peak_color_flag] >= self.peak_color_flag_limit[0] && d[self.peak_color_flag] <= self.peak_color_flag_limit[1]) {
                     let scaled_value = (d[self.peak_color_flag] - self.peak_color_flag_limit[0]) / (self.peak_color_flag_limit[1] - self.peak_color_flag_limit[0]);
                     return self.peak_color_scale(scaled_value);
                 }
-                else if(d[self.peak_color_flag] < self.peak_color_flag_limit[0])
-                {
+                else if (d[self.peak_color_flag] < self.peak_color_flag_limit[0]) {
                     return self.peak_color_scale(0);
                 }
                 else // d[self.peak_color_flag] > self.peak_color_flag_limit[1]
                 {
                     return self.peak_color_scale(1);
                 }
-                
+
             }
-            
+
         })
-        .attr('visibility',function(d) {
-            if(typeof d.HEIGHT === "undefined" || d.HEIGHT>self.peak_level || d.HEIGHT < self.peak_level_negative)
-            {
+        .attr('visibility', function (d) {
+            if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
                 return "visible";
             }
-            else{
+            else {
                 return "hidden";
             }
         })
@@ -1921,47 +1873,47 @@ plotit.prototype.allow_peak_dragging = function (flag) {
     let self = this;
 
     this.peak_drag = d3.drag()
-    .on('start', function (d) {
-        d3.select(this).raise().classed('active', true);
-        
-    })
-    .on('drag', function (event,d) {
-        d3.select(this)
-            .attr('cx', event.x)
-            .attr('cy', event.y);
-    })
-    .on('end', function (event,d) {
-        /**
-         * Get new coordinates of the peak
-         */
-        d.X_PPM = self.xRange.invert(event.x);
-        d.Y_PPM = self.yRange.invert(event.y);
-        /**
-         * Check amplitude of the spectrum at the peak position
-         * if less than lowest contour level, remove the peak
-         */
-        let y_pos= Math.floor((d.Y_PPM - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start)/self.spectrum.y_ppm_step);
-        let x_pos = Math.floor((d.X_PPM - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start)/self.spectrum.x_ppm_step);
-        let data_height = 0.0; //default value if out of range
-        if (x_pos >= 0 && x_pos < self.spectrum.n_direct && y_pos >= 0 && y_pos < self.spectrum.n_indirect) {
-            data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
-        }
+        .on('start', function (d) {
+            d3.select(this).raise().classed('active', true);
 
-        /**
-         * Update the peak in the picked peaks
-         */
-        if (self.peak_flag === 'picked') {
-            self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
-        }
-        
+        })
+        .on('drag', function (event, d) {
+            d3.select(this)
+                .attr('cx', event.x)
+                .attr('cy', event.y);
+        })
+        .on('end', function (event, d) {
+            /**
+             * Get new coordinates of the peak
+             */
+            d.X_PPM = self.xRange.invert(event.x);
+            d.Y_PPM = self.yRange.invert(event.y);
+            /**
+             * Check amplitude of the spectrum at the peak position
+             * if less than lowest contour level, remove the peak
+             */
+            let y_pos = Math.floor((d.Y_PPM - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start) / self.spectrum.y_ppm_step);
+            let x_pos = Math.floor((d.X_PPM - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start) / self.spectrum.x_ppm_step);
+            let data_height = 0.0; //default value if out of range
+            if (x_pos >= 0 && x_pos < self.spectrum.n_direct && y_pos >= 0 && y_pos < self.spectrum.n_indirect) {
+                data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
+            }
 
-    });
+            /**
+             * Update the peak in the picked peaks
+             */
+            if (self.peak_flag === 'picked') {
+                self.spectrum.picked_peaks_object.update_row(d.INDEX, d.X_PPM, d.Y_PPM);
+            }
 
-    if(flag===true && self.peak_flag === 'picked') {
+
+        });
+
+    if (flag === true && self.peak_flag === 'picked') {
         self.vis.selectAll('.peak').call(self.peak_drag);
     }
-    else{
-        self.vis.selectAll('.peak').on('.drag',null);
+    else {
+        self.vis.selectAll('.peak').on('.drag', null);
     }
 }
 
@@ -1972,7 +1924,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
 
     let self = this;
 
-    if(flag === true  && self.peak_flag === 'picked') {
+    if (flag === true && self.peak_flag === 'picked') {
         self.vis.on('click', function (event) {
             let coordinates = d3.pointer(event);
             let x_ppm = self.xRange.invert(coordinates[0]);
@@ -1980,19 +1932,18 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
             /**
                  * Get amplitude of the spectrum at the peak position
                  */
-            let y_pos= Math.floor((y_ppm - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start)/self.spectrum.y_ppm_step);
-            let x_pos = Math.floor((x_ppm - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start)/self.spectrum.x_ppm_step);
+            let y_pos = Math.floor((y_ppm - self.spectrum.y_ppm_ref - self.spectrum.y_ppm_start) / self.spectrum.y_ppm_step);
+            let x_pos = Math.floor((x_ppm - self.spectrum.x_ppm_ref - self.spectrum.x_ppm_start) / self.spectrum.x_ppm_step);
             let data_height = 0.0; //default value if out of range
-            if(x_pos>=0 && x_pos<self.spectrum.n_direct && y_pos>=0 && y_pos<self.spectrum.n_indirect) {
-                data_height = self.spectrum.raw_data[y_pos *  self.spectrum.n_direct + x_pos];
+            if (x_pos >= 0 && x_pos < self.spectrum.n_direct && y_pos >= 0 && y_pos < self.spectrum.n_indirect) {
+                data_height = self.spectrum.raw_data[y_pos * self.spectrum.n_direct + x_pos];
             }
             let new_peak = {
                 X_PPM: x_ppm,
                 Y_PPM: y_ppm,
                 HEIGHT: data_height,
             };
-            if(self.spectrum != null && (new_peak.HEIGHT > self.peak_level || new_peak.HEIGHT < self.peak_level_negative))
-            {
+            if (self.spectrum != null && (new_peak.HEIGHT > self.peak_level || new_peak.HEIGHT < self.peak_level_negative)) {
                 self.spectrum.picked_peaks_object.add_row(new_peak);
                 self.draw_peaks();
             }
@@ -2029,14 +1980,14 @@ plotit.prototype.get_visible_region = function () {
  * degeneracy: degeneracy of the peak (1,2,3,4,5. etc from spin simulation)
  * @param {Number} index: index of the predicted peaks to be modified in the array
  */
-plotit.prototype.add_predicted_peaks = function (peaks,flag_valid, index) {
+plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
     let self = this;
 
-    if(index >= self.predicted_peaks.length) {
+    if (index >= self.predicted_peaks.length) {
         /**
          * Add empty array to self.predicted_peaks to reach length of index+1
          */
-        for(let i = self.predicted_peaks.length; i <= index; i++) {
+        for (let i = self.predicted_peaks.length; i <= index; i++) {
             self.predicted_peaks.push([]);
         }
     }
@@ -2047,14 +1998,14 @@ plotit.prototype.add_predicted_peaks = function (peaks,flag_valid, index) {
     self.y = d3.scaleLinear().range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top])
         .domain(self.yscale);
 
-    self.vis.selectAll('.predicted_peak_'+index).remove();
+    self.vis.selectAll('.predicted_peak_' + index).remove();
 
     self.line = d3.line()
         .x((d) => self.x(d[0]))
         .y((d) => self.y(d[1]));
 
     self.vis.append('path')
-        .attr('class', 'predicted_peak_'+index)
+        .attr('class', 'predicted_peak_' + index)
         .attr("d", self.line(peaks))
         .attr('fill', 'none')
         .attr('stroke', (flag_valid === true) ? 'green' : 'purple')
