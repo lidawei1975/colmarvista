@@ -335,3 +335,37 @@ th[role=columnheader]:not(.no-sort):hover:after {
     visibility: visible;
     opacity: 1;
 }
+
+/* Tutorial Styles */
+.tutorial-highlight {
+    outline: 4px solid #ff4500 !important;
+    box-shadow: 0 0 10px #ff4500;
+    transition: all 0.3s ease-in-out;
+    z-index: 10000;
+    position: relative;
+    background-color: rgba(255, 69, 0, 0.1);
+}
+
+.tutorial-tooltip {
+    position: absolute;
+    background: #333;
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 5px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    z-index: 10001;
+    max-width: 250px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+.tutorial-tooltip::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent #333 transparent;
+}

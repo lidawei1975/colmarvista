@@ -18,8 +18,7 @@ try {
 }
 catch (err) {
     console.log(err);
-    if (typeof (webassembly_1d_worker_2) === "undefined" )
-    {
+    if (typeof (webassembly_1d_worker_2) === "undefined") {
         alert("Failed to load WebWorker for NUS, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
@@ -27,7 +26,7 @@ catch (err) {
 var plot_font_size = 24; //default plot font size
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
-var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
+var $tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 2D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
@@ -39,9 +38,9 @@ var b_allow_dragging_spectrum = false; //flag to allow dragging spectrum to reor
 /**
  * For FID re-processing. Saved file data
  */
-var fid_process_parameters; 
+var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
-    
+
 /**
  * Default var in peaks to color-map the peaks symbols
  */
@@ -50,7 +49,7 @@ var color_map_list = ['HEIGHT'];
  * Corresponding color map limits for the color_map_list
  * Save length of color_map_list.
  */
-var color_map_limit = [[0,1]]; 
+var color_map_limit = [[0, 1]];
 
 var inter_window_channel;
 
@@ -67,7 +66,7 @@ var fid_drop_process;
 /**
  * DOM div for the processing message
  */
-var oOutput;
+var $oOutput;
 
 /**
  * Current phase correction values:
@@ -156,15 +155,15 @@ $(document).ready(function () {
     /**
      * This is the main information output area
      */
-    oOutput = document.getElementById("infor");
+    $oOutput = document.getElementById("infor");
 
     /**
      * Tooltip div. Set the opacity to 0
      */
-    tooldiv = d3.select("body")
-    .append("div")
-    .attr("class", "tooltip2")
-    .style("opacity", 0);
+    $tooldiv = d3.select("body")
+        .append("div")
+        .attr("class", "tooltip2")
+        .style("opacity", 0);
 
     /**
      * clear all_spectra array
@@ -177,23 +176,40 @@ $(document).ready(function () {
     * INitialize the file drop processor for the time domain spectra
     */
     fid_drop_process = new file_drop_processor()
-    .drop_area('input_files') /** id of dropzone */
-    .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
-    .files_id([ "acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
-    .file_extension([])  /** file extensions to be searched from upload */
-    .required_files([0,1])
-    .init();
+        .drop_area('input_files') /** id of dropzone */
+        .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
+        .files_id(["acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
+        .file_extension([])  /** file extensions to be searched from upload */
+        .required_files([0, 1])
+        .init();
+
+
+    /**
+     * Make div (id="fid_file_area") also accept drag and drop. 
+     * Once it detected a dragged folder moved over, it should expand itself, so that its child can accept the drop.
+     */
+    const fid_area = document.getElementById("fid_file_area");
+    fid_area.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        const btn = document.getElementById("button_minimize_fid_area");
+        if (btn.innerText === "+") {
+            minimize_fid_area(btn);
+        }
+    });
+    fid_area.addEventListener("dragover", (e) => {
+        e.preventDefault();
+    });
 
 
     /**
      * ft2 file drop processor
      */
     ft1_file_drop_processor = new file_drop_processor()
-    .drop_area('file_area') /** id of dropzone */
-    .files_name([]) /** file names to be searched from upload. It is empty because we will use file_extension*/
-    .file_extension(["ft1","txt"])  /** file extensions to be searched from upload */
-    .files_id(["userfile","userfile"]) /** Corresponding file element IDs */
-    .init();
+        .drop_area('file_area') /** id of dropzone */
+        .files_name([]) /** file names to be searched from upload. It is empty because we will use file_extension*/
+        .file_extension(["ft1", "txt"])  /** file extensions to be searched from upload */
+        .files_id(["userfile", "userfile"]) /** Corresponding file element IDs */
+        .init();
 
 
     /**
@@ -207,20 +223,19 @@ $(document).ready(function () {
          * clearData() does not work ???
          */
         ft1_file_drop_processor.container = new DataTransfer();
-        
+
         /**
          * Collect all file names
          */
         let file_names = [];
-        for(let i=0;i<this.querySelector('input[type="file"]').files.length;i++)
-        {
+        for (let i = 0; i < this.querySelector('input[type="file"]').files.length; i++) {
             file_names.push(this.querySelector('input[type="file"]').files[i].name);
         }
         /**
          * Sort the file names, keep the index
          */
         let index_array = Array.from(Array(file_names.length).keys());
-        index_array.sort(function(a,b){
+        index_array.sort(function (a, b) {
             return file_names[a].localeCompare(file_names[b]);
         });
 
@@ -230,38 +245,32 @@ $(document).ready(function () {
          * To keep order, we will read the files one by one using a chain of promises
          */
         let chain = Promise.resolve();
-        for(let i=0;i<this.querySelector('input[type="file"]').files.length;i++)
-        {
+        for (let i = 0; i < this.querySelector('input[type="file"]').files.length; i++) {
             let ii = index_array[i];
-            
+
             chain = chain.then(() => {
-                    console.log("read file",this.querySelector('input[type="file"]').files[ii].name);
-                    /**
-                     * If not a .ft2 file or .ft3 file, resolve the promise
-                     */
-                    if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ucsf") )
-                    {
-                        return read_file(this.querySelector('input[type="file"]').files[ii]);
-                    }
-                    else if(this.querySelector('input[type="file"]').files[ii].name.endsWith(".txt"))
-                    {
-                        return read_file_text(this.querySelector('input[type="file"]').files[ii]);
-                    }
-                    else
-                    {
-                        return Promise.resolve(null);
-                    }
+                console.log("read file", this.querySelector('input[type="file"]').files[ii].name);
+                /**
+                 * If not a .ft2 file or .ft3 file, resolve the promise
+                 */
+                if (this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft1") || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ucsf")) {
+                    return read_file(this.querySelector('input[type="file"]').files[ii]);
+                }
+                else if (this.querySelector('input[type="file"]').files[ii].name.endsWith(".txt")) {
+                    return read_file_text(this.querySelector('input[type="file"]').files[ii]);
+                }
+                else {
+                    return Promise.resolve(null);
+                }
             }).then((file_data) => {
                 /**
                  * If the file is a ft2 file (file_data is a array buffer), process it
                  */
-                if(file_data !== null && file_data !== undefined )
-                {   
+                if (file_data !== null && file_data !== undefined) {
                     /**
                      * If read as text file, 
                      */
-                    if(typeof file_data === "string")
-                    {
+                    if (typeof file_data === "string") {
                         /**
                          * Get field strength from the html input field with id "field_strength" if it exists
                          */
@@ -270,35 +279,31 @@ $(document).ready(function () {
                             field_strength = parseFloat(document.getElementById("field_strength").value);
                         }
                         let result_spectrum = new spectrum_1d();
-                        result_spectrum.process_topspin_file(file_data,this.querySelector('input[type="file"]').files[ii].name,field_strength);
-                        draw_spectrum([result_spectrum],false/**from fid */,false/** re-process of fid or ft2 */);
+                        result_spectrum.process_topspin_file(file_data, this.querySelector('input[type="file"]').files[ii].name, field_strength);
+                        draw_spectrum([result_spectrum], false/**from fid */, false/** re-process of fid or ft2 */);
                     }
-                    else
-                    {
+                    else {
                         /**
                          * Get first float32 number of the file_data. 
                          * If it is "0.0", it is a nmrPipe file, otherwise consider it as Sparky .ucsf file 
                          */
-                        let first_float32 = new Float32Array(file_data,0,1)[0];
+                        let first_float32 = new Float32Array(file_data, 0, 1)[0];
                         let result_spectrum;
-                        if(first_float32 === 0.0)
-                        {
+                        if (first_float32 === 0.0) {
                             result_spectrum = new spectrum_1d();
-                            result_spectrum.process_ft_file(file_data,this.querySelector('input[type="file"]').files[ii].name,-1);
+                            result_spectrum.process_ft_file(file_data, this.querySelector('input[type="file"]').files[ii].name, -1);
                         }
-                        else
-                        {
+                        else {
                             result_spectrum = new spectrum_1d();
-                            result_spectrum.process_sparky_file(file_data,this.querySelector('input[type="file"]').files[ii].name,-1);
+                            result_spectrum.process_sparky_file(file_data, this.querySelector('input[type="file"]').files[ii].name, -1);
                         }
-                        draw_spectrum([result_spectrum],false/**from fid */,false/** re-process of fid or ft2 */);
+                        draw_spectrum([result_spectrum], false/**from fid */, false/** re-process of fid or ft2 */);
                     }
                 }
                 /**
                  * If it is the last file, clear the file input
                  */
-                if(i===this.querySelector('input[type="file"]').files.length-1)
-                {
+                if (i === this.querySelector('input[type="file"]').files.length - 1) {
                     document.getElementById('userfile').value = "";
                 }
             }).catch((err) => {
@@ -341,9 +346,9 @@ $(document).ready(function () {
          * When we are in re-process mode, it will be changed to "Reprocess" by JS code
          */
         let button_text = document.getElementById("button_fid_process").value;
-        
 
-        if(button_text === "Reprocess"){
+
+        if (button_text === "Reprocess") {
             /**
              * Copy fid_process_parameters from the current spectrum to the worker then
              * update fid_process_parameters with the current values from the input fields
@@ -361,6 +366,7 @@ $(document).ready(function () {
             fid_process_parameters.auto_direct_3 = document.getElementById("auto_direct_3").checked;
             fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
             fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+            fid_process_parameters.auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
 
             /**
              * Send to webassembly worker
@@ -393,6 +399,7 @@ $(document).ready(function () {
                 let auto_direct_2 = document.getElementById("auto_direct_2").checked;
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
+                let auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -405,6 +412,7 @@ $(document).ready(function () {
                 fid_process_parameters = {
                     webassembly_job: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
+                    auto_reduced_fid_size: auto_reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
                     apodization_string: apodization_string,
@@ -432,7 +440,7 @@ $(document).ready(function () {
                  */
                 document.getElementById("button_fid_process").disabled = true;
             }
-            else{
+            else {
                 alert("Please select both acquisition and fid files.");
             }
         }
@@ -460,8 +468,8 @@ $(document).ready(function () {
 });
 
 webassembly_1d_worker_2.onmessage = function (e) {
-    
-    if(e.data.webassembly_job === "fid_processor_1d"){
+
+    if (e.data.webassembly_job === "fid_processor_1d") {
         /**
          * Received fid processing result:
          *  webassembly_job: event.data.webassembly_job,
@@ -474,12 +482,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
         /**
          * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
          */
-        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length*2);
+        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length * 2);
         combined.set(e.data.spectrum_header);
         combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
         combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
         const buffer = combined.buffer;
-        result_spectrum.process_ft_file(buffer,'from_fid.ft1',-2);
+        result_spectrum.process_ft_file(buffer, 'from_fid.ft1', -2);
         result_spectrum.spectrum_index = e.data.spectrum_index; //spectrum_index is set to what is in reprocess_spectrum_index
 
         /**
@@ -487,12 +495,24 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         fid_process_parameters.phase_correction_direct_p0 = e.data.p0;
         fid_process_parameters.phase_correction_direct_p1 = e.data.p1;
+        /**
+         * Save auto determined cutoff data size as well
+         */
+        fid_process_parameters.reduced_fid_size = e.data.reduced_fid_size;
 
         /**
          * Update fid processing box parameters
          */
         document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
+
+        /**
+         * Fill in reduced_fid_size of we received automatic value from webass code.
+         */
+        if (e.data.reduced_fid_size > 0) {
+            document.getElementById("reduced_fid_size").value = e.data.reduced_fid_size;
+        }
+
 
         draw_spectrum(
             [result_spectrum],
@@ -504,25 +524,34 @@ webassembly_1d_worker_2.onmessage = function (e) {
          * Re-enable the button to process fid file
          */
         document.getElementById("button_fid_process").disabled = false;
+
+        // Notify tutorial (or anyone else) that processing is done
+        // ONLY if we are NOT running TFJS (auto_direct_2). 
+        // If auto_direct_2 is true, run_ann_phase_correction will dispatch this event when finished.
+        if (!e.data.auto_direct_2) {
+            const btn = document.getElementById("button_fid_process");
+            if (btn) {
+                btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+            }
+        }
     }
 
 
-    else if(e.data.webassembly_job === "peak_picker")
-    {
+    else if (e.data.webassembly_job === "peak_picker") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
 
-     
+
         /**
          * when picked peaks are received, fitted peaks need to be reset
          */
         all_spectra[e.data.spectrum_index].fitted_peaks_object = null;
-        
+
         /**
          * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
          */
-        disable_enable_fitted_peak_buttons(e.data.spectrum_index,0);
+        disable_enable_fitted_peak_buttons(e.data.spectrum_index, 0);
 
         /**
          * Need to save its scale and scale2 used to run deep picker
@@ -530,8 +559,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         all_spectra[e.data.spectrum_index].scale = e.data.scale;
         all_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
-        
-        disable_enable_peak_buttons(e.data.spectrum_index,1);
+
+        disable_enable_peak_buttons(e.data.spectrum_index, 1);
 
         /**
          * Clear the processing message
@@ -541,7 +570,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     /**
      * If result is fitted_peaks and recon_spectrum
      */
-    else if (e.data.webassembly_job === "peak_fitter") { 
+    else if (e.data.webassembly_job === "peak_fitter") {
         console.log("Fitted peaks and recon_spectrum received");
 
         /**
@@ -554,14 +583,14 @@ webassembly_1d_worker_2.onmessage = function (e) {
         /**
          * Enable the download fitted peaks button and show the fitted peaks button
          */
-        disable_enable_fitted_peak_buttons(e.data.spectrum_origin,1);
-        
+        disable_enable_fitted_peak_buttons(e.data.spectrum_origin, 1);
+
         /**
          * Process the frequency domain spectrum, spectrum name is "recon-".spectrum_origin.".ft2"
          */
         let result_spectrum_name = "recon-".concat(e.data.spectrum_origin.toString(), ".ft1");
         let result_spectrum = new spectrum_1d();
-        result_spectrum.process_ft_file_type2(all_spectra[e.data.spectrum_origin].header,e.data.recon_spectrum,result_spectrum_name,e.data.spectrum_origin);
+        result_spectrum.process_ft_file_type2(all_spectra[e.data.spectrum_origin].header, e.data.recon_spectrum, result_spectrum_name, e.data.spectrum_origin);
 
         /**
          * Replace its header with the header of the original spectrum
@@ -573,6 +602,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.negative_levels = all_spectra[e.data.spectrum_origin].negative_levels;
         result_spectrum.spectral_max = all_spectra[e.data.spectrum_origin].spectral_max;
         result_spectrum.spectral_min = all_spectra[e.data.spectrum_origin].spectral_min;
+        result_spectrum.x_ppm_ref = all_spectra[e.data.spectrum_origin].x_ppm_ref;
+        result_spectrum.spectral_scale = all_spectra[e.data.spectrum_origin].spectral_scale;
 
         /**
          * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
@@ -586,7 +617,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.recon_peaks = recon_peaks.peaks_recon;
         result_spectrum.recon_peaks_center = peaks_center;
 
-       
+
 
         /**
          * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
@@ -600,16 +631,15 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         document.getElementById("webassembly_message").innerText = "";
 
-     
+
     }
 
-    else if(e.data.webassembly_job === "generate_voigt_profiles"){
+    else if (e.data.webassembly_job === "generate_voigt_profiles") {
 
         /**
          * If peak index == 0, we are receiving the first one from a new batch, remove all existing profiles first
          */
-        if(e.data.profile_index==0)
-        {
+        if (e.data.profile_index == 0) {
             main_plot.remove_all_peak_profiles();
         }
         /**
@@ -618,30 +648,26 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
-    else if(e.data.webassembly_job === "baseline_correction")
-    {
+    else if (e.data.webassembly_job === "baseline_correction") {
         let spectrum_index = e.data.spectrum_index;
-        if(spectrum_index >=0 && spectrum_index < all_spectra.length)
-        {
+        if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
             all_spectra[spectrum_index].baseline = e.data.baseline;
             /**
              * Convert e.data.baseline from Float32Array to regular array baseline
              * baseline is an array of array of 2: [[ppm1, value1], [ppm2, value2], ...]
              */
             let baseline = [];
-            for(let i=0;i<e.data.baseline.length;i++)
-            {
+            for (let i = 0; i < e.data.baseline.length; i++) {
                 let ppm_value = all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i;
-                baseline.push([ppm_value,e.data.baseline[i]]);
+                baseline.push([ppm_value, e.data.baseline[i]]);
             }
-            main_plot.show_baseline(baseline,spectrum_index);
+            main_plot.show_baseline(baseline, spectrum_index);
             disable_enable_phase_baseline_buttons(true);
         }
     }
 
 
-    else if(e.data.stdout)
-    {
+    else if (e.data.stdout) {
         document.getElementById("log").value += e.data.stdout + "\n";
         document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
     }
@@ -660,20 +686,19 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
 /**
  * Save current size and zoom level to the input field "size_and_zoom_string"
  */
-function write_current_size()
-{
+function write_current_size() {
     let width = document.getElementById("plot_1d").style.width;
     let height = document.getElementById("plot_1d").style.height;
     /**
      * Remove "px" from width and height
      */
-    width = parseFloat(width.replace("px",""));
-    height = parseFloat(height.replace("px",""));
-    
+    width = parseFloat(width.replace("px", ""));
+    height = parseFloat(height.replace("px", ""));
+
     let xscale = main_plot.xscale.domain();
     let yscale = main_plot.yscale.domain();
 
-    let size_info = width.toString().concat(" ",height.toString()," ",xscale[0].toFixed(3)," ",xscale[1].toFixed(3)," ",yscale[0].toFixed(3)," ",yscale[1].toFixed(3));
+    let size_info = width.toString().concat(" ", height.toString(), " ", xscale[0].toFixed(3), " ", xscale[1].toFixed(3), " ", yscale[0].toFixed(3), " ", yscale[1].toFixed(3));
 
     document.getElementById("size_and_zoom_string").value = size_info;
 }
@@ -681,11 +706,9 @@ function write_current_size()
 /**
  * Apply size and zoom level from the input field "size_and_zoom_string"
  */
-function apply_size_and_zoom()
-{
+function apply_size_and_zoom() {
     let size_info = document.getElementById("size_and_zoom_string").value.split(" ");
-    if(size_info.length === 6 && main_plot !== null)
-    {
+    if (size_info.length === 6 && main_plot !== null) {
         let width = parseFloat(size_info[0]);
         let height = parseFloat(size_info[1]);
         let xscale = [parseFloat(size_info[2]), parseFloat(size_info[3])];
@@ -702,8 +725,7 @@ function apply_size_and_zoom()
 /**
  * Change font size of the plot
  */
-function apply_font_size()
-{
+function apply_font_size() {
     let new_size = parseFloat(document.getElementById("fontsize").value);
     if (!isNaN(new_size)) {
         plot_font_size = new_size;
@@ -716,13 +738,12 @@ function apply_font_size()
             top: 10,
             bottom: 15 + plot_font_size * 3
         };
-        main_plot.update_margins_and_font(new_margin,plot_font_size);
+        main_plot.update_margins_and_font(new_margin, plot_font_size);
     }
 }
 
 
-function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom)
-{
+function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_right, margin_bottom) {
     /**
      * same size for svg_parent (parent of visualization), canvas_parent (parent of canvas1), canvas1, 
      * and vis_parent (parent of visualization and canvas_parent)
@@ -771,7 +792,7 @@ function resize_main_plot(wid, height, padding, margin_left, margin_top, margin_
         main_plot.update(input);
     }
 
-  
+
 }
 
 /**
@@ -791,8 +812,8 @@ sortableList.addEventListener(
             e.target.parentElement.style.display =
                 "none";
         }, 0);
-});
- 
+    });
+
 sortableList.addEventListener(
     "dragend",
     (e) => {
@@ -823,7 +844,7 @@ sortableList.addEventListener(
             }
         }, 1000);
     });
- 
+
 sortableList.addEventListener(
     "dragover",
     (e) => {
@@ -844,16 +865,17 @@ sortableList.addEventListener(
         if (afterElement == null) {
             sortableList.appendChild(
                 draggedItem
-            );} 
+            );
+        }
         else {
             sortableList.insertBefore(
                 draggedItem,
                 afterElement
-            );}
+            );
+        }
     });
- 
-const getDragAfterElement = (container, y) =>
-{
+
+const getDragAfterElement = (container, y) => {
     const draggableElements = [
         ...container.querySelectorAll(
             ":scope > li:not(.dragging)"
@@ -883,8 +905,7 @@ const getDragAfterElement = (container, y) =>
     ).element;
 };
 
-function minimize_fid_area(self)
-{
+function minimize_fid_area(self) {
     /**
      * Get button text
      */
@@ -893,8 +914,7 @@ function minimize_fid_area(self)
      * if button_text is "+", change it to "-"
      * and set the height of the fid_file_area to 3rem, clip the overflow
      */
-    if(button_text === "-")
-    {
+    if (button_text === "-") {
         self.innerText = "+";
         document.getElementById("fid_file_area").style.height = "3rem";
         document.getElementById("fid_file_area").style.overflow = "clip";
@@ -902,16 +922,14 @@ function minimize_fid_area(self)
     /**
      * if button_text is "-", change it to "+". Set the height of the fid_file_area to auto, visible overflow
      */
-    else
-    {
+    else {
         self.innerText = "-";
         document.getElementById("fid_file_area").style.height = "auto";
         document.getElementById("fid_file_area").style.overflow = "visible";
     }
 }
 
-function minimize_file_area(self)
-{
+function minimize_file_area(self) {
     /**
      * Get button text
      */
@@ -920,8 +938,7 @@ function minimize_file_area(self)
      * if button_text is "+", change it to "-"
      * and set the height of the file_area to 3rem, clip the overflow
      */
-    if(button_text === "-")
-    {
+    if (button_text === "-") {
         self.innerText = "+";
         document.getElementById("file_area").style.height = "3rem";
         document.getElementById("file_area").style.overflow = "clip";
@@ -929,8 +946,7 @@ function minimize_file_area(self)
     /**
      * if button_text is "-", change it to "+". Set the height of the file_area to auto, visible overflow
     */
-    else
-    {
+    else {
         self.innerText = "-";
         document.getElementById("file_area").style.height = "auto";
         document.getElementById("file_area").style.overflow = "visible";
@@ -938,39 +954,34 @@ function minimize_file_area(self)
 }
 
 
-function minimize_spectrum(button,index)
-{
+function minimize_spectrum(button, index) {
     let spectrum_div = document.getElementById("spectrum-".concat(index)).querySelector("div");
     let minimize_button = button;
-    if(minimize_button.innerText === "-")
-    {
+    if (minimize_button.innerText === "-") {
         /**
          * If this is current spectrum, do not minimize it
          */
-        if(main_plot.current_spectrum_index === index)
-        {
-            return; 
+        if (main_plot.current_spectrum_index === index) {
+            return;
         }
         /**
          * If current spectrum is recon spectrum of spectrum index, do not minimize it
          */
-        if( all_spectra[main_plot.current_spectrum_index].spectrum_origin  === index)
-        {
+        if (all_spectra[main_plot.current_spectrum_index].spectrum_origin === index) {
             return;
         }
 
         minimize_button.innerText = "+";
         spectrum_div.style.height = "1.75rem";
         spectrum_div.style.overflow = "clip";
-        
+
         all_spectra[index].visible = false;
-        main_plot.update_visibility(index,false);
+        main_plot.update_visibility(index, false);
 
         /**
          * If peaks are shown, remove them as well
          */
-        if(current_spectrum_index_of_peaks === index)
-        {
+        if (current_spectrum_index_of_peaks === index) {
             current_spectrum_index_of_peaks = -1;
             main_plot.remove_peaks();
         }
@@ -978,36 +989,30 @@ function minimize_spectrum(button,index)
         /**
          * Loop all spectra, find children of this spectrum, hide them too
          */
-        for(let i=0;i<all_spectra.length;i++)
-        {
-            if(all_spectra[i].spectrum_origin === index)
-            {
+        for (let i = 0; i < all_spectra.length; i++) {
+            if (all_spectra[i].spectrum_origin === index) {
                 all_spectra[i].visible = false;
-                main_plot.update_visibility(i,false);
-                if(current_spectrum_index_of_peaks === i)
-                {
+                main_plot.update_visibility(i, false);
+                if (current_spectrum_index_of_peaks === i) {
                     current_spectrum_index_of_peaks = -1;
                     main_plot.remove_peaks();
                 }
             }
         }
     }
-    else
-    {
+    else {
         minimize_button.innerText = "-";
         spectrum_div.style.height = "auto";
         all_spectra[index].visible = true;
-        main_plot.update_visibility(index,true);
+        main_plot.update_visibility(index, true);
 
         /**
          * Loop all spectra, find children of this spectrum, show them too
          */
-        for(let i=0;i<all_spectra.length;i++)
-        {
-            if(all_spectra[i].spectrum_origin === index)
-            {
+        for (let i = 0; i < all_spectra.length; i++) {
+            if (all_spectra[i].spectrum_origin === index) {
                 all_spectra[i].visible = true;
-                main_plot.update_visibility(i,true);
+                main_plot.update_visibility(i, true);
             }
         }
     }
@@ -1032,23 +1037,21 @@ function add_to_list(index) {
      * If this is a removed spectrum, do not add it to the list
      * this is required when user loads previously saved data, some spectra may be removed
      */
-    if(new_spectrum.spectrum_origin === -3)
-    {
+    if (new_spectrum.spectrum_origin === -3) {
         return;
     }
 
     /**
      * Add a draggable div to the new spectrum_1d div, only if the spectrum is experimental
      */
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
-    {
+    if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
         /**
          * Also add an minimize button to the new spectrum_1d div
          */
         let minimize_button = document.createElement("button");
         minimize_button.id = "minimize-".concat(index);
         minimize_button.innerText = "-";
-        minimize_button.onclick = function () { minimize_spectrum(this,index); };
+        minimize_button.onclick = function () { minimize_spectrum(this, index); };
         new_spectrum_div.appendChild(minimize_button);
 
         let draggable_span = document.createElement("span");
@@ -1064,16 +1067,14 @@ function add_to_list(index) {
      * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 2D)
      * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_i or raw_data_i is not empty
      */
-    if(new_spectrum.spectrum_origin === -2)
-    {
+    if (new_spectrum.spectrum_origin === -2) {
         let reprocess_button = document.createElement("button");
         reprocess_button.innerText = "Reprocess";
-        reprocess_button.onclick = function () { reprocess_spectrum(this,index); };
+        reprocess_button.onclick = function () { reprocess_spectrum(this, index); };
         new_spectrum_div.appendChild(reprocess_button);
     }
-    
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
-    {
+
+    if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
         /**
          * The new DIV will have the following children:
          * A original index (which is different from the index in the list, because of the order change by drag and drop)
@@ -1093,16 +1094,13 @@ function add_to_list(index) {
             }
         }
 
-        if(index>=0 && index < all_spectra.length)
-        {
-            if(main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != index)
-            {
+        if (index >= 0 && index < all_spectra.length) {
+            if (main_plot.current_spectrum_index != -1 && main_plot.current_spectrum_index != index) {
                 permanently_apply_phase_correction();
             }
             main_plot.current_spectrum_index = index;
         }
-        else
-        {
+        else {
             main_plot.current_spectrum_index = -1;
         }
 
@@ -1110,7 +1108,7 @@ function add_to_list(index) {
          * Highlight the current spectrum in the list
          */
         new_spectrum_div.style.backgroundColor = "lightblue";
-        
+
 
         /**
          * Add a onclick function to the new spectrum_1d div to set the current spectrum index
@@ -1127,22 +1125,6 @@ function add_to_list(index) {
 
 
         new_spectrum_div.appendChild(document.createTextNode("Noise: " + new_spectrum.noise_level.toExponential(4) + ","));
-        /**
-         * Add two input text element with ID ref1 and ref2, default value is 0 and 0
-         * They also have a label element with text "Ref direct: " and "Ref indirect: "
-         * They also have an onblur event to update the ref_direct and ref_indirect values
-         */
-        let ref_direct_label = document.createElement("label");
-        ref_direct_label.setAttribute("for", "ref1-".concat(index));
-        ref_direct_label.innerText = " Ref direct: ";
-        let ref_direct_input = document.createElement("input");
-        ref_direct_input.setAttribute("type", "text");
-        ref_direct_input.setAttribute("id", "ref1-".concat(index));
-        ref_direct_input.setAttribute("size", "4");
-        ref_direct_input.setAttribute("value", "0.0");
-        ref_direct_input.onblur = function () { adjust_ref(index, 0); };
-        new_spectrum_div.appendChild(ref_direct_label);
-        new_spectrum_div.appendChild(ref_direct_input);
     }
 
 
@@ -1152,9 +1134,9 @@ function add_to_list(index) {
      */
     let download_button = document.createElement("button");
     download_button.innerText = "Download ft1";
-    download_button.onclick = function () { download_spectrum(index,'original'); };
+    download_button.onclick = function () { download_spectrum(index, 'original'); };
     new_spectrum_div.appendChild(download_button);
-    
+
     /**
      * A color picker element with the color of the contour plot, whose ID is "contour_color-".concat(index)
      * Set the color of the picker to the color of the spectrum
@@ -1193,8 +1175,7 @@ function add_to_list(index) {
      * Label and span for spectrum scale, default is 1.0
      * Label and span for spectrum reference, default is 0.0
      */
-    if( new_spectrum.spectrum_origin < 0 )
-    {
+    if (new_spectrum.spectrum_origin < 0) {
         let scale_label = document.createElement("label");
         scale_label.setAttribute("for", "spectrum-scale-".concat(index));
         scale_label.innerText = "Scale: ";
@@ -1227,8 +1208,7 @@ function add_to_list(index) {
     /**
      * If the spectrum is experimental, add a run_DEEP_Picker, run Voigt fitter, run Gaussian fitter, and download peaks button
      */
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
-    {
+    if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
         /**
          * Add a file input field to upload a peak list, with a label "Load peak list: "
          */
@@ -1265,18 +1245,17 @@ function add_to_list(index) {
         let deep_picker_button = document.createElement("button");
         deep_picker_button.setAttribute("id", "run_deep_picker-".concat(index));
         deep_picker_button.innerText = "DEEP Picker";
-        deep_picker_button.onclick = function () { run_DEEP_Picker(index,0); };
+        deep_picker_button.onclick = function () { run_DEEP_Picker(index, 0); };
         new_spectrum_div.appendChild(deep_picker_button);
 
         // Add a line break
-        if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000)
-        {
+        if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
 
         }
-        else{
+        else {
             new_spectrum_div.appendChild(document.createElement("br"));
         }
-      
+
         /**
          * Add a combine_peak cutoff input filed with ID "peak_combine_cutoff-".concat(index)
          * run_Voigt_fitter() will read this value and send to wasm to combine peaks in the fitting
@@ -1309,7 +1288,7 @@ function add_to_list(index) {
         maxround_input.setAttribute("value", "50"); //Default value is 50
         new_spectrum_div.appendChild(maxround_label);
         new_spectrum_div.appendChild(maxround_input);
-        
+
         /**
          * Add one buttons to call run_Voigt_fitter, with option 0,1, or 2
          * Disabled (enabled) if all_spectra[index].picked_peaks_object is empty (not empty)
@@ -1332,23 +1311,22 @@ function add_to_list(index) {
         gaussian_option.innerText = "Gaussian";
         run_voigt_fitter_select.appendChild(gaussian_option);
 
-       
+
         new_spectrum_div.appendChild(run_voigt_fitter_select_label);
         new_spectrum_div.appendChild(run_voigt_fitter_select);
 
         let run_voigt_fitter_button0 = document.createElement("button");
         run_voigt_fitter_button0.innerText = "Peak Fitting";
-        run_voigt_fitter_button0.onclick = function () { 
+        run_voigt_fitter_button0.onclick = function () {
             /**
              * Get the value of run_voigt_fitter_options: 0, 1, or 2
              */
             let index = parseInt(this.id.split("-")[1]);
             let run_voigt_fitter_select = document.getElementById("run_voigt_fitter_select-".concat(index));
             let option = parseInt(run_voigt_fitter_select.value);
-            run_Voigt_fitter(index, option); 
+            run_Voigt_fitter(index, option);
         };
-        if(all_spectra[index].picked_peaks_object === null || all_spectra[index].picked_peaks_object.column_headers.length === 0)
-        {
+        if (all_spectra[index].picked_peaks_object === null || all_spectra[index].picked_peaks_object.column_headers.length === 0) {
             run_voigt_fitter_button0.disabled = true;
         }
         run_voigt_fitter_button0.setAttribute("id", "run_voigt_fitter-".concat(index));
@@ -1368,7 +1346,7 @@ function add_to_list(index) {
     let download_peaks_button = document.createElement("button");
     download_peaks_button.innerText = "Download picked peaks";
     download_peaks_button.setAttribute("id", "download_peaks-".concat(index));
-    download_peaks_button.onclick = function () { download_peaks(index,'picked'); };
+    download_peaks_button.onclick = function () { download_peaks(index, 'picked'); };
     new_spectrum_div.appendChild(download_peaks_button);
 
 
@@ -1381,7 +1359,7 @@ function add_to_list(index) {
         let download_fitted_peaks_button = document.createElement("button");
         download_fitted_peaks_button.innerText = "Download fitted peaks";
         download_fitted_peaks_button.setAttribute("id", "download_fitted_peaks-".concat(index));
-        download_fitted_peaks_button.onclick = function () { download_peaks(index,'fitted'); };
+        download_fitted_peaks_button.onclick = function () { download_peaks(index, 'fitted'); };
         new_spectrum_div.appendChild(download_fitted_peaks_button);
     }
 
@@ -1397,10 +1375,10 @@ function add_to_list(index) {
          * If the checkbox is checked, show the peaks
          */
         if (e.target.checked) {
-            show_hide_peaks(index,'picked', true);
+            show_hide_peaks(index, 'picked', true);
         }
         else {
-            show_hide_peaks(index,'picked', false);
+            show_hide_peaks(index, 'picked', false);
         }
     }
     new_spectrum_div.appendChild(show_peaks_checkbox);
@@ -1421,18 +1399,17 @@ function add_to_list(index) {
              * If the checkbox is checked, show the peaks
              */
             if (e.target.checked) {
-                show_hide_peaks(index,'fitted', true);
+                show_hide_peaks(index, 'fitted', true);
             }
             else {
-                show_hide_peaks(index,'fitted', false);
+                show_hide_peaks(index, 'fitted', false);
             }
         }
-        if(all_spectra[index].fitted_peaks_object === null || all_spectra[index].fitted_peaks_object.column_headers.length === 0)
-        {
+        if (all_spectra[index].fitted_peaks_object === null || all_spectra[index].fitted_peaks_object.column_headers.length === 0) {
             show_fitted_peaks_checkbox.disabled = true;
             download_fitted_peaks_button.disabled = true;
         }
-         new_spectrum_div.appendChild(show_fitted_peaks_checkbox);
+        new_spectrum_div.appendChild(show_fitted_peaks_checkbox);
         let show_fitted_peaks_label = document.createElement("label");
         show_fitted_peaks_label.setAttribute("for", "show_fitted_peaks-".concat(index));
         show_fitted_peaks_label.innerText = "Show fitted peaks";
@@ -1442,17 +1419,16 @@ function add_to_list(index) {
     /**
      * Disable the download or show picked or fitted peaks buttons, depending on the state of the picked or fitted peaks
      */
-    if(all_spectra[index].picked_peaks_object === null || all_spectra[index].picked_peaks_object.column_headers.length === 0)
-    {
+    if (all_spectra[index].picked_peaks_object === null || all_spectra[index].picked_peaks_object.column_headers.length === 0) {
         show_peaks_checkbox.disabled = true;
         download_peaks_button.disabled = true;
     }
-    
+
     /**
      * Add a new line
     */
-    new_spectrum_div.appendChild(document.createElement("br"));  
-    
+    new_spectrum_div.appendChild(document.createElement("br"));
+
 
     /**
      * Add some spaces
@@ -1471,13 +1447,12 @@ function add_to_list(index) {
      * Add a h5 element to hold the title of "Reconstructed spectrum"
      * Add a ol element to hold reconstructed spectrum
      */
-    if(new_spectrum.spectrum_origin < 0 || new_spectrum.spectrum_origin >= 10000)
-    {
+    if (new_spectrum.spectrum_origin < 0 || new_spectrum.spectrum_origin >= 10000) {
         let reconstructed_spectrum_h5 = document.createElement("h5");
         reconstructed_spectrum_h5.innerText = "Reconstructed spectrum";
         new_spectrum_div.appendChild(reconstructed_spectrum_h5);
         let reconstructed_spectrum_ol = document.createElement("ol");
-        reconstructed_spectrum_ol.setAttribute("id", "reconstructed_spectrum_ol-".concat(index));   
+        reconstructed_spectrum_ol.setAttribute("id", "reconstructed_spectrum_ol-".concat(index));
         new_spectrum_div.appendChild(reconstructed_spectrum_ol);
     }
 
@@ -1486,20 +1461,17 @@ function add_to_list(index) {
     /**
      * Add the new spectrum_1d div to the list of spectra if it is from experimental data
     */
-    if(all_spectra[index].spectrum_origin < 0 || all_spectra[index].spectrum_origin >= 10000)
-    {
+    if (all_spectra[index].spectrum_origin < 0 || all_spectra[index].spectrum_origin >= 10000) {
         document.getElementById("spectra_list_ol").appendChild(new_spectrum_div_list);
     }
     /**
      * If the spectrum is reconstructed, add the new spectrum_1d div to the reconstructed spectrum list
      */
-    else
-    {
+    else {
         document.getElementById("reconstructed_spectrum_ol-".concat(all_spectra[index].spectrum_origin)).appendChild(new_spectrum_div_list);
     }
 
-    if(new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >=10000)
-    {
+    if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
         total_number_of_experimental_spectra += 1;
     }
 }
@@ -1526,16 +1498,16 @@ function resetzoom() {
 
     for (let i = 0; i < all_spectra.length; i++) {
         if (all_spectra[i].x_ppm_start + all_spectra[i].x_ppm_ref > x_ppm_start) {
-            x_ppm_start = all_spectra[i].x_ppm_start +  + all_spectra[i].x_ppm_ref;
+            x_ppm_start = all_spectra[i].x_ppm_start + + all_spectra[i].x_ppm_ref;
         }
-        if (all_spectra[i].x_ppm_start  + all_spectra[i].x_ppm_ref + all_spectra[i].x_ppm_step * all_spectra[i].n_direct < x_ppm_end) {
-            x_ppm_end = all_spectra[i].x_ppm_start + all_spectra[i].x_ppm_step * all_spectra[i].n_direct  + all_spectra[i].x_ppm_ref ;
+        if (all_spectra[i].x_ppm_start + all_spectra[i].x_ppm_ref + all_spectra[i].x_ppm_step * all_spectra[i].n_direct < x_ppm_end) {
+            x_ppm_end = all_spectra[i].x_ppm_start + all_spectra[i].x_ppm_step * all_spectra[i].n_direct + all_spectra[i].x_ppm_ref;
         }
-        if (all_spectra[i].y_ppm_start  + all_spectra[i].y_ppm_ref > y_ppm_start) {
-            y_ppm_start = all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_ref ;
+        if (all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_ref > y_ppm_start) {
+            y_ppm_start = all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_ref;
         }
         if (all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_step * all_spectra[i].n_indirect + all_spectra[i].y_ppm_ref < y_ppm_end) {
-            y_ppm_end = all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_step * all_spectra[i].n_indirect+ all_spectra[i].y_ppm_ref ;
+            y_ppm_end = all_spectra[i].y_ppm_start + all_spectra[i].y_ppm_step * all_spectra[i].n_indirect + all_spectra[i].y_ppm_ref;
         }
     }
 
@@ -1571,12 +1543,11 @@ function download_spectrum(index, flag) {
      * generate a blob, which is all_spectra[index].header + all_spectra[index].raw_data
      * case 1: both are real
      */
-    if (all_spectra[index].datatype_direct === 1 ) {
+    if (all_spectra[index].datatype_direct === 1) {
         data = Float32Concat(all_spectra[index].header, all_spectra[index].raw_data);
     }
-    else
-    {
-        data = new Float32Array(512 + all_spectra[index].n_direct*2);
+    else {
+        data = new Float32Array(512 + all_spectra[index].n_direct * 2);
         let current_position = 0;
         data.set(all_spectra[index].header, current_position);
         current_position += 512;
@@ -1601,7 +1572,7 @@ function download_spectrum(index, flag) {
  */
 function reprocess_spectrum(button, spectrum_index) {
 
-    function set_fid_parameters(fid_process_parameters){
+    function set_fid_parameters(fid_process_parameters) {
         /**
          * Set fid_process_parameters to the input fields
          */
@@ -1614,9 +1585,10 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
         document.getElementById("auto_direct_3").checked = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
+        document.getElementById("auto_reduced_fid_size").checked = fid_process_parameters.auto_reduced_fid_size;
     }
 
-    function set_default_fid_parameters(){
+    function set_default_fid_parameters() {
         /**
          * Set fid_process_parameters to the default values
          */
@@ -1629,6 +1601,7 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = true;
         document.getElementById("auto_direct_3").checked = false;
         document.getElementById("delete_imaginary").checked = false;
+        document.getElementById("auto_reduced_fid_size").checked = true;
     }
 
     /**
@@ -1638,8 +1611,7 @@ function reprocess_spectrum(button, spectrum_index) {
     /**
      * If the button text is "Reprocess", we need to prepare for reprocess the spectrum
      */
-    if(button_text === "Reprocess")
-    {
+    if (button_text === "Reprocess") {
         /**
          * hide input fid files
          */
@@ -1671,8 +1643,7 @@ function reprocess_spectrum(button, spectrum_index) {
         current_reprocess_spectrum_index = spectrum_index;
         set_current_spectrum(spectrum_index);
     }
-    else
-    {
+    else {
         /**
          * Undo hide of input fid files
          */
@@ -1711,13 +1682,11 @@ function reprocess_spectrum(button, spectrum_index) {
  * @param {*} b_reprocess: boolean, whether this is a new spectrum_1d or a reprocessed spectrum
  * @returns 
  */
-function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correction=false)
-{
+function draw_spectrum(result_spectra, b_from_fid, b_reprocess, b_ann_phase_correction = false) {
 
     let spectrum_index;
 
-    if(b_from_fid ==false && b_reprocess === false)
-    {
+    if (b_from_fid == false && b_reprocess === false) {
         /**
          * New spectrum from ft1, set its index (current length of the spectral array) and color
          * It is also possible this is a reconstructed spectrum from peak fitting
@@ -1731,50 +1700,44 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
          * If result_spectra[0].spectrum_origin >=0, it means this is a reconstructed spectrum
          * we update the original spectrum's reconstructed_indices
          */
-        if(result_spectra[0].spectrum_origin >=0)
-        {
+        if (result_spectra[0].spectrum_origin >= 0) {
             all_spectra[result_spectra[0].spectrum_origin].reconstructed_indices.push(spectrum_index);
         }
     }
-    else if(b_from_fid === true && b_reprocess === false)
-    {
+    else if (b_from_fid === true && b_reprocess === false) {
         /**
          * New spectra from fid, set its index (current length of the spectral array) and color
          * It is possible that there are multiple spectra from a single fid file (pseudo 3D)
          */
         let first_spectrum_index = -1;
-        for(let i=0;i<result_spectra.length;i++)
-        {
+        for (let i = 0; i < result_spectra.length; i++) {
             result_spectra[i].spectrum_index = all_spectra.length;
             result_spectra[i].spectrum_color = rgbToHex(color_list[(result_spectra[i].spectrum_index) % color_list.length]);
 
             /**
              * For spectrum from fid, we need to include all FID files and processing parameters in the result_spectra object
              */
-            if(i==0)
-            {
+            if (i == 0) {
                 fid_process_parameters.spectrum_index = result_spectra[i].spectrum_index; //set the spectrum index in fid_process_parameters
                 result_spectra[i].fid_process_parameters = fid_process_parameters;
                 first_spectrum_index = result_spectra[i].spectrum_index;
                 result_spectra[i].spectrum_origin = -2; //from fid
             }
-            else
-            {
+            else {
                 result_spectra[i].spectrum_origin = 10000 + first_spectrum_index;
             }
 
             all_spectra.push(result_spectra[i]);
-            if(b_ann_phase_correction === true){
+            if (b_ann_phase_correction === true) {
                 /**
                  * Apply tfjs phase correction to the spectrum
                  */
-                run_ann_phase_correction(all_spectra.length -1);
+                run_ann_phase_correction(all_spectra.length - 1);
             }
         }
         spectrum_index = first_spectrum_index; //set the spectrum index to the first spectrum index
     }
-    else if( b_reprocess === true)
-    {
+    else if (b_reprocess === true) {
         /**
          * Reprocessed spectrum, get its index and update the spectrum. 
          * Also, update the fid_process_parameters
@@ -1783,20 +1746,19 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index) % color_list.length]);
         all_spectra[spectrum_index] = result_spectra[0];
-        if(b_ann_phase_correction === true){
-                /**
-                 * Apply tfjs phase correction to the spectrum
-                 */
-                run_ann_phase_correction(spectrum_index);
+        if (b_ann_phase_correction === true) {
+            /**
+             * Apply tfjs phase correction to the spectrum
+             */
+            run_ann_phase_correction(spectrum_index);
         }
     }
-    
+
 
     /**
      * initialize the plot with the first spectrum. This function only run once
      */
-    if(b_plot_initialized === false)
-    {
+    if (b_plot_initialized === false) {
         b_plot_initialized = true;
         main_plot = new myplot_1d(); //the plot object
         document.getElementById("plot_1d").style.display = "block"; //show the plot
@@ -1816,8 +1778,8 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
-        
+        main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced);
+
         /**
          * When initializing the plot, we also initialize the BroadcastChannel
          */
@@ -1835,15 +1797,12 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
             let peak_group = document.getElementById("plot_group").value;
 
             if (event.data.type === '1d_zoom' && event.data.peak_group === peak_group) {
-                if(main_plot !== null)
-                {
+                if (main_plot !== null) {
                     main_plot.zoom_to(event.data.xscale);
                 }
             }
-            else if(event.data.type === '2d_zoom' && event.data.peak_group === peak_group)
-            {
-                if(main_plot !== null)
-                {
+            else if (event.data.type === '2d_zoom' && event.data.peak_group === peak_group) {
+                if (main_plot !== null) {
                     /**
                      * For some reason, event.data.xscale from 2D plot is in ascending order, we need to switch
                      * before passing to main_plot.zoom_to()
@@ -1860,45 +1819,37 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
          * We need to make a data array of two numbers: ppm and amplitude
          */
         let data = [];
-        if(result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length)
-        {
+        if (result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length) {
             for (let i = 0; i < result_spectra[0].n_direct; i++) {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
-            }
-        }    
-        else
-        {
-            for (let i = 0; i < result_spectra[0].n_direct; i++)
-            {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i, result_spectra[0].raw_data[i], result_spectra[0].raw_data_i[i]]);
             }
         }
-        main_plot.add_data(data,result_spectra[0].spectrum_index,result_spectra[0].spectrum_color);
+        else {
+            for (let i = 0; i < result_spectra[0].n_direct; i++) {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i, result_spectra[0].raw_data[i]]);
+            }
+        }
+        main_plot.add_data(data, result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
 
-        plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
+        plot_div_resize_observer.observe(document.getElementById("plot_1d"));
     }
-    else
-    {
+    else {
         let data = [];
-        if(result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length)
-        {
-            for(let i=0; i < result_spectra[0].n_direct; i++)
-            {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i],result_spectra[0].raw_data_i[i]]);
-            }
-        }
-        else
-        {
+        if (result_spectra[0].raw_data_i.length === result_spectra[0].raw_data.length) {
             for (let i = 0; i < result_spectra[0].n_direct; i++) {
-                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i , result_spectra[0].raw_data[i]]);
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i, result_spectra[0].raw_data[i], result_spectra[0].raw_data_i[i]]);
             }
         }
-        main_plot.add_data(data,result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
+        else {
+            for (let i = 0; i < result_spectra[0].n_direct; i++) {
+                data.push([result_spectra[0].x_ppm_start + result_spectra[0].x_ppm_step * i, result_spectra[0].raw_data[i]]);
+            }
+        }
+        main_plot.add_data(data, result_spectra[0].spectrum_index, result_spectra[0].spectrum_color);
     }
 
-    if(b_reprocess === false)
-    {
-        add_to_list(spectrum_index,b_from_fid,b_reprocess);
+    if (b_reprocess === false) {
+        add_to_list(spectrum_index, b_from_fid, b_reprocess);
     }
 
 }
@@ -1908,8 +1859,7 @@ function draw_spectrum(result_spectra, b_from_fid,b_reprocess,b_ann_phase_correc
  * Concat two float32 arrays into one
  * @returns the concatenated array
  */
-function Float32Concat(first, second)
-{
+function Float32Concat(first, second) {
     var firstLength = first.length,
         result = new Float32Array(firstLength + second.length);
 
@@ -1938,8 +1888,7 @@ function hexToRgb(hex) {
      * In old version, hex might be [0,0,1,1] (rgba)
      * then we return as [0,0, ]
      */
-    if(hex.length === 4)
-    {
+    if (hex.length === 4) {
         return hex;
     }
 
@@ -1958,23 +1907,22 @@ const dataHeader = 'data:image/svg+xml;charset=utf-8';
 
 
 const loadImage = async url => {
-  const $img = document.createElement('img')
-  $img.src = url
-  return new Promise((resolve, reject) => {
-    $img.onload = () => resolve($img)
-    $img.onerror = reject
-  })
+    const $img = document.createElement('img')
+    $img.src = url
+    return new Promise((resolve, reject) => {
+        $img.onload = () => resolve($img)
+        $img.onerror = reject
+    })
 }
 
 const serializeAsXML = $e => (new XMLSerializer()).serializeToString($e);
 const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
-async function download_plot()
-{
-/**
-     * Generate a link to download main_plot as a SVG file
-     * The top SVG element has id = "plot_1d"
-     */
+async function download_plot() {
+    /**
+         * Generate a link to download main_plot as a SVG file
+         * The top SVG element has id = "plot_1d"
+         */
     var svgData = document.getElementById("plot_1d").outerHTML;
     var svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
     var svgUrl = URL.createObjectURL(svgBlob);
@@ -1990,12 +1938,11 @@ async function download_plot()
 /**
  * Load a peak list to a spectrum
  */
-function load_peak_list(spectrum_index)
-{
+function load_peak_list(spectrum_index) {
     /**
      * Get the file input element with ID "run_load_peak_list-"+spectrum_index
      */
-    let file_input = document.getElementById("run_load_peak_list-"+spectrum_index);
+    let file_input = document.getElementById("run_load_peak_list-" + spectrum_index);
     if (file_input.files.length === 0) {
         return;
     }
@@ -2007,17 +1954,15 @@ function load_peak_list(spectrum_index)
         /**
          * Check file name extension, if it is .tab, load it as tab file, else if it is .list, load it as
          */
-        if(file.name.endsWith(".tab") || file.name.endsWith(".list"))
-        {
-            if(file.name.endsWith(".tab"))
-            {
+        if (file.name.endsWith(".tab") || file.name.endsWith(".list")) {
+            if (file.name.endsWith(".tab")) {
                 peak_list.process_peaks_tab(e.target.result);
             }
             else {
                 peak_list.process_peaks_list(e.target.result);
             }
             all_spectra[spectrum_index].picked_peaks_object = peak_list;
-            
+
             /**
              * when picked peaks are received, fitted peaks need to be reset
              */
@@ -2025,19 +1970,19 @@ function load_peak_list(spectrum_index)
             /**
              * Disable the download fitted peaks button. Uncheck the show fitted peaks checkbox, disable it too
              */
-            disable_enable_fitted_peak_buttons(spectrum_index,0);
+            disable_enable_fitted_peak_buttons(spectrum_index, 0);
             /**
              * When peaks are loaded, set default scale and scale2 for peak fitting
              */
             all_spectra[spectrum_index].scale = 5.5;
             all_spectra[spectrum_index].scale2 = 3.5;
 
-            disable_enable_peak_buttons(spectrum_index,1);
+            disable_enable_peak_buttons(spectrum_index, 1);
 
             document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
             document.getElementById("show_peaks-".concat(spectrum_index)).click();
         }
-        else{
+        else {
             console.log("Unsupported peak file format");
         }
     };
@@ -2047,10 +1992,8 @@ function load_peak_list(spectrum_index)
 /**
  * Disable or enable buttons of download_peaks-, run_deep_picker-, run_voigt_fitter-, show_peaks-
  */
-function disable_enable_peak_buttons(spectrum_index,flag)
-{
-    if(flag===0 || flag===2)
-    {
+function disable_enable_peak_buttons(spectrum_index, flag) {
+    if (flag === 0 || flag === 2) {
         /**
          * Disable the buttons to run deep picker and voigt fitter
          */
@@ -2058,14 +2001,12 @@ function disable_enable_peak_buttons(spectrum_index,flag)
         document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
         document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
-        if(flag===0)
-        {
+        if (flag === 0) {
             document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
             document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
         }
     }
-    else if(flag===1)
-    {
+    else if (flag === 1) {
         /**
          * Enable the buttons to run deep picker and voigt fitter
          */
@@ -2084,10 +2025,9 @@ function disable_enable_peak_buttons(spectrum_index,flag)
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
-function run_DEEP_Picker(spectrum_index,flag)
-{
-    disable_enable_peak_buttons(spectrum_index,0);
-    disable_enable_fitted_peak_buttons(spectrum_index,0);
+function run_DEEP_Picker(spectrum_index, flag) {
+    disable_enable_peak_buttons(spectrum_index, 0);
+    disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
     /**
      * Combine all_spectra[0].raw_data and all_spectra[0].header into one Float32Array
@@ -2109,7 +2049,7 @@ function run_DEEP_Picker(spectrum_index,flag)
     let noise_level = all_spectra[spectrum_index].noise_level;
     let scale = parseFloat(document.getElementById("scale1-".concat(spectrum_index)).value);
     let scale2 = 0.6 * scale;
-   
+
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_picker",
@@ -2133,25 +2073,24 @@ function run_DEEP_Picker(spectrum_index,flag)
  * Call Voigt fitter to run peak fitting on the spectrum
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  */
-function run_Voigt_fitter(spectrum_index,flag)
-{
+function run_Voigt_fitter(spectrum_index, flag) {
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
-    disable_enable_peak_buttons(spectrum_index,2);
-    disable_enable_fitted_peak_buttons(spectrum_index,0);
+    disable_enable_peak_buttons(spectrum_index, 2);
+    disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
     /**
      * Get maxround input field with ID "maxround-"+spectrum_index
      */
-    let maxround = parseInt(document.getElementById("maxround-"+spectrum_index).value);
+    let maxround = parseInt(document.getElementById("maxround-" + spectrum_index).value);
 
     /**
      * Get peak combine cutoff
      */
-    let peak_combine_cutoff = parseFloat(document.getElementById("peak_combine_cutoff-"+spectrum_index).value);
+    let peak_combine_cutoff = parseFloat(document.getElementById("peak_combine_cutoff-" + spectrum_index).value);
 
-  
+
     /**
      * Get subset of the picked peaks (within visible region)
      * start < end from the get_visible_region function call
@@ -2170,8 +2109,7 @@ function run_Voigt_fitter(spectrum_index,flag)
     /**
      * Make sure x_ppm_visible_start > x_ppm_visible_end
      */
-    if(x_ppm_visible_start < x_ppm_visible_end)
-    {
+    if (x_ppm_visible_start < x_ppm_visible_end) {
         let temp = x_ppm_visible_start;
         x_ppm_visible_start = x_ppm_visible_end;
         x_ppm_visible_end = temp;
@@ -2187,7 +2125,7 @@ function run_Voigt_fitter(spectrum_index,flag)
     header[56] = 1.0;
     header[219] = all_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
     header[99] = all_spectra[spectrum_index].n_direct; //size of direct dimension of the input spectrum
-   
+
 
     webassembly_1d_worker_2.postMessage({
         webassembly_job: "peak_fitter",
@@ -2215,21 +2153,18 @@ function run_Voigt_fitter(spectrum_index,flag)
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  * @param {int} flag: 0 to disable, 1 to enable
  */
-function disable_enable_fitted_peak_buttons(spectrum_index,flag)
-{
+function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
     /**
      * (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) means reconstructed spectrum
      */
     let b_reconstructed = (all_spectra[spectrum_index].spectrum_origin >= 0 && all_spectra[spectrum_index].spectrum_origin < 10000);
 
-    if(flag==0 && b_reconstructed)
-    {
+    if (flag == 0 && b_reconstructed) {
         document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;   
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;
         document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
     }
-    else if(flag==1)
-    {
+    else if (flag == 1) {
         if (b_reconstructed === true) {
             document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
             document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
@@ -2248,60 +2183,49 @@ function disable_enable_fitted_peak_buttons(spectrum_index,flag)
 /**
  * Show or hide peaks on the plot
  */
-function show_hide_peaks(index,flag,b_show)
-{
+function show_hide_peaks(index, flag, b_show) {
     /**
      * Turn off checkbox of all other spectra
      */
-    for(let i=0;i<all_spectra.length;i++)
-    {
+    for (let i = 0; i < all_spectra.length; i++) {
         const b_reconstructed = (all_spectra[i].spectrum_origin >= 0 && all_spectra[i].spectrum_origin < 10000);
-        if(i!==index)
-        {
-            document.getElementById("show_peaks-"+i).checked = false;
-            if(b_reconstructed)
-            {
-                document.getElementById("show_fitted_peaks-"+i).checked = false;
+        if (i !== index) {
+            document.getElementById("show_peaks-" + i).checked = false;
+            if (b_reconstructed) {
+                document.getElementById("show_fitted_peaks-" + i).checked = false;
             }
         }
         /**
          * uncheck the checkbox of the current spectrum
          */
-        else
-        {
-            if(flag === 'picked')
-            {
-                if(b_reconstructed){
-                    document.getElementById("show_fitted_peaks-"+i).checked = false;
+        else {
+            if (flag === 'picked') {
+                if (b_reconstructed) {
+                    document.getElementById("show_fitted_peaks-" + i).checked = false;
                 }
             }
-            else if(flag === 'fitted')
-            {
-                document.getElementById("show_peaks-"+i).checked = false;
+            else if (flag === 'fitted') {
+                document.getElementById("show_peaks-" + i).checked = false;
             }
         }
     }
 
-    if(b_show)
-    {
+    if (b_show) {
         current_spectrum_index_of_peaks = index;
         set_current_spectrum(index);
         current_flag_of_peaks = flag;
         show_peak_table();
         main_plot.remove_peaks();
 
-        if(flag === 'picked')
-        {
-            main_plot.add_peaks(all_spectra[index].picked_peaks_object,'picked');
+        if (flag === 'picked') {
+            main_plot.add_peaks(all_spectra[index].picked_peaks_object, 'picked');
         }
-        else
-        {
-            main_plot.add_peaks(all_spectra[index].fitted_peaks_object,'fitted');
+        else {
+            main_plot.add_peaks(all_spectra[index].fitted_peaks_object, 'fitted');
             update_reconstructed_peaks(current_spectrum_index_of_peaks);
         }
     }
-    else
-    {
+    else {
         current_spectrum_index_of_peaks = -1; // -1 means no spectrum is selected. flag is not important
         main_plot.remove_peaks();
         remove_peak_table();
@@ -2312,11 +2236,11 @@ let zoomPanTimeout; // to debounce zoom and pan events
 function update_reconstructed_peaks_debounced(index) {
     clearTimeout(zoomPanTimeout);
 
-  // Set a new timeout
-  zoomPanTimeout = setTimeout(() => {
-    console.log("Zoom or pan stopped. Running function.");
-    update_reconstructed_peaks(index);
-  }, 100);
+    // Set a new timeout
+    zoomPanTimeout = setTimeout(() => {
+        console.log("Zoom or pan stopped. Running function.");
+        update_reconstructed_peaks(index);
+    }, 100);
 }
 
 
@@ -2358,16 +2282,13 @@ function update_reconstructed_peaks(index) {
 /**
  * Generate a list of peaks in nmrPipe .tab format
  */
-function download_peaks(spectrum_index,flag)
-{
+function download_peaks(spectrum_index, flag) {
     let file_buffer;
 
-    if(flag === 'picked')
-    {
+    if (flag === 'picked') {
         file_buffer = all_spectra[spectrum_index].picked_peaks_object.save_peaks_tab();
     }
-    else if(flag === 'fitted')
-    {
+    else if (flag === 'fitted') {
         file_buffer = all_spectra[spectrum_index].fitted_peaks_object.save_peaks_tab();
     }
 
@@ -2391,16 +2312,14 @@ function download_peaks(spectrum_index,flag)
 /**
  * Clear the textarea log
  */
-function clear_log()
-{
+function clear_log() {
     document.getElementById("log").value = "";
 }
 
 /**
  * Save the current textarea log to a file
  */
-function download_log()
-{
+function download_log() {
     let log = document.getElementById("log").value;
     let blob = new Blob([log], { type: 'text/plain' });
     let url = URL.createObjectURL(blob);
@@ -2416,29 +2335,27 @@ function download_log()
     a.remove();
 }
 
-function update_line_color(e,index) {
+function update_line_color(e, index) {
     let color = e.target.value;  //hex format
     all_spectra[index].spectrum_color = (color);
     main_plot.update_spectrum_color(index, color);
 }
 
-function update_line_width(e,index) {
+function update_line_width(e, index) {
     let width = parseFloat(e.target.value);
     main_plot.update_spectrum_line_width(index, width);
 }
 
 /**
  * Onclick event from save button
-*/ 
-function save_to_file()
-{
+*/
+function save_to_file() {
     /**
      * Step 1, prepare the json data. Convert all_spectra to a all_spectra_copy
      * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
      */
     let all_spectra_copy = [];
-    for(let i=0;i<all_spectra.length;i++)
-    {
+    for (let i = 0; i < all_spectra.length; i++) {
         let spectrum_copy = all_spectra[i].create_shallow_copy_wo_float32();
         all_spectra_copy.push(spectrum_copy);
     }
@@ -2452,7 +2369,7 @@ function save_to_file()
      *  header, raw_data, raw_data_i
      */
     let totalLength = 0;
-    for(let i=0;i<all_spectra.length;i++){
+    for (let i = 0; i < all_spectra.length; i++) {
         totalLength += all_spectra[i].header.length + all_spectra[i].raw_data.length + all_spectra[i].raw_data_i.length;
     }
 
@@ -2466,11 +2383,11 @@ function save_to_file()
     lengthView.setInt32(0, jsonLength, true); // true for little-endian
 
     // Combine length, JSON, and binary data:
-    const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength*Float32Array.BYTES_PER_ELEMENT);
+    const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
     const combinedView = new Uint8Array(combinedBuffer);
 
     console.log("Length of length: 4, Length of JSON data: " + jsonLength);
-    console.log("Total length of binary data: " + totalLength*Float32Array.BYTES_PER_ELEMENT);
+    console.log("Total length of binary data: " + totalLength * Float32Array.BYTES_PER_ELEMENT);
 
     combinedView.set(new Uint8Array(lengthBuffer), 0);
     combinedView.set(jsonBytes, 4);
@@ -2478,19 +2395,19 @@ function save_to_file()
      * Step 3, copy all binary data into combinedView
      */
     let offset = 4 + jsonLength;
-    for(let i=0;i<all_spectra.length;i++){
+    for (let i = 0; i < all_spectra.length; i++) {
         combinedView.set(new Uint8Array(all_spectra[i].header.buffer, 0, 2048), offset);
         console.log("all_spectra[i].header.length: " + all_spectra[i].header.length);
         console.log("set header at offset " + offset);
         offset += all_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data.buffer,0,all_spectra[i].raw_data.length*4), offset);
+        combinedView.set(new Uint8Array(all_spectra[i].raw_data.buffer, 0, all_spectra[i].raw_data.length * 4), offset);
         console.log("set raw_data at offset " + offset);
         offset += all_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(all_spectra[i].raw_data_i.buffer,0,all_spectra[i].raw_data_i.length*4), offset);
+        combinedView.set(new Uint8Array(all_spectra[i].raw_data_i.buffer, 0, all_spectra[i].raw_data_i.length * 4), offset);
         console.log("set raw_data_i at offset " + offset);
         offset += all_spectra[i].raw_data_i.length * Float32Array.BYTES_PER_ELEMENT;
         console.log("After saving spectrum " + i + ", offset is " + offset);
-    }    
+    }
 
     // Create Blob and download:
     const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
@@ -2508,7 +2425,7 @@ function save_to_file()
  * Async function to load all_spectra from a file
  */
 async function loadBinaryAndJsonWithLength(arrayBuffer) {
-    
+
     const uint8Array = new Uint8Array(arrayBuffer);
 
     // Read the length of the JSON data (first 4 bytes)
@@ -2525,10 +2442,8 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     /**
      * backward compatibility: if any spectrum doesn't have spectrum_scale, assign 1.0 to it
      */
-    for(let i=0;i<all_spectra.length;i++)
-    {
-        if(!all_spectra[i].hasOwnProperty('spectrum_scale'))
-        {
+    for (let i = 0; i < all_spectra.length; i++) {
+        if (!all_spectra[i].hasOwnProperty('spectrum_scale')) {
             all_spectra[i].spectrum_scale = 1.0;
         }
     }
@@ -2537,10 +2452,8 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
      * Change spectrum_origin from -2 to -1 for all spectra loaded from file
      * because we do not save/load fid data
      */
-    for(let i=0;i<all_spectra.length;i++)
-    {
-        if(all_spectra[i].spectrum_origin === -2)
-        {
+    for (let i = 0; i < all_spectra.length; i++) {
+        if (all_spectra[i].spectrum_origin === -2) {
             all_spectra[i].spectrum_origin = -1;
         }
     }
@@ -2548,40 +2461,31 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     /**
      * Reattach methods defined in spectrum.js to all all_spectra objects
      */
-    for(let i=0;i<all_spectra.length;i++)
-    {
+    for (let i = 0; i < all_spectra.length; i++) {
         /**
          * Loop all methods of class spectrum_1d and attach them to the all_spectra[i] object
          */
         let spectrum_methods = Object.getOwnPropertyNames(spectrum_1d.prototype);
-        for(let j=0;j<spectrum_methods.length;j++)
-        {
-            if(spectrum_methods[j] !== 'constructor')
-            {
+        for (let j = 0; j < spectrum_methods.length; j++) {
+            if (spectrum_methods[j] !== 'constructor') {
                 all_spectra[i][spectrum_methods[j]] = spectrum_1d.prototype[spectrum_methods[j]];
             }
         }
         /**
          * For all_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
          */
-        if(all_spectra[i].picked_peaks_object !== null && all_spectra[i].picked_peaks_object.column_headers.length > 0)
-        {
+        if (all_spectra[i].picked_peaks_object !== null && all_spectra[i].picked_peaks_object.column_headers.length > 0) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for(let j=0;j<peaks_methods.length;j++)
-            {
-                if(peaks_methods[j] !== 'constructor')
-                {
+            for (let j = 0; j < peaks_methods.length; j++) {
+                if (peaks_methods[j] !== 'constructor') {
                     all_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
                 }
             }
         }
-        if(all_spectra[i].fitted_peaks_object !== null && all_spectra[i].fitted_peaks_object.column_headers.length > 0)
-        {
+        if (all_spectra[i].fitted_peaks_object !== null && all_spectra[i].fitted_peaks_object.column_headers.length > 0) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for(let j=0;j<peaks_methods.length;j++)
-            {
-                if(peaks_methods[j] !== 'constructor')
-                {
+            for (let j = 0; j < peaks_methods.length; j++) {
+                if (peaks_methods[j] !== 'constructor') {
                     all_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
                 }
             }
@@ -2591,12 +2495,12 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
 
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
-    for(let m=0;m<all_spectra.length;m++){
+    for (let m = 0; m < all_spectra.length; m++) {
         all_spectra[m].header = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT));
         console.log("all_spectra[m].header_length: " + all_spectra[m].header_length);
         console.log('load header at offset ' + offset);
         offset += all_spectra[m].header_length * Float32Array.BYTES_PER_ELEMENT;
-        
+
         all_spectra[m].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
         console.log('load raw_data at offset ' + offset);
         offset += all_spectra[m].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
@@ -2605,9 +2509,8 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         console.log('load raw_data_i at offset ' + offset);
         offset += all_spectra[m].raw_data_i_length * Float32Array.BYTES_PER_ELEMENT;
         console.log("After loading spectrum " + m + ", offset is " + offset);
-    
-        if(b_plot_initialized === false)
-        {
+
+        if (b_plot_initialized === false) {
             b_plot_initialized = true;
             main_plot = new myplot_1d(); //the plot object
             document.getElementById("plot_1d").style.display = "block"; //show the plot
@@ -2627,7 +2530,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 filled_peaks: document.getElementById("filled_peaks").checked,
 
             };
-            main_plot.init(cr.width, cr.height,peak_params,update_reconstructed_peaks_debounced);
+            main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced);
             /**
              * When initializing the plot, we also initialize the BroadcastChannel
              */
@@ -2642,19 +2545,16 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 let peak_group = document.getElementById("plot_group").value;
 
                 if (event.data.type === '1d_zoom' && event.data.peak_group === peak_group) {
-                    if(main_plot !== null)
-                    {
+                    if (main_plot !== null) {
                         main_plot.zoom_to(event.data.xscale);
                     }
                 }
-                else if(event.data.type === '2d_zoom' && event.data.peak_group === peak_group)
-                {
+                else if (event.data.type === '2d_zoom' && event.data.peak_group === peak_group) {
                     /**
                      * From 2d, we need to swap xscale[0] and xscale[1]
                      */
                     let xscale = [event.data.xscale[1], event.data.xscale[0]];
-                    if(main_plot !== null)
-                    {
+                    if (main_plot !== null) {
                         main_plot.zoom_to(xscale);
                     }
                 }
@@ -2666,44 +2566,41 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
              * We need to make a data array of two numbers: ppm and amplitude
              */
             let data = [];
-            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length)
-            {
+            if (all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length) {
                 for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i, all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
                 }
             }
-            else{
+            else {
                 for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i, all_spectra[m].raw_data[i]]);
                 }
             }
-            main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
+            main_plot.add_data(data, all_spectra[m].spectrum_index, all_spectra[m].spectrum_color);
 
-            plot_div_resize_observer.observe(document.getElementById("plot_1d")); 
+            plot_div_resize_observer.observe(document.getElementById("plot_1d"));
         }
-        else
-        {
+        else {
             let data = [];
-            if(all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length){
+            if (all_spectra[m].raw_data_i.length === all_spectra[m].raw_data.length) {
                 for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i, all_spectra[m].raw_data[i], all_spectra[m].raw_data_i[i]]);
                 }
             }
-            else{
+            else {
                 for (let i = 0; i < all_spectra[m].n_direct; i++) {
-                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i , all_spectra[m].raw_data[i]]);
+                    data.push([all_spectra[m].x_ppm_start + all_spectra[m].x_ppm_step * i, all_spectra[m].raw_data[i]]);
                 }
             }
-            main_plot.add_data(data,all_spectra[m].spectrum_index,all_spectra[m].spectrum_color);
+            main_plot.add_data(data, all_spectra[m].spectrum_index, all_spectra[m].spectrum_color);
         }
-        add_to_list(m,false,false);
+        add_to_list(m, false, false);
     }
 
-  
+
 };
 
-function zoom_to_peak(index)
-{
+function zoom_to_peak(index) {
     let peaks_object = get_current_peak_object();
 
     /**
@@ -2736,7 +2633,7 @@ function remove_peak_table() {
     peak_area.style.display = "none";
 }
 
-function get_current_peak_object(){
+function get_current_peak_object() {
     let peaks_object;
     if (current_spectrum_index_of_peaks === -1) {
         return;
@@ -2809,8 +2706,7 @@ function table_click_handler(event) {
     if (row) {
         // Row was clicked!
         let tds = row.getElementsByTagName("td");
-        if(tds.length < 1)
-        {
+        if (tds.length < 1) {
             /**
              * If the clicked row has no td elements, do nothing
              * (such as the header row)
@@ -2832,10 +2728,10 @@ function table_click_handler(event) {
             input.focus();
 
             input.addEventListener('blur', handleEdit);
-            input.addEventListener('keydown', (e)=>{
-            if (e.key === 'Enter'){
-                handleEdit(e);
-            }
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    handleEdit(e);
+                }
             });
 
             function handleEdit(event) {
@@ -2846,21 +2742,19 @@ function table_click_handler(event) {
                  */
                 let peak_index = parseInt(tds[0].innerText);
                 let peaks_object = get_current_peak_object();
-                if(peak_index>0){
-                    peaks_object.set_column_row_value('ASS',peak_index-1,newText);
+                if (peak_index > 0) {
+                    peaks_object.set_column_row_value('ASS', peak_index - 1, newText);
                     /**
                      * Need to ask main_plot to update as well.
                      * Because main_plot.new_peaks is a copy of peaks_object
                      */
-                    if(main_plot !== null)
-                    {
-                        main_plot.update_peak_ass_property(peak_index,newText);
+                    if (main_plot !== null) {
+                        main_plot.update_peak_ass_property(peak_index, newText);
                     }
                 }
             }
         }
-        else
-        {
+        else {
             /**
              * Zoom to the peak, using the first column of the row to get the peak index
              */
@@ -2868,7 +2762,7 @@ function table_click_handler(event) {
             console.log('peak_index:', peak_index);
             zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
         }
-        
+
     }
 };
 
@@ -2876,22 +2770,18 @@ function table_click_handler(event) {
  * Search text from all fields of the peak_table
  * scrollToTableRow if found and highlight the row with yellow background color then remove it after 3 seconds
  */
-function search_peak()
-{
+function search_peak() {
     let input = document.getElementById("peak_search_text").value;
     let filter = input.toUpperCase();
     let table = document.getElementById("peak_table");
     let tr = table.getElementsByTagName("tr");
     let found = false;
     let index;
-    for (let i = 0; i < tr.length; i++)
-    {
+    for (let i = 0; i < tr.length; i++) {
         let td = tr[i].getElementsByTagName("td");
-        if (td.length > 0)
-        {
+        if (td.length > 0) {
             let j;
-            for(j=0;j<td.length;j++)
-            {
+            for (j = 0; j < td.length; j++) {
                 let t = td[j];
                 if (t) {
                     txtValue = t.textContent || t.innerText;
@@ -2903,23 +2793,21 @@ function search_peak()
                     }
                 }
             }
-            if(found)
-            {
+            if (found) {
                 break;
             }
         }
     }
-    if(found)
-    {
-        scrollToTableRow('peak_table',index);
-        setTimeout(function(){
+    if (found) {
+        scrollToTableRow('peak_table', index);
+        setTimeout(function () {
             tr[index].style.backgroundColor = "";
-        },5000);
+        }, 5000);
         /**
          * Ask main_plot to zoom to the peak
          * Notice that index is the row index, we need to get the peak index from the table
          */
-        if(index>0){
+        if (index > 0) {
             /**
              * When user sort tables by column,
              * Row index is not the same as peak index
@@ -2927,13 +2815,12 @@ function search_peak()
              */
             let td = tr[index].getElementsByTagName("td");
             let peak_index = parseInt(td[0].innerText);
-            zoom_to_peak(peak_index-1);
+            zoom_to_peak(peak_index - 1);
         }
     }
 };
 
-function set_current_spectrum_0(spectrum_index)
-{
+function set_current_spectrum_0(spectrum_index) {
     /**
      * If b_allow_dragging_spectrum is false, do nothing
      */
@@ -2943,8 +2830,7 @@ function set_current_spectrum_0(spectrum_index)
     set_current_spectrum(spectrum_index);
 }
 
-function set_current_spectrum(spectrum_index)
-{
+function set_current_spectrum(spectrum_index) {
     abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
 
     if (main_plot.current_spectrum_index >= 0 && main_plot.current_spectrum_index < all_spectra.length) {
@@ -2977,7 +2863,7 @@ function set_current_spectrum(spectrum_index)
         main_plot.remove_peaks();
     }
 
-    
+
 }
 
 
@@ -3007,15 +2893,13 @@ function get_center(peaks) {
 /**
  * On-call when button is clicked
  */
-function permanently_apply_phase_correction()
-{
+function permanently_apply_phase_correction() {
     return_data = main_plot.permanently_apply_phase_correction();
-    if(typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
+    if (typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
     abandon_baseline_correction(ndx);//need to run before changing current spectrum
 
-    if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
-    {
+    if (typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
         /**
          * Also need to update fid_process_parameters.phase_correction_direct_p0 and phase_correction_direct_p1
          * return_data.phase0 and phase1 are in radians, need to convert to degrees
@@ -3034,12 +2918,12 @@ function permanently_apply_phase_correction()
     let phase_correction = new Float32Array(all_spectra[ndx].raw_data.length);
 
     for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-            phase_correction[i] = return_data.phase0 + (return_data.phase1 - return_data.phase0) * i / all_spectra[ndx].raw_data.length;
-        }
+        phase_correction[i] = return_data.phase0 + (return_data.phase1 - return_data.phase0) * i / all_spectra[ndx].raw_data.length;
+    }
 
-    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
-        new_raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m] ) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m] );
-        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m] ) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m] );
+    for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
+        new_raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_correction[m]);
+        new_raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_correction[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_correction[m]);
     }
 
     all_spectra[ndx].raw_data = new_raw_data;
@@ -3048,23 +2932,21 @@ function permanently_apply_phase_correction()
     /**
      * Clear shown phase correction in the main page.
      */
-    document.getElementById("pc_left_end").textContent  = "0.0";
-    document.getElementById("pc_right_end").textContent  = "0.0";
-    document.getElementById("anchor").textContent  = "not set";
+    document.getElementById("pc_left_end").textContent = "0.0";
+    document.getElementById("pc_right_end").textContent = "0.0";
+    document.getElementById("pivot").textContent = "not set";
 
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
-    {
+    if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += return_data.phase0;
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (return_data.phase1 - return_data.phase0);
         /**
          * If we are in reprocessing mode,
          * Update input field phase_correction_direct_p0 and p1 to the new values
          */
-        if(current_reprocess_spectrum_index === ndx)
-        {
+        if (current_reprocess_spectrum_index === ndx) {
             document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
             document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         }
@@ -3072,12 +2954,11 @@ function permanently_apply_phase_correction()
 }
 
 
-function get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right)
-{
+function get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right) {
     /**
      * If input size is > 131072, we need to down sample to 131072
      */
-    let max_number_of_points = 65536*2;
+    let max_number_of_points = 65536 * 2;
     let resampled_data_r;
     let resampled_data_i;
     if (all_spectra[ndx].raw_data.length > max_number_of_points) {
@@ -3088,8 +2969,7 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
             resampled_data_i[i] = all_spectra[ndx].raw_data_i[i * Math.floor(all_spectra[ndx].raw_data.length / max_number_of_points)];
         }
     }
-    else
-    {
+    else {
         resampled_data_r = all_spectra[ndx].raw_data;
         resampled_data_i = all_spectra[ndx].raw_data_i;
     }
@@ -3098,11 +2978,11 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
     let phase_correction = new Float32Array(resampled_data_r.length);
 
     for (var i = 0; i < resampled_data_r.length; i++) {
-            phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / resampled_data_r.length;
-            phase_correction[i] = phase_correction[i] * Math.PI / 180;
+        phase_correction[i] = phase_correction_left + (phase_correction_right - phase_correction_left) * i / resampled_data_r.length;
+        phase_correction[i] = phase_correction[i] * Math.PI / 180;
     }
 
-    for(let m=0;m<resampled_data_r.length;m++){
+    for (let m = 0; m < resampled_data_r.length; m++) {
         data[m] = resampled_data_r[m] * Math.cos(phase_correction[m]) + resampled_data_i[m] * Math.sin(phase_correction[m]);
     }
     return data;
@@ -3112,21 +2992,18 @@ function get_data_from_phase_correction(ndx,phase_correction_left,phase_correcti
  * ONCLICK event for auto phase correction button
  * @returns: none
  */
-async function run_auto_pc()
-{
+async function run_auto_pc() {
     abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
-    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
-    {
+    if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for phase correction.");
         return;
     }
     /**
      * If current spectrum is not complex, alert user and return
      */
-    if(typeof all_spectra[main_plot.current_spectrum_index].raw_data_i === "undefined" 
-        || all_spectra[main_plot.current_spectrum_index].raw_data_i === null 
-        || all_spectra[main_plot.current_spectrum_index].raw_data_i.length !== all_spectra[main_plot.current_spectrum_index].raw_data.length)
-    {
+    if (typeof all_spectra[main_plot.current_spectrum_index].raw_data_i === "undefined"
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i === null
+        || all_spectra[main_plot.current_spectrum_index].raw_data_i.length !== all_spectra[main_plot.current_spectrum_index].raw_data.length) {
         alert("Current spectrum is not complex or imaginary part is invalid (which will happen after baseline correction).");
         return;
     }
@@ -3143,14 +3020,12 @@ async function run_auto_pc()
  * if no such data point, get the cross point from negative to positive phase error.
  * @param {*} ndx 
  */
-async function run_ann_phase_correction(ndx)
-{
+async function run_ann_phase_correction(ndx) {
     /**
      * Our model was trained using data length of at least 32768,65536 and 131072 points
      * If data length is less than 32768, alert user but still proceed
      */
-    if(all_spectra[ndx].raw_data.length < 32768)
-    {
+    if (all_spectra[ndx].raw_data.length < 32768) {
         alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
     }
     /**
@@ -3162,28 +3037,26 @@ async function run_ann_phase_correction(ndx)
     document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
 
-    let result = await get_best_location_diagonal(ndx,0,0);
+    let result = await get_best_location_diagonal(ndx, 0, 0);
 
     let current_phase_left = result[0];
     let current_phase_right = result[1];
 
-    let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
+    let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
 
     /**
      * Now run p1 prediction on the new data to make sure we are at the maximum
      */
-    const prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
+    const prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
     let prediction = prediction_all[0];
 
     /**
      * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
     */
-    if(prediction[1] > prediction[0] && prediction[1] > prediction[2])
-    {
-        result = await get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,prediction[1]);
+    if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
+        result = await get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, prediction[1]);
     }
-    else
-    {
+    else {
         /**
          * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
          * then we can run section search to find the cross point from negative to positive phase error
@@ -3191,10 +3064,10 @@ async function run_ann_phase_correction(ndx)
          * then we can run section search to find the cross point from negative to positive phase error
          */
         let b_cross = false;
-        let advance_direction_left =   1;
+        let advance_direction_left = 1;
         let advance_direction_right = -1;
         let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
-         while (!b_cross) {
+        while (!b_cross) {
             // Perform a small phase correction along anti-diagonal direction
             let current_additional_phase_left = current_additional_phase * advance_direction_left
             let current_additional_phase_right = current_additional_phase * advance_direction_right;
@@ -3202,18 +3075,18 @@ async function run_ann_phase_correction(ndx)
             let phase_correction_right = current_phase_right + current_additional_phase_right;
 
             // move phase correction along diagonal line to reach optimal point
-            let p0_result = await get_best_location_diagonal(ndx,phase_correction_left,phase_correction_right);
+            let p0_result = await get_best_location_diagonal(ndx, phase_correction_left, phase_correction_right);
             phase_correction_left = p0_result[0];
             phase_correction_right = p0_result[1];
             /**
              * Also use current data to update advance_direction_left and advance_direction_right
              */
-            advance_direction_left =  (phase_correction_left - current_phase_left)/current_additional_phase;
-            advance_direction_right = (phase_correction_right - current_phase_right)/current_additional_phase;
+            advance_direction_left = (phase_correction_left - current_phase_left) / current_additional_phase;
+            advance_direction_right = (phase_correction_right - current_phase_right) / current_additional_phase;
 
-            let data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
+            let data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
 
-            const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
+            const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
             let new_prediction = new_prediction_all[0];
 
             console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
@@ -3223,22 +3096,19 @@ async function run_ann_phase_correction(ndx)
             document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
 
-            if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
-            {
+            if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
                 b_cross = true;
-                result = await get_maximum_pre1_location_p1(ndx,phase_correction_left,phase_correction_right,new_prediction[1]);
+                result = await get_maximum_pre1_location_p1(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
             }
             //check if we cross the boundary, no need to advance further
-            else if(prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
-            {
+            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
                 b_cross = true;
-                result = await get_cross_point_p1(ndx,phase_correction_left-current_additional_phase_left,phase_correction_right-current_additional_phase_right,current_additional_phase_left,current_additional_phase_right);
+                result = await get_cross_point_p1(ndx, phase_correction_left - current_additional_phase_left, phase_correction_right - current_additional_phase_right, current_additional_phase_left, current_additional_phase_right);
 
             }
-            else if(prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2])
-            {
+            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
                 b_cross = true;
-                result = await get_cross_point_p1(ndx,phase_correction_left,phase_correction_right,-current_additional_phase_left,-current_additional_phase_right);
+                result = await get_cross_point_p1(ndx, phase_correction_left, phase_correction_right, -current_additional_phase_left, -current_additional_phase_right);
 
             }
             /**
@@ -3260,27 +3130,25 @@ async function run_ann_phase_correction(ndx)
      */
     let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
     for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-            phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
-            phase_array[i] = phase_array[i] * Math.PI / 180;
+        phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
+        phase_array[i] = phase_array[i] * Math.PI / 180;
     }
-    for(let m=0;m<all_spectra[ndx].raw_data.length;m++){
-        all_spectra[ndx].raw_data[m]   =  all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
+    for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
+        all_spectra[ndx].raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
         all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
     }
 
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
      */
-    if ( all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null)
-    {
+    if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
         all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1]-result[0]);
+        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
         /**
          * If we are in reprocessing mode,
          * Update input field phase_correction_direct_p0 and p1 to the new valu
          */
-        if(current_reprocess_spectrum_index === ndx)
-        {
+        if (current_reprocess_spectrum_index === ndx) {
             document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
             document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         }
@@ -3289,30 +3157,35 @@ async function run_ann_phase_correction(ndx)
     /**
      * Need to update the plot as well
      */
-    if(main_plot !== null)
-    {
+    if (main_plot !== null) {
         /**
          * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
          */
         let data = [];
-        if(all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length)
-        {
+        if (all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length) {
             for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i , all_spectra[ndx].raw_data[i],all_spectra[ndx].raw_data_i[i]]);
-            }
-        }    
-        else
-        {
-            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i , all_spectra[ndx].raw_data[i]]);
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i], all_spectra[ndx].raw_data_i[i]]);
             }
         }
-        main_plot.add_data(data,ndx);
+        else {
+            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i]]);
+            }
+        }
+        main_plot.add_data(data, ndx);
     }
     /**
      * Enable manual phase correction and myself button after auto phase correction
      */
     disable_enable_phase_baseline_buttons(true);
+
+    // Notify completion of TFJS phase correction
+    // Dispatch on the button so the tutorial listener which is attached to the button can catch it
+    const btn = document.getElementById("button_fid_process");
+    if (btn) {
+        btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+    }
+
 }
 
 /**
@@ -3325,27 +3198,25 @@ async function run_ann_phase_correction(ndx)
  * @param {*} initial_additional_phase_right: initial additional phase correction to be applied at right end
  * @returns: best location (additional phase correction at left and right, same value)
  */
-async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,initial_additional_phase_left,initial_additional_phase_right)
-{
+async function get_cross_point_p1(ndx, current_phase_left, current_phase_right, initial_additional_phase_left, initial_additional_phase_right) {
     let mid_phase_left = current_phase_left + initial_additional_phase_left / 2.0;
     let mid_phase_right = current_phase_right + initial_additional_phase_right / 2.0;
     let tolerance = 0.1; //0.1 degree
-    if(initial_additional_phase_left < tolerance && initial_additional_phase_right < tolerance)
-    {
-        return [mid_phase_left,mid_phase_right];
+    if (initial_additional_phase_left < tolerance && initial_additional_phase_right < tolerance) {
+        return [mid_phase_left, mid_phase_right];
     }
 
     /**
      * Move along diagonal line until reach optimal point
      */
-    let result = await get_best_location_diagonal(ndx,mid_phase_left,mid_phase_right);
+    let result = await get_best_location_diagonal(ndx, mid_phase_left, mid_phase_right);
     mid_phase_left = result[0];
     mid_phase_right = result[1];
 
-    let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
+    let data = get_data_from_phase_correction(ndx, mid_phase_left, mid_phase_right);
 
-    const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
-    let new_prediction = new_prediction_all[0]; 
+    const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
+    let new_prediction = new_prediction_all[0];
 
     console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
     console.log("in get_cross_point_p1: P1 prediction = " + new_prediction);
@@ -3353,26 +3224,22 @@ async function get_cross_point_p1(ndx,current_phase_left,current_phase_right,ini
     document.getElementById("log").value += "in get_cross_point_p1: P1 prediction = " + new_prediction + "\n";
     document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
 
-    if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
-    {
+    if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
         //switch to method solely searching for maximum of prediction[1]
-        return await get_maximum_pre1_location_p1(ndx,mid_phase_left,mid_phase_right,new_prediction[1]);
+        return await get_maximum_pre1_location_p1(ndx, mid_phase_left, mid_phase_right, new_prediction[1]);
     }
-    else if (new_prediction[0] > new_prediction[2])
-    {
+    else if (new_prediction[0] > new_prediction[2]) {
         //crossed from negative to positive 
-        return await get_cross_point_p1(ndx,mid_phase_left,mid_phase_right,initial_additional_phase_left/2.0,initial_additional_phase_right/2.0);
+        return await get_cross_point_p1(ndx, mid_phase_left, mid_phase_right, initial_additional_phase_left / 2.0, initial_additional_phase_right / 2.0);
     }
-    else
-    {
+    else {
         //crossed from positive to negative
-        return await get_cross_point_p1(ndx,current_phase_left,current_phase_right,initial_additional_phase_left/2.0,initial_additional_phase_right/2.0);
+        return await get_cross_point_p1(ndx, current_phase_left, current_phase_right, initial_additional_phase_left / 2.0, initial_additional_phase_right / 2.0);
     }
 }
 
-async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase_right,current_prediction1)
-{
-    const phase_step = 0.7071/4; //0.7071 degree step
+async function get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, current_prediction1) {
+    const phase_step = 0.7071 / 4; //0.7071 degree step
     const phase_direction = -Math.PI / 4; //-45 degree direction
 
     /**
@@ -3380,16 +3247,16 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
      */
     let test_phase_left_1 = current_phase_left - phase_step * Math.cos(phase_direction);
     let test_phase_right_1 = current_phase_right - phase_step * Math.sin(phase_direction);
-    let result_1 = await get_best_location_diagonal(ndx,test_phase_left_1,test_phase_right_1);
+    let result_1 = await get_best_location_diagonal(ndx, test_phase_left_1, test_phase_right_1);
     let test_phase_left_2 = current_phase_left + phase_step * Math.cos(phase_direction);
     let test_phase_right_2 = current_phase_right + phase_step * Math.sin(phase_direction);
-    let result_2 = await get_best_location_diagonal(ndx,test_phase_left_2,test_phase_right_2);
+    let result_2 = await get_best_location_diagonal(ndx, test_phase_left_2, test_phase_right_2);
 
-    let data_1 = get_data_from_phase_correction(ndx,result_1[0],result_1[1]);
-    const prediction_all_1 = await runPrediction(data_1,data_1.length,1 /** flag=1 means p1 prediction */);
+    let data_1 = get_data_from_phase_correction(ndx, result_1[0], result_1[1]);
+    const prediction_all_1 = await runPrediction(data_1, data_1.length, 1 /** flag=1 means p1 prediction */);
     let prediction_1 = prediction_all_1[0];
-    let data_2 = get_data_from_phase_correction(ndx,result_2[0],result_2[1]);
-    const prediction_all_2 = await runPrediction(data_2,data_2.length,1 /** flag=1 means p1 prediction */);
+    let data_2 = get_data_from_phase_correction(ndx, result_2[0], result_2[1]);
+    const prediction_all_2 = await runPrediction(data_2, data_2.length, 1 /** flag=1 means p1 prediction */);
     let prediction_2 = prediction_all_2[0];
 
     /**
@@ -3397,42 +3264,36 @@ async function get_maximum_pre1_location_p1(ndx,current_phase_left,current_phase
      * If prediction_1[1] is the maximum, continue search in that direction
      * If prediction_2[1] is the maximum, continue search in that direction
      */
-    if(current_prediction1 > prediction_1[1] && current_prediction1 > prediction_2[1])
-    {
+    if (current_prediction1 > prediction_1[1] && current_prediction1 > prediction_2[1]) {
         //current location is the best
-        return [current_phase_left,current_phase_right];
+        return [current_phase_left, current_phase_right];
     }
-    else if(prediction_1[1] > prediction_2[1])
-    {
+    else if (prediction_1[1] > prediction_2[1]) {
         //search in direction of prediction_1
-        return await get_maximum_pre1_location_2_p1(ndx,result_1[0],result_1[1],prediction_1[1],current_prediction1,-1);
+        return await get_maximum_pre1_location_2_p1(ndx, result_1[0], result_1[1], prediction_1[1], current_prediction1, -1);
     }
-    else
-    {
+    else {
         //search in direction of prediction_2
-        return await get_maximum_pre1_location_2_p1(ndx,result_2[0],result_2[1],prediction_2[1],current_prediction1,1);
+        return await get_maximum_pre1_location_2_p1(ndx, result_2[0], result_2[1], prediction_2[1], current_prediction1, 1);
     }
 }
 
-async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
-{
+async function get_maximum_pre1_location_2_p1(ndx, current_phase_left, current_phase_right, current_prediction1, current_prediction2, direction) {
     const phase_direction = -Math.PI / 4; //-45 degree direction
-    const phase_step = 0.7071/4;
-    let result = await get_best_location_diagonal(ndx,current_phase_left + direction * phase_step * Math.cos(phase_direction),current_phase_right + direction * phase_step * Math.sin(phase_direction));
+    const phase_step = 0.7071 / 4;
+    let result = await get_best_location_diagonal(ndx, current_phase_left + direction * phase_step * Math.cos(phase_direction), current_phase_right + direction * phase_step * Math.sin(phase_direction));
 
-    let data = get_data_from_phase_correction(ndx,result[0],result[1]);
-    const new_prediction_all = await runPrediction(data,data.length,1 /** flag=1 means p1 prediction */);
+    let data = get_data_from_phase_correction(ndx, result[0], result[1]);
+    const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
     let new_prediction = new_prediction_all[0];
 
-    if(current_prediction1 > new_prediction[1])
-    {
+    if (current_prediction1 > new_prediction[1]) {
         //current location is the best
-        return [current_phase_left,current_phase_right];
+        return [current_phase_left, current_phase_right];
     }
-    else
-    {
+    else {
         //continue search in the same direction
-        return await get_maximum_pre1_location_2_p1(ndx,result[0],result[1],new_prediction[1],current_prediction1,direction);
+        return await get_maximum_pre1_location_2_p1(ndx, result[0], result[1], new_prediction[1], current_prediction1, direction);
     }
 }
 
@@ -3446,8 +3307,7 @@ async function get_maximum_pre1_location_2_p1(ndx,current_phase_left,current_pha
  * @param {*} current_phase_right: current additional phase correction at right end (on top of current data in all_spectra[ndx])
  * @returns: best location (additional phase correction at left and right, same value)
  */
-async function get_best_location_diagonal(ndx,current_phase_left,current_phase_right)
-{
+async function get_best_location_diagonal(ndx, current_phase_left, current_phase_right) {
     let result = [];
     /**
      * Step 1, run prediction at current phase correction
@@ -3456,19 +3316,17 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
      * index 1: score of being "good (no phase error)"
      * index 2: score of being "positive phase error"
      */
-    let data = get_data_from_phase_correction(ndx,current_phase_left,current_phase_right);
-    const prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);
+    let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
+    const prediction_all = await runPrediction(data, data.length, 0 /** flag=0 means p0 prediction */);
     let prediction = prediction_all[0];
 
     /**
      * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
      */
-    if(prediction[1] > prediction[0] && prediction[1] > prediction[2])
-    {
-        result = await get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,prediction[1]);
+    if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
+        result = await get_maximum_pre1_location(ndx, current_phase_left, current_phase_right, prediction[1]);
     }
-    else
-    {
+    else {
         /**
          * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
          * then we can run section search to find the cross point from negative to positive phase error
@@ -3483,29 +3341,26 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
             let phase_correction_left = current_phase_left + current_additional_phase;
             let phase_correction_right = current_phase_right + current_additional_phase;
 
-            let new_raw_data = get_data_from_phase_correction(ndx,phase_correction_left,phase_correction_right);
+            let new_raw_data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
 
             // Rerun prediction
             const new_prediction_all = await runPrediction(new_raw_data, new_raw_data.length, 0 /** flag=0 means p0 prediction */);
             const new_prediction = new_prediction_all[0];
 
-            if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
-            {
+            if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
                 // switch to method solely searching for maximum of prediction[1]
                 b_cross = true;
-                result = await get_maximum_pre1_location(ndx,phase_correction_left,phase_correction_right,new_prediction[1]);
+                result = await get_maximum_pre1_location(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
             }
             // Check if we have crossed over
-            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0])
-            {
+            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
                 // Crossed from negative to positive
-                result= await get_cross_point(ndx,current_phase_left,current_phase_right,current_additional_phase);
+                result = await get_cross_point(ndx, current_phase_left, current_phase_right, current_additional_phase);
                 b_cross = true;
             }
-            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2])
-            {
+            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
                 // Crossed from positive to negative, so we exchange start and end points (keep in mind current_additional_phase is negative here)
-                result= await get_cross_point(ndx,current_phase_left+current_additional_phase,current_phase_right+current_additional_phase,-current_additional_phase);
+                result = await get_cross_point(ndx, current_phase_left + current_additional_phase, current_phase_right + current_additional_phase, -current_additional_phase);
                 b_cross = true;
             }
             /**
@@ -3533,30 +3388,27 @@ async function get_best_location_diagonal(ndx,current_phase_left,current_phase_r
  * @param {*} initial_additional_phase: initial additional phase (same for left and right) that defines the search range (initial_additional_phase>0)
  * @returns: cross point (additional phase correction at left and right, same value)
  */
-async function get_cross_point(ndx,current_phase_left,current_phase_right,initial_additional_phase)
-{
-    let mid_phase_left = current_phase_left + initial_additional_phase/2.0;
-    let mid_phase_right = current_phase_right + initial_additional_phase/2.0;
+async function get_cross_point(ndx, current_phase_left, current_phase_right, initial_additional_phase) {
+    let mid_phase_left = current_phase_left + initial_additional_phase / 2.0;
+    let mid_phase_right = current_phase_right + initial_additional_phase / 2.0;
     /**
      * If the search range is very small, return the current mid points
      */
-    if(initial_additional_phase<0.1) 
-    {
+    if (initial_additional_phase < 0.1) {
         return [mid_phase_left, mid_phase_right];
     }
 
     /**
      * Make new data at mid phase correction
      */
-    let data = get_data_from_phase_correction(ndx,mid_phase_left,mid_phase_right);
+    let data = get_data_from_phase_correction(ndx, mid_phase_left, mid_phase_right);
 
-    const new_prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);
+    const new_prediction_all = await runPrediction(data, data.length, 0 /** flag=0 means p0 prediction */);
     const new_prediction = new_prediction_all[0];
 
-    if(new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2])
-    {
+    if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
         // switch to method solely searching for maximum of prediction[1]
-        return await get_maximum_pre1_location(ndx,mid_phase_left,mid_phase_right,new_prediction[1]);
+        return await get_maximum_pre1_location(ndx, mid_phase_left, mid_phase_right, new_prediction[1]);
     }
     else if (new_prediction[0] > new_prediction[2]) {
         // Crossed from negative to positive
@@ -3567,8 +3419,7 @@ async function get_cross_point(ndx,current_phase_left,current_phase_right,initia
     }
 }
 
-async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_right,current_prediction1)
-{
+async function get_maximum_pre1_location(ndx, current_phase_left, current_phase_right, current_prediction1) {
     const phase_step = 0.1; //0.1 degree step
     /**
      * Test two new prediction at current phase correction +- 1 degrees (0.0175 radians)
@@ -3577,26 +3428,26 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
     let data1 = get_data_from_phase_correction(ndx, current_phase_left - phase_step, current_phase_right + phase_step);
     let data2 = get_data_from_phase_correction(ndx, current_phase_left + phase_step, current_phase_right - phase_step);
     let data = new Float32Array(data1.length * 2);
-    data.set(data1,0);
-    data.set(data2,data1.length);
+    data.set(data1, 0);
+    data.set(data2, data1.length);
 
     /**
      * Run prediction on the two new data points
      */
-    const new_predictions = await runPrediction(data,data.length/2,0 /** flag=0 means p0 prediction */); 
+    const new_predictions = await runPrediction(data, data.length / 2, 0 /** flag=0 means p0 prediction */);
     /**
      * if current prediction[1] is the maximum, we are done
      */
-    if(current_prediction1 > new_predictions[0][1] && current_prediction1 > new_predictions[1][1]) {
+    if (current_prediction1 > new_predictions[0][1] && current_prediction1 > new_predictions[1][1]) {
         return [current_phase_left, current_phase_right];
     }
-    else if(new_predictions[0][1] > current_prediction1 && new_predictions[0][1] > new_predictions[1][1]) {
+    else if (new_predictions[0][1] > current_prediction1 && new_predictions[0][1] > new_predictions[1][1]) {
         // the first new prediction is the maximum, move to that point and continue searching
-        return await get_maximum_pre1_location_2(ndx,current_phase_left-phase_step,current_phase_right-phase_step,new_predictions[0][1],current_prediction1,-1);
+        return await get_maximum_pre1_location_2(ndx, current_phase_left - phase_step, current_phase_right - phase_step, new_predictions[0][1], current_prediction1, -1);
     }
     else {
         // the second new prediction is the maximum, move to that point and continue searching
-        return await get_maximum_pre1_location_2(ndx,current_phase_left+phase_step,current_phase_right+phase_step,new_predictions[1][1],current_prediction1,1);
+        return await get_maximum_pre1_location_2(ndx, current_phase_left + phase_step, current_phase_right + phase_step, new_predictions[1][1], current_prediction1, 1);
     }
 }
 
@@ -3609,17 +3460,16 @@ async function get_maximum_pre1_location(ndx,current_phase_left,current_phase_ri
  * @param {*} current_prediction2: current second highest score
  * @param {*} direction: direction to search (-1 for left (reduce), 1 for right(increase))
  */
-async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_right,current_prediction1,current_prediction2,direction)
-{
+async function get_maximum_pre1_location_2(ndx, current_phase_left, current_phase_right, current_prediction1, current_prediction2, direction) {
     let add_phase = direction * 0.1; //move 0.1 degree in the given direction
 
-    let data = get_data_from_phase_correction(ndx,current_phase_left+add_phase,current_phase_right+add_phase);
+    let data = get_data_from_phase_correction(ndx, current_phase_left + add_phase, current_phase_right + add_phase);
 
 
-    const new_prediction_all = await runPrediction(data,data.length,0 /** flag=0 means p0 prediction */);   
+    const new_prediction_all = await runPrediction(data, data.length, 0 /** flag=0 means p0 prediction */);
     const new_prediction = new_prediction_all[0];
 
-    if(current_prediction1 > new_prediction[1]) {
+    if (current_prediction1 > new_prediction[1]) {
         /**
          * Begin to decrease, we are done.
          */
@@ -3632,7 +3482,7 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
         /** 
          * continue to move in the given direction
          */
-        return await get_maximum_pre1_location_2(ndx,current_phase_left+add_phase,current_phase_right+add_phase,new_prediction[1],current_prediction1,direction);
+        return await get_maximum_pre1_location_2(ndx, current_phase_left + add_phase, current_phase_right + add_phase, new_prediction[1], current_prediction1, direction);
     }
 };
 
@@ -3644,7 +3494,7 @@ async function get_maximum_pre1_location_2(ndx,current_phase_left,current_phase_
  * @param {int} flag 0 for p0 model, 1 for p1 model
  * @returns {Array} reshapedProbabilities_p0 An array of probabilities for each spectrum
  */
-async function runPrediction(data, data_length, flag=0) {
+async function runPrediction(data, data_length, flag = 0) {
     // 1. Load the model
     const model = await (flag === 0 ? tf.loadGraphModel('./saved_model_p0/model.json') : tf.loadGraphModel('./saved_model_p1/model.json'));
     // console.log('Model loaded successfully!');
@@ -3656,17 +3506,17 @@ async function runPrediction(data, data_length, flag=0) {
     /**
      * Normalize data to range [0,1], for each spectrum separately
      */
-    for(let i=0;i<n_data;i++){
+    for (let i = 0; i < n_data; i++) {
         let offset = i * data_length;
         let max_val = -Infinity;
 
-        for(let j=0;j<data_length;j++){
-            if(data[offset + j] > max_val) max_val = data[offset + j];
+        for (let j = 0; j < data_length; j++) {
+            if (data[offset + j] > max_val) max_val = data[offset + j];
         }
 
         // Normalize the data to [0,1]
-        for(let j=0;j<data_length;j++){
-            data[offset + j] = data[offset + j]  / max_val;
+        for (let j = 0; j < data_length; j++) {
+            data[offset + j] = data[offset + j] / max_val;
         }
     }
 
@@ -3674,14 +3524,14 @@ async function runPrediction(data, data_length, flag=0) {
 
     // --- 2. Generate the Mask Input ---
     // This creates a tensor of shape [1, 512] filled with the value 1.0.
-    const mask_length = data_length/128; // Example length, replace with actual if different
-    const maskTensor = tf.ones([n_data, mask_length],'bool');
+    const mask_length = data_length / 128; // Example length, replace with actual if different
+    const maskTensor = tf.ones([n_data, mask_length], 'bool');
 
 
     const inputs = {
         'main_input': mainTensor,
         'mask_input': maskTensor
-        };
+    };
 
     // 3. Run the prediction with the input object
     const prediction = model.predict(inputs);
@@ -3719,10 +3569,8 @@ async function runPrediction(data, data_length, flag=0) {
 /**
  * User click button to run baseline estimation
  */
-function run_baseline_correction()
-{
-    if(main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length)
-    {
+function run_baseline_correction() {
+    if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for baseline correction.");
         return;
     }
@@ -3734,9 +3582,8 @@ function run_baseline_correction()
     header[99] = all_spectra[spectrum_index].n_direct; //size of indirect dimension of the input spectrum
     header[219] = 1; //size of indirect dimension of the input spectrum (always 1 for 1D)
     let n_water = 0; //default value
-    if(document.getElementById("exclude_water").checked)
-    {
-        n_water=all_spectra[spectrum_index].n_direct/512; //number of water points to be excluded in baseline correction
+    if (document.getElementById("exclude_water").checked) {
+        n_water = all_spectra[spectrum_index].n_direct / 512; //number of water points to be excluded in baseline correction
     }
 
     let smooth_parameter = document.getElementById("smooth_parameter").value;
@@ -3757,27 +3604,24 @@ function run_baseline_correction()
 /**
  * User click button to apply baseline correction
  */
-function apply_baseline_correction()
-{
+function apply_baseline_correction() {
     let spectrum_index = main_plot.current_spectrum_index;
-    if(spectrum_index < 0 || spectrum_index >= all_spectra.length)
-    {
+    if (spectrum_index < 0 || spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for baseline correction.");
         return;
     }
-    
 
-    if(typeof all_spectra[spectrum_index].baseline === "undefined" 
-        || all_spectra[spectrum_index].baseline.length ===0 
-        || all_spectra[spectrum_index].raw_data.length !== all_spectra[spectrum_index].baseline.length)
-    {
+
+    if (typeof all_spectra[spectrum_index].baseline === "undefined"
+        || all_spectra[spectrum_index].baseline.length === 0
+        || all_spectra[spectrum_index].raw_data.length !== all_spectra[spectrum_index].baseline.length) {
         return;
     }
 
-    
+
     disable_enable_phase_baseline_buttons(false);
 
-    for(let i=0;i<all_spectra[spectrum_index].n_direct;i++){
+    for (let i = 0; i < all_spectra[spectrum_index].n_direct; i++) {
         all_spectra[spectrum_index].raw_data[i] = all_spectra[spectrum_index].raw_data[i] - all_spectra[spectrum_index].baseline[i];
     }
     /**
@@ -3796,7 +3640,7 @@ function apply_baseline_correction()
     for (let i = 0; i < all_spectra[spectrum_index].n_direct; i++) {
         data.push([all_spectra[spectrum_index].x_ppm_start + all_spectra[spectrum_index].x_ppm_step * i, all_spectra[spectrum_index].raw_data[i]]);
     }
-    
+
     main_plot.add_data(data, all_spectra[spectrum_index].spectrum_index, all_spectra[spectrum_index].spectrum_color);
     disable_enable_phase_baseline_buttons(true);
 }
@@ -3805,10 +3649,8 @@ function apply_baseline_correction()
  * When user run phase correction without applying baseline or rerun baseline calculation, abandon the baseline correction
  * User can also click a button to abandon baseline correction
  */
-function abandon_baseline_correction(ndx)
-{
-    if(ndx < 0 )
-    {
+function abandon_baseline_correction(ndx) {
+    if (ndx < 0) {
         ndx = main_plot.current_spectrum_index;
     }
     // Clear the baseline and raw data
@@ -3824,12 +3666,104 @@ function abandon_baseline_correction(ndx)
  * Also disable click to reset current spectrum
  * @param {*} enable 
  */
-function disable_enable_phase_baseline_buttons(enable=true)
-{
+function disable_enable_phase_baseline_buttons(enable = true) {
     document.getElementById("button_auto_pc").disabled = !enable;
     document.getElementById("button_apply_pc").disabled = !enable;
     document.getElementById("button_baseline_correction").disabled = !enable;
     document.getElementById("button_apply_baseline_correction").disabled = !enable;
     b_allow_manual_phase_correction = enable;
     b_allow_dragging_spectrum = enable;
+}
+
+/**
+ * Tutorial Logic
+ */
+var tutorial = null;
+
+function startTutorial() {
+    // 1. Ensure FID area is expanded
+    const btn = document.getElementById("button_minimize_fid_area");
+    if (btn && btn.innerText === "+") {
+        minimize_fid_area(btn);
+    }
+
+    if (typeof SimpleTutorial === 'undefined') {
+        alert("Tutorial script not loaded.");
+        console.error("SimpleTutorial class is missing.");
+        return;
+    }
+
+    // State for the combined interactive step
+    let interactionState = { pan: false, zoomX: false, zoomY: false };
+
+    const steps = [
+        {
+            elementId: 'input_options',
+            message: "<strong>Welcome!</strong><br>For this tutorial, please <strong>do not change</strong> any of these processing parameters. Keep them at their default values.",
+            triggerEvent: null
+        },
+        {
+            elementId: 'input_files',
+            message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code> and <code>acqus</code>) into this area. <br>Or select files manually.",
+            triggerEvent: ['drop', 'change'],
+            hideNext: true,
+            validate: (e) => {
+                // Check if both fid and acqus inputs have files
+                const fidFiles = document.getElementById('fid_file').files;
+                const acqusFiles = document.getElementById('acquisition_file').files;
+                return fidFiles.length > 0 && acqusFiles.length > 0;
+            }
+        },
+        {
+            elementId: 'button_fid_process',
+            message: "<strong>Step 2:</strong> Click this button to upload and process the data.",
+            triggerEvent: 'click',
+            hideNext: true
+        },
+        {
+            elementId: 'button_fid_process', // Stay on the button, or move to plot? Button is fine while waiting.
+            message: "<strong>Processing...</strong> Please wait for the automatic phase correction to finish.",
+            triggerEvent: 'colmar:processing_finished',
+            hideNext: true // Prevent user from skipping wait
+        },
+        {
+            elementId: 'plot_1d',
+            message: "<strong>Success:</strong> Your processed spectrum will appear here. You can interact with it using the mouse.",
+            triggerEvent: null
+        },
+        {
+            elementId: 'plot_1d',
+            message: "<strong>Practice:</strong> Please try all 3 interactions:<br>1. <strong>Pan:</strong> Drag mouse.<br>2. <strong>Zoom X:</strong> Scroll wheel over spectrum (right of axis).<br>3. <strong>Zoom Y:</strong> Scroll wheel over left axis (left of axis).",
+            triggerEvent: ['mousemove', 'wheel'],
+            hideNext: true,
+            validate: (e) => {
+                // e.buttons works for mousemove pan check
+                const btn = e.buttons !== undefined ? e.buttons : e.which;
+                if (e.type === 'mousemove' && (btn & 1)) {
+                    interactionState.pan = true;
+                }
+                if (e.type === 'wheel') {
+                    if (e.offsetX > 120) interactionState.zoomX = true;
+                    if (e.offsetX <= 120) interactionState.zoomY = true;
+                }
+
+                return interactionState.pan && interactionState.zoomX && interactionState.zoomY;
+            }
+        },
+        {
+            elementId: 'instructions_link',
+            message: "<strong>Tutorial Complete!</strong><br>This covered the basics. Please read the <a href='https://github.com/lidawei1975/colmarviewer/wiki' target='_blank' style='color: lightblue'>full instructions</a> for details on all features.",
+            triggerEvent: null
+        }
+    ];
+
+    tutorial = new SimpleTutorial(steps, () => {
+        // Hide the start tutorial button when finished
+        const btn = document.getElementById("button_tutorial");
+        if (btn) btn.style.display = 'none';
+
+        // Also remove the tutorial instance logic if needed
+        tutorial = null;
+    });
+    tutorial.start();
 }

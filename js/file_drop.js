@@ -120,11 +120,11 @@ class file_drop_processor {
                 */
                 if (fnmode > 1 && fnmode != 7) {
                     document.getElementById(file_id).files = container.files;
+                    document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }
-           
-            else if(file_id === "nuslist_file")
-            {
+
+            else if (file_id === "nuslist_file") {
                 document.getElementById(file_id).files = container.files;
                 /**
                  * Special case for nuslist file. 
@@ -142,27 +142,23 @@ class file_drop_processor {
                 document.getElementById("extract_direct_from").disabled = true;
                 document.getElementById("extract_direct_to").disabled = true;
             }
-            else
-            {
+            else {
                 document.getElementById(file_id).files = container.files;
+                document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
             }
 
             /**
              * If this.drop_area_id === "input_files" and we have 
              * at least 3 of all files_id filled, we will highlight the processing div
              */
-            if(this.drop_area_id === "input_files")
-            {
+            if (this.drop_area_id === "input_files") {
                 let filled = 0;
-                for(let i=0;i<this.required_files.length;i++)
-                {
-                    if(document.getElementById(this.files_id[this.required_files[i]]).files.length > 0)
-                    {
+                for (let i = 0; i < this.required_files.length; i++) {
+                    if (document.getElementById(this.files_id[this.required_files[i]]).files.length > 0) {
                         filled++;
                     }
                 }
-                if(filled >= this.required_files.length)
-                {
+                if (filled >= this.required_files.length) {
                     document.getElementById("input_options").style.backgroundColor = "lightgreen";
                 }
             }
@@ -177,7 +173,7 @@ class file_drop_processor {
          * Only if the dropped file's extension is as predefined, we will attach it to the corresponding file input
          * this.file_extension is an array of file extensions
          */
-        let file_extension = file.name.split('.').pop();   
+        let file_extension = file.name.split('.').pop();
         if (this.file_extension.includes(file_extension)) {
             this.container.items.add(file);
             let file_id = this.files_id[this.file_extension.indexOf(file_extension)];
@@ -185,7 +181,7 @@ class file_drop_processor {
             /**
              * Simulate the change event
              */
-            // document.getElementById(file_id).dispatchEvent(new Event('change'));
+            document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
         }
 
     }
@@ -233,8 +229,7 @@ class file_drop_processor {
                         }
                     }
                 }
-                else if(typeof FileSystemDirectoryEntry !== 'undefined' && handle instanceof FileSystemDirectoryEntry)
-                {
+                else if (typeof FileSystemDirectoryEntry !== 'undefined' && handle instanceof FileSystemDirectoryEntry) {
                     /**
                      * Read all files in the directory
                      */
