@@ -3,3 +3,5 @@ test_code/*.mat
 test_code/*.asv
 test_code/data.mat
 test_code/*.txt
+
+node_modules/

@@ -1,0 +1,19 @@
+{
+  "name": "colmarview",
+  "version": "1.0.0",
+  "description": "Web based NMR spectra viewer.",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server .",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "cy:open": "npx cypress open",
+    "cy:run": "npx cypress run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "cypress": "^15.8.1",
+    "http-server": "^14.1.1"
+  }
+}
