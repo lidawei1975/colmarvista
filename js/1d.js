@@ -524,6 +524,16 @@ webassembly_1d_worker_2.onmessage = function (e) {
          * Re-enable the button to process fid file
          */
         document.getElementById("button_fid_process").disabled = false;
+
+        // Notify tutorial (or anyone else) that processing is done
+        // ONLY if we are NOT running TFJS (auto_direct_2). 
+        // If auto_direct_2 is true, run_ann_phase_correction will dispatch this event when finished.
+        if (!e.data.auto_direct_2) {
+            const btn = document.getElementById("button_fid_process");
+            if (btn) {
+                btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+            }
+        }
     }
 
 
@@ -3168,6 +3178,14 @@ async function run_ann_phase_correction(ndx) {
      * Enable manual phase correction and myself button after auto phase correction
      */
     disable_enable_phase_baseline_buttons(true);
+
+    // Notify completion of TFJS phase correction
+    // Dispatch on the button so the tutorial listener which is attached to the button can catch it
+    const btn = document.getElementById("button_fid_process");
+    if (btn) {
+        btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+    }
+
 }
 
 /**
@@ -3655,4 +3673,97 @@ function disable_enable_phase_baseline_buttons(enable = true) {
     document.getElementById("button_apply_baseline_correction").disabled = !enable;
     b_allow_manual_phase_correction = enable;
     b_allow_dragging_spectrum = enable;
+}
+
+/**
+ * Tutorial Logic
+ */
+var tutorial = null;
+
+function startTutorial() {
+    // 1. Ensure FID area is expanded
+    const btn = document.getElementById("button_minimize_fid_area");
+    if (btn && btn.innerText === "+") {
+        minimize_fid_area(btn);
+    }
+
+    if (typeof SimpleTutorial === 'undefined') {
+        alert("Tutorial script not loaded.");
+        console.error("SimpleTutorial class is missing.");
+        return;
+    }
+
+    // State for the combined interactive step
+    let interactionState = { pan: false, zoomX: false, zoomY: false };
+
+    const steps = [
+        {
+            elementId: 'input_options',
+            message: "<strong>Welcome!</strong><br>For this tutorial, please <strong>do not change</strong> any of these processing parameters. Keep them at their default values.",
+            triggerEvent: null
+        },
+        {
+            elementId: 'input_files',
+            message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code> and <code>acqus</code>) into this area. <br>Or select files manually.",
+            triggerEvent: ['drop', 'change'],
+            hideNext: true,
+            validate: (e) => {
+                // Check if both fid and acqus inputs have files
+                const fidFiles = document.getElementById('fid_file').files;
+                const acqusFiles = document.getElementById('acquisition_file').files;
+                return fidFiles.length > 0 && acqusFiles.length > 0;
+            }
+        },
+        {
+            elementId: 'button_fid_process',
+            message: "<strong>Step 2:</strong> Click this button to upload and process the data.",
+            triggerEvent: 'click',
+            hideNext: true
+        },
+        {
+            elementId: 'button_fid_process', // Stay on the button, or move to plot? Button is fine while waiting.
+            message: "<strong>Processing...</strong> Please wait for the automatic phase correction to finish.",
+            triggerEvent: 'colmar:processing_finished',
+            hideNext: true // Prevent user from skipping wait
+        },
+        {
+            elementId: 'plot_1d',
+            message: "<strong>Success:</strong> Your processed spectrum will appear here. You can interact with it using the mouse.",
+            triggerEvent: null
+        },
+        {
+            elementId: 'plot_1d',
+            message: "<strong>Practice:</strong> Please try all 3 interactions:<br>1. <strong>Pan:</strong> Drag mouse.<br>2. <strong>Zoom X:</strong> Scroll wheel over spectrum (right of axis).<br>3. <strong>Zoom Y:</strong> Scroll wheel over left axis (left of axis).",
+            triggerEvent: ['mousemove', 'wheel'],
+            hideNext: true,
+            validate: (e) => {
+                // e.buttons works for mousemove pan check
+                const btn = e.buttons !== undefined ? e.buttons : e.which;
+                if (e.type === 'mousemove' && (btn & 1)) {
+                    interactionState.pan = true;
+                }
+                if (e.type === 'wheel') {
+                    if (e.offsetX > 120) interactionState.zoomX = true;
+                    if (e.offsetX <= 120) interactionState.zoomY = true;
+                }
+
+                return interactionState.pan && interactionState.zoomX && interactionState.zoomY;
+            }
+        },
+        {
+            elementId: 'instructions_link',
+            message: "<strong>Tutorial Complete!</strong><br>This covered the basics. Please read the <a href='https://github.com/lidawei1975/colmarviewer/wiki' target='_blank' style='color: lightblue'>full instructions</a> for details on all features.",
+            triggerEvent: null
+        }
+    ];
+
+    tutorial = new SimpleTutorial(steps, () => {
+        // Hide the start tutorial button when finished
+        const btn = document.getElementById("button_tutorial");
+        if (btn) btn.style.display = 'none';
+
+        // Also remove the tutorial instance logic if needed
+        tutorial = null;
+    });
+    tutorial.start();
 }

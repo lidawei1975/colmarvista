@@ -30,8 +30,11 @@
             <div>
                 <h1>COLMARvista 1D: a browser based 1D NMR viewer</h1>
                 <h2>For automatic processing, peak picking, peak fitting, and pseudo-2D fitting</h2>
-                <h3><a target="_blank" rel="noopener noreferrer"
-                        href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a></h3>
+                <h3><a id="instructions_link" target="_blank" rel="noopener noreferrer"
+                        href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a>
+                    <button id="button_tutorial" onclick="startTutorial()"
+                        style="background-color: #ff9800; color: white;">Tutorial</button>
+                </h3>
             </div>
         </div>
 
@@ -49,7 +52,8 @@
             <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
                 <span>
                     <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
-                        domain data for processing: <span class="information">(Console version >=3.0) </span></p>
+                        domain data for processing: <span class="information">(Console version >=3.0) </span>
+                    </p>
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
@@ -255,6 +259,7 @@
     <script type="text/javascript" src="js/spectrum_1d.js"></script>
     <script type="text/javascript" src="js/myplot/myplot_1d.js"></script>
     <script type="text/javascript" src="js/make_table.js"></script>
+    <script type="text/javascript" src="js/tutorial.js"></script>
     <script type="text/javascript" src="js/1d.js"></script>
     </div>
 </body>
