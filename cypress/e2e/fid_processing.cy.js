@@ -50,5 +50,25 @@ describe('FID Processing Test', () => {
         // Assuming peaks are rendered as text labels or circles/paths on top of the spectrum
         // We just check that the SVG DOM increased in complexity
         cy.get('#plot_1d g').should('have.length.gt', 5);
+
+        // --- Peak Fitting Flow ((Voigt Fitter) ---
+
+        // 12. Set Max Round to 5 (Speed up test)
+        // ID is maxround-0 for the first spectrum
+        cy.get('#maxround-0').clear().type('5');
+
+        // 13. Click Peak Fitting
+        // ID is run_voigt_fitter-0
+        cy.get('#run_voigt_fitter-0').click();
+
+        // 14. Wait for Reconstructed Spectrum
+        // User says: "once finished, it should add a reconstruced spectrum to the list"
+        // We look for the text "Reconstructed spectrum" which is added as a title for the new spectrum
+        // Giving it time as fitting can be slow
+        cy.contains('Reconstructed spectrum', { timeout: 60000 }).should('be.visible');
+
+        // 15. Verify Plot Complexity Increases
+        // The reconstructed spectrum adds more lines (paths) to the plot
+        cy.get('#plot_1d path').should('have.length.gt', 1);
     });
 });
