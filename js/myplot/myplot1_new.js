@@ -23,6 +23,10 @@
  * - document.getElementById("peak_information_div") 
  * - document.getElementById("pseudo3d_fitting_plot")
  * - document.activeElement
+ * 
+ * 
+ * Class varibles that are actually DOM elements
+ * xAxis_svg, $yAxis_svg, $vis, $rect, $brush_element
  */
 
 /**
@@ -185,7 +189,7 @@ plotit.prototype.update = function (input) {
         .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
         .on("end", this.brushend.bind(this));
 
-    this.brush_element.call(this.brush);
+    this.$brush_element.call(this.brush);
 
 
     this.lineFunc.x(function (d) { return self.xRange(d[0]); })
@@ -193,30 +197,30 @@ plotit.prototype.update = function (input) {
         .curve(d3.curveBasis);
 
 
-    this.xAxis_svg.attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')').call(this.xAxis);
-    this.yAxis_svg.attr('transform', 'translate(' + (this.MARGINS.left) + ',0)').call(this.yAxis);
+    this.$xAxis_svg.attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')').call(this.xAxis);
+    this.$yAxis_svg.attr('transform', 'translate(' + (this.MARGINS.left) + ',0)').call(this.yAxis);
 
-    this.xAxis_svg.select(".domain").style("stroke-width", thickness + "px");
-    this.xAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+    this.$xAxis_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$xAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
-    this.yAxis_svg.select(".domain").style("stroke-width", thickness + "px");
-    this.yAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+    this.$yAxis_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$yAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
 
-    this.vis.selectAll('.xlabel')
+    this.$vis.selectAll('.xlabel')
         .attr("font-size", this.fontsize + "px")
         .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30);
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15);
 
-    this.vis.selectAll('.ylabel')
+    this.$vis.selectAll('.ylabel')
         .attr("font-size", this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
         .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 30);
+        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 15);
 
 
 
-    this.rect
+    this.$rect
         .attr("x", this.MARGINS.left)
         .attr("y", this.MARGINS.top)
         .attr("width", this.WIDTH - this.MARGINS.right - this.MARGINS.left)
@@ -261,13 +265,13 @@ plotit.prototype.reset_axis = function () {
     const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
     this.yAxis.ticks(maxTicksY);
 
-    this.xAxis_svg.call(this.xAxis);
-    this.yAxis_svg.call(this.yAxis);
-    this.vis.selectAll(".xaxis>.tick>text")
+    this.$xAxis_svg.call(this.xAxis);
+    this.$yAxis_svg.call(this.yAxis);
+    this.$vis.selectAll(".xaxis>.tick>text")
         .each(function () {
             d3.select(this).style("font-size", self.fontsize + "px");
         });
-    this.vis.selectAll(".yaxis>.tick>text")
+    this.$vis.selectAll(".yaxis>.tick>text")
         .each(function () {
             d3.select(this).style("font-size", self.fontsize + "px");
         });
@@ -277,7 +281,7 @@ plotit.prototype.reset_axis = function () {
     /**
      * Reset the position of peaks
      */
-    this.vis.selectAll('.peak')
+    this.$vis.selectAll('.peak')
         .attr('cx', function (d) {
             return self.xRange(d.X_PPM);
         })
@@ -288,7 +292,7 @@ plotit.prototype.reset_axis = function () {
     /**
      * Also need to reset the position of peak text
      */
-    this.vis.selectAll('.peak_text')
+    this.$vis.selectAll('.peak_text')
         .attr('x', function (d) {
             d.x = self.xRange(d.X_TEXT_PPM);
             return d.x;
@@ -301,7 +305,7 @@ plotit.prototype.reset_axis = function () {
     /**
      * Reset peak_line as well
      */
-    this.vis.selectAll('.peak_line')
+    this.$vis.selectAll('.peak_line')
         .attr('x2', function (d) {
             return self.xRange(d.X_PPM);
         })
@@ -348,7 +352,7 @@ plotit.prototype.reset_axis = function () {
         .y((d) => self.y(d[1]));
 
     for (let i = 0; i < this.predicted_peaks.length; i++) {
-        this.vis.selectAll('.predicted_peak_' + i)
+        this.$vis.selectAll('.predicted_peak_' + i)
             .attr("d", self.line(this.predicted_peaks[i]));
     }
 
@@ -356,8 +360,8 @@ plotit.prototype.reset_axis = function () {
     /**
      * Reset vline and hline
      */
-    this.vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
-    this.vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
+    this.$vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
+    this.$vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
 
     if (this.zoom_on_call_function) {
         this.zoom_on_call_function();
@@ -387,7 +391,7 @@ plotit.prototype.brushend = function (e) {
      * Remove the brush and return
      */
     if (this.allow_brush_to_remove && self.spectrum != null && self.peak_flag === 'picked') {
-        this.vis.select(".brush").call(this.brush.move, null);
+        this.$vis.select(".brush").call(this.brush.move, null);
         let brush_x_ppm_start = self.xRange.invert(e.selection[0][0]);
         let brush_x_ppm_end = self.xRange.invert(e.selection[1][0]);
         let brush_y_ppm_start = self.yRange.invert(e.selection[1][1]);
@@ -443,7 +447,7 @@ plotit.prototype.brushend = function (e) {
     this.x_cross_section_plot.zoom_x(this.xscale);
     this.y_cross_section_plot.zoom_y(this.yscale);
 
-    this.vis.select(".brush").call(this.brush.move, null);
+    this.$vis.select(".brush").call(this.brush.move, null);
 
     this.send_scales_to_other_window();
 };
@@ -606,7 +610,7 @@ plotit.prototype.zoomout = function () {
 plotit.prototype.draw = function () {
     var self = this;
 
-    this.vis = d3.select(this.drawto);
+    this.$vis = d3.select(this.drawto);
 
 
     this.xRange = d3.scaleLinear().range([this.MARGINS.left, this.WIDTH - this.MARGINS.right])
@@ -632,15 +636,15 @@ plotit.prototype.draw = function () {
         .curve(d3.curveBasis);
 
 
-    this.vis.selectAll('.xaxis').remove();
-    this.vis.selectAll('.yaxis').remove();
+    this.$vis.selectAll('.xaxis').remove();
+    this.$vis.selectAll('.yaxis').remove();
 
 
-    this.xAxis_svg = this.vis.append('svg:g')
+    this.$xAxis_svg = this.$vis.append('svg:g')
         .attr('class', 'xaxis')
         .attr('transform', 'translate(0,' + (this.HEIGHT - this.MARGINS.bottom) + ')');
 
-    this.yAxis_svg = this.vis.append('svg:g')
+    this.$yAxis_svg = this.$vis.append('svg:g')
         .attr('class', 'yaxis')
         .attr('transform', 'translate(' + (this.MARGINS.left) + ',0)');
 
@@ -649,32 +653,32 @@ plotit.prototype.draw = function () {
      */
     this.hline_data = [[0.1, -1000], [0, -1000]];
     this.vline_data = [[-1000, 0], [-1000, 1]];
-    this.vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
-    this.vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
+    this.$vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
+    this.$vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
 
     this.reset_axis();
 
-    this.vis.append("text")
+    this.$vis.append("text")
         .attr("class", "xlabel")
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 30)
+        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
-    this.vis.append("text")
+    this.$vis.append("text")
         .attr("class", "ylabel")
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("transform", `rotate(-90)`)
         .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 30)
+        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 15)
         .attr("font-family", "Arial, Helvetica, sans-serif")
         .text("Chemical Shift (ppm)");
 
 
-    this.rect = this.vis.append("defs").append("clipPath")
+    this.$rect = this.$vis.append("defs").append("clipPath")
         .attr("id", "clip")
         .append("rect")
         .attr("x", this.MARGINS.left)
@@ -686,14 +690,14 @@ plotit.prototype.draw = function () {
         .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
         .on("end", this.brushend.bind(this));
 
-    this.brush_element = this.vis.append("g")
+    this.$brush_element = this.$vis.append("g")
         .attr("class", "brush")
         .call(this.brush);
 
     /**
      * Tool tip for mouse move
      */
-    this.vis.on("mousemove", function (event) {
+    this.$vis.on("mousemove", function (event) {
 
         if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
@@ -757,7 +761,7 @@ plotit.prototype.draw = function () {
             }, 2500);
         }
     });
-    this.vis.on("mouseleave", function (d) {
+    this.$vis.on("mouseleave", function (d) {
         tooldiv.style.opacity = 0.0;
         document.activeElement.blur();
         if (self.cross_line_timeout) {
@@ -812,8 +816,8 @@ plotit.prototype.setup_cross_line = function (event) {
      * This line is subject to zoom, pan, resize, etc
      */
     self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-    self.vis.selectAll(".hline").remove();
-    self.vis.append("path")
+    self.$vis.selectAll(".hline").remove();
+    self.$vis.append("path")
         .attr("class", "hline")
         .attr("clip-path", "url(#clip)")
         .attr("d", self.lineFunc(self.hline_data))
@@ -825,8 +829,8 @@ plotit.prototype.setup_cross_line = function (event) {
      * This line is subject to zoom, pan, resize, etc
      */
     self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-    self.vis.selectAll(".vline").remove();
-    self.vis.append("path")
+    self.$vis.selectAll(".vline").remove();
+    self.$vis.append("path")
         .attr("class", "vline")
         .attr("clip-path", "url(#clip)")
         .attr("d", self.lineFunc(self.vline_data))
@@ -1400,8 +1404,8 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         self.visible_peaks[i].y = self.yRange(self.visible_peaks[i].Y_PPM) + 20 * Math.random() - 10.0;
     }
 
-    self.vis.selectAll('.peak_text').remove();
-    self.vis.selectAll('.peak_line').remove();
+    self.$vis.selectAll('.peak_text').remove();
+    self.$vis.selectAll('.peak_line').remove();
     self.$peaks_text_svg = null;
 
     if (flag == false) {
@@ -1434,7 +1438,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
             self.sim.alpha(1.0).alphaMin(0.1).restart();
         });
 
-    this.$peaks_text_svg = self.vis.selectAll('.peak_text')
+    this.$peaks_text_svg = self.$vis.selectAll('.peak_text')
         .data(self.visible_peaks)
         .enter()
         .append('text')
@@ -1490,7 +1494,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
     /**
      * Also add a line between peak and peak_text
      */
-    this.$peak_line_svg = self.vis.selectAll('.peak_line')
+    this.$peak_line_svg = self.$vis.selectAll('.peak_line')
         .data(self.visible_peaks)
         .enter()
         .append('line')
@@ -1603,7 +1607,7 @@ plotit.prototype.draw_peaks = function () {
     /**
      * Remove all peaks if there is any
      */
-    self.vis.selectAll('.peak').remove();
+    self.$vis.selectAll('.peak').remove();
 
     /**
      * Filter peaks based on peak level
@@ -1623,7 +1627,7 @@ plotit.prototype.draw_peaks = function () {
     /**
      * Draw peaks, red circles without fill
      */
-    this.$peaks_svg = self.vis.selectAll('.peak')
+    this.$peaks_svg = self.$vis.selectAll('.peak')
         .data(self.new_peaks)
         .enter()
         .append('circle')
@@ -1668,7 +1672,7 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
     let timeout_id = null;
 
     if (flag === true) {
-        self.vis.selectAll('.peak').on('mouseover', function (event, d) {
+        self.$vis.selectAll('.peak').on('mouseover', function (event, d) {
             /**
              * Show a window with peak information
              * 1. get current cursor position (relative to the window, not the plot)
@@ -1791,8 +1795,8 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             });
     }
     else {
-        self.vis.selectAll('.peak').on('mouseover', null);
-        self.vis.selectAll('.peak').on('mouseout', null);
+        self.$vis.selectAll('.peak').on('mouseover', null);
+        self.$vis.selectAll('.peak').on('mouseout', null);
     }
 };
 
@@ -1804,13 +1808,13 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
 plotit.prototype.allow_right_click = function (flag) {
     let self = this;
     if (flag === true) {
-        self.vis.on('contextmenu', function (event) {
+        self.$vis.on('contextmenu', function (event) {
             event.preventDefault();
             self.setup_cross_line(event);
         });
     }
     else {
-        self.vis.on('contextmenu', function (event) {
+        self.$vis.on('contextmenu', function (event) {
             event.preventDefault();
         });
     }
@@ -1824,7 +1828,7 @@ plotit.prototype.allow_right_click = function (flag) {
  */
 plotit.prototype.redraw_peaks = function () {
     let self = this;
-    self.vis.selectAll('.peak')
+    self.$vis.selectAll('.peak')
         .attr('r', self.peak_size)
         .attr('stroke', function (d) {
             if (self.peak_color_flag === "SOLID") {
@@ -1910,10 +1914,10 @@ plotit.prototype.allow_peak_dragging = function (flag) {
         });
 
     if (flag === true && self.peak_flag === 'picked') {
-        self.vis.selectAll('.peak').call(self.peak_drag);
+        self.$vis.selectAll('.peak').call(self.peak_drag);
     }
     else {
-        self.vis.selectAll('.peak').on('.drag', null);
+        self.$vis.selectAll('.peak').on('.drag', null);
     }
 }
 
@@ -1925,7 +1929,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
     let self = this;
 
     if (flag === true && self.peak_flag === 'picked') {
-        self.vis.on('click', function (event) {
+        self.$vis.on('click', function (event) {
             let coordinates = d3.pointer(event);
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
@@ -1950,7 +1954,7 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
         });
     }
     else {
-        self.vis.on('click', null);
+        self.$vis.on('click', null);
     }
 };
 
@@ -1960,8 +1964,8 @@ plotit.prototype.allow_click_to_add_peak = function (flag) {
 plotit.prototype.remove_picked_peaks = function () {
     let self = this;
     self.spectrum = null;
-    self.vis.selectAll('.peak').remove();
-    self.vis.selectAll('.peak_text').remove();
+    self.$vis.selectAll('.peak').remove();
+    self.$vis.selectAll('.peak_text').remove();
 };
 
 /**
@@ -1998,13 +2002,13 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
     self.y = d3.scaleLinear().range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top])
         .domain(self.yscale);
 
-    self.vis.selectAll('.predicted_peak_' + index).remove();
+    self.$vis.selectAll('.predicted_peak_' + index).remove();
 
     self.line = d3.line()
         .x((d) => self.x(d[0]))
         .y((d) => self.y(d[1]));
 
-    self.vis.append('path')
+    self.$vis.append('path')
         .attr('class', 'predicted_peak_' + index)
         .attr("d", self.line(peaks))
         .attr('fill', 'none')

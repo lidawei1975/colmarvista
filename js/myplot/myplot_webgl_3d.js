@@ -1,9 +1,9 @@
 "use strict";
 
 
-class webgl_contour_plot2 {
+class webgl_contour_plot_3d {
 
-    constructor(canvas_id,points,normals,colors,x_dim,y_dim,flag=0) {
+    constructor(canvas_id, points, normals, colors, x_dim, y_dim, flag = 0) {
 
         this.canvas = document.querySelector("#" + canvas_id);
         this.gl = this.canvas.getContext("webgl");
@@ -11,8 +11,7 @@ class webgl_contour_plot2 {
             alert("No WebGL");
         }
 
-        if(flag==0)
-        {
+        if (flag == 0) {
             let vertex_shader_2d = `
                     attribute vec4 a_position;
                     attribute vec4 a_color;
@@ -79,11 +78,10 @@ class webgl_contour_plot2 {
         // lookup uniforms
         this.colorLocation = this.gl.getAttribLocation(this.program, "a_color");
         this.matrixLocation = this.gl.getUniformLocation(this.program, "u_matrix");
-        if(flag==1)
-        {
+        if (flag == 1) {
             this.normalLocation = this.gl.getAttribLocation(this.program, "a_normal");
-            this.reverseLightDirectionLocation = this.gl.getUniformLocation(this.program, "u_reverseLightDirection");   
-            this.normalMatrixLocation = this.gl.getUniformLocation(this.program, "u_normal_matrix");    
+            this.reverseLightDirectionLocation = this.gl.getUniformLocation(this.program, "u_reverseLightDirection");
+            this.normalMatrixLocation = this.gl.getUniformLocation(this.program, "u_normal_matrix");
         }
 
         // Create a buffer to put positions in
@@ -100,8 +98,7 @@ class webgl_contour_plot2 {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, colors, this.gl.STATIC_DRAW);
 
-        if(flag==1)
-        {
+        if (flag == 1) {
             /**
              * Buffer for normals of the triangles
              */
@@ -109,17 +106,17 @@ class webgl_contour_plot2 {
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.normalBuffer);
             this.gl.bufferData(this.gl.ARRAY_BUFFER, normals, this.gl.STATIC_DRAW);
         }
-        
-        this.data_length = points.length/3;
+
+        this.data_length = points.length / 3;
 
         this.drawing_flag = flag;
-            
+
         this.rotation_x = -45;
         this.rotation_y = 0;
         this.rotation_z = 0;
 
-        this.translation_x = -x_dim/2;
-        this.translation_y = -y_dim/2;
+        this.translation_x = -x_dim / 2;
+        this.translation_y = -y_dim / 2;
         this.translation_z = -100000;
 
         /**
@@ -130,7 +127,7 @@ class webgl_contour_plot2 {
         this.scale_y = 1;
 
 
-        this.fov = x_dim/this.gl.canvas.clientWidth;
+        this.fov = x_dim / this.gl.canvas.clientWidth;
 
         /**
          * Light direction in world frame. 
@@ -138,7 +135,7 @@ class webgl_contour_plot2 {
          * rotation is the angle between the projection of light direction on x-y plane and x axis
          */
         this.light_tilt = 0;
-        this.light_orientation = 120;  
+        this.light_orientation = 120;
 
 
         /**
@@ -147,8 +144,8 @@ class webgl_contour_plot2 {
          * The scale 800 means moving 800 units in the spectrum frame is equivalent to moving 1 unit in the world frame.
          * (Size of world frame is 2*2*2 (clip space of webgl: -1 to 1 for x, y, z) and size of spectrum frame is roughly 900*900
          */
-        this.x_axis_in_spe_frame = [800,0,0,1];
-        this.y_axis_in_spe_frame = [0,800,0,1];
+        this.x_axis_in_spe_frame = [800, 0, 0, 1];
+        this.y_axis_in_spe_frame = [0, 800, 0, 1];
 
         this.dragging = false;
 
@@ -156,35 +153,35 @@ class webgl_contour_plot2 {
 
     radToDeg(r) {
         return r * 180 / Math.PI;
-      };
-    
+    };
+
     degToRad(d) {
         return d * Math.PI / 180;
-      };
+    };
 
-    drag(dx,dy) {
+    drag(dx, dy) {
         /**
          * Convert the movement to the range of slip space scale (-1 to 1)
          * y axis is reversed in webgl drawing
          */
-        dx = dx/this.gl.canvas.width * 2;
-        dy = -dy/this.gl.canvas.height * 2;
+        dx = dx / this.gl.canvas.width * 2;
+        dy = -dy / this.gl.canvas.height * 2;
 
-        let scale = Math.sqrt(this.y_axis_in_spe_frame[0]*this.y_axis_in_spe_frame[0] 
-            + this.y_axis_in_spe_frame[1]*this.y_axis_in_spe_frame[1]*this.scale_y*this.scale_y
-            + this.y_axis_in_spe_frame[2]*this.y_axis_in_spe_frame[2]*this.scale_z*this.scale_z);
+        let scale = Math.sqrt(this.y_axis_in_spe_frame[0] * this.y_axis_in_spe_frame[0]
+            + this.y_axis_in_spe_frame[1] * this.y_axis_in_spe_frame[1] * this.scale_y * this.scale_y
+            + this.y_axis_in_spe_frame[2] * this.y_axis_in_spe_frame[2] * this.scale_z * this.scale_z);
 
 
-        scale =  Math.abs(this.y_axis_in_spe_frame[2]*this.scale_z)/scale;
-        scale = 1-scale*scale;
+        scale = Math.abs(this.y_axis_in_spe_frame[2] * this.scale_z) / scale;
+        scale = 1 - scale * scale;
         // console.log("scale: ", scale);
 
         // if(scale<0.1){
         //     scale = 0.1;
         // }
 
-        dy = dy/scale;
-        
+        dy = dy / scale;
+
 
         let dx_in_spe_frame = this.x_axis_in_spe_frame[0] * dx + this.y_axis_in_spe_frame[0] * dy;
         let dy_in_spe_frame = this.x_axis_in_spe_frame[1] * dx + this.y_axis_in_spe_frame[1] * dy
@@ -221,7 +218,7 @@ class webgl_contour_plot2 {
         // will be culled.
         // this.gl.enable(this.gl.CULL_FACE);
 
-         // Enable the depth buffer
+        // Enable the depth buffer
         this.gl.enable(this.gl.DEPTH_TEST);
 
         this.gl.useProgram(this.program);
@@ -243,7 +240,7 @@ class webgl_contour_plot2 {
         var offset = 0;        // start at the beginning of the buffer
         this.gl.vertexAttribPointer(this.positionLocation, size, type, normalize, stride, offset);
 
-      
+
         // Turn on the color attribute
         this.gl.enableVertexAttribArray(this.colorLocation);
         // Bind the color buffer.
@@ -271,7 +268,7 @@ class webgl_contour_plot2 {
             var offset = 0;        // start at the beginning of the buffer
             this.gl.vertexAttribPointer(this.normalLocation, size, type, normalize, stride, offset)
         }
-        
+
 
 
         var translation = [this.translation_x, this.translation_y, this.translation_z];
@@ -290,7 +287,7 @@ class webgl_contour_plot2 {
         /**
          * Translate the object to -100000 before apply perspective
          */
-        matrix = m4.translate(matrix, 0,0, translation[2]);
+        matrix = m4.translate(matrix, 0, 0, translation[2]);
 
 
 
@@ -315,7 +312,7 @@ class webgl_contour_plot2 {
         /**
          * Get projected coordinates of spectrum center in world frame
          */
-        let spectrum_center = m4.multiply_vec(matrix, [0,0,0,1]);
+        let spectrum_center = m4.multiply_vec(matrix, [0, 0, 0, 1]);
         // console.log("spectrum_center: ", spectrum_center);
 
         /**
@@ -327,22 +324,21 @@ class webgl_contour_plot2 {
          * inverse_matrix * [ 1 , 0, 0, 0] = vector in spectrum frame for x axis in world frame
          * inverse_matrix * [ 0 , 1, 0, 0] = vector in spectrum frame for y axis in world frame
          */
-        let spectrum_center_move_x = [... spectrum_center];
+        let spectrum_center_move_x = [...spectrum_center];
         spectrum_center_move_x[0] += spectrum_center[3];
-        let spectrum_center_move_y = [... spectrum_center];
+        let spectrum_center_move_y = [...spectrum_center];
         spectrum_center_move_y[1] += spectrum_center[3];
 
         this.x_axis_in_spe_frame = m4.multiply_vec(inverse_matrix, spectrum_center_move_x);
         this.y_axis_in_spe_frame = m4.multiply_vec(inverse_matrix, spectrum_center_move_y);
 
-        
+
         // console.log("x_axis_in_spe_frame: ", this.x_axis_in_spe_frame);
         // console.log("y_axis_in_spe_frame: ", this.y_axis_in_spe_frame);
 
         this.gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
-        
-        if(this.drawing_flag==1)
-        {   
+
+        if (this.drawing_flag == 1) {
             /**
              * We also need a matrix to rotate the normal vectors
              */
@@ -358,23 +354,23 @@ class webgl_contour_plot2 {
             normal_matrix = m4.transpose(normal_matrix);
 
             this.gl.uniformMatrix4fv(this.normalMatrixLocation, false, normal_matrix);
-            
+
             /**
              * Calculate the light direction in world frame using this.light_tilt and this.light_rotation
              */
-            let light_direction = [Math.cos(this.degToRad(this.light_tilt))*Math.cos(this.degToRad(this.light_orientation)),
-                Math.cos(this.degToRad(this.light_tilt))*Math.sin(this.degToRad(this.light_orientation)),
-                Math.sin(this.degToRad(this.light_tilt))];
+            let light_direction = [Math.cos(this.degToRad(this.light_tilt)) * Math.cos(this.degToRad(this.light_orientation)),
+            Math.cos(this.degToRad(this.light_tilt)) * Math.sin(this.degToRad(this.light_orientation)),
+            Math.sin(this.degToRad(this.light_tilt))];
 
             // console.log("light_direction: ", light_direction);
 
-            this.gl.uniform3fv(this.reverseLightDirectionLocation,m4.normalize(light_direction));
+            this.gl.uniform3fv(this.reverseLightDirectionLocation, m4.normalize(light_direction));
         }
 
         // Draw all the triangles
         var primitiveType = this.gl.TRIANGLES;
         var offset = 0;
-        var count =this.data_length;
+        var count = this.data_length;
         this.gl.drawArrays(primitiveType, offset, count);
 
         if (flag == 1) {

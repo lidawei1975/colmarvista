@@ -20,7 +20,7 @@
         </div>
 
         <div id="canvas_container" class="resizable" style="width: 1200px; margin: 0 auto; text-align: center;">
-        <canvas id="canvas1"></canvas>
+            <canvas id="canvas1"></canvas>
         </div>
 
         <div style="clear: both">
@@ -52,31 +52,31 @@
         <div id="file_area" class="drop-area" style="width: 1200px;">
             <h4>Upload frequency domain spectra:</h4>
             <form id="ft2_file_form" action="" enctype="multipart/form-data">
-                <label for="userfile">Frequency domain spectral file (.ft2) </label><input type="file" 
+                <label for="userfile">Frequency domain spectral file (.ft2) </label><input type="file"
                     id="userfile"><br>
-                    <fieldset class="fieldset-auto-width">
-                        <legend>3D plot options</legend>
-                        <input type="radio" id="smooth" name="plot_type" value="smooth" checked>
-                        <label for="surface">3D surface</label>
-                        <br>
-                        <input type="radio" id="terrace" name="plot_type" value="terrace">
-                        <label for="terrace">3D terrace</label>
-                        <br>
-                        <br>
-                    </fieldset>
-                    
-                    <fieldset class = "fieldset-auto-width">
-                        <legend>Contour options</legend>
-                        <input type="radio" id="Logarithmic_Linear" name="contour_type" value="Logarithmic_Linear" checked>
-                        <label for="Logarithmic_Linear">Logarithmic-linear contour</label>
-                        <br>
-                        <input type="radio" id="Logarithmic" name="contour_type" value="Logarithmic" >
-                        <label for="Logarithmic">Logarithmic contour</label>
-                        <br>
-                        <input type="radio" id="Linear" name="contour_type" value="Linear">
-                        <label for="Linear">Linear contour</label>
-                    </fieldset>
+                <fieldset class="fieldset-auto-width">
+                    <legend>3D plot options</legend>
+                    <input type="radio" id="smooth" name="plot_type" value="smooth" checked>
+                    <label for="surface">3D surface</label>
                     <br>
+                    <input type="radio" id="terrace" name="plot_type" value="terrace">
+                    <label for="terrace">3D terrace</label>
+                    <br>
+                    <br>
+                </fieldset>
+
+                <fieldset class="fieldset-auto-width">
+                    <legend>Contour options</legend>
+                    <input type="radio" id="Logarithmic_Linear" name="contour_type" value="Logarithmic_Linear" checked>
+                    <label for="Logarithmic_Linear">Logarithmic-linear contour</label>
+                    <br>
+                    <input type="radio" id="Logarithmic" name="contour_type" value="Logarithmic">
+                    <label for="Logarithmic">Logarithmic contour</label>
+                    <br>
+                    <input type="radio" id="Linear" name="contour_type" value="Linear">
+                    <label for="Linear">Linear contour</label>
+                </fieldset>
+                <br>
                 <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
             </form>
         </div>
@@ -88,7 +88,7 @@
     <script type="text/javascript" src="js/webgl-utils.js"></script>
     <script type="text/javascript" src="js/m3.js"></script>
     <script type="text/javascript" src="js/m4.js"></script>
-    <script type="text/javascript" src="js/myplot/myplot_webgl2.js"></script>
+    <script type="text/javascript" src="js/myplot/myplot_webgl_3d.js"></script>
     <script type="text/javascript" src="js/peaks.js"></script>
     <script type="text/javascript" src="js/spectrum.js"></script>
     <script type="text/javascript" src="js/file_drop.js"></script>

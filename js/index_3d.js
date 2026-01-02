@@ -10,15 +10,13 @@ catch (err) {
     }
 }
 
-function get_data_new(triangle_2d,z_shift)
-{
-    var data = new Float32Array(triangle_2d.length*3);
+function get_data_new(triangle_2d, z_shift) {
+    var data = new Float32Array(triangle_2d.length * 3);
 
-    for(let i=0;i<triangle_2d.length;i++)
-    {
-        data[i*3] = triangle_2d[i][1];
-        data[i*3+1] = triangle_2d[i][0];
-        data[i*3+2] = triangle_2d[i][2]+z_shift;
+    for (let i = 0; i < triangle_2d.length; i++) {
+        data[i * 3] = triangle_2d[i][1];
+        data[i * 3 + 1] = triangle_2d[i][0];
+        data[i * 3 + 2] = triangle_2d[i][2] + z_shift;
     }
     return data;
 }
@@ -31,7 +29,7 @@ var main_plot = null;
 /**
  * Some math tools
  */
-const mathTool = new ldwmath(); 
+const mathTool = new ldwmath();
 /**
  * Number of surface points and contour vertices (3 vertices per triangle)
  * (size of data array is 3 * n_surface_points and 3 * n_contour_points, because each vertex has 3 coordinates)
@@ -56,8 +54,8 @@ $(document).ready(function () {
     /**
      * Resize observer for the big plot
      */
-    plot_div_resize_observer.observe(document.getElementById("canvas_container")); 
- 
+    plot_div_resize_observer.observe(document.getElementById("canvas_container"));
+
     document.getElementById('ft2_file_form').addEventListener('submit', function (e) {
         e.preventDefault();
         var file = document.getElementById('userfile').files[0];
@@ -70,7 +68,7 @@ $(document).ready(function () {
              */
             let new_spectrum_data = new Float32Array(spe.raw_data.length);
             for (let i = 0; i < spe.raw_data.length; i++) {
-                new_spectrum_data[i] = 255 * spe.raw_data[i]/spe.spectral_max;
+                new_spectrum_data[i] = 255 * spe.raw_data[i] / spe.spectral_max;
             }
 
             let minimal_level = spe.noise_level * 2.5 * 250 / spe.spectral_max;
@@ -82,26 +80,21 @@ $(document).ready(function () {
              */
             let contour_type = document.querySelector('input[name="contour_type"]:checked').value;
 
-            if(contour_type == "Logarithmic")
-            {
-                let n_levels = Math.log(250/minimal_level)/Math.log(1.4);
-                for( let i = 0; i < n_levels-1; i++)
-                {
-                    levels.push(levels[i]*1.4);
+            if (contour_type == "Logarithmic") {
+                let n_levels = Math.log(250 / minimal_level) / Math.log(1.4);
+                for (let i = 0; i < n_levels - 1; i++) {
+                    levels.push(levels[i] * 1.4);
                 }
             }
-            else if(contour_type == "Linear")
-            {
+            else if (contour_type == "Linear") {
                 let scale = 15;
                 let minimal_level2 = minimal_level * scale;
-                let n_levels = Math.floor(250/minimal_level2);
-                for( let i = 2; i < scale; i++)
-                {
-                    levels.push(minimal_level*i);
+                let n_levels = Math.floor(250 / minimal_level2);
+                for (let i = 2; i < scale; i++) {
+                    levels.push(minimal_level * i);
                 }
-                for(let i=1;i<n_levels;i++)
-                {
-                    levels.push(minimal_level2*i);
+                for (let i = 1; i < n_levels; i++) {
+                    levels.push(minimal_level2 * i);
                 }
             }
             else // "Logarithmic and Linear"
@@ -109,22 +102,20 @@ $(document).ready(function () {
                 /**
                  * First 10 levels are logarithmic at 1.4 then linear
                  */
-                for( let i = 1; i < 10; i++)
-                {
-                    levels.push(minimal_level*Math.pow(1.4,i));
+                for (let i = 1; i < 10; i++) {
+                    levels.push(minimal_level * Math.pow(1.4, i));
                 }
                 let current_level = levels[9];
-                let n_levels = Math.floor(250/current_level);
-                for(let i=2;i<n_levels;i++)
-                {
-                    levels.push(current_level*i);
+                let n_levels = Math.floor(250 / current_level);
+                for (let i = 2; i < n_levels; i++) {
+                    levels.push(current_level * i);
                 }
             }
 
             /**
              * Calculate contour lines and surface triangles
              */
-            let line_thickness = 400/spe.n_direct;
+            let line_thickness = 400 / spe.n_direct;
 
             /**
              * Get user options from radio group name "plot_type"
@@ -135,12 +126,10 @@ $(document).ready(function () {
             /**
              * Convert to integer. 0: smooth surface, 1: terrace surface
              */
-            if(plot_type == "terrace")
-            {
+            if (plot_type == "terrace") {
                 plot_type_int = 1;
             }
-            else
-            {
+            else {
                 plot_type_int = 0;
             }
 
@@ -269,7 +258,7 @@ my_contour_worker.onmessage = (e) => {
             window.colors[i * 3 + 1] = color_rgb[1];
             window.colors[i * 3 + 2] = color_rgb[2];
         }
-        
+
 
         /**
          * number of vertices of the surface
@@ -291,7 +280,7 @@ my_contour_worker.onmessage = (e) => {
             coordinates[n + i * 3 + 2] = workerResult.triangle_contour[i][2] + 1;
 
 
-            window.colors[n + i * 3] =color_rgb_line[0];
+            window.colors[n + i * 3] = color_rgb_line[0];
             window.colors[n + i * 3 + 1] = color_rgb_line[1];
             window.colors[n + i * 3 + 2] = color_rgb_line[2];
         }
@@ -350,7 +339,7 @@ my_contour_worker.onmessage = (e) => {
          */
         document.getElementById('canvas_container').style.width = "900px";
         document.getElementById('canvas_container').style.height = "900px";
-        main_plot = new webgl_contour_plot2('canvas1', coordinates, normals, colors, workerResult.n_direct, workerResult.n_indirect, workerResult.plot_type_int);
+        main_plot = new webgl_contour_plot_3d('canvas1', coordinates, normals, colors, workerResult.n_direct, workerResult.n_indirect, workerResult.plot_type_int);
         resize_main_plot(document.getElementById('canvas_container').clientWidth, document.getElementById('canvas_container').clientHeight);
 
         /**
@@ -439,7 +428,7 @@ function create_event_listener() {
         main_plot.drawScene();
     });
 
-    
+
 
     /**
      * Add event listener for light_tilt and light_orientation
@@ -493,7 +482,7 @@ function update_color(flag) {
     }
 };
 
-function process_ft_file(arrayBuffer,file_name, spectrum_type) {
+function process_ft_file(arrayBuffer, file_name, spectrum_type) {
 
     document.getElementById("contour_message").innerText = "Processing file " + file_name;
 
@@ -609,8 +598,8 @@ function process_ft_file(arrayBuffer,file_name, spectrum_type) {
      */
     result.filename = file_name;
 
-    
-    result.noise_level = mathTool.estimate_noise_level(result.n_direct,result.n_indirect,result.raw_data);
+
+    result.noise_level = mathTool.estimate_noise_level(result.n_direct, result.n_indirect, result.raw_data);
 
     /**
      * Get max and min of z (z is sorted)
@@ -621,9 +610,8 @@ function process_ft_file(arrayBuffer,file_name, spectrum_type) {
      * In case of reconstructed spectrum from fitting or from NUS, noise_level is usually 0.
      * In that case, we define noise_level as spectral_max/power(1.5,40)
      */
-    if(result.noise_level <= Number.MIN_VALUE)
-    {
-        result.noise_level = result.spectral_max/Math.pow(1.5,40);
+    if (result.noise_level <= Number.MIN_VALUE) {
+        result.noise_level = result.spectral_max / Math.pow(1.5, 40);
     }
 
     document.getElementById("contour_message").innerText = "Finished processing file " + file_name;
@@ -635,25 +623,23 @@ function process_ft_file(arrayBuffer,file_name, spectrum_type) {
 var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
         const cr = entry.contentRect;
-        resize_main_plot(cr.width,cr.height);
+        resize_main_plot(cr.width, cr.height);
     }
 });
 
 
-function resize_main_plot(canvas_width, canvas_height)
-{
+function resize_main_plot(canvas_width, canvas_height) {
 
     console.log("new width is ", canvas_width, " new height is ", canvas_height);
 
-    if(main_plot !== null)
-    {
+    if (main_plot !== null) {
         document.getElementById('canvas1').style.width = canvas_width.toString() + "px";
         document.getElementById('canvas1').style.height = canvas_height.toString() + "px";
         document.getElementById('canvas1').setAttribute("height", canvas_height.toString());
         document.getElementById('canvas1').setAttribute("width", canvas_width.toString());
         main_plot.drawScene();
     }
-    
+
 }
 
 
@@ -661,7 +647,7 @@ function resize_main_plot(canvas_width, canvas_height)
 function download_figure() {
 
     var dataUrl = main_plot.drawScene(1); //draw the scene with download flag set to 1
-    
+
     /**
      * Download the image
      */
