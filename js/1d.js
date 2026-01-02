@@ -366,6 +366,7 @@ $(document).ready(function () {
             fid_process_parameters.auto_direct_3 = document.getElementById("auto_direct_3").checked;
             fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
             fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
+            fid_process_parameters.auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
 
             /**
              * Send to webassembly worker
@@ -398,6 +399,7 @@ $(document).ready(function () {
                 let auto_direct_2 = document.getElementById("auto_direct_2").checked;
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
+                let auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -410,6 +412,7 @@ $(document).ready(function () {
                 fid_process_parameters = {
                     webassembly_job: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
+                    auto_reduced_fid_size: auto_reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
                     apodization_string: apodization_string,
@@ -492,12 +495,24 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         fid_process_parameters.phase_correction_direct_p0 = e.data.p0;
         fid_process_parameters.phase_correction_direct_p1 = e.data.p1;
+        /**
+         * Save auto determined cutoff data size as well
+         */
+        fid_process_parameters.reduced_fid_size = e.data.reduced_fid_size;
 
         /**
          * Update fid processing box parameters
          */
         document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
+
+        /**
+         * Fill in reduced_fid_size of we received automatic value from webass code.
+         */
+        if (e.data.reduced_fid_size > 0) {
+            document.getElementById("reduced_fid_size").value = e.data.reduced_fid_size;
+        }
+
 
         draw_spectrum(
             [result_spectrum],
@@ -1560,6 +1575,7 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
         document.getElementById("auto_direct_3").checked = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
+        document.getElementById("auto_reduced_fid_size").checked = fid_process_parameters.auto_reduced_fid_size;
     }
 
     function set_default_fid_parameters() {
@@ -1575,6 +1591,7 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = true;
         document.getElementById("auto_direct_3").checked = false;
         document.getElementById("delete_imaginary").checked = false;
+        document.getElementById("auto_reduced_fid_size").checked = true;
     }
 
     /**
