@@ -186,7 +186,7 @@ plotit.prototype.update = function (input) {
      * Update brush extent
      */
     this.brush = d3.brush()
-        .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
+        .extent([[this.MARGINS.left, this.MARGINS.top], [this.WIDTH - this.MARGINS.right, this.HEIGHT - this.MARGINS.bottom]])
         .on("end", this.brushend.bind(this));
 
     this.$brush_element.call(this.brush);
@@ -687,7 +687,7 @@ plotit.prototype.draw = function () {
         .attr("height", this.HEIGHT - this.MARGINS.bottom - this.MARGINS.top);
 
     this.brush = d3.brush()
-        .extent([[0, 0], [this.WIDTH, this.HEIGHT]])
+        .extent([[this.MARGINS.left, this.MARGINS.top], [this.WIDTH - this.MARGINS.right, this.HEIGHT - this.MARGINS.bottom]])
         .on("end", this.brushend.bind(this));
 
     this.$brush_element = this.$vis.append("g")
