@@ -207,16 +207,25 @@ plotit.prototype.update = function (input) {
     this.$yAxis_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
 
+    // Update X Label Group Position
+    const xLabelX = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
+    const xLabelY = this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15;
+
+    this.$vis.select('.x-label-group')
+        .attr("transform", `translate(${xLabelX}, ${xLabelY})`);
+
     this.$vis.selectAll('.xlabel')
-        .attr("font-size", this.fontsize + "px")
-        .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15);
+        .attr("font-size", this.fontsize + "px");
+
+    // Update Y Label Group Position
+    const yLabelX = this.MARGINS.left / 2 - this.fontsize / 2 - 15;
+    const yLabelY = this.HEIGHT / 2;
+
+    this.$vis.select('.y-label-group')
+        .attr("transform", `translate(${yLabelX}, ${yLabelY}) rotate(-90)`);
 
     this.$vis.selectAll('.ylabel')
-        .attr("font-size", this.fontsize + "px")
-        .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 15);
+        .attr("font-size", this.fontsize + "px");
 
 
 
@@ -658,24 +667,69 @@ plotit.prototype.draw = function () {
 
     this.reset_axis();
 
-    this.$vis.append("text")
+    // X Label
+    const xLabelX = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
+    const xLabelY = this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15;
+
+    this.$xLabelGroup = this.$vis.append("g")
+        .attr("class", "x-label-group")
+        .attr("transform", `translate(${xLabelX}, ${xLabelY})`)
+        .call(d3.drag().on("drag", function (event) {
+            const transform = d3.select(this).attr("transform");
+            // Parse existing translate. Regex matched integers/floats
+            const match = /translate\(([^,]+),([^)]+)\)/.exec(transform);
+            if (match) {
+                let x = parseFloat(match[1]);
+                let y = parseFloat(match[2]);
+                // Add delta
+                x += event.dx;
+                y += event.dy;
+                d3.select(this).attr("transform", `translate(${x},${y})`);
+            }
+        }));
+
+    this.$xLabelGroup.append("text")
         .attr("class", "xlabel")
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
-        .attr("x", this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2)
-        .attr("y", this.HEIGHT - this.MARGINS.bottom / 2 + this.fontsize / 2 + 15)
         .attr("font-family", "Arial, Helvetica, sans-serif")
-        .text("Chemical Shift (ppm)");
+        .text("Chemical Shift (ppm)")
+        .on("click", function (event) {
+            let e = event || d3.event;
+            self.handleLabelClick(e, this, false);
+        });
 
-    this.$vis.append("text")
+    // Y Label
+    const yLabelX = this.MARGINS.left / 2 - this.fontsize / 2 - 15;
+    const yLabelY = this.HEIGHT / 2;
+
+    this.$yLabelGroup = this.$vis.append("g")
+        .attr("class", "y-label-group")
+        .attr("transform", `translate(${yLabelX}, ${yLabelY}) rotate(-90)`)
+        .call(d3.drag().on("drag", function (event) {
+            const transform = d3.select(this).attr("transform");
+            // Parse existing translate.
+            const match = /translate\(([^,]+),([^)]+)\)/.exec(transform);
+            if (match) {
+                let x = parseFloat(match[1]);
+                let y = parseFloat(match[2]);
+                x += event.dx;
+                y += event.dy;
+                // Maintain rotation
+                d3.select(this).attr("transform", `translate(${x},${y}) rotate(-90)`);
+            }
+        }));
+
+    this.$yLabelGroup.append("text")
         .attr("class", "ylabel")
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
-        .attr("transform", `rotate(-90)`)
-        .attr("x", -this.HEIGHT / 2)
-        .attr("y", this.MARGINS.left / 2 - this.fontsize / 2 - 15)
         .attr("font-family", "Arial, Helvetica, sans-serif")
-        .text("Chemical Shift (ppm)");
+        .text("Chemical Shift (ppm)")
+        .on("click", function (event) {
+            let e = event || d3.event;
+            self.handleLabelClick(e, this, true);
+        });
 
 
     this.$rect = this.$vis.append("defs").append("clipPath")
@@ -2015,3 +2069,88 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
         .attr('stroke', (flag_valid === true) ? 'green' : 'purple')
         .attr('stroke-width', 3);
 }
+
+plotit.prototype.handleLabelClick = function (event, target, isRotated) {
+    // Prevent event bubbling so dragging doesn't start immediately or cause issues
+    if (event && event.stopPropagation) event.stopPropagation();
+
+    const textNode = d3.select(target);
+    // If already editing, ignore
+    if (textNode.style("display") === "none") return;
+
+    const currentText = textNode.text();
+    const fontSize = parseFloat(textNode.attr("font-size"));
+
+    // Hide the text node
+    textNode.style("display", "none");
+
+    // Append foreign object to the PARENT group
+    const parentGroup = d3.select(target.parentNode);
+
+    // Calculate appropriate dimensions for input
+    // Approximate width based on characters
+    const inputWidth = (currentText.length + 10) * (fontSize * 0.6);
+    const inputHeight = fontSize + 10;
+
+    const foreignObject = parentGroup.append("foreignObject")
+        .attr("width", inputWidth)
+        .attr("height", inputHeight)
+        // Center the input relative to the group origin (0,0) since text-anchor is middle
+        .attr("x", -inputWidth / 2)
+        .attr("y", -fontSize) // approximate vertical alignment
+        .style("overflow", "visible");
+
+    const input = foreignObject.append("xhtml:input")
+        .attr("type", "text")
+        .attr("value", currentText)
+        .style("font-size", fontSize + "px")
+        .style("width", "100%")
+        .style("height", "100%")
+        .style("border", "1px dashed #333")
+        .style("background", "rgba(255,255,255,0.8)")
+        .style("text-align", "center")
+        .style("color", "black");
+
+    // Focus and select all text
+    const inputNode = input.node();
+    inputNode.focus();
+    inputNode.select();
+
+    let isClosed = false;
+
+    // Save on Enter or Blur
+    const saveAndClose = () => {
+        if (isClosed) return;
+        isClosed = true;
+        const newText = inputNode.value;
+        textNode.text(newText);
+        textNode.style("display", null);
+        foreignObject.remove();
+    };
+
+    const cancelAndClose = () => {
+        if (isClosed) return;
+        isClosed = true;
+        textNode.style("display", null);
+        foreignObject.remove();
+    }
+
+    input.on("mousedown", function (event) {
+        let e = event || d3.event;
+        e.stopPropagation();
+    });
+
+    input.on("keydown", function (event) {
+        let e = event || d3.event;
+        if (e.keyCode === 13) { // Enter
+            saveAndClose();
+        }
+        if (e.keyCode === 27) { // Escape
+            cancelAndClose();
+        }
+    });
+
+    input.on("blur", function () {
+        saveAndClose();
+    });
+};
