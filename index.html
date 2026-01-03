@@ -10,11 +10,11 @@
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-TWNDSX3RVS"></script>
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
 
-  gtag('config', 'G-TWNDSX3RVS');
+    gtag('config', 'G-TWNDSX3RVS');
 </script>
 
 <body>
@@ -26,385 +26,387 @@
         <span id="contour_message"></span>
         <span id="webassembly_message"></span>
 
-        
+
 
         <div id="section1" style=" Padding: 10px; width: 100%">
             <div>
                 <h1>COLMARvista: a web-based 2D NMR viewer</h1>
                 <h2>For autonomous processing, peak picking, peak fitting, and pseudo-3D fitting</h2>
                 <h3><a target="_blank" rel="noopener noreferrer"
-                        href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a></h3>
+                        href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a>
+                    <button id="start_tutorial"
+                        style="margin-left: 20px; font-size: 0.8em; cursor: pointer; background-color: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 3px;">Tutorial</button>
+                </h3>
             </div>
         </div>
 
         <div id="section2">
 
 
-                <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
-                    <label for="button_save" id="button_save_label">Save current session to a local file </label>
-                    <button id="button_save" onclick="save_to_file()">save</button>
-                    <br>
-                    <label id="load_file_label" for="load_file">Load previous session: </label>
-                    <input type="file" id="load_file">
-                    <br>
-                </div>
+            <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <label for="button_save" id="button_save_label">Save current session to a local file </label>
+                <button id="button_save" onclick="save_to_file()">save</button>
+                <br>
+                <label id="load_file_label" for="load_file">Load previous session: </label>
+                <input type="file" id="load_file">
+                <br>
+            </div>
 
-                <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
-                    <span>
-                        <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
-                            domain data for processing: <span class="information">(Console version >=3.0, Fnmode: Echo-antiecho or State-TPPI only)</span></p>
-                    </span>
-                    <form id="fid_file_form" action="" enctype="multipart/form-data">
-                        <div class="drop-area input-section" id="input_files">
-                            <label for="fid_file">fid file (required, usually called fid or ser): </label><input
-                                type="file" name="fid_file" id="fid_file" multiple><br>
-                            <label for="acquisition_file">Direct dimension acquisition file (required, usually called
-                                acqus):</label>
-                            <input type="file" name="acquisition_file" id="acquisition_file"><br>
-                            <label for="acquisition_file2">Indirect dimension acquisition file (required, usually called
-                                acqu2s (in pseudo-3D, might be acqu3s or acqu2s)): </label>
-                            <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
-                            <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist):
-                            </label>
-                            <input type="file" name="nuslist_file" id="nuslist_file"><br>
+            <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+                <span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
+                        domain data for processing: <span class="information">(Console version >=3.0, Fnmode:
+                            Echo-antiecho or State-TPPI only)</span></p>
+                </span>
+                <form id="fid_file_form" action="" enctype="multipart/form-data">
+                    <div class="drop-area input-section" id="input_files">
+                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file"
+                            name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called
+                            acqus):</label>
+                        <input type="file" name="acquisition_file" id="acquisition_file"><br>
+                        <label for="acquisition_file2">Indirect dimension acquisition file (required, usually called
+                            acqu2s (in pseudo-3D, might be acqu3s or acqu2s)): </label>
+                        <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
+                        <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist):
+                        </label>
+                        <input type="file" name="nuslist_file" id="nuslist_file"><br>
 
-                            <span class="information"> You can also drag and drop Bruker folder (which contains required
-                                files here).</span><br>
-                        </div>
-
-                        <div class="input-section" id="input_options">
-                            <span>
-                                <input type="checkbox" name="water_suppression" id="water_suppression" value="yes">
-                                <label for="water_suppression">Water suppression?</label>
-                            </span>
-                            <span>
-                                <label for="apodization_direct">Direct dimension apodization function</label>
-                                <input type="text" name="apodization_direct" id="apodization_direct"
-                                    value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
-                            </span>
-
-                            <span>
-                                <label for="zf_direct">Zero filling factor for direct dimension (2, 4, 8): </label>
-                                <select name="zf_direct" id="zf_direct">
-                                    <option value="2">2</option>
-                                    <option value="4">4</option>
-                                    <option value="8">8</option>
-                                </select>
-                            </span>
-
-                            <span>
-                                <label for="phase_correction_direct_p0">Phase correction for direct dimension P0:
-                                </label>
-                                <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
-                                    value="0" step="any">
-                                <label for="phase_correction_direct_p1">P1: </label>
-                                <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
-                                    value="0" step="any">
-                                <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
-                                <label for="auto_direct">Automated PC</label>
-                                <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
-                                <label for="delete_imaginary">Delete imaginary data
-                            </span>
-
-                            <span>
-                                <label for="extract_direct_from">Extract direct dimension from (percentage): </label>
-                                <input type="number" name="extract_direct_from" id="extract_direct_from" value="0"
-                                    step="any" min="0" max="100">
-                                <label for="extract_direct_to">to</label>
-                                <input type="number" name="extract_direct_to" id="extract_direct_to" value="100"
-                                    step="any" min="0" max="100">
-                            </span>
-
-                            <span>
-                                <label for="apodization_indirect">Indirect dimension apodization function</label>
-                                <input type="text" name="apodization_indirect" id="apodization_indirect"
-                                    value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
-                            </span>
-
-                            <span>
-                                <label for="zf_indirect">Zero filling factor for indirect dimension (2, 4, 8): </label>
-                                <select name="zf_indirect" id="zf_indirect">
-                                    <option value="2">2</option>
-                                    <option value="4">4</option>
-                                    <option value="8">8</option>
-                                </select>
-                            </span>
-
-                            <span>
-                                <label for="phase_correction_indirect_p0">Phase correction for indirect dimension P0:
-                                </label>
-                                <input type="number" name="phase_correction_indirect_p0"
-                                    id="phase_correction_indirect_p0" value="0" step="any">
-                                <label for="phase_correction_indirect_p1">P1: </label>
-                                <input type="number" name="phase_correction_indirect_p1"
-                                    id="phase_correction_indirect_p1" value="0" step="any">
-                                <input type="checkbox" name="auto_indirect" id="auto_indirect" value="yes" checked>
-                                <label for="auto_direct">Automated PC</label>
-                                <input type="checkbox" name="delete_imaginary_indirect" id="delete_imaginary_indirect"
-                                    value="yes">
-                                <label for="delete_imaginary_indirect">Delete imaginary data
-                            </span>
-
-                            <span>
-                                <label for="polynomial">polynomial baseline correction at order </label>
-                                <select name="polynomial" id="polynomial">
-                                    <option value="-1">none</option>
-                                    <option value="0">0</option>
-                                    <option value="1">1</option>
-                                    <option value="2">2</option>
-                                </select>
-                            </span>
-
-                            <span>
-                                <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
-                                <label for="neg_imaginary">Negative imaginary data (indirect dimension)?</label>
-                            </span>
-
-                            <span>
-                                <label for="hsqc_acquisition_seq">pseudo-3D acquisition sequence </label>
-                                <select name="hsqc_acquisition_seq" id="hsqc_acquisition_seq">
-                                    <option value="321">321</option>
-                                    <option value="312">312</option>
-                                </select>
-                            </span>
-
-                            <span>
-                                <input type="radio" name="Pseudo-3D-process" id="first_only" value="first_only" checked>
-                                <label for="first_only">Process the first plane only</label>
-                                <input type="radio" name="Pseudo-3D-process" id="all_planes" value="all_planes">
-                                <label for="all_planes">Process all planes</label>
-                            </span>
-
-                        </div>
-
-                        <input type="submit" id="button_fid_process" name="button_fid_process"
-                            value="Upload experimental files and process">
-                        </br>
-
-                    </form>
-                </div>
-
-                <div id="file_area" class="drop-area" style="width: 1200px;">
-                    <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
-                        domain spectra:</p>
-                    <form id="ft2_file_form" action="" enctype="multipart/form-data">
-                        <label for="userfile">Frequency domain spectral file (.ft2, .ucsf or .txt) </label><input
-                            type="file" multiple id="userfile"><br>
-                        <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
-                    </form>
-                    <span class="information"> You can also drag and drop spectral file(s) in nmrPipe format or folder
-                        contains them here.</span>
-                </div>
-
-                <div id="pseudo3d_area" style=" Padding: 10px; width: 1200px; overflow: clip; height: 3rem;"
-                    class="drop-area-neighbor">
-                    <p><button id="button_minimize_preudo3d_area"
-                            onclick="minimize_pseudo3d_area(this)">+</button>Pseudo-3D fitting tool</p>
-                    <label for="max_round">Max round of pseudo-3D fitting: </label>
-                    <input type="number" id="max_round" value="50" min="1" max="1000">
-                    <input type="checkbox" id="with_error">
-                    <label for="with_error"> Run MC based error estimation</label>
-                    <input type="checkbox" id="with_recon">
-                    <label for="with_recon"> Generate reconstructed spectra for all planes</label>
-                    <br>
-                    <button id="button_run_pseudo3d_gaussian" disabled onclick="run_pseudo3d(1)">Run Gaussian
-                        pseudo-3D fitting of all spectra</button>
-                    <button id="button_run_pseudo3d_voigt" disabled onclick="run_pseudo3d(0)">Run Voigt pseudo-3D
-                        fitting of all spectra</button>
-                    <label for="pseudo3d_file">Upload pseudo-3D fitted peaks (.tab): </label>
-                    <input type="file" id="pseudo3d_file"><br>
-                    <br>
-                    <br>
-                    <button id="button_download_fitted_peaks" disabled onclick="download_pseudo3d()">Download
-                        pseudo-3D fitted peaks</button>
-                    <input type="checkbox" id="show_pseudo3d_peaks" disabled>
-                    <label for="show_pseudo3d_peaks"> Show pseudo-3D fitting result</label>
-                    <br>
-                    <label for="assignment_file">Upload an peak file with assignment information to be transferred to
-                        pseudo-3D fitted peaks (.list): </label><input type="file" disabled id="assignment_file"><br>
-                    <br>
-                    <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
-                    <div id="dosy_area" style="display:block;">
-                        <label for="dosy_gradient">DOSY gradient values (space separated): </label>
-                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
-                        <lable for="dosy_gradient_weight"> Weight: (e.g. 1 0 0 1 1)</lable>
-                        <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
-                        <label for="dosy_rescale">Rescale factor: </label>
-                        <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
-                        <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
-                        <span id="dosy_result"></span>
+                        <span class="information"> You can also drag and drop Bruker folder (which contains required
+                            files here).</span><br>
                     </div>
-                    <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
-                        current showing peak list
-                        will be used as the initial guess. You can download pseudo-3D fitting result after
-                        finished.</span>
-                    </label>
+
+                    <div class="input-section" id="input_options">
+                        <span>
+                            <input type="checkbox" name="water_suppression" id="water_suppression" value="yes">
+                            <label for="water_suppression">Water suppression?</label>
+                        </span>
+                        <span>
+                            <label for="apodization_direct">Direct dimension apodization function</label>
+                            <input type="text" name="apodization_direct" id="apodization_direct"
+                                value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
+                        </span>
+
+                        <span>
+                            <label for="zf_direct">Zero filling factor for direct dimension (2, 4, 8): </label>
+                            <select name="zf_direct" id="zf_direct">
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <label for="phase_correction_direct_p0">Phase correction for direct dimension P0:
+                            </label>
+                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
+                                value="0" step="any">
+                            <label for="phase_correction_direct_p1">P1: </label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
+                                value="0" step="any">
+                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
+                            <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
+                            <label for="delete_imaginary">Delete imaginary data
+                        </span>
+
+                        <span>
+                            <label for="extract_direct_from">Extract direct dimension from (percentage): </label>
+                            <input type="number" name="extract_direct_from" id="extract_direct_from" value="0"
+                                step="any" min="0" max="100">
+                            <label for="extract_direct_to">to</label>
+                            <input type="number" name="extract_direct_to" id="extract_direct_to" value="100" step="any"
+                                min="0" max="100">
+                        </span>
+
+                        <span>
+                            <label for="apodization_indirect">Indirect dimension apodization function</label>
+                            <input type="text" name="apodization_indirect" id="apodization_indirect"
+                                value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="50">
+                        </span>
+
+                        <span>
+                            <label for="zf_indirect">Zero filling factor for indirect dimension (2, 4, 8): </label>
+                            <select name="zf_indirect" id="zf_indirect">
+                                <option value="2">2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <label for="phase_correction_indirect_p0">Phase correction for indirect dimension P0:
+                            </label>
+                            <input type="number" name="phase_correction_indirect_p0" id="phase_correction_indirect_p0"
+                                value="0" step="any">
+                            <label for="phase_correction_indirect_p1">P1: </label>
+                            <input type="number" name="phase_correction_indirect_p1" id="phase_correction_indirect_p1"
+                                value="0" step="any">
+                            <input type="checkbox" name="auto_indirect" id="auto_indirect" value="yes" checked>
+                            <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="delete_imaginary_indirect" id="delete_imaginary_indirect"
+                                value="yes">
+                            <label for="delete_imaginary_indirect">Delete imaginary data
+                        </span>
+
+                        <span>
+                            <label for="polynomial">polynomial baseline correction at order </label>
+                            <select name="polynomial" id="polynomial">
+                                <option value="-1">none</option>
+                                <option value="0">0</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
+                            <label for="neg_imaginary">Negative imaginary data (indirect dimension)?</label>
+                        </span>
+
+                        <span>
+                            <label for="hsqc_acquisition_seq">pseudo-3D acquisition sequence </label>
+                            <select name="hsqc_acquisition_seq" id="hsqc_acquisition_seq">
+                                <option value="321">321</option>
+                                <option value="312">312</option>
+                            </select>
+                        </span>
+
+                        <span>
+                            <input type="radio" name="Pseudo-3D-process" id="first_only" value="first_only" checked>
+                            <label for="first_only">Process the first plane only</label>
+                            <input type="radio" name="Pseudo-3D-process" id="all_planes" value="all_planes">
+                            <label for="all_planes">Process all planes</label>
+                        </span>
+
+                    </div>
+
+                    <input type="submit" id="button_fid_process" name="button_fid_process"
+                        value="Upload experimental files and process">
+                    </br>
+
+                </form>
+            </div>
+
+            <div id="file_area" class="drop-area" style="width: 1200px;">
+                <p><button id="button_minimize_file_area" onclick="minimize_file_area(this)">-</button>Frequency
+                    domain spectra:</p>
+                <form id="ft2_file_form" action="" enctype="multipart/form-data">
+                    <label for="userfile">Frequency domain spectral file (.ft2, .ucsf or .txt) </label><input
+                        type="file" multiple id="userfile"><br>
+                    <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
+                </form>
+                <span class="information"> You can also drag and drop spectral file(s) in nmrPipe format or folder
+                    contains them here.</span>
+            </div>
+
+            <div id="pseudo3d_area" style=" Padding: 10px; width: 1200px; overflow: clip; height: 3rem;"
+                class="drop-area-neighbor">
+                <p><button id="button_minimize_preudo3d_area" onclick="minimize_pseudo3d_area(this)">+</button>Pseudo-3D
+                    fitting tool</p>
+                <label for="max_round">Max round of pseudo-3D fitting: </label>
+                <input type="number" id="max_round" value="50" min="1" max="1000">
+                <input type="checkbox" id="with_error">
+                <label for="with_error"> Run MC based error estimation</label>
+                <input type="checkbox" id="with_recon">
+                <label for="with_recon"> Generate reconstructed spectra for all planes</label>
+                <br>
+                <button id="button_run_pseudo3d_gaussian" disabled onclick="run_pseudo3d(1)">Run Gaussian
+                    pseudo-3D fitting of all spectra</button>
+                <button id="button_run_pseudo3d_voigt" disabled onclick="run_pseudo3d(0)">Run Voigt pseudo-3D
+                    fitting of all spectra</button>
+                <label for="pseudo3d_file">Upload pseudo-3D fitted peaks (.tab): </label>
+                <input type="file" id="pseudo3d_file"><br>
+                <br>
+                <br>
+                <button id="button_download_fitted_peaks" disabled onclick="download_pseudo3d()">Download
+                    pseudo-3D fitted peaks</button>
+                <input type="checkbox" id="show_pseudo3d_peaks" disabled>
+                <label for="show_pseudo3d_peaks"> Show pseudo-3D fitting result</label>
+                <br>
+                <label for="assignment_file">Upload an peak file with assignment information to be transferred to
+                    pseudo-3D fitted peaks (.list): </label><input type="file" disabled id="assignment_file"><br>
+                <br>
+                <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
+                <div id="dosy_area" style="display:block;">
+                    <label for="dosy_gradient">DOSY gradient values (space separated): </label>
+                    <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
+                    <lable for="dosy_gradient_weight"> Weight: (e.g. 1 0 0 1 1)</lable>
+                    <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
+                    <label for="dosy_rescale">Rescale factor: </label>
+                    <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
+                    <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
+                    <span id="dosy_result"></span>
                 </div>
+                <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
+                    current showing peak list
+                    will be used as the initial guess. You can download pseudo-3D fitting result after
+                    finished.</span>
+                </label>
+            </div>
 
-                <div id="spectra_list" style=" Padding: 10px; width: 1200px;" class="drop-area-neighbor">
-                    <h4>Your spectra list:</h4>
-                    <ol id="spectra_list_ol" type="1">
-                    </ol>
-                </div>
+            <div id="spectra_list" style=" Padding: 10px; width: 1200px;" class="drop-area-neighbor">
+                <h4>Your spectra list:</h4>
+                <ol id="spectra_list_ol" type="1">
+                </ol>
+            </div>
 
 
-                <div class="flex-container">
+            <div class="flex-container">
 
 
 
-                    <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
+                <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
 
-                        <div>
-                            <strong>Control:</strong>
-                            <label for="plot_group">Plot group </label>
-                            <input type="number" id="plot_group" value="1" min="1" max="10">
-                            <button onclick="resetzoom()">Reset all Zoom</button>,
-                            <button onclick="popzoom()">Zoom Back</button>,
-                            <button onclick="zoomout()">Zoom out 120%</button>
-                            <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
-                                PC</button>
-                            <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
-                                PC</button>
-                            <!-- Information for user: phase correction applied -->
-                            <span id="pc_info"></span>
-                            <label for="plot_font_size">Plot font size: </label>
-                            <input type="number" id="plot_font_size" value="24" min="12" max="72">
-                            <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
-                            <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
-                            <button onclick="download_plot()">Download plot</button>
+                    <div>
+                        <strong>Control:</strong>
+                        <label for="plot_group">Plot group </label>
+                        <input type="number" id="plot_group" value="1" min="1" max="10">
+                        <button onclick="resetzoom()">Reset all Zoom</button>,
+                        <button onclick="popzoom()">Zoom Back</button>,
+                        <button onclick="zoomout()">Zoom out 120%</button>
+                        <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
+                            PC</button>
+                        <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
+                            PC</button>
+                        <!-- Information for user: phase correction applied -->
+                        <span id="pc_info"></span>
+                        <label for="plot_font_size">Plot font size: </label>
+                        <input type="number" id="plot_font_size" value="24" min="12" max="72">
+                        <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
+                        <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
+                        <button onclick="download_plot()">Download plot</button>
+                        <br>
+
+
+                        <label for="peak_size">Peak size: </label>
+                        <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
+                        <label for="peak_thickness">Thickness: </label>
+                        <input type="number" id="peak_thickness" value="1" min="1" max="10">
+                        <input type="checkbox" id="filled_peaks" checked>
+                        <label for="filled_peaks"> Filled peaks</label>
+                        <lable for="peak_colormap">Color coding peak using </label>
+                            <select name="peak_colormap" id="peak_colormap">
+                                <option value="SOLID">Solid</option>
+                            </select>
+                            <label for="peak_color"> color </label>
+                            <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
+                            <br>
+                            <input type="checkbox" id="show_peak_label">
+                            <label for="show_peak_label"> Show peak label</label>
+                            <select name="labels" id="labels">
+                                <option value="ASS">ASS</option>
+                            </select>
+                            <label for="peak_label_size">Size: </label>
+                            <input type="number" id="peak_label_size" value="24">
+                            <label for="min_distance">Min peak-label distance: </label>
+                            <input type="number" id="min_distance" value="40">
+                            <label for="max_distance">Max: </label>
+                            <input type="number" id="max_distance" value="80">
+                            <label for="repulsive_force">Repulsive</label>
+                            <input type="number" id="repulsive_force" value="100">
                             <br>
 
 
-                            <label for="peak_size">Peak size: </label>
-                            <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
-                            <label for="peak_thickness">Thickness: </label>
-                            <input type="number" id="peak_thickness" value="1" min="1" max="10">
-                            <input type="checkbox" id="filled_peaks" checked>
-                            <label for="filled_peaks"> Filled peaks</label>
-                            <lable for="peak_colormap">Color coding peak using </label>
-                                <select name="peak_colormap" id="peak_colormap">
-                                    <option value="SOLID">Solid</option>
-                                </select>
-                                <label for="peak_color"> color </label>
-                                <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
+                            <input type="checkbox" id="allow_brush_to_remove" disabled>
+                            <label for="allow_brush_to_remove"> Brush to remove peaks.</label>
+                            <input type="checkbox" id="allow_drag_and_drop" disabled>
+                            <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
+                            <input type="checkbox" id="allow_click_to_add_peak" disabled>
+                            <label for="allow_click_to_add_peak"> Click to add peaks.</label>
+                            <input type="radio" id="select_plot_1d" name="select_plot_1d" value="projection" checked>
+                            <label for="select_plot_1d">Projection</label>
+                            <input type="radio" id="select_plot_1d" name="select_plot_1d" value="cross_section">
+                            <label for="select_plot_1d">Cross section</label>
+                            <br><br>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; flex-direction: row; gap: 10px;">
+                            <!-- Empty div with size 200*200 -->
+                            <div id="cross_section_empty" class="resizable_stack_invisible"
+                                style="width: 200px; height: 200px;">
+
+                                <fieldset>
+                                    <legend>Select cross section</legend>
+                                    <input type="checkbox" id="pause_cursor">
+                                    <label for="pause_cursor"> Pause the cursor</label>
+                                    <input type="checkbox" id="right_click" checked>
+                                    <label for="right_click"> Right click</label>
+                                </fieldset>
                                 <br>
-                                <input type="checkbox" id="show_peak_label">
-                                <label for="show_peak_label"> Show peak label</label>
-                                <select name="labels" id="labels">
-                                    <option value="ASS">ASS</option>
-                                </select>
-                                <label for="peak_label_size">Size: </label>
-                                <input type="number" id="peak_label_size" value="24">
-                                <label for="min_distance">Min peak-label distance: </label>
-                                <input type="number" id="min_distance" value="40">
-                                <label for="max_distance">Max: </label>
-                                <input type="number" id="max_distance" value="80">
-                                <label for="repulsive_force">Repulsive</label>
-                                <input type="number" id="repulsive_force" value="100">
-                                <br>
-
-
-                                <input type="checkbox" id="allow_brush_to_remove" disabled>
-                                <label for="allow_brush_to_remove"> Brush to remove peaks.</label>
-                                <input type="checkbox" id="allow_drag_and_drop" disabled>
-                                <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
-                                <input type="checkbox" id="allow_click_to_add_peak" disabled>
-                                <label for="allow_click_to_add_peak"> Click to add peaks.</label>
-                                <input type="radio" id="select_plot_1d" name="select_plot_1d" value="projection" checked>
-                                <label for="select_plot_1d">Projection</label>
-                                <input type="radio" id="select_plot_1d" name="select_plot_1d" value="cross_section">
-                                <label for="select_plot_1d">Cross section</label>
-                                <br><br>
-                        </div>
-
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
-                            <div style="display: flex; flex-direction: row; gap: 10px;">
-                                <!-- Empty div with size 200*200 -->
-                                <div id="cross_section_empty" class="resizable_stack_invisible"
-                                    style="width: 200px; height: 200px;">
-
-                                    <fieldset>
-                                        <legend>Select cross section</legend>
-                                        <input type="checkbox" id="pause_cursor" >
-                                        <label for="pause_cursor"> Pause the cursor</label>
-                                        <input type="checkbox" id="right_click" checked>
-                                        <label for="right_click"> Right click</label>
-                                    </fieldset>
+                                <fieldset>
+                                    <legend>Magnifying glass</legend>
+                                    <input type="checkbox" id="enable_magnifying_glass">
+                                    <label for="magnifying_glass">Enable <img id="magnifying_glass"
+                                            src="img/magnifying_glass_icon.png" alt="magnifying glass" width="20"
+                                            height="20"> </label>
                                     <br>
-                                    <fieldset>
-                                        <legend>Magnifying glass</legend>
-                                        <input type="checkbox" id="enable_magnifying_glass">
-                                        <label for="magnifying_glass">Enable <img id="magnifying_glass"
-                                                src="img/magnifying_glass_icon.png" alt="magnifying glass" width="20"
-                                                height="20"> </label>
-                                        <br>
-                                        <label for="magnifying_glass_size">Size(%) </label>
-                                        <input type="number" id="magnifying_glass_size" value="40" min="10"
-                                            max="40"><br>
-                                        <label for="magnifying_glass_ratio">Ratio </label>
-                                        <input type="number" id="magnifying_glass_ratio" value="10.0" min="2.0"
-                                            max="30.0" step="1.0">
-                                    </fieldset>
-                                </div>
-
-                                <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->
-                                <div id="cross_section_x" class="resizable_stack"
-                                    style="position: relative; width:fit-content; height: fit-content;">
-                                    <div id="cross_section_x_info" class="tooltip"
-                                        style="display:none; position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
-                                        p0 = <span id="p0_direct">0</span>. Anchor = <span id="anchor_direct">not
-                                            set</span>. P1 = <span id="p1_direct">0</span>.
-                                    </div>
-                                    <svg id="cross_section_svg_x" width="1200" height="200"></svg>
-                                </div>
+                                    <label for="magnifying_glass_size">Size(%) </label>
+                                    <input type="number" id="magnifying_glass_size" value="40" min="10" max="40"><br>
+                                    <label for="magnifying_glass_ratio">Ratio </label>
+                                    <input type="number" id="magnifying_glass_ratio" value="10.0" min="2.0" max="30.0"
+                                        step="1.0">
+                                </fieldset>
                             </div>
 
-                            <div style="display: flex; flex-direction: row; gap: 10px;">
-                                <!-- On the left of the main plot, show vertical 1D cross section. Same height as 2D plot -->
-                                <div id="cross_section_y" class="resizable_stack"
-                                    style="position: relative;width:fit-content; height: fit-content;">
-                                    <div id="cross_section_y_info" class="tooltip"
-                                        style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
-                                        p0 = <span id="p0_indirect">0</span>.<br>
-                                        Anchor = <span id="anchor_indirect">not set</span>.<br>
-                                        P1 = <span id="p1_indirect">0</span>.
-                                    </div>
-                                    <svg id="cross_section_svg_y" width="200" height="800"></svg>
+                            <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->
+                            <div id="cross_section_x" class="resizable_stack"
+                                style="position: relative; width:fit-content; height: fit-content;">
+                                <div id="cross_section_x_info" class="tooltip"
+                                    style="display:none; position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
+                                    p0 = <span id="p0_direct">0</span>. Anchor = <span id="anchor_direct">not
+                                        set</span>. P1 = <span id="p1_direct">0</span>.
+                                </div>
+                                <svg id="cross_section_svg_x" width="1200" height="200"></svg>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; flex-direction: row; gap: 10px;">
+                            <!-- On the left of the main plot, show vertical 1D cross section. Same height as 2D plot -->
+                            <div id="cross_section_y" class="resizable_stack"
+                                style="position: relative;width:fit-content; height: fit-content;">
+                                <div id="cross_section_y_info" class="tooltip"
+                                    style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
+                                    p0 = <span id="p0_indirect">0</span>.<br>
+                                    Anchor = <span id="anchor_indirect">not set</span>.<br>
+                                    P1 = <span id="p1_indirect">0</span>.
+                                </div>
+                                <svg id="cross_section_svg_y" width="200" height="800"></svg>
+                            </div>
+
+                            <!-- This is the main 2D plot -->
+                            <div id="vis_parent" class="resizable"
+                                style="position: relative; width: 1200px; height: 800px;">
+                                <div id="information_bar" class="tooltip"
+                                    style="position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
+                                    <span id="infor">Information</span>
+                                </div>
+                                <div id="canvas_parent" style="position: absolute; top: 0px; left: 0px; z-index: 1;">
+                                    <canvas id="canvas1" style="border:0px;"></canvas>
                                 </div>
 
-                                <!-- This is the main 2D plot -->
-                                <div id="vis_parent" class="resizable"
-                                    style="position: relative; width: 1200px; height: 800px;">
-                                    <div id="information_bar" class="tooltip"
-                                        style="position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
-                                        <span id="infor">Information</span>
-                                    </div>
-                                    <div id="canvas_parent"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;">
-                                        <canvas id="canvas1" style="border:0px;"></canvas>
-                                    </div>
-
-                                    <div id="svg_parent"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
-                                        <svg id="visualization"></svg>
-                                    </div>
+                                <div id="svg_parent" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
+                                    <svg id="visualization"></svg>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    <div id="peak_area" class="resizable scroll" style="min-width: 400px; min-height: 300px; display: none;">
-                        <div id=" peak_area_header" class="header_sticky">
-                            <label for="peak_search_text">Search in peaks </label>
-                            <input type="text" id="peak_search_text" placeholder="peak text">
-                            <button id="peak_search" onclick="search_peak()">Search</button>
-                        </div>
-                        <table id="peak_table">
-                            <!-- table content will be managed by JS code -->
-                        </table>
-                    </div>
-
                 </div>
+
+                <div id="peak_area" class="resizable scroll"
+                    style="min-width: 400px; min-height: 300px; display: none;">
+                    <div id=" peak_area_header" class="header_sticky">
+                        <label for="peak_search_text">Search in peaks </label>
+                        <input type="text" id="peak_search_text" placeholder="peak text">
+                        <button id="peak_search" onclick="search_peak()">Search</button>
+                    </div>
+                    <table id="peak_table">
+                        <!-- table content will be managed by JS code -->
+                    </table>
+                </div>
+
+            </div>
 
             <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
                 <h4>Background server log:</h4>
@@ -434,6 +436,7 @@
         <script type="text/javascript" src="js/file_drop.js"></script>
         <script type="text/javascript" src="js/make_table.js"></script>
         <script type="text/javascript" src="js/nmrwebview.js"></script>
+        <script type="text/javascript" src="js/tutorial.js"></script>
     </div>
 </body>
 

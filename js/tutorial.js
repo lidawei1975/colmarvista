@@ -42,17 +42,28 @@ class SimpleTutorial {
         }
 
         const step = this.steps[index];
-        const element = document.getElementById(step.elementId);
+        let element = null;
+        if (step.elementId) {
+            element = document.getElementById(step.elementId);
+        }
 
-        if (!element) {
+        // Search by innerText if provided (and element not found by ID)
+        if (!element && step.innerText) {
+            const buttons = Array.from(document.getElementsByTagName('button'));
+            element = buttons.find(b => b.innerText.trim() === step.innerText);
+        }
+
+        if (!element && step.elementId) {
             console.warn(`Tutorial: Element ${step.elementId} not found. Skipping step.`);
             this.next();
             return;
         }
 
-        // Highlight element
-        element.classList.add('tutorial-highlight');
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Highlight element if exists
+        if (element) {
+            element.classList.add('tutorial-highlight');
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
 
         // Show tooltip
         this.createTooltip(element, step.message, step.hideNext);
@@ -177,19 +188,29 @@ class SimpleTutorial {
         document.body.appendChild(this.tooltip);
 
         // Position tooltip
-        const rect = targetElement.getBoundingClientRect();
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+        if (targetElement) {
+            // Position tooltip relative to element
+            const rect = targetElement.getBoundingClientRect();
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
 
-        // Position below by default
-        let top = rect.bottom + scrollTop + 10;
-        let left = rect.left + scrollLeft + (rect.width / 2) - 100; // Centerish
+            // Position below by default
+            let top = rect.bottom + scrollTop + 10;
+            let left = rect.left + scrollLeft + (rect.width / 2) - 100; // Centerish
 
-        // Simple boundary check
-        if (left < 10) left = 10;
+            // Simple boundary check
+            if (left < 10) left = 10;
 
-        this.tooltip.style.top = top + 'px';
-        this.tooltip.style.left = left + 'px';
+            this.tooltip.style.top = top + 'px';
+            this.tooltip.style.left = left + 'px';
+        } else {
+            // Position fixed center if no target
+            this.tooltip.style.position = 'fixed';
+            this.tooltip.style.top = '50%';
+            this.tooltip.style.left = '50%';
+            this.tooltip.style.transform = 'translate(-50%, -50%)';
+            this.tooltip.style.border = '2px solid #4CAF50';
+        }
     }
 
     removeTooltip() {
