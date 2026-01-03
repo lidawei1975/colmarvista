@@ -1,0 +1,23 @@
+##TITLE= Parameter file, TopSpin 3.6.2
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 1026	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= bruschweiler
+$$ 2023-06-01 03:44:09.849 -0400  bruschweiler@cbec850rb
+$$ /home/bruschweiler/Data/lb-li/data/Deepicker/nmr/Mouse_Serum_1_May31_2023/3/acqu2s
+$$ process /opt/topspin3.6.2/prog/mod/go4
+##$ACQT0= 0
+##$BF1= 213.772902032
+##$FnMODE= 6
+##$NUC1= <13C>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 1024
+##$O1= 16032.968
+##$ProjAngle= 0
+##$SFO1= 213.788935
+##$SW= 160.188717636232
+##$SW_h= 34246.5753424658
+##$TD= 1024
+##END=
