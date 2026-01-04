@@ -4053,7 +4053,14 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
         .attr("clip-path", "url(#fid_clip)")
         .text("Cutoff");
 
-
+    // Dynamic Label for numeric value (Top Right)
+    const cutoffValueText = svg.append("text")
+        .attr("x", width - 10)
+        .attr("y", 20)
+        .attr("text-anchor", "end")
+        .attr("font-size", "14px")
+        .attr("fill", "#333")
+        .text(`Size: ${currentCutoffIndex}`);
 
     // --- Zoom Behavior ---
 
@@ -4076,6 +4083,7 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
             .attr("x2", cx);
 
         cutoffLabel.attr("x", cx + 5);
+        cutoffValueText.text(`Size: ${currentCutoffIndex}`);
 
         if (confirm_callback) {
             // Update drag handle position
