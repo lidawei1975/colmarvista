@@ -390,7 +390,7 @@ $(document).ready(function () {
                 /**
                  * Convert fid_buffer to Float32Array
                  */
-                let reduced_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
+                let reduced_fid_size = 0;
                 let apodization_string = document.getElementById("apodization_direct").value;
                 let zf_direct = parseInt(document.getElementById("zf_direct").value);
                 let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -399,8 +399,8 @@ $(document).ready(function () {
                 let auto_direct_2 = document.getElementById("auto_direct_2").checked;
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
-                let auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
-                let reduced_fid_size_confirm = document.getElementById("reduced_fid_size_confirm").checked;
+                let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
+                let auto_reduced_fid_size = (fid_reduction_mode !== "full");
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -490,34 +490,31 @@ $(document).ready(function () {
                     }
 
                     if (fid_data_preview) {
-                        // Calculate cutoff if auto is selected, or use user input
-                        let cutoff = 0;
-                        if (auto_reduced_fid_size) {
-                            // Calculate using the function moved from worker
+                        let cutoff = fid_data_preview.length; // Default to full
+
+                        if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
                             const detected_idx = detect_signal_end(fid_data_preview);
-                            // Ensure even number (Bruker convention / interleaved alignment)
+                            // Ensure even number
                             cutoff = Math.floor(detected_idx / 2) * 2;
 
-                            // Update parameters to send to worker
-                            // Worker will use this explicit size instead of re-calculating
+                            // Update params for worker: Explicit reduced size
                             fid_process_parameters.reduced_fid_size = cutoff;
                             fid_process_parameters.auto_reduced_fid_size = false;
                         } else {
-                            // User specified size
-                            cutoff = reduced_fid_size > 0 ? reduced_fid_size : fid_data_preview.length;
+                            // Full mode
+                            fid_process_parameters.reduced_fid_size = 0;
+                            fid_process_parameters.auto_reduced_fid_size = false;
                         }
 
-                        if (auto_reduced_fid_size && reduced_fid_size_confirm) {
+                        if (fid_reduction_mode === "auto_confirm") {
                             // Pause for confirmation
-                            // Pass callback to show_fid_window
                             show_fid_window(fid_data_preview, cutoff, (newCutoff) => {
                                 fid_process_parameters.reduced_fid_size = newCutoff;
-                                fid_process_parameters.auto_reduced_fid_size = false;
                                 webassembly_1d_worker_2.postMessage(fid_process_parameters);
                                 document.getElementById("button_fid_process").disabled = true;
                             });
                         } else {
-                            // Proceed immediately (read-only window)
+                            // Proceed immediately
                             show_fid_window(fid_data_preview, cutoff);
                             webassembly_1d_worker_2.postMessage(fid_process_parameters);
                             document.getElementById("button_fid_process").disabled = true;
@@ -599,14 +596,6 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
         document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
-
-        /**
-         * Fill in reduced_fid_size of we received automatic value from webass code.
-         */
-        if (e.data.reduced_fid_size > 0) {
-            document.getElementById("reduced_fid_size").value = e.data.reduced_fid_size;
-        }
-
 
         draw_spectrum(
             [result_spectrum],
