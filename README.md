@@ -37,6 +37,22 @@ Please refer to the wiki page https://github.com/lidawei1975/colmarvista/wiki fo
 
 Please start a new discussion at https://github.com/lidawei1975/colmarvista/discussions
 
+# Developer Testing
+**Note: These instructions are for developers only.**
+
+1. **Start Local Server**:
+    Open the terminal in the project directory and run:
+    ```bash
+    npm start
+    ```
+    This launches `http-server` at `http://127.0.0.1:8080`.
+
+2. **Run Tests (Cypress)**:
+    Open a new terminal window (keep the server running) and execute:
+    ```bash
+    npm run cy:open
+    ```
+    This will open the Cypress Test Runner.
               
 # References
 Please cite our publications if you found COLMARvista useful.
