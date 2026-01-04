@@ -40,6 +40,7 @@ var b_allow_dragging_spectrum = false; //flag to allow dragging spectrum to reor
  */
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
+var last_processed_fid_size = 0; // Store the last reduced FID size for re-use
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -356,7 +357,6 @@ $(document).ready(function () {
              * because we are re-processing the same set of fid file
              */
             fid_process_parameters = all_spectra[current_reprocess_spectrum_index].fid_process_parameters;
-            fid_drop_process.reduce_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
             fid_process_parameters.apodization_string = document.getElementById("apodization_direct").value;
             fid_process_parameters.zf_direct = parseInt(document.getElementById("zf_direct").value);
             fid_process_parameters.phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -366,12 +366,48 @@ $(document).ready(function () {
             fid_process_parameters.auto_direct_3 = document.getElementById("auto_direct_3").checked;
             fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
             fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
-            fid_process_parameters.auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
 
             /**
-             * Send to webassembly worker
+             * Rerun Logic for FID Size in Reprocess Mode
              */
-            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+            let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
+            // Get raw data on demand
+            let fid_data_preview = get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
+
+            if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
+                if (fid_data_preview) {
+                    const detected_idx = detect_signal_end(fid_data_preview);
+                    let cutoff = Math.floor(detected_idx / 2) * 2;
+                    fid_process_parameters.reduced_fid_size = cutoff;
+                } else {
+                    // Fallback if data missing
+                    // We can't auto-detect without data. Assume full or keep previous?
+                    // Safe to keep previous if available, or 0.
+                    // But user EXPECTS auto. 
+                    // Assuming fid_data is available for normal flow.
+                }
+            } else if (fid_reduction_mode === "prev") {
+                // Use last processed size if > 0, else keep existing or full
+                let cutoff = last_processed_fid_size > 0 ? last_processed_fid_size : (fid_process_parameters.reduced_fid_size || 0);
+                fid_process_parameters.reduced_fid_size = cutoff;
+            } else {
+                // Full
+                fid_process_parameters.reduced_fid_size = 0;
+            }
+
+            /**
+             * Send to webassembly worker or Pause for Confirm
+             */
+            if (fid_reduction_mode === "auto_confirm" && fid_data_preview) {
+                show_fid_window(fid_data_preview, fid_process_parameters.reduced_fid_size, (newCutoff) => {
+                    fid_process_parameters.reduced_fid_size = newCutoff;
+                    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                    document.getElementById("button_fid_process").disabled = true;
+                });
+            } else {
+                if (fid_data_preview) show_fid_window(fid_data_preview, fid_process_parameters.reduced_fid_size);
+                webassembly_1d_worker_2.postMessage(fid_process_parameters);
+            }
             document.getElementById("button_fid_process").disabled = true;
         }
         else //button_text == "Upload experimental files and process"
@@ -400,7 +436,6 @@ $(document).ready(function () {
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
                 let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
-                let auto_reduced_fid_size = (fid_reduction_mode !== "full");
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -413,7 +448,6 @@ $(document).ready(function () {
                 fid_process_parameters = {
                     webassembly_job: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
-                    auto_reduced_fid_size: auto_reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
                     apodization_string: apodization_string,
@@ -436,58 +470,8 @@ $(document).ready(function () {
                 document.getElementById('fid_file').value = "";
 
                 // --- PREVIEW FID PLOT ---
-                // Parse acquisition parameters to determine data type
-                let dtypa = 0; // Default Int32
-                let bytorda = 0; // Default Little Endian
-
-                // Simple regex parsing
-                const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
-                if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
-
-                const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
-                if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
-
-                let fid_data_preview = null;
-
-                // Determine system endianness
-                const isLittleEndian = (function () {
-                    const buffer = new ArrayBuffer(2);
-                    new DataView(buffer).setInt16(0, 256, true);
-                    return new Int16Array(buffer)[0] === 256;
-                })();
-
-                const fileIsLittleEndian = (bytorda === 0);
-                const swapBytes = (isLittleEndian !== fileIsLittleEndian);
-
                 try {
-                    if (dtypa === 2) {
-                        // Float64
-                        if (swapBytes) {
-                            // Manual swap if needed (rare for Float64 on common PC/Bruker, usually LE)
-                            // Implementing simple swap for Float64 if strictly required is complex without DataView loop
-                            // For now assuming LE or matching system as most modern Bruker are processable. 
-                            // Using DataView to be safe but slow? No, lets use Int32 view to swap.
-                            // Actually, let's use DataView loop for correctness if swap needed.
-                            const dv = new DataView(fid_buffer);
-                            fid_data_preview = new Float64Array(fid_buffer.byteLength / 8);
-                            for (let i = 0; i < fid_data_preview.length; i++) {
-                                fid_data_preview[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
-                            }
-                        } else {
-                            fid_data_preview = new Float64Array(fid_buffer);
-                        }
-                    } else {
-                        // Int32 (DTYPA 0)
-                        if (swapBytes) {
-                            const dv = new DataView(fid_buffer);
-                            fid_data_preview = new Int32Array(fid_buffer.byteLength / 4);
-                            for (let i = 0; i < fid_data_preview.length; i++) {
-                                fid_data_preview[i] = dv.getInt32(i * 4, fileIsLittleEndian);
-                            }
-                        } else {
-                            fid_data_preview = new Int32Array(fid_buffer);
-                        }
-                    }
+                    let fid_data_preview = get_fid_data_from_buffer(fid_buffer, acquisition_string);
 
                     if (fid_data_preview) {
                         let cutoff = fid_data_preview.length; // Default to full
@@ -499,11 +483,13 @@ $(document).ready(function () {
 
                             // Update params for worker: Explicit reduced size
                             fid_process_parameters.reduced_fid_size = cutoff;
-                            fid_process_parameters.auto_reduced_fid_size = false;
+                        } else if (fid_reduction_mode === "prev") {
+                            // Use previous size if available, otherwise full
+                            cutoff = last_processed_fid_size > 0 ? last_processed_fid_size : fid_data_preview.length;
+                            fid_process_parameters.reduced_fid_size = cutoff;
                         } else {
                             // Full mode
                             fid_process_parameters.reduced_fid_size = 0;
-                            fid_process_parameters.auto_reduced_fid_size = false;
                         }
 
                         if (fid_reduction_mode === "auto_confirm") {
@@ -591,6 +577,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
          */
         fid_process_parameters.reduced_fid_size = e.data.reduced_fid_size;
 
+        // Update global last size and enable option
+        if (e.data.reduced_fid_size > 0) {
+            last_processed_fid_size = e.data.reduced_fid_size;
+            document.getElementById("fid_mode_prev").disabled = false;
+        }
+
         /**
          * Update fid processing box parameters
          */
@@ -604,9 +596,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
             e.data.auto_direct_2, /** whether auto direct_2 was used. If so, need to run tfjs */
         );
 
-        if (e.data.fid_data) {
-            show_fid_window(e.data.fid_data, e.data.reduced_fid_size);
-        }
+
 
         /**
          * Re-enable the button to process fid file
@@ -1664,7 +1654,6 @@ function reprocess_spectrum(button, spectrum_index) {
         /**
          * Set fid_process_parameters to the input fields
          */
-        document.getElementById("reduced_fid_size").value = fid_process_parameters.reduced_fid_size;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_string;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0.toFixed(2);
@@ -1673,14 +1662,12 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
         document.getElementById("auto_direct_3").checked = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
-        document.getElementById("auto_reduced_fid_size").checked = fid_process_parameters.auto_reduced_fid_size;
     }
 
     function set_default_fid_parameters() {
         /**
          * Set fid_process_parameters to the default values
          */
-        document.getElementById("reduced_fid_size").value = "0";
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";
@@ -1689,7 +1676,6 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = true;
         document.getElementById("auto_direct_3").checked = false;
         document.getElementById("delete_imaginary").checked = false;
-        document.getElementById("auto_reduced_fid_size").checked = true;
     }
 
     /**
@@ -3872,7 +3858,7 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
     // Create data array for D3. 
     // fid_data is interleaved real/imag. We plot Real part.
     // X axis: number of points (pairs).
-    const plotData = [];
+    const plotDataReal = [];
 
     // Simple downsampling for performance
     let jump = 1;
@@ -3880,7 +3866,8 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
     if (fid_data.length > 40000) jump = 4;
 
     for (let i = 0; i < fid_data.length; i += 2 * jump) {
-        plotData.push({ x: i / 2, y: fid_data[i] });
+        let xVal = i / 2;
+        plotDataReal.push({ x: xVal, y: fid_data[i] });
     }
 
     if (!win) {
@@ -4010,11 +3997,11 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
         .attr("transform", `translate(${margin.left},${margin.top})`);
 
     const x = d3.scaleLinear()
-        .domain(d3.extent(plotData, d => d.x))
+        .domain(d3.extent(plotDataReal, d => d.x))
         .range([0, width]);
 
     const y = d3.scaleLinear()
-        .domain(d3.extent(plotData, d => d.y))
+        .domain(d3.extent(plotDataReal, d => d.y))
         .range([height, 0]);
 
     const xAxis = svg.append("g")
@@ -4036,14 +4023,16 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
         .x(d => x(d.x))
         .y(d => y(d.y));
 
-    const path = svg.append("path")
-        .datum(plotData)
-        .attr("class", "line")
+    const pathReal = svg.append("path")
+        .datum(plotDataReal)
+        .attr("class", "line-real")
         .attr("clip-path", "url(#fid_clip)")
         .attr("fill", "none")
         .attr("stroke", "steelblue")
         .attr("stroke-width", 1.5)
         .attr("d", line);
+
+
 
     // Cutoff Line (Vertical line at currentCutoffIndex)
     const cutoffLine = svg.append("line")
@@ -4078,7 +4067,7 @@ function show_fid_window(fid_data, cutoff_index, confirm_callback) {
         xAxis.call(d3.axisBottom(x));
         yAxis.call(d3.axisLeft(y).tickFormat(d3.format(".1e")));
 
-        path.attr("d", line);
+        pathReal.attr("d", line);
 
         const cx = x(currentCutoffIndex / 2);
 
@@ -4299,4 +4288,56 @@ function detect_signal_end(fid_data) {
     }
 
     return final_cutoff_idx;
+}
+
+/**
+ * Helper to parse FID data from buffer
+ * @param {ArrayBuffer} fid_buffer 
+ * @param {string} acquisition_string 
+ * @returns {Int32Array|Float64Array}
+ */
+function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
+    let dtypa = 0; // Default Int32
+    let bytorda = 0; // Default Little Endian
+
+    const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
+    if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
+
+    const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
+    if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
+
+    // Determine system endianness
+    const isLittleEndian = (function () {
+        const buffer = new ArrayBuffer(2);
+        new DataView(buffer).setInt16(0, 256, true);
+        return new Int16Array(buffer)[0] === 256;
+    })();
+
+    const fileIsLittleEndian = (bytorda === 0);
+    const swapBytes = (isLittleEndian !== fileIsLittleEndian);
+
+    let fid_data = null;
+
+    if (dtypa === 2) { // Float64
+        if (swapBytes) {
+            const dv = new DataView(fid_buffer);
+            fid_data = new Float64Array(fid_buffer.byteLength / 8);
+            for (let i = 0; i < fid_data.length; i++) {
+                fid_data[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
+            }
+        } else {
+            fid_data = new Float64Array(fid_buffer);
+        }
+    } else { // Int32
+        if (swapBytes) {
+            const dv = new DataView(fid_buffer);
+            fid_data = new Int32Array(fid_buffer.byteLength / 4);
+            for (let i = 0; i < fid_data.length; i++) {
+                fid_data[i] = dv.getInt32(i * 4, fileIsLittleEndian);
+            }
+        } else {
+            fid_data = new Int32Array(fid_buffer);
+        }
+    }
+    return fid_data;
 }

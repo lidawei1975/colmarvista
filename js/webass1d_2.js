@@ -427,18 +427,7 @@ self.onmessage = async function (event) {
         obj.set_fid_data(fid_data);
         let reduced_fid_size = 0;
 
-        if (event.data.auto_reduced_fid_size) {
-            // Auto reduce FID size. Because the fid_data is complex, we need to divide by 2 and round down
-            // Use js_fid_data (TypedArray) which supports [] access, unlike Module.VectorFloat
-            let auto_reduced_fid_size = 0;
-            if (js_fid_data) {
-                auto_reduced_fid_size = Math.floor(detect_signal_end(js_fid_data) / 2) * 2; // Make sure it is even. we are using Bruker convention for FID size.
-                console.log('Auto reducing FID size to ' + auto_reduced_fid_size);
-                obj.reduce_fid_size(auto_reduced_fid_size);
-                reduced_fid_size = auto_reduced_fid_size;
-            }
-        }
-        else if (event.data.reduced_fid_size > 0) {
+        if (event.data.reduced_fid_size > 0) {
             console.log('Reducing FID size to ' + event.data.reduced_fid_size);
             obj.reduce_fid_size(event.data.reduced_fid_size);
             reduced_fid_size = event.data.reduced_fid_size;
