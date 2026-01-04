@@ -400,6 +400,7 @@ $(document).ready(function () {
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
                 let auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
+                let reduced_fid_size_confirm = document.getElementById("reduced_fid_size_confirm").checked;
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -434,11 +435,104 @@ $(document).ready(function () {
                 document.getElementById('acquisition_file').value = "";
                 document.getElementById('fid_file').value = "";
 
-                webassembly_1d_worker_2.postMessage(fid_process_parameters);
-                /**
-                 * Disable the submit button of this form
-                 */
-                document.getElementById("button_fid_process").disabled = true;
+                // --- PREVIEW FID PLOT ---
+                // Parse acquisition parameters to determine data type
+                let dtypa = 0; // Default Int32
+                let bytorda = 0; // Default Little Endian
+
+                // Simple regex parsing
+                const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
+                if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
+
+                const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
+                if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
+
+                let fid_data_preview = null;
+
+                // Determine system endianness
+                const isLittleEndian = (function () {
+                    const buffer = new ArrayBuffer(2);
+                    new DataView(buffer).setInt16(0, 256, true);
+                    return new Int16Array(buffer)[0] === 256;
+                })();
+
+                const fileIsLittleEndian = (bytorda === 0);
+                const swapBytes = (isLittleEndian !== fileIsLittleEndian);
+
+                try {
+                    if (dtypa === 2) {
+                        // Float64
+                        if (swapBytes) {
+                            // Manual swap if needed (rare for Float64 on common PC/Bruker, usually LE)
+                            // Implementing simple swap for Float64 if strictly required is complex without DataView loop
+                            // For now assuming LE or matching system as most modern Bruker are processable. 
+                            // Using DataView to be safe but slow? No, lets use Int32 view to swap.
+                            // Actually, let's use DataView loop for correctness if swap needed.
+                            const dv = new DataView(fid_buffer);
+                            fid_data_preview = new Float64Array(fid_buffer.byteLength / 8);
+                            for (let i = 0; i < fid_data_preview.length; i++) {
+                                fid_data_preview[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
+                            }
+                        } else {
+                            fid_data_preview = new Float64Array(fid_buffer);
+                        }
+                    } else {
+                        // Int32 (DTYPA 0)
+                        if (swapBytes) {
+                            const dv = new DataView(fid_buffer);
+                            fid_data_preview = new Int32Array(fid_buffer.byteLength / 4);
+                            for (let i = 0; i < fid_data_preview.length; i++) {
+                                fid_data_preview[i] = dv.getInt32(i * 4, fileIsLittleEndian);
+                            }
+                        } else {
+                            fid_data_preview = new Int32Array(fid_buffer);
+                        }
+                    }
+
+                    if (fid_data_preview) {
+                        // Calculate cutoff if auto is selected, or use user input
+                        let cutoff = 0;
+                        if (auto_reduced_fid_size) {
+                            // Calculate using the function moved from worker
+                            const detected_idx = detect_signal_end(fid_data_preview);
+                            // Ensure even number (Bruker convention / interleaved alignment)
+                            cutoff = Math.floor(detected_idx / 2) * 2;
+
+                            // Update parameters to send to worker
+                            // Worker will use this explicit size instead of re-calculating
+                            fid_process_parameters.reduced_fid_size = cutoff;
+                            fid_process_parameters.auto_reduced_fid_size = false;
+                        } else {
+                            // User specified size
+                            cutoff = reduced_fid_size > 0 ? reduced_fid_size : fid_data_preview.length;
+                        }
+
+                        if (auto_reduced_fid_size && reduced_fid_size_confirm) {
+                            // Pause for confirmation
+                            // Pass callback to show_fid_window
+                            show_fid_window(fid_data_preview, cutoff, (newCutoff) => {
+                                fid_process_parameters.reduced_fid_size = newCutoff;
+                                fid_process_parameters.auto_reduced_fid_size = false;
+                                webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                                document.getElementById("button_fid_process").disabled = true;
+                            });
+                        } else {
+                            // Proceed immediately (read-only window)
+                            show_fid_window(fid_data_preview, cutoff);
+                            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                            document.getElementById("button_fid_process").disabled = true;
+                        }
+                    } else {
+                        // Fallback if preview data not available
+                        webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                        document.getElementById("button_fid_process").disabled = true;
+                    }
+                } catch (err) {
+                    console.error("Error generating FID preview:", err);
+                    // Fallback on error
+                    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                    document.getElementById("button_fid_process").disabled = true;
+                }
             }
             else {
                 alert("Please select both acquisition and fid files.");
@@ -520,6 +614,11 @@ webassembly_1d_worker_2.onmessage = function (e) {
             e.data.reprocess,/** re-process of fid or ft2 */
             e.data.auto_direct_2, /** whether auto direct_2 was used. If so, need to run tfjs */
         );
+
+        if (e.data.fid_data) {
+            show_fid_window(e.data.fid_data, e.data.reduced_fid_size);
+        }
+
         /**
          * Re-enable the button to process fid file
          */
@@ -3766,4 +3865,449 @@ function startTutorial() {
         tutorial = null;
     });
     tutorial.start();
+}
+
+/**
+ * Show a floating window with FID data
+ * @param {Float32Array|Float64Array|Int32Array} fid_data 
+ * @param {number} cutoff_index 
+ * @param {Function} [confirm_callback] - If provided, enables editing cutoff and adds confirm button. Callback(new_cutoff).
+ */
+function show_fid_window(fid_data, cutoff_index, confirm_callback) {
+    let window_id = "fid_float_window";
+    let win = document.getElementById(window_id);
+
+    // Mutable state for cutoff (visual and logical)
+    let currentCutoffIndex = cutoff_index;
+
+    // Create data array for D3. 
+    // fid_data is interleaved real/imag. We plot Real part.
+    // X axis: number of points (pairs).
+    const plotData = [];
+
+    // Simple downsampling for performance
+    let jump = 1;
+    if (fid_data.length > 20000) jump = 2;
+    if (fid_data.length > 40000) jump = 4;
+
+    for (let i = 0; i < fid_data.length; i += 2 * jump) {
+        plotData.push({ x: i / 2, y: fid_data[i] });
+    }
+
+    if (!win) {
+        // Create window
+        win = document.createElement("div");
+        win.id = window_id;
+        win.style.cssText = "position:fixed; top:10%; right:10%; width:600px; height:400px; background:white; border:1px solid #ccc; box-shadow:0 0 10px rgba(0,0,0,0.5); z-index:1000; display:flex; flex-direction:column;";
+
+        let header = document.createElement("div");
+        header.id = window_id + "_header"; // Assign ID for easier selection later
+        header.style.cssText = "background:#eee; padding:5px; cursor:move; display:flex; justify-content:space-between; align-items:center;";
+        // InnerHTML will be populated below to handle dynamic button
+
+        // Drag logic
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+        header.onmousedown = function (e) {
+            // Prevent drag if clicking buttons
+            if (e.target.tagName === 'BUTTON') return;
+
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = win.offsetLeft;
+            initialTop = win.offsetTop;
+
+            function onMouseMove(e) {
+                if (isDragging) {
+                    win.style.left = (initialLeft + e.clientX - startX) + "px";
+                    win.style.top = (initialTop + e.clientY - startY) + "px";
+                    win.style.right = "auto"; // Clear right style if moving from right
+                }
+            }
+
+            function onMouseUp() {
+                isDragging = false;
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        win.appendChild(header);
+
+        let body = document.createElement("div");
+        body.className = "fid-body";
+        body.style.cssText = "flex:1; width:100%; height:100%; overflow:hidden;";
+        body.id = "fid_plot_div";
+        win.appendChild(body);
+
+        document.body.appendChild(win);
+    } else {
+        win.style.display = "flex";
+        let body = win.querySelector(".fid-body");
+        if (body.style.display === "none") {
+            body.style.display = "block";
+            win.style.height = "400px";
+            // Find the min button by class name
+            let minBtn = win.querySelector(".min-btn");
+            if (minBtn) minBtn.innerText = "-";
+        }
+    }
+
+    // Update Header Content (Title + Optional Confirm Button + Min Button)
+    let header = document.getElementById(window_id + "_header");
+    header.innerHTML = ""; // Clear existing content
+
+    let title = document.createElement("span");
+    title.innerText = "FID Data";
+    header.appendChild(title);
+
+    let controlsDiv = document.createElement("div");
+    controlsDiv.style.display = "flex";
+    controlsDiv.style.alignItems = "center";
+
+    if (confirm_callback) {
+        let confirmBtn = document.createElement("button");
+        confirmBtn.innerText = "Confirm Reduced Size";
+        confirmBtn.style.cssText = "font-size: 12px; padding: 2px 5px; margin-right: 5px; background-color: #ff9800; color: white; border: none; cursor: pointer;";
+        confirmBtn.onclick = function () {
+            confirm_callback(currentCutoffIndex);
+            // Optionally provide visual feedback or disable button
+            confirmBtn.innerText = "Confirmed!";
+            confirmBtn.disabled = true;
+            confirmBtn.style.backgroundColor = "#ccc";
+        };
+        controlsDiv.appendChild(confirmBtn);
+    }
+
+    // Re-create min button (since we cleared innerHTML)
+    let minBtn = document.createElement("button");
+    minBtn.innerText = "-";
+    minBtn.className = "min-btn"; // Add class for easier selection
+    minBtn.style.cssText = "padding:0 5px;";
+    minBtn.onclick = function () {
+        let body = win.querySelector(".fid-body");
+        if (body.style.display === "none") {
+            body.style.display = "block";
+            win.style.height = "400px";
+            minBtn.innerText = "-";
+        } else {
+            body.style.display = "none";
+            win.style.height = "auto";
+            minBtn.innerText = "+";
+        }
+    };
+    controlsDiv.appendChild(minBtn);
+
+    header.appendChild(controlsDiv);
+
+
+    // Clear previous plot
+    d3.select("#fid_plot_div").selectAll("*").remove();
+
+    // Draw Plot
+    const margin = { top: 20, right: 20, bottom: 30, left: 60 };
+    const width = 600 - margin.left - margin.right;
+    const height = 360 - margin.top - margin.bottom;
+
+    const svg = d3.select("#fid_plot_div")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleLinear()
+        .domain(d3.extent(plotData, d => d.x))
+        .range([0, width]);
+
+    const y = d3.scaleLinear()
+        .domain(d3.extent(plotData, d => d.y))
+        .range([height, 0]);
+
+    const xAxis = svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x));
+
+    const yAxis = svg.append("g")
+        .attr("class", "y-axis")
+        .call(d3.axisLeft(y).tickFormat(d3.format(".1e")));
+
+    svg.append("defs").append("clipPath")
+        .attr("id", "fid_clip")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+    const line = d3.line()
+        .x(d => x(d.x))
+        .y(d => y(d.y));
+
+    const path = svg.append("path")
+        .datum(plotData)
+        .attr("class", "line")
+        .attr("clip-path", "url(#fid_clip)")
+        .attr("fill", "none")
+        .attr("stroke", "steelblue")
+        .attr("stroke-width", 1.5)
+        .attr("d", line);
+
+    // Cutoff Line (Vertical line at currentCutoffIndex)
+    const cutoffLine = svg.append("line")
+        .attr("x1", x(currentCutoffIndex / 2))
+        .attr("y1", 0)
+        .attr("x2", x(currentCutoffIndex / 2))
+        .attr("y2", height)
+        .attr("stroke", "red")
+        .attr("stroke-width", 2)
+        .attr("stroke-dasharray", "5,5")
+        .attr("clip-path", "url(#fid_clip)");
+
+    // Label the cutoff location
+    const cutoffLabel = svg.append("text")
+        .attr("x", x(currentCutoffIndex / 2) + 5)
+        .attr("y", 20)
+        .attr("fill", "red")
+        .attr("clip-path", "url(#fid_clip)")
+        .text("Cutoff");
+
+
+
+    // --- Zoom Behavior ---
+
+    // Store original scales to re-scale from
+    const xOrig = x.copy();
+    const yOrig = y.copy();
+
+    // Functions to update chart
+    function updateChart() {
+        // Use the current domains of x and y (which are modified by zooms)
+        xAxis.call(d3.axisBottom(x));
+        yAxis.call(d3.axisLeft(y).tickFormat(d3.format(".1e")));
+
+        path.attr("d", line);
+
+        const cx = x(currentCutoffIndex / 2);
+
+        cutoffLine
+            .attr("x1", cx)
+            .attr("x2", cx);
+
+        cutoffLabel.attr("x", cx + 5);
+
+        if (confirm_callback) {
+            // Update drag handle position
+            svg.select(".cutoff-drag-handle")
+                .attr("x", cx - 5);
+        }
+    }
+
+    // X-Zoom (Plot Area)
+    const zoomX = d3.zoom()
+        .scaleExtent([0.5, 50]) // Limit zoom
+        .translateExtent([[0, 0], [width, height]]) // Limit pan
+        .extent([[0, 0], [width, height]])
+        .on("zoom", (event) => {
+            const newX = event.transform.rescaleX(xOrig);
+            x.domain(newX.domain());
+            updateChart();
+        });
+
+    // Y-Zoom (Y-Axis Area)
+    const zoomY = d3.zoom()
+        .scaleExtent([0.5, 50])
+        // .translateExtent... for Y?
+        .on("zoom", (event) => {
+            const newY = event.transform.rescaleY(yOrig);
+            y.domain(newY.domain());
+            updateChart();
+        });
+
+    // Rect for Main Plot (X Zoom/Pan)
+    svg.append("rect")
+        .attr("class", "zoom-x-box")
+        .attr("width", width)
+        .attr("height", height)
+        .style("fill", "none")
+        .style("pointer-events", "all")
+        // Cursor indicating horizontal usage might be nice, or default
+        .call(zoomX);
+
+    // Rect for Y Axis (Y Zoom/Pan)
+    // Covers the left margin area. 
+    // The main Group 'svg' is translated by (margin.left, margin.top).
+    // So Y-axis is at x=0. Use x negative to cover margin.
+    // Width = margin.left, Height = height.
+    svg.append("rect")
+        .attr("class", "zoom-y-box")
+        .attr("x", -margin.left)
+        .attr("y", 0)
+        .attr("width", margin.left)
+        .attr("height", height)
+        .style("fill", "none")
+        .style("pointer-events", "all")
+        .style("cursor", "ns-resize") // Hint vertical zoom
+        .call(zoomY);
+
+    // Add Drag Behavior to Cutoff Line (if editable)
+    // Moved here to be AFTER zoom rects (z-index layering)
+    if (confirm_callback) {
+        cutoffLine.style("cursor", "ew-resize");
+
+        // Add a wider invisible rect for easier grabbing
+        const dragHandle = svg.append("rect")
+            .attr("class", "cutoff-drag-handle")
+            .attr("x", x(currentCutoffIndex / 2) - 5)
+            .attr("y", 0)
+            .attr("width", 10)
+            .attr("height", height)
+            .attr("fill", "transparent")
+            .style("cursor", "ew-resize")
+            .attr("clip-path", "url(#fid_clip)");
+
+        const dragBehavior = d3.drag()
+            .on("drag", function (event) {
+                // Get x coordinate within the 'g' element
+                let mx = event.x;
+                // Constrain within bounds (0, width)
+                mx = Math.max(0, Math.min(width, mx));
+
+                // Invert scale to get data value (which is index/2)
+                let val = x.invert(mx);
+
+                // Update currentCutoffIndex (value is index/2, so multiply by 2)
+                // Round to nearest even number, as FID points are interleaved (real/imaginary)
+                currentCutoffIndex = Math.floor(Math.round(val * 2) / 2) * 2;
+                // Ensure cutoff is within valid data range
+                currentCutoffIndex = Math.max(0, Math.min(fid_data.length - 2, currentCutoffIndex));
+
+                updateChart();
+            });
+
+        dragHandle.call(dragBehavior);
+    }
+}
+
+/**
+ * Detect signal end based on noise level and envelope decay.
+  * 1. Skip first 150 points (avoid filter artifacts).
+  * 2. Calculate envelope (max - min in window of ~N/16 or 4096).
+  * 3. Find rough end (drops below 1% of max).
+  * 4. Estimate noise in the tail (median of RMSD of segments).
+  *    - Method: Split into segments of length 32. Calculate StdDev (RMSD) for each.
+  *    - Noise Level = Median of these StdDevs.
+  * 5. Final cutoff: where envelope drops below max(6 * Noise, 0.001 * A0).
+  * 
+  * @param {Float32Array|Float64Array|Int32Array} fid_data - The FID data.
+  * @returns {number} The index where the signal ends.
+  */
+function detect_signal_end(fid_data) {
+    const N = fid_data.length;
+    if (N < 200) return N;
+
+    // 1. Parameters
+    const skip = 150;
+    const window_size = Math.max(1, Math.min(4096, Math.floor(N / 16)));
+
+    // 2. Envelope Extraction
+    let envelope_amp = []; // value
+    let envelope_idx = []; // original index
+
+    // Efficiency: For window_size 256, naive loop is OK.
+    for (let i = skip; i <= N - window_size; i++) {
+        let local_max = -Infinity;
+        let local_min = Infinity;
+        for (let j = 0; j < window_size; j++) {
+            const val = fid_data[i + j];
+            if (val > local_max) local_max = val;
+            if (val < local_min) local_min = val;
+        }
+        let amp = (local_max - local_min) * 0.5;
+        envelope_amp.push(amp);
+        envelope_idx.push(i);
+    }
+
+    if (envelope_amp.length === 0) return N;
+
+    // Estimate A0 (Max of envelope)
+    // To be robust, max of first chunk? Or global max of envelope?
+    // Envelope should be strictly decaying ideally, so max should be near start.
+    let A0 = 0;
+    for (let val of envelope_amp) {
+        if (val > A0) A0 = val;
+    }
+
+    if (A0 === 0) return N;
+
+    // 3. Rough End Definition (1%)
+    const thresh_1pct = 0.01 * A0;
+    let rough_end_idx_in_envelope = envelope_amp.length - 1;
+
+    // Find first point where it drops and stays low? Or just first point?
+    // "use 1% to define end of signal"
+    for (let k = 0; k < envelope_amp.length; k++) {
+        if (envelope_amp[k] < thresh_1pct) {
+            rough_end_idx_in_envelope = k;
+            break;
+        }
+    }
+
+    const noise_start_idx = envelope_idx[rough_end_idx_in_envelope];
+
+    // 4. Noise Estimation (Median of RMSDs of 32-pt segments)
+    const segment_len = 32;
+    let std_devs = [];
+
+    // Iterate from noise_start_idx to N
+    // We iterate on the raw data
+    const noise_region_len = N - noise_start_idx;
+    const n_segments = Math.floor(noise_region_len / segment_len);
+
+    if (n_segments > 0) {
+        for (let s = 0; s < n_segments; s++) {
+            const seg_start = noise_start_idx + s * segment_len;
+
+            // Calc Mean
+            let sum = 0;
+            for (let i = 0; i < segment_len; i++) sum += fid_data[seg_start + i];
+            let mean = sum / segment_len;
+
+            // Calc Variance
+            let sum_sq_diff = 0;
+            for (let i = 0; i < segment_len; i++) {
+                const diff = fid_data[seg_start + i] - mean;
+                sum_sq_diff += diff * diff;
+            }
+            // StdDev (Population or Sample? Usually Sample n-1, but for noise n is fine too. Let's use n-1)
+            let variance = sum_sq_diff / (segment_len - 1);
+            std_devs.push(Math.sqrt(variance));
+        }
+
+        // Median
+        std_devs.sort((a, b) => a - b);
+        var noise_level = std_devs[Math.floor(std_devs.length / 2)];
+    } else {
+        // Fallback if region is too small: just std of whatever is there
+        noise_level = 0; // Or handle gracefully
+    }
+
+    // 5. Final Cutoff
+    // "reach 6 times noise level or 0.1% of init"
+    // "whichever is short" -> The value that is HIGHER (reached earlier).
+    const limit = Math.max(6 * noise_level, 0.001 * A0);
+
+    let final_cutoff_idx = N; // Default to end
+
+    for (let k = 0; k < envelope_amp.length; k++) {
+        if (envelope_amp[k] < limit) {
+            final_cutoff_idx = envelope_idx[k];
+            break;
+        }
+    }
+
+    return final_cutoff_idx;
 }
