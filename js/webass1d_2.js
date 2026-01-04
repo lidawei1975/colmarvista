@@ -432,7 +432,7 @@ self.onmessage = async function (event) {
             // Use js_fid_data (TypedArray) which supports [] access, unlike Module.VectorFloat
             let auto_reduced_fid_size = 0;
             if (js_fid_data) {
-                auto_reduced_fid_size = Math.floor(detect_signal_end(js_fid_data) / 2);
+                auto_reduced_fid_size = Math.floor(detect_signal_end(js_fid_data) / 2) * 2; // Make sure it is even. we are using Bruker convention for FID size.
                 console.log('Auto reducing FID size to ' + auto_reduced_fid_size);
                 obj.reduce_fid_size(auto_reduced_fid_size);
                 reduced_fid_size = auto_reduced_fid_size;
@@ -595,7 +595,7 @@ function detect_signal_end(fid_data) {
 
     // 1. Parameters
     const skip = 150;
-    const window_size = Math.max(1, Math.min(256, Math.floor(N / 1024)));
+    const window_size = Math.max(1, Math.min(4096, Math.floor(N / 16)));
 
     // 2. Envelope Extraction
     let envelope_amp = []; // value
@@ -682,7 +682,7 @@ function detect_signal_end(fid_data) {
     // 5. Final Cutoff
     // "reach 2 times noise level or 0.1% of init"
     // "whichever is short" -> The value that is HIGHER (reached earlier).
-    const limit = Math.max(2 * noise_level, 0.001 * A0);
+    const limit = Math.max(6 * noise_level, 0.001 * A0);
 
     let final_cutoff_idx = N; // Default to end
 
