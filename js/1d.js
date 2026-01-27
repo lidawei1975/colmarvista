@@ -40,6 +40,7 @@ var b_allow_dragging_spectrum = false; //flag to allow dragging spectrum to reor
  */
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
+var last_processed_fid_size = 0; // Store the last reduced FID size for re-use
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -356,7 +357,6 @@ $(document).ready(function () {
              * because we are re-processing the same set of fid file
              */
             fid_process_parameters = all_spectra[current_reprocess_spectrum_index].fid_process_parameters;
-            fid_drop_process.reduce_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
             fid_process_parameters.apodization_string = document.getElementById("apodization_direct").value;
             fid_process_parameters.zf_direct = parseInt(document.getElementById("zf_direct").value);
             fid_process_parameters.phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -366,12 +366,48 @@ $(document).ready(function () {
             fid_process_parameters.auto_direct_3 = document.getElementById("auto_direct_3").checked;
             fid_process_parameters.delete_imaginary = document.getElementById("delete_imaginary").checked;
             fid_process_parameters.pseudo_2d_process = document.querySelector('input[name="Pseudo-2D-process"]:checked').id;
-            fid_process_parameters.auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
 
             /**
-             * Send to webassembly worker
+             * Rerun Logic for FID Size in Reprocess Mode
              */
-            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+            let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
+            // Get raw data on demand
+            let fid_data_preview = get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
+
+            if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
+                if (fid_data_preview) {
+                    const detected_idx = detect_signal_end(fid_data_preview);
+                    let cutoff = Math.floor(detected_idx / 2) * 2;
+                    fid_process_parameters.reduced_fid_size = cutoff;
+                } else {
+                    // Fallback if data missing
+                    // We can't auto-detect without data. Assume full or keep previous?
+                    // Safe to keep previous if available, or 0.
+                    // But user EXPECTS auto. 
+                    // Assuming fid_data is available for normal flow.
+                }
+            } else if (fid_reduction_mode === "prev") {
+                // Use last processed size if > 0, else keep existing or full
+                let cutoff = last_processed_fid_size > 0 ? last_processed_fid_size : (fid_process_parameters.reduced_fid_size || 0);
+                fid_process_parameters.reduced_fid_size = cutoff;
+            } else {
+                // Full
+                fid_process_parameters.reduced_fid_size = 0;
+            }
+
+            /**
+             * Send to webassembly worker or Pause for Confirm
+             */
+            if (fid_reduction_mode === "auto_confirm" && fid_data_preview) {
+                show_fid_window(fid_data_preview, fid_process_parameters.reduced_fid_size, (newCutoff) => {
+                    fid_process_parameters.reduced_fid_size = newCutoff;
+                    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                    document.getElementById("button_fid_process").disabled = true;
+                });
+            } else {
+                if (fid_data_preview) show_fid_window(fid_data_preview, fid_process_parameters.reduced_fid_size);
+                webassembly_1d_worker_2.postMessage(fid_process_parameters);
+            }
             document.getElementById("button_fid_process").disabled = true;
         }
         else //button_text == "Upload experimental files and process"
@@ -390,7 +426,7 @@ $(document).ready(function () {
                 /**
                  * Convert fid_buffer to Float32Array
                  */
-                let reduced_fid_size = parseInt(document.getElementById("reduced_fid_size").value);
+                let reduced_fid_size = 0;
                 let apodization_string = document.getElementById("apodization_direct").value;
                 let zf_direct = parseInt(document.getElementById("zf_direct").value);
                 let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
@@ -399,7 +435,7 @@ $(document).ready(function () {
                 let auto_direct_2 = document.getElementById("auto_direct_2").checked;
                 let auto_direct_3 = document.getElementById("auto_direct_3").checked;
                 let delete_imaginary = document.getElementById("delete_imaginary").checked;
-                let auto_reduced_fid_size = document.getElementById("auto_reduced_fid_size").checked;
+                let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
                 /**
                  * Get radio group name "Pseudo-2D-process", id "first_only" or "all_traces"
                  */
@@ -412,7 +448,6 @@ $(document).ready(function () {
                 fid_process_parameters = {
                     webassembly_job: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
-                    auto_reduced_fid_size: auto_reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
                     apodization_string: apodization_string,
@@ -434,11 +469,57 @@ $(document).ready(function () {
                 document.getElementById('acquisition_file').value = "";
                 document.getElementById('fid_file').value = "";
 
-                webassembly_1d_worker_2.postMessage(fid_process_parameters);
-                /**
-                 * Disable the submit button of this form
-                 */
-                document.getElementById("button_fid_process").disabled = true;
+                // --- PREVIEW FID PLOT ---
+                try {
+                    let fid_data_preview = get_fid_data_from_buffer(fid_buffer, acquisition_string);
+
+                    if (fid_data_preview) {
+                        let cutoff = fid_data_preview.length; // Default to full
+
+                        if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
+                            const detected_idx = detect_signal_end(fid_data_preview);
+                            // Ensure even number
+                            cutoff = Math.floor(detected_idx / 2) * 2;
+
+                            // Update params for worker: Explicit reduced size
+                            fid_process_parameters.reduced_fid_size = cutoff;
+                        } else if (fid_reduction_mode === "prev") {
+                            // Use previous size if available, otherwise full
+                            cutoff = last_processed_fid_size > 0 ? last_processed_fid_size : fid_data_preview.length;
+                            fid_process_parameters.reduced_fid_size = cutoff;
+                        } else {
+                            // Full mode
+                            fid_process_parameters.reduced_fid_size = 0;
+                        }
+
+                        if (fid_reduction_mode === "auto_confirm") {
+                            // Pause for confirmation
+                            show_fid_window(fid_data_preview, cutoff, (newCutoff) => {
+                                fid_process_parameters.reduced_fid_size = newCutoff;
+                                document.getElementById("webassembly_message").innerText = "Processing FID...";
+                                webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                                document.getElementById("button_fid_process").disabled = true;
+                            });
+                        } else {
+                            // Proceed immediately
+                            show_fid_window(fid_data_preview, cutoff);
+                            document.getElementById("webassembly_message").innerText = "Processing FID...";
+                            webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                            document.getElementById("button_fid_process").disabled = true;
+                        }
+                    } else {
+                        // Fallback if preview data not available
+                        document.getElementById("webassembly_message").innerText = "Processing FID...";
+                        webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                        document.getElementById("button_fid_process").disabled = true;
+                    }
+                } catch (err) {
+                    console.error("Error generating FID preview:", err);
+                    // Fallback on error
+                    document.getElementById("webassembly_message").innerText = "Processing FID...";
+                    webassembly_1d_worker_2.postMessage(fid_process_parameters);
+                    document.getElementById("button_fid_process").disabled = true;
+                }
             }
             else {
                 alert("Please select both acquisition and fid files.");
@@ -477,62 +558,72 @@ webassembly_1d_worker_2.onmessage = function (e) {
             spectrum_header : header_data,
             real_spectrum_data: real_spectrum_data,
          */
-        result_spectrum = new spectrum_1d();
+        try {
+            /**
+             * Combined existing logic
+             */
+            result_spectrum = new spectrum_1d();
 
-        /**
-         * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
-         */
-        const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length * 2);
-        combined.set(e.data.spectrum_header);
-        combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
-        combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
-        const buffer = combined.buffer;
-        result_spectrum.process_ft_file(buffer, 'from_fid.ft1', -2);
-        result_spectrum.spectrum_index = e.data.spectrum_index; //spectrum_index is set to what is in reprocess_spectrum_index
+            /**
+             * Combine header and fid_json to create a new float32 array and convert to arrayBuffer
+             */
+            const combined = new Float32Array(e.data.spectrum_header.length + e.data.real_spectrum_data.length * 2);
+            combined.set(e.data.spectrum_header);
+            combined.set(e.data.real_spectrum_data, e.data.spectrum_header.length);
+            combined.set(e.data.image_spectrum_data, e.data.spectrum_header.length + e.data.real_spectrum_data.length);
+            const buffer = combined.buffer;
+            result_spectrum.process_ft_file(buffer, 'from_fid.ft1', -2);
+            result_spectrum.spectrum_index = e.data.spectrum_index; //spectrum_index is set to what is in reprocess_spectrum_index
 
-        /**
-         * Save the phase correction values to fid_process_parameters
-         */
-        fid_process_parameters.phase_correction_direct_p0 = e.data.p0;
-        fid_process_parameters.phase_correction_direct_p1 = e.data.p1;
-        /**
-         * Save auto determined cutoff data size as well
-         */
-        fid_process_parameters.reduced_fid_size = e.data.reduced_fid_size;
+            /**
+             * Save the phase correction values to fid_process_parameters
+             */
+            fid_process_parameters.phase_correction_direct_p0 = e.data.p0;
+            fid_process_parameters.phase_correction_direct_p1 = e.data.p1;
+            /**
+             * Save auto determined cutoff data size as well
+             */
+            fid_process_parameters.reduced_fid_size = e.data.reduced_fid_size;
 
-        /**
-         * Update fid processing box parameters
-         */
-        document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
-        document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
-
-        /**
-         * Fill in reduced_fid_size of we received automatic value from webass code.
-         */
-        if (e.data.reduced_fid_size > 0) {
-            document.getElementById("reduced_fid_size").value = e.data.reduced_fid_size;
-        }
-
-
-        draw_spectrum(
-            [result_spectrum],
-            true/**from fid */,
-            e.data.reprocess,/** re-process of fid or ft2 */
-            e.data.auto_direct_2, /** whether auto direct_2 was used. If so, need to run tfjs */
-        );
-        /**
-         * Re-enable the button to process fid file
-         */
-        document.getElementById("button_fid_process").disabled = false;
-
-        // Notify tutorial (or anyone else) that processing is done
-        // ONLY if we are NOT running TFJS (auto_direct_2). 
-        // If auto_direct_2 is true, run_ann_phase_correction will dispatch this event when finished.
-        if (!e.data.auto_direct_2) {
-            const btn = document.getElementById("button_fid_process");
-            if (btn) {
-                btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+            // Update global last size and enable option
+            if (e.data.reduced_fid_size > 0) {
+                last_processed_fid_size = e.data.reduced_fid_size;
+                document.getElementById("fid_mode_prev").disabled = false;
             }
+
+            /**
+             * Update fid processing box parameters
+             */
+            document.getElementById("phase_correction_direct_p0").value = e.data.p0.toFixed(2);
+            document.getElementById("phase_correction_direct_p1").value = e.data.p1.toFixed(2);
+
+            draw_spectrum(
+                [result_spectrum],
+                true,/**from fid */
+                e.data.reprocess,/** re-process of fid or ft2 */
+                e.data.auto_direct_2, /** whether auto direct_2 was used. If so, need to run tfjs */
+            );
+
+            /**
+             * Re-enable the button to process fid file
+             */
+            document.getElementById("button_fid_process").disabled = false;
+
+            // Notify tutorial
+            if (!e.data.auto_direct_2) {
+                const btn = document.getElementById("button_fid_process");
+                if (btn) {
+                    btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+                }
+
+                // Auto-Exit processing mode
+                if (current_reprocess_spectrum_index !== -1) {
+                    exit_reprocessing_ui(current_reprocess_spectrum_index);
+                }
+            }
+
+        } finally {
+            document.getElementById("webassembly_message").innerText = "";
         }
     }
 
@@ -606,8 +697,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
         result_spectrum.spectral_scale = all_spectra[e.data.spectrum_origin].spectral_scale;
 
         /**
-         * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
-         */
+        * Copy picked_peaks_object and fitted_peaks_object from the original spectrum
+        */
         result_spectrum.picked_peaks_object = all_spectra[e.data.spectrum_origin].picked_peaks_object;
         result_spectrum.fitted_peaks_object = all_spectra[e.data.spectrum_origin].fitted_peaks_object;
 
@@ -616,8 +707,6 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
         result_spectrum.recon_peaks = recon_peaks.peaks_recon;
         result_spectrum.recon_peaks_center = peaks_center;
-
-
 
         /**
          * Also copy scale and scale2 from the original spectrum, which are used to run deep picker and peak fitting
@@ -1069,6 +1158,7 @@ function add_to_list(index) {
      */
     if (new_spectrum.spectrum_origin === -2) {
         let reprocess_button = document.createElement("button");
+        reprocess_button.id = "reprocess-".concat(index);
         reprocess_button.innerText = "Reprocess";
         reprocess_button.onclick = function () { reprocess_spectrum(this, index); };
         new_spectrum_div.appendChild(reprocess_button);
@@ -1132,8 +1222,21 @@ function add_to_list(index) {
      * Add a download button to download the spectrum 
      * Allow download of from fid and from reconstructed spectrum
      */
+    if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
+        let minimizer_button = document.createElement("button");
+        minimizer_button.innerText = "-";
+        minimizer_button.classList.add("header-control");
+        minimizer_button.onclick = function () { minimize_reconstructed_spectrum(this, index); };
+        /**
+         * Insert 2 spaces
+         */
+        new_spectrum_div.appendChild(minimizer_button);
+        new_spectrum_div.appendChild(document.createTextNode("  "));
+    }
+
     let download_button = document.createElement("button");
     download_button.innerText = "Download ft1";
+    download_button.classList.add("header-control");
     download_button.onclick = function () { download_spectrum(index, 'original'); };
     new_spectrum_div.appendChild(download_button);
 
@@ -1145,11 +1248,13 @@ function add_to_list(index) {
     let line_color_label = document.createElement("label");
     line_color_label.setAttribute("for", "line_color-".concat(index));
     line_color_label.innerText = "Color: ";
+    line_color_label.classList.add("header-control");
     let line_color_input = document.createElement("input");
     line_color_input.setAttribute("type", "color");
     line_color_input.setAttribute("value", new_spectrum.spectrum_color);
     line_color_input.setAttribute("id", "contour_color-".concat(index));
     line_color_input.addEventListener("change", (e) => { update_line_color(e, index); });
+    line_color_input.classList.add("header-control");
     new_spectrum_div.appendChild(line_color_label);
     new_spectrum_div.appendChild(line_color_input);
 
@@ -1161,12 +1266,14 @@ function add_to_list(index) {
     let line_width_label = document.createElement("label");
     line_width_label.setAttribute("for", "line_width-".concat(index));
     line_width_label.innerText = " Line width: ";
+    line_width_label.classList.add("header-control");
     let line_width_input = document.createElement("input");
     line_width_input.setAttribute("type", "number");
     line_width_input.setAttribute("min", "1");
     line_width_input.setAttribute("value", "2");
     line_width_input.style.width = '48px';
     line_width_input.addEventListener("change", (e) => { update_line_width(e, index); });
+    line_width_input.classList.add("header-control");
     new_spectrum_div.appendChild(line_width_label);
     new_spectrum_div.appendChild(line_width_input);
 
@@ -1450,9 +1557,11 @@ function add_to_list(index) {
     if (new_spectrum.spectrum_origin < 0 || new_spectrum.spectrum_origin >= 10000) {
         let reconstructed_spectrum_h5 = document.createElement("h5");
         reconstructed_spectrum_h5.innerText = "Reconstructed spectrum";
+        reconstructed_spectrum_h5.style.display = "none"; // Hide by default
         new_spectrum_div.appendChild(reconstructed_spectrum_h5);
         let reconstructed_spectrum_ol = document.createElement("ol");
         reconstructed_spectrum_ol.setAttribute("id", "reconstructed_spectrum_ol-".concat(index));
+        reconstructed_spectrum_ol.style.display = "none"; // Hide by default
         new_spectrum_div.appendChild(reconstructed_spectrum_ol);
     }
 
@@ -1468,7 +1577,13 @@ function add_to_list(index) {
      * If the spectrum is reconstructed, add the new spectrum_1d div to the reconstructed spectrum list
      */
     else {
-        document.getElementById("reconstructed_spectrum_ol-".concat(all_spectra[index].spectrum_origin)).appendChild(new_spectrum_div_list);
+        let recon_list = document.getElementById("reconstructed_spectrum_ol-".concat(all_spectra[index].spectrum_origin));
+        recon_list.appendChild(new_spectrum_div_list);
+        // Show the list and header when data is added
+        recon_list.style.display = "block";
+        if (recon_list.previousElementSibling) {
+            recon_list.previousElementSibling.style.display = "block";
+        }
     }
 
     if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
@@ -1576,7 +1691,6 @@ function reprocess_spectrum(button, spectrum_index) {
         /**
          * Set fid_process_parameters to the input fields
          */
-        document.getElementById("reduced_fid_size").value = fid_process_parameters.reduced_fid_size;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_string;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0.toFixed(2);
@@ -1585,14 +1699,12 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = fid_process_parameters.auto_direct_2;
         document.getElementById("auto_direct_3").checked = fid_process_parameters.auto_direct_3;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_imaginary;
-        document.getElementById("auto_reduced_fid_size").checked = fid_process_parameters.auto_reduced_fid_size;
     }
 
     function set_default_fid_parameters() {
         /**
          * Set fid_process_parameters to the default values
          */
-        document.getElementById("reduced_fid_size").value = "0";
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";
@@ -1601,7 +1713,6 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("auto_direct_2").checked = true;
         document.getElementById("auto_direct_3").checked = false;
         document.getElementById("delete_imaginary").checked = false;
-        document.getElementById("auto_reduced_fid_size").checked = true;
     }
 
     /**
@@ -1644,31 +1755,7 @@ function reprocess_spectrum(button, spectrum_index) {
         set_current_spectrum(spectrum_index);
     }
     else {
-        /**
-         * Undo hide of input fid files
-         */
-        document.getElementById("input_files").style.display = "flex";
-        /**
-         * Change button text back to "Reprocess"
-         */
-        button.innerText = "Reprocess";
-        /**
-         * Un-highlight the user option div
-         */
-        document.getElementById("input_options").style.backgroundColor = "white";
-        /**
-         * Show div "file_area" and "input_files" (of fid_file_area).
-         * Change the button "button_fid_process"text back to "Upload experimental files and process"
-         */
-        document.getElementById("file_area").style.display = "block";
-        document.getElementById("input_files").style.display = "flex";
-        document.getElementById("button_fid_process").value = "Upload experimental files and process";
-        current_reprocess_spectrum_index = -1;
-
-        /**
-         * Restore default values for html elements
-         */
-        set_default_fid_parameters();
+        exit_reprocessing_ui(spectrum_index);
     }
 }
 
@@ -2993,6 +3080,7 @@ function get_data_from_phase_correction(ndx, phase_correction_left, phase_correc
  * @returns: none
  */
 async function run_auto_pc() {
+
     abandon_baseline_correction(main_plot.current_spectrum_index);//need to run before changing current spectrum
     if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for phase correction.");
@@ -3028,6 +3116,7 @@ async function run_ann_phase_correction(ndx) {
     if (all_spectra[ndx].raw_data.length < 32768) {
         alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
     }
+    document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
     /**
      * Disable manual phase correction and myself button during auto phase correction
      */
@@ -3185,7 +3274,7 @@ async function run_ann_phase_correction(ndx) {
     if (btn) {
         btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
     }
-
+    document.getElementById("webassembly_message").innerText = "";
 }
 
 /**
@@ -3766,4 +3855,644 @@ function startTutorial() {
         tutorial = null;
     });
     tutorial.start();
+}
+
+/**
+ * Show a floating window with FID data
+ * @param {Float32Array|Float64Array|Int32Array} fid_data 
+ * @param {number} cutoff_index 
+ * @param {Function} [confirm_callback] - If provided, enables editing cutoff and adds confirm button. Callback(new_cutoff).
+ */
+function show_fid_window(fid_data, cutoff_index, confirm_callback) {
+    let window_id = "fid_float_window";
+    let win = document.getElementById(window_id);
+
+    // Mutable state for cutoff (visual and logical)
+    let currentCutoffIndex = cutoff_index;
+    /**
+     * If cutoff_index is 0, it means use full data.
+     * So default the visual cutoff line to the end of the data.
+     */
+    if (currentCutoffIndex === 0) {
+        currentCutoffIndex = fid_data.length;
+    }
+
+    // Create data array for D3. 
+    // fid_data is interleaved real/imag. We plot Real part.
+    // X axis: number of points (pairs).
+    const plotDataReal = [];
+
+    // Simple downsampling for performance
+    let jump = 1;
+    if (fid_data.length > 20000) jump = 2;
+    if (fid_data.length > 40000) jump = 4;
+
+    for (let i = 0; i < fid_data.length; i += 2 * jump) {
+        let xVal = i / 2;
+        plotDataReal.push({ x: xVal, y: fid_data[i] });
+    }
+
+    if (!win) {
+        // Create window
+        win = document.createElement("div");
+        win.id = window_id;
+        win.style.cssText = "position:fixed; top:10%; right:10%; width:600px; height:400px; background:white; border:1px solid #ccc; box-shadow:0 0 10px rgba(0,0,0,0.5); z-index:1000; display:flex; flex-direction:column;";
+
+        let header = document.createElement("div");
+        header.id = window_id + "_header"; // Assign ID for easier selection later
+        header.style.cssText = "background:#eee; padding:5px; cursor:move; display:flex; justify-content:space-between; align-items:center;";
+        // InnerHTML will be populated below to handle dynamic button
+
+        // Drag logic
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+        header.onmousedown = function (e) {
+            // Prevent drag if clicking buttons
+            if (e.target.tagName === 'BUTTON') return;
+
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = win.offsetLeft;
+            initialTop = win.offsetTop;
+
+            function onMouseMove(e) {
+                if (isDragging) {
+                    win.style.left = (initialLeft + e.clientX - startX) + "px";
+                    win.style.top = (initialTop + e.clientY - startY) + "px";
+                    win.style.right = "auto"; // Clear right style if moving from right
+                }
+            }
+
+            function onMouseUp() {
+                isDragging = false;
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        win.appendChild(header);
+
+        let body = document.createElement("div");
+        body.className = "fid-body";
+        body.style.cssText = "flex:1; width:100%; height:100%; overflow:hidden;";
+        body.id = "fid_plot_div";
+        win.appendChild(body);
+
+        document.body.appendChild(win);
+    } else {
+        win.style.display = "flex";
+        let body = win.querySelector(".fid-body");
+        if (body.style.display === "none") {
+            body.style.display = "block";
+            win.style.height = "400px";
+            // Find the min button by class name
+            let minBtn = win.querySelector(".min-btn");
+            if (minBtn) minBtn.innerText = "-";
+        }
+    }
+
+    // Update Header Content (Title + Optional Confirm Button + Min Button)
+    let header = document.getElementById(window_id + "_header");
+    header.innerHTML = ""; // Clear existing content
+
+    let title = document.createElement("span");
+    title.innerText = "FID Data";
+    header.appendChild(title);
+
+    let controlsDiv = document.createElement("div");
+    controlsDiv.style.display = "flex";
+    controlsDiv.style.alignItems = "center";
+
+    if (confirm_callback) {
+        let confirmBtn = document.createElement("button");
+        confirmBtn.innerText = "Confirm Reduced Size";
+        confirmBtn.style.cssText = "font-size: 12px; padding: 2px 5px; margin-right: 5px; background-color: #ff9800; color: white; border: none; cursor: pointer;";
+        confirmBtn.onclick = function () {
+            confirm_callback(currentCutoffIndex);
+            // Optionally provide visual feedback or disable button
+            confirmBtn.innerText = "Confirmed!";
+            confirmBtn.disabled = true;
+            confirmBtn.style.backgroundColor = "#ccc";
+        };
+        controlsDiv.appendChild(confirmBtn);
+    }
+
+    // Re-create min button (since we cleared innerHTML)
+    let minBtn = document.createElement("button");
+    minBtn.innerText = "-";
+    minBtn.className = "min-btn"; // Add class for easier selection
+    minBtn.style.cssText = "padding:0 5px;";
+    minBtn.onclick = function () {
+        let body = win.querySelector(".fid-body");
+        if (body.style.display === "none") {
+            body.style.display = "block";
+            win.style.height = "400px";
+            minBtn.innerText = "-";
+        } else {
+            body.style.display = "none";
+            win.style.height = "auto";
+            minBtn.innerText = "+";
+        }
+    };
+    controlsDiv.appendChild(minBtn);
+
+    header.appendChild(controlsDiv);
+
+
+    // Clear previous plot
+    d3.select("#fid_plot_div").selectAll("*").remove();
+
+    // Draw Plot
+    const margin = { top: 20, right: 20, bottom: 30, left: 60 };
+    const width = 600 - margin.left - margin.right;
+    const height = 360 - margin.top - margin.bottom;
+
+    const svg = d3.select("#fid_plot_div")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleLinear()
+        .domain(d3.extent(plotDataReal, d => d.x))
+        .range([0, width]);
+
+    const y = d3.scaleLinear()
+        .domain(d3.extent(plotDataReal, d => d.y))
+        .range([height, 0]);
+
+    const xAxis = svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x));
+
+    const yAxis = svg.append("g")
+        .attr("class", "y-axis")
+        .call(d3.axisLeft(y).tickFormat(d3.format(".1e")));
+
+    svg.append("defs").append("clipPath")
+        .attr("id", "fid_clip")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+    const line = d3.line()
+        .x(d => x(d.x))
+        .y(d => y(d.y));
+
+    const pathReal = svg.append("path")
+        .datum(plotDataReal)
+        .attr("class", "line-real")
+        .attr("clip-path", "url(#fid_clip)")
+        .attr("fill", "none")
+        .attr("stroke", "steelblue")
+        .attr("stroke-width", 1.5)
+        .attr("d", line);
+
+
+
+    // Cutoff Line (Vertical line at currentCutoffIndex)
+    const cutoffLine = svg.append("line")
+        .attr("x1", x(currentCutoffIndex / 2))
+        .attr("y1", 0)
+        .attr("x2", x(currentCutoffIndex / 2))
+        .attr("y2", height)
+        .attr("stroke", "red")
+        .attr("stroke-width", 2)
+        .attr("stroke-dasharray", "5,5")
+        .attr("clip-path", "url(#fid_clip)");
+
+    // Label the cutoff location
+    const cutoffLabel = svg.append("text")
+        .attr("x", x(currentCutoffIndex / 2) + 5)
+        .attr("y", 20)
+        .attr("fill", "red")
+        .attr("clip-path", "url(#fid_clip)")
+        .text("Cutoff");
+
+    // Dynamic Label for numeric value (Top Right)
+    const cutoffValueText = svg.append("text")
+        .attr("x", width - 10)
+        .attr("y", 20)
+        .attr("text-anchor", "end")
+        .attr("font-size", "14px")
+        .attr("fill", "#333")
+        .text(`Size: ${currentCutoffIndex}`);
+
+    // --- Zoom Behavior ---
+
+    // Store original scales to re-scale from
+    const xOrig = x.copy();
+    const yOrig = y.copy();
+
+    // Functions to update chart
+    function updateChart() {
+        // Use the current domains of x and y (which are modified by zooms)
+        xAxis.call(d3.axisBottom(x));
+        yAxis.call(d3.axisLeft(y).tickFormat(d3.format(".1e")));
+
+        pathReal.attr("d", line);
+
+        const cx = x(currentCutoffIndex / 2);
+
+        cutoffLine
+            .attr("x1", cx)
+            .attr("x2", cx);
+
+        cutoffLabel.attr("x", cx + 5);
+        cutoffValueText.text(`Size: ${currentCutoffIndex}`);
+
+        if (confirm_callback) {
+            // Update drag handle position
+            svg.select(".cutoff-drag-handle")
+                .attr("x", cx - 5);
+        }
+    }
+
+    // X-Zoom (Plot Area)
+    const zoomX = d3.zoom()
+        .scaleExtent([0.5, 50]) // Limit zoom
+        .translateExtent([[0, 0], [width, height]]) // Limit pan
+        .extent([[0, 0], [width, height]])
+        .on("zoom", (event) => {
+            const newX = event.transform.rescaleX(xOrig);
+            x.domain(newX.domain());
+            updateChart();
+        });
+
+    // Y-Zoom (Y-Axis Area)
+    const zoomY = d3.zoom()
+        .scaleExtent([0.5, 50])
+        // .translateExtent... for Y?
+        .on("zoom", (event) => {
+            const newY = event.transform.rescaleY(yOrig);
+            y.domain(newY.domain());
+            updateChart();
+        });
+
+    // Rect for Main Plot (X Zoom/Pan)
+    svg.append("rect")
+        .attr("class", "zoom-x-box")
+        .attr("width", width)
+        .attr("height", height)
+        .style("fill", "none")
+        .style("pointer-events", "all")
+        // Cursor indicating horizontal usage might be nice, or default
+        .call(zoomX);
+
+    // Rect for Y Axis (Y Zoom/Pan)
+    // Covers the left margin area. 
+    // The main Group 'svg' is translated by (margin.left, margin.top).
+    // So Y-axis is at x=0. Use x negative to cover margin.
+    // Width = margin.left, Height = height.
+    svg.append("rect")
+        .attr("class", "zoom-y-box")
+        .attr("x", -margin.left)
+        .attr("y", 0)
+        .attr("width", margin.left)
+        .attr("height", height)
+        .style("fill", "none")
+        .style("pointer-events", "all")
+        .style("cursor", "ns-resize") // Hint vertical zoom
+        .call(zoomY);
+
+    // Add Drag Behavior to Cutoff Line (if editable)
+    // Moved here to be AFTER zoom rects (z-index layering)
+    if (confirm_callback) {
+        cutoffLine.style("cursor", "ew-resize");
+
+        // Add a wider invisible rect for easier grabbing
+        const dragHandle = svg.append("rect")
+            .attr("class", "cutoff-drag-handle")
+            .attr("x", x(currentCutoffIndex / 2) - 5)
+            .attr("y", 0)
+            .attr("width", 10)
+            .attr("height", height)
+            .attr("fill", "transparent")
+            .style("cursor", "ew-resize")
+            .attr("clip-path", "url(#fid_clip)");
+
+        const dragBehavior = d3.drag()
+            .on("drag", function (event) {
+                // Get x coordinate within the 'g' element
+                let mx = event.x;
+                // Constrain within bounds (0, width)
+                mx = Math.max(0, Math.min(width, mx));
+
+                // Invert scale to get data value (which is index/2)
+                let val = x.invert(mx);
+
+                // Update currentCutoffIndex (value is index/2, so multiply by 2)
+                // Round to nearest even number, as FID points are interleaved (real/imaginary)
+                currentCutoffIndex = Math.floor(Math.round(val * 2) / 2) * 2;
+                // Ensure cutoff is within valid data range
+                currentCutoffIndex = Math.max(0, Math.min(fid_data.length - 2, currentCutoffIndex));
+
+                updateChart();
+            });
+
+        dragHandle.call(dragBehavior);
+    }
+}
+
+/**
+ * Detect signal end based on noise level and envelope decay.
+  * 1. Skip first 150 points (avoid filter artifacts).
+  * 2. Calculate envelope (max - min in window of ~N/16 or 4096).
+  * 3. Find rough end (drops below 1% of max).
+  * 4. Estimate noise in the tail (median of RMSD of segments).
+  *    - Method: Split into segments of length 32. Calculate StdDev (RMSD) for each.
+  *    - Noise Level = Median of these StdDevs.
+  * 5. Final cutoff: where envelope drops below max(6 * Noise, 0.001 * A0).
+  * 
+  * @param {Float32Array|Float64Array|Int32Array} fid_data - The FID data.
+  * @returns {number} The index where the signal ends.
+  */
+function detect_signal_end(fid_data) {
+    const N = fid_data.length;
+    if (N < 200) return N;
+
+    // 1. Parameters
+    const skip = 150;
+    const window_size = Math.max(1, Math.min(4096, Math.floor(N / 16)));
+
+    // 2. Envelope Extraction
+    let envelope_amp = []; // value
+    let envelope_idx = []; // original index
+
+    // Efficiency: For window_size 256, naive loop is OK.
+    for (let i = skip; i <= N - window_size; i++) {
+        let local_max = -Infinity;
+        let local_min = Infinity;
+        for (let j = 0; j < window_size; j++) {
+            const val = fid_data[i + j];
+            if (val > local_max) local_max = val;
+            if (val < local_min) local_min = val;
+        }
+        let amp = (local_max - local_min) * 0.5;
+        envelope_amp.push(amp);
+        envelope_idx.push(i);
+    }
+
+    if (envelope_amp.length === 0) return N;
+
+    // Estimate A0 (Max of envelope)
+    // To be robust, max of first chunk? Or global max of envelope?
+    // Envelope should be strictly decaying ideally, so max should be near start.
+    let A0 = 0;
+    for (let val of envelope_amp) {
+        if (val > A0) A0 = val;
+    }
+
+    if (A0 === 0) return N;
+
+    // 3. Rough End Definition (1%)
+    const thresh_1pct = 0.01 * A0;
+    let rough_end_idx_in_envelope = envelope_amp.length - 1;
+
+    // Find first point where it drops and stays low? Or just first point?
+    // "use 1% to define end of signal"
+    for (let k = 0; k < envelope_amp.length; k++) {
+        if (envelope_amp[k] < thresh_1pct) {
+            rough_end_idx_in_envelope = k;
+            break;
+        }
+    }
+
+    const noise_start_idx = envelope_idx[rough_end_idx_in_envelope];
+
+    // 4. Noise Estimation (Median of RMSDs of 32-pt segments)
+    const segment_len = 32;
+    let std_devs = [];
+
+    // Iterate from noise_start_idx to N
+    // We iterate on the raw data
+    const noise_region_len = N - noise_start_idx;
+    const n_segments = Math.floor(noise_region_len / segment_len);
+
+    if (n_segments > 0) {
+        for (let s = 0; s < n_segments; s++) {
+            const seg_start = noise_start_idx + s * segment_len;
+
+            // Calc Mean
+            let sum = 0;
+            for (let i = 0; i < segment_len; i++) sum += fid_data[seg_start + i];
+            let mean = sum / segment_len;
+
+            // Calc Variance
+            let sum_sq_diff = 0;
+            for (let i = 0; i < segment_len; i++) {
+                const diff = fid_data[seg_start + i] - mean;
+                sum_sq_diff += diff * diff;
+            }
+            // StdDev (Population or Sample? Usually Sample n-1, but for noise n is fine too. Let's use n-1)
+            let variance = sum_sq_diff / (segment_len - 1);
+            std_devs.push(Math.sqrt(variance));
+        }
+
+        // Median
+        std_devs.sort((a, b) => a - b);
+        var noise_level = std_devs[Math.floor(std_devs.length / 2)];
+    } else {
+        // Fallback if region is too small: just std of whatever is there
+        noise_level = 0; // Or handle gracefully
+    }
+
+    // 5. Final Cutoff
+    // "reach 6 times noise level or 0.1% of init"
+    // "whichever is short" -> The value that is HIGHER (reached earlier).
+    const limit = Math.max(6 * noise_level, 0.001 * A0);
+
+    let final_cutoff_idx = N; // Default to end
+
+    for (let k = 0; k < envelope_amp.length; k++) {
+        if (envelope_amp[k] < limit) {
+            final_cutoff_idx = envelope_idx[k];
+            break;
+        }
+    }
+
+    return final_cutoff_idx;
+}
+
+/**
+ * Helper to parse FID data from buffer
+ * @param {ArrayBuffer} fid_buffer 
+ * @param {string} acquisition_string 
+ * @returns {Int32Array|Float64Array}
+ */
+function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
+    let dtypa = 0; // Default Int32
+    let bytorda = 0; // Default Little Endian
+
+    const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
+    if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
+
+    const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
+    if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
+
+    // Determine system endianness
+    const isLittleEndian = (function () {
+        const buffer = new ArrayBuffer(2);
+        new DataView(buffer).setInt16(0, 256, true);
+        return new Int16Array(buffer)[0] === 256;
+    })();
+
+    const fileIsLittleEndian = (bytorda === 0);
+    const swapBytes = (isLittleEndian !== fileIsLittleEndian);
+
+    let fid_data = null;
+
+    if (dtypa === 2) { // Float64
+        if (swapBytes) {
+            const dv = new DataView(fid_buffer);
+            fid_data = new Float64Array(fid_buffer.byteLength / 8);
+            for (let i = 0; i < fid_data.length; i++) {
+                fid_data[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
+            }
+        } else {
+            fid_data = new Float64Array(fid_buffer);
+        }
+    } else { // Int32
+        if (swapBytes) {
+            const dv = new DataView(fid_buffer);
+            fid_data = new Int32Array(fid_buffer.byteLength / 4);
+            for (let i = 0; i < fid_data.length; i++) {
+                fid_data[i] = dv.getInt32(i * 4, fileIsLittleEndian);
+            }
+        } else {
+            fid_data = new Int32Array(fid_buffer);
+        }
+    }
+    return fid_data;
+}
+
+/**
+ * Minimize/Maximize a reconstructed spectrum entry
+ * @param {HTMLElement} button - The minimization button ([+] / [-])
+ * @param {number} index - The index of the spectrum
+ */
+function minimize_reconstructed_spectrum(button, index) {
+    const isMinimized = button.innerText === "+";
+    const container = document.getElementById("spectrum-".concat(index));
+    if (!container) return;
+
+    // The container is an LI. The actual content is in the first DIV child.
+    const div = container.getElementsByTagName("div")[0];
+    if (!div) return;
+
+    if (!isMinimized) {
+        // ACTION: MINIMIZE
+        // 1. Change button text
+        button.innerText = "+";
+
+        // 2. Hide all non-header elements
+        const children = div.children;
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (!child.classList.contains("header-control")) {
+                // Store original display style if needed? 
+                // Mostly they are inline or block. We just hide them.
+                // We use a custom attribute to mark them as hidden by minimizer
+                child.setAttribute("data-minimized-hidden", "true");
+                child.style.display = "none";
+            }
+        }
+
+        // Hide BR tags (they don't have classes)
+        // Since BRs are elements, they are covered by the loop above (no header-control class).
+
+        // Hide TextNodes? TextNodes are not in .children collection. 
+        // They remain visible. This might leave some stray text since we can't easily target them.
+
+        // 3. Hide Spectrum Trace
+        if (main_plot && typeof main_plot.update_visibility === 'function') {
+            main_plot.update_visibility(index, false);
+        }
+
+        // 4. Uncheck Peaks and Hide them
+        const showPicked = document.getElementById("show_peaks-".concat(index));
+        if (showPicked && showPicked.checked) {
+            showPicked.checked = false;
+            // Trigger hide logic
+            if (typeof show_hide_peaks === 'function') {
+                show_hide_peaks(index, 'picked', false);
+            }
+        }
+
+        const showFitted = document.getElementById("show_fitted_peaks-".concat(index));
+        if (showFitted && showFitted.checked) {
+            showFitted.checked = false;
+            // Trigger hide logic
+            if (typeof show_hide_peaks === 'function') {
+                show_hide_peaks(index, 'fitted', false);
+            }
+        }
+
+    } else {
+        // ACTION: MAXIMIZE
+        // 1. Change button text
+        button.innerText = "-";
+
+        // 2. Show hidden elements
+        const children = div.children;
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child.getAttribute("data-minimized-hidden") === "true") {
+                child.style.display = ""; // Restore default
+                child.removeAttribute("data-minimized-hidden");
+            }
+        }
+
+        // 3. Show Spectrum Trace
+        if (main_plot && typeof main_plot.update_visibility === 'function') {
+            main_plot.update_visibility(index, true);
+        }
+
+        // 4. Do NOT re-check peaks (as requested "automatically unchecked")
+    }
+}
+
+/**
+ * Helper function to exit reprocessing UI mode
+ * @param {number} index - The spectrum index
+ */
+function exit_reprocessing_ui(index) {
+    let button = document.getElementById("reprocess-".concat(index));
+    if (!button) return;
+
+    /**
+     * Undo hide of input fid files
+     */
+    document.getElementById("input_files").style.display = "flex";
+    /**
+     * Change button text back to "Reprocess"
+     */
+    button.innerText = "Reprocess";
+    /**
+     * Un-highlight the user option div
+     */
+    document.getElementById("input_options").style.backgroundColor = "white";
+    /**
+     * Show div "file_area" and "input_files" (of fid_file_area).
+     * Change the button "button_fid_process"text back to "Upload experimental files and process"
+     */
+    document.getElementById("file_area").style.display = "block";
+    document.getElementById("input_files").style.display = "flex";
+    document.getElementById("button_fid_process").value = "Upload experimental files and process";
+    current_reprocess_spectrum_index = -1;
+
+    /**
+     * Also reset the background color of the spectrum div
+     */
+    let spectrum_div = document.getElementById("spectrum-" + index);
+    if (spectrum_div) {
+        let div = spectrum_div.querySelector("div");
+        if (div) div.style.backgroundColor = ""; // Reset to default (or remove inline style)
+    }
 }

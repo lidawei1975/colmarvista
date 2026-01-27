@@ -68,12 +68,15 @@
 
                     <div class="input-section" id="input_options">
                         <span>
-                            <label for="spectral_width_direct">Reduce FID size to (in Bruker conversion, 0 means no
-                                reduction):</label>
-                            <input type="number" name="reduced_fid_size" id="reduced_fid_size" value="0" step="1">
-                            <label for="auto_reduced_fid_size">Auto</label>
-                            <input type="checkbox" name="auto_reduced_fid_size" id="auto_reduced_fid_size" value="yes"
-                                checked>
+                            <label>FID Size:</label>
+                            <input type="radio" name="fid_reduction_mode" id="fid_mode_full" value="full"> <label
+                                for="fid_mode_full">Full</label>
+                            <input type="radio" name="fid_reduction_mode" id="fid_mode_auto" value="auto" checked>
+                            <label for="fid_mode_auto">Auto</label>
+                            <input type="radio" name="fid_reduction_mode" id="fid_mode_confirm" value="auto_confirm">
+                            <label for="fid_mode_confirm">Auto & Confirm</label>
+                            <input type="radio" name="fid_reduction_mode" id="fid_mode_prev" value="prev" disabled>
+                            <label for="fid_mode_prev">Previous</label>
                         </span>
                         <span>
                             <label for="apodization_direct">Apodization function</label>

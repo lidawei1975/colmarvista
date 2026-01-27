@@ -92,7 +92,7 @@ class spectrum {
      */
     create_shallow_copy_wo_float32() {
         let new_spectrum = new Object();
-        for(var key in this) {
+        for (var key in this) {
             if (this.hasOwnProperty(key)) {
                 if (key === "header" || key === "raw_data" || key === "raw_data_ri" || key === "raw_data_ir" || key === "raw_data_ii") {
                     new_spectrum[key + "_length"] = this[key].length;
@@ -112,10 +112,10 @@ class spectrum {
         this.header[101] += delta_ppm * this.frq1;
         this.ref1 = this.header[101];
 
-         /**
-         * Update peaks as well if there are any
-         */
-         if (this.picked_peaks_object != null) {
+        /**
+        * Update peaks as well if there are any
+        */
+        if (this.picked_peaks_object != null) {
             this.picked_peaks_object.update_x_ppm_ref(delta_ppm);
         }
         if (this.fitted_peaks_object != null) {
@@ -294,7 +294,7 @@ class spectrum {
         this.header[24] = 2; //direct dimension is the second dimension
         this.header[25] = 1; //indirect dimension is the first dimension
 
-        
+
         this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
         this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
 
@@ -866,9 +866,9 @@ class spectrum {
         // Populate peak_map2 and peak_map3 for peak regions
         for (let i = 0; i < p1.length; i++) {
             let x_from = Math.round(p1[i] - this.wx * 1.5);
-            let x_to   = Math.round(p1[i] + this.wx * 1.5);
+            let x_to = Math.round(p1[i] + this.wx * 1.5);
             let y_from = Math.round(p2[i] - this.wy * 1.5) + 1;
-            let y_to   = Math.round(p2[i] + this.wy * 1.5) + 1;
+            let y_to = Math.round(p2[i] + this.wy * 1.5) + 1;
 
             if (x_from < 0) x_from = 0;
             if (x_to > this.n_direct) x_to = this.n_direct;
@@ -1009,7 +1009,7 @@ class spectrum {
             if (max1 - min1 < 3 || max2 - min2 < 3) continue;
 
             const xydim = (max1 - min1) * (max2 - min2);
-            const spect_parts = Array(this.nspect*xydim).fill(0);
+            const spect_parts = Array(this.nspect * xydim).fill(0);
             const aas = [];
             const xx = [], yy = [], sx = [], sy = [], gx = [], gy = [], ori_index = [], region_peak_cannot_move_flag = [];
 
@@ -1018,7 +1018,7 @@ class spectrum {
                 const stop = peak_segment_s[j][k];
                 for (let kk = begin; kk < stop; kk++) {
                     for (let kIdx = 0; kIdx < this.nspect; kIdx++) {
-                        spect_parts[kIdx*xydim+(kk - min1) * (max2 - min2) + (j - min2)] =
+                        spect_parts[kIdx * xydim + (kk - min1) * (max2 - min2) + (j - min2)] =
                             this.raw_data[kk + j * this.n_direct];
                     }
 
@@ -1100,18 +1100,18 @@ class spectrum {
             p_intensity_all_spectra: p_intensity_all_spectra,
          */
 
-        if(this.fitted_peaks_object === null) {
+        if (this.fitted_peaks_object === null) {
             this.fitted_peaks_object = new cpeaks();
             /**
              * Add column_headers and column_formats to fitted_peaks_object 
              */
             this.fitted_peaks_object.column_headers = [
-                "INDEX",'X_AXIS', "Y_AXIS", 
-                "X_PPM", "Y_PPM", "XW","YW","HEIGHT","ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
+                "INDEX", 'X_AXIS', "Y_AXIS",
+                "X_PPM", "Y_PPM", "XW", "YW", "HEIGHT", "ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
                 "GROUP", "NROUND"
             ];
             this.fitted_peaks_object.column_formats = [
-                "%5d", "%9.4f", "9.4f", 
+                "%5d", "%9.4f", "9.4f",
                 "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%s", "%f", "%f", "%f", "%f",
                 "%5d", "%4d"
             ];
