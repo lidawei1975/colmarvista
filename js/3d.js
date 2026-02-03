@@ -30,6 +30,8 @@ var phase_correction_indirect_p1 = 0.0;
 var apodization_indirect = "";
 var zf_indirect = 0;
 
+var mathTool = new ldwmath();
+
 
 document.addEventListener('DOMContentLoaded', function () {
 
@@ -386,11 +388,253 @@ function refresh_current_view() {
     main_plot.draw();
 }
 
+// Helper to get element size
 function get_content_size(id) {
     let cs = document.getElementById(id);
     let width = cs.clientWidth;
     let height = cs.clientHeight;
     return { width: width, height: height };
+}
+
+// Global Zoom Functions
+function resetzoom() {
+    if (main_plot && main_plot.xscale_orig && main_plot.yscale_orig) {
+        main_plot.resetzoom(main_plot.xscale_orig, main_plot.yscale_orig);
+    }
+}
+
+function popzoom() {
+    if (main_plot) {
+        main_plot.popzoom();
+    }
+}
+
+function init_main_plot(first_spectrum) {
+    let cr = get_content_size("vis_parent");
+
+    // Ensure SVG and Canvas are sized correctly in the DOM
+    document.getElementById("visualization").setAttribute("width", cr.width);
+    document.getElementById("visualization").setAttribute("height", cr.height);
+
+    // We will resize canvas1 later after calculating margins
+    // document.getElementById("canvas1").setAttribute("width", cr.width);
+    // document.getElementById("canvas1").setAttribute("height", cr.height);
+
+    let plot_font_size = 24;
+    let plot_margin_left = 30 + plot_font_size * 5;
+    let plot_margin_bottom = 30 + plot_font_size * 3;
+    let plot_margin_top = 30;
+    let plot_margin_right = 30;
+
+    // Correctly size and position the WebGL canvas to align with the SVG plot area (inner margins)
+    let plot_width = cr.width - plot_margin_left - plot_margin_right;
+    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
+    let canvas_el = document.getElementById("canvas1");
+    canvas_el.style.position = "absolute";
+    canvas_el.style.left = plot_margin_left + "px";
+    canvas_el.style.top = plot_margin_top + "px";
+    canvas_el.setAttribute("width", plot_width);
+    canvas_el.setAttribute("height", plot_height);
+
+    // Prepare Plot Parameters
+    // Check Y-Axis direction. Standard NMR Y-axis (F1) is often High->Low (Top->Bottom).
+    // plotit maps domain[0] -> range[0] (Bottom), domain[1] -> range[1] (Top).
+    // If y_step is negative, yscale is [High, Low]. 
+    // High -> Bottom. Low -> Top. This is inverted for standard NMR.
+    // We want High->Top. So we need yscale to be [Low, High].
+
+
+
+    let y_start = first_spectrum.y_ppm_start;
+    let y_step = first_spectrum.y_ppm_step;
+
+    let input = {
+        WIDTH: cr.width,
+        HEIGHT: cr.height,
+        MARGINS: {
+            left: plot_margin_left,
+            top: plot_margin_top,
+            right: plot_margin_right,
+            bottom: plot_margin_bottom
+        },
+        fontsize: plot_font_size,
+
+        // X-Axis: High->Left is standard.
+        // If step < 0, xscale is [High, Low].
+        // range is [Left, Right].
+        // High->Left. This is CORRECT. Keep X as is.
+        x_ppm_start: first_spectrum.x_ppm_start,
+        x_ppm_step: first_spectrum.x_ppm_step,
+        n_direct: first_spectrum.n_direct,
+
+        // Y-Axis: Adjusted
+        y_ppm_start: y_start,
+        y_ppm_step: y_step,
+        n_indirect: first_spectrum.n_indirect,
+
+        drawto: "#visualization",
+        drawto_legend: "none",
+        drawto_peak: "#visualization",
+        drawto_contour: "canvas1",
+        size: [cr.width, cr.height],
+        PointData: [],
+        inter_window_channel: null
+    };
+
+    main_plot = new plotit(input);
+
+    // Store original scales for resetzoom
+    main_plot.xscale_orig = main_plot.xscale;
+    main_plot.yscale_orig = main_plot.yscale;
+
+    // Initial draw to setup SVG axes
+    main_plot.draw();
+}
+
+function draw_slice(index) {
+    if (index < 0 || index >= spectra_3d.length) return;
+
+    current_slice_index = index;
+    let s = spectra_3d[index];
+
+    // Update global hsqc_spectra (length 1)
+    hsqc_spectra = [s];
+    s.spectrum_index = 0; // It's always the 0-th element in this view
+
+    // Update Info Display
+    document.getElementById('slice_info').innerText = (index + 1) + " / " + spectra_3d.length;
+    document.getElementById('slice_filename').innerText = s.filename || ("Slice " + index);
+
+    // Check if we have contour data
+    if (s.cached_contour_pos) {
+        refresh_current_view();
+    } else {
+        // Clear the previous view to prevent "flashing" / ghosting
+        if (main_plot && main_plot.contour_plot && main_plot.contour_plot.gl) {
+            main_plot.contour_plot.gl.clearColor(1, 1, 1, 1);
+            main_plot.contour_plot.gl.clear(main_plot.contour_plot.gl.COLOR_BUFFER_BIT);
+        }
+
+        // Request Worker
+        request_contour_calculation(s, index, 0); // Positive
+    }
+
+    // Also request negative if not cached
+    if (!s.cached_contour_neg) {
+        request_contour_calculation(s, index, 1); // Negative
+    }
+}
+
+
+function request_contour_calculation(spectrum, index, sign) {
+    // Mimic the message structure expected by contour.js
+    // contour.js reads: e.data.spectrum.levels, etc.
+
+    let spec_data = {
+        levels: (sign === 0) ? spectrum.levels : spectrum.negative_levels,
+        n_direct: spectrum.n_direct,
+        n_indirect: spectrum.n_indirect,
+        contour_sign: sign,
+        spectrum_type: "full",
+        spectrum_index: index, // Use actual slice index
+        spectrum_origin: -1
+    };
+
+    // Needs response_value (raw data)
+    // contour.js expects: e.data.response_value
+
+    my_contour_worker.postMessage({
+        response_value: spectrum.raw_data,
+        spectrum: spec_data
+    });
+}
+
+
+function Float32Concat(first, second) {
+    var firstLength = first.length,
+        result = new Float32Array(firstLength + second.length);
+    result.set(first);
+    result.set(second, firstLength);
+    return result;
+}
+
+function refresh_current_view() {
+    if (!main_plot) return;
+
+    let s = hsqc_spectra[0];
+    if (!s) return;
+
+    // Prepare arrays for set_data
+    // We construct arrays of length 1 (since we only show 1 spectrum)
+
+    let points_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
+    // Ensure it's a Float32Array
+    if (!(points_pos instanceof Float32Array)) {
+        points_pos = new Float32Array(points_pos);
+    }
+
+    let len_pos = s.cached_contour_pos ? [s.cached_contour_pos.levels_length] : [[]]; // Array of array
+    let poly_pos = s.cached_contour_pos ? [s.cached_contour_pos.polygon_length] : [[]]; // Array of array
+
+    let points_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
+    if (!(points_neg instanceof Float32Array)) {
+        points_neg = new Float32Array(points_neg);
+    }
+
+    let len_neg = s.cached_contour_neg ? [s.cached_contour_neg.levels_length] : [[]];
+    let poly_neg = s.cached_contour_neg ? [s.cached_contour_neg.polygon_length] : [[]];
+
+    let color_pos = [hexToRgb(s.spectrum_color)];
+    let color_neg = [hexToRgb(s.spectrum_color_negative)];
+
+    let lbs_pos = [0]; // Show all levels starting from index 0
+    let lbs_neg = [0];
+
+    let start_pos = [0];
+
+    // Concatenate points for single buffer requirement of myplot_webgl
+    let combined_points = Float32Concat(points_pos, points_neg);
+
+    // Negative start offset is length of positive points
+    let start_neg = [points_pos.length];
+
+    // Construct spectral_information for the plot
+    // setCamera uses this (line 154 of myplot_webgl.js)
+    let spectral_info = [{
+        x_ppm_start: s.x_ppm_start,
+        x_ppm_step: s.x_ppm_step,
+        y_ppm_start: s.y_ppm_start,
+        y_ppm_step: s.y_ppm_step,
+        x_ppm_ref: 0, // Assume 0 if not set
+        y_ppm_ref: 0
+    }];
+
+    // Set the data
+    main_plot.contour_plot.spectral_order = [0]; // Should draw index 0
+
+    main_plot.contour_plot.set_data(
+        spectral_info,
+        combined_points,
+        start_pos,
+        poly_pos,
+        len_pos,
+        color_pos,
+        lbs_pos,
+        start_neg,
+        poly_neg,
+        len_neg,
+        color_neg,
+        lbs_neg
+    );
+
+    // Explicitly sync camera to ensuring initial view is correct (Fixes "Zoom Once" issue)
+    let x_dom = main_plot.xRange.domain();
+    let y_dom = main_plot.yRange.domain();
+    main_plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], y_dom[0], y_dom[1]);
+
+    // Redraw only the WebGL scene, do not redraw the SVG axes (heavy and wipes WebGL instance)
+    main_plot.contour_plot.drawScene();
 }
 
 // Dummy functions to satisfy potential dependencies or event listeners

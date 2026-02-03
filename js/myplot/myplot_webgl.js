@@ -20,7 +20,7 @@ class webgl_contour_plot {
             zoom_y: 1,
         };
 
-       
+
         /**
          * wheel zoom global variables
          */
@@ -99,22 +99,30 @@ class webgl_contour_plot {
          */
         this.magnification_region_x = 0; //0: left, 1: right
         this.magnification_region_y = 1; //0: bottom, 1: top
+
+        this.levels_length = [];
+        this.contour_lbs = [];
+        this.spectral_order = [];
+        this.contour_lbs_negative = [];
+        this.levels_length_negative = [];
+        this.colors = [];
+        this.spectral_information = {};
     };
 
     /**
      * Set buffer data and draw the scene
      * @param {Float32Array} points
      */
-    set_data(spectral_information,points, points_start,polygon_length,levels_length,colors,contour_lbs,points_start_n,polygon_length_n,levels_length_n,colors_n,contour_lbs_n) {
-        
+    set_data(spectral_information, points, points_start, polygon_length, levels_length, colors, contour_lbs, points_start_n, polygon_length_n, levels_length_n, colors_n, contour_lbs_n) {
+
         this.spectral_information = spectral_information;
-        
+
         this.colors = colors;
         this.polygon_length = polygon_length;
         this.levels_length = levels_length;
         this.contour_lbs = contour_lbs;
         this.points_start = points_start;
-        
+
         this.colors_negative = colors_n;
         this.polygon_length_negative = polygon_length_n;
         this.levels_length_negative = levels_length_n;
@@ -129,7 +137,7 @@ class webgl_contour_plot {
      * Draw the scene.
      * @param {number} flag - 0: draw the contour plot, 1: draw and return the image data
      */
-    drawScene(flag = 0, flag_glass = false,center=[],mag_scale=10.0,mag_size=0.2 ) {
+    drawScene(flag = 0, flag_glass = false, center = [], mag_scale = 10.0, mag_size = 0.2) {
 
 
         this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
@@ -144,17 +152,16 @@ class webgl_contour_plot {
          * One spectrum at a time
          * # of spectra = this.levels_length.length = this.colors.length = this.spectral_information.length = this.contour_lbs.length = this.polygon_length.length
          */
-        for(var nn=0;nn<number_of_spectra;nn++)
-        {
+        for (var nn = 0; nn < number_of_spectra; nn++) {
             let n = this.spectral_order[nn];
             /**
              * setCamera first, using saved this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm
              * and this.spec_information
              */
-            let x = (this.x_ppm - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref)/this.spectral_information[n].x_ppm_step;
-            let x2 = (this.x2_ppm - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref)/this.spectral_information[n].x_ppm_step;
-            let y = (this.y_ppm - this.spectral_information[n].y_ppm_start  - this.spectral_information[n].y_ppm_ref)/this.spectral_information[n].y_ppm_step;
-            let y2 = (this.y2_ppm - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref)/this.spectral_information[n].y_ppm_step;
+            let x = (this.x_ppm - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
+            let x2 = (this.x2_ppm - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
+            let y = (this.y_ppm - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
+            let y2 = (this.y2_ppm - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
             this.setCamera(x, x2, y, y2);
 
             /**
@@ -179,30 +186,25 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            if(hsqc_spectra[n].visible == true)
-            {
-                for(var m=this.contour_lbs[n]; m < this.levels_length[n].length; m++)
-                {
+            if (hsqc_spectra[n].visible == true) {
+                for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
-                    if(m>0)
-                    {
-                        i_start = this.levels_length[n][m-1];
+                    if (m > 0) {
+                        i_start = this.levels_length[n][m - 1];
                     }
                     let i_stop = this.levels_length[n][m];
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
-                    for (var i = i_start; i < i_stop; i++)
-                    {   
+                    for (var i = i_start; i < i_stop; i++) {
                         this.gl.uniform4fv(this.colorLocation, this.colors[n]);
                         var primitiveType = this.gl.LINE_STRIP;
                         let point_start = 0;
-                        if(i>0)
-                        {
-                            point_start = this.polygon_length[n][i-1];
+                        if (i > 0) {
+                            point_start = this.polygon_length[n][i - 1];
                         }
                         let count = this.polygon_length[n][i] - point_start;
-                        let overlay_offset = this.points_start[n]/2;
+                        let overlay_offset = this.points_start[n] / 2;
                         this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
                     }
                 }
@@ -211,34 +213,28 @@ class webgl_contour_plot {
             /**
              * Draw the negative contour plot, one level at a time only if negative contour is available
              */
-            if(n >= this.contour_lbs_negative.length )
-            {
+            if (n >= this.contour_lbs_negative.length) {
                 continue;
             }
-            if(hsqc_spectra[n].visible == true)
-            {
-                for(var m=this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++)
-                {
+            if (hsqc_spectra[n].visible == true) {
+                for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
                     let i_start = 0;
-                    if(m>0)
-                    {
-                        i_start = this.levels_length_negative[n][m-1];
+                    if (m > 0) {
+                        i_start = this.levels_length_negative[n][m - 1];
                     }
                     let i_stop = this.levels_length_negative[n][m];
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
-                    for (var i = i_start; i < i_stop; i++)
-                    {   
+                    for (var i = i_start; i < i_stop; i++) {
                         this.gl.uniform4fv(this.colorLocation, this.colors_negative[n]);
                         var primitiveType = this.gl.LINE_STRIP;
                         let point_start = 0;
-                        if(i>0)
-                        {
-                            point_start = this.polygon_length_negative[n][i-1];
+                        if (i > 0) {
+                            point_start = this.polygon_length_negative[n][i - 1];
                         }
                         let count = this.polygon_length_negative[n][i] - point_start;
-                        let overlay_offset = this.points_start_negative[n]/2;
+                        let overlay_offset = this.points_start_negative[n] / 2;
                         this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
                     }
                 }
@@ -246,7 +242,7 @@ class webgl_contour_plot {
         }
 
         if (flag_glass == true) {
-            this.magnification_glass(center,mag_scale,mag_size);
+            this.magnification_glass(center, mag_scale, mag_size);
         }
 
         if (flag == 1) {
@@ -260,7 +256,7 @@ class webgl_contour_plot {
      * IMPORTANT: Not meant to be called directly. 
      * Use drawScene() instead, because all webGl drawing needs to be done un-interrupted
      */
-    magnification_glass(cursor_position,magnifying_factor,magnification_glass_size) {
+    magnification_glass(cursor_position, magnifying_factor, magnification_glass_size) {
         /**
          * Test magnification glass tool here.
          * At cursor_position (init is ppm), we will zoom in magnifying_factor
@@ -268,8 +264,8 @@ class webgl_contour_plot {
         /**
          * Step 1: get canvas location in pixel from ppm (cursor_position)
          */
-        let x_pixel = (cursor_position[0] - this.x_ppm)*this.gl.canvas.width/ (this.x2_ppm - this.x_ppm);
-        let y_pixel = (cursor_position[1] - this.y_ppm)*this.gl.canvas.height/ (this.y2_ppm - this.y_ppm);
+        let x_pixel = (cursor_position[0] - this.x_ppm) * this.gl.canvas.width / (this.x2_ppm - this.x_ppm);
+        let y_pixel = (cursor_position[1] - this.y_ppm) * this.gl.canvas.height / (this.y2_ppm - this.y_ppm);
 
         /**
          * If x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width  < 0, 
@@ -278,7 +274,7 @@ class webgl_contour_plot {
         if (x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width < 0) {
             this.magnification_region_x = 1;
         }
-        if(x_pixel + 1.1 * magnification_glass_size * this.gl.canvas.width > this.gl.canvas.width){
+        if (x_pixel + 1.1 * magnification_glass_size * this.gl.canvas.width > this.gl.canvas.width) {
             this.magnification_region_x = 0;
         }
         if (y_pixel - 1.1 * magnification_glass_size * this.gl.canvas.height < 0) {
@@ -291,29 +287,29 @@ class webgl_contour_plot {
         /**
          * Get magnification glass view center ppm
          */
-        let x_ppm_center,y_ppm_center,x_scissor,y_scissor;
-        let x_width_scissor = magnification_glass_size*this.gl.canvas.width;
-        let y_height_scissor = magnification_glass_size*this.gl.canvas.height;
+        let x_ppm_center, y_ppm_center, x_scissor, y_scissor;
+        let x_width_scissor = magnification_glass_size * this.gl.canvas.width;
+        let y_height_scissor = magnification_glass_size * this.gl.canvas.height;
 
-        if(this.magnification_region_x == 0){
-            x_ppm_center =  -0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
-            x_scissor = x_pixel - magnification_glass_size*this.gl.canvas.width*1.1;
+        if (this.magnification_region_x == 0) {
+            x_ppm_center = -0.6 * magnification_glass_size * (this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel - magnification_glass_size * this.gl.canvas.width * 1.1;
         }
-        else{
-            x_ppm_center =  +0.6*magnification_glass_size*(this.x2_ppm - this.x_ppm) + cursor_position[0];
-            x_scissor = x_pixel + magnification_glass_size*this.gl.canvas.width*0.1;
+        else {
+            x_ppm_center = +0.6 * magnification_glass_size * (this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel + magnification_glass_size * this.gl.canvas.width * 0.1;
         }
-        if(this.magnification_region_y == 0){
-            y_ppm_center =  -0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
-            y_scissor = y_pixel - magnification_glass_size*this.gl.canvas.height*1.1;
+        if (this.magnification_region_y == 0) {
+            y_ppm_center = -0.6 * magnification_glass_size * (this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel - magnification_glass_size * this.gl.canvas.height * 1.1;
         }
-        else{
-            y_ppm_center =  +0.6*magnification_glass_size*(this.y2_ppm - this.y_ppm) + cursor_position[1];
-            y_scissor = y_pixel + magnification_glass_size*this.gl.canvas.height*0.1;
+        else {
+            y_ppm_center = +0.6 * magnification_glass_size * (this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel + magnification_glass_size * this.gl.canvas.height * 0.1;
         }
 
         this.gl.enable(this.gl.SCISSOR_TEST);
-        this.gl.scissor(x_scissor,y_scissor,x_width_scissor,y_height_scissor);
+        this.gl.scissor(x_scissor, y_scissor, x_width_scissor, y_height_scissor);
         this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to Gray
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
@@ -324,12 +320,12 @@ class webgl_contour_plot {
          * Step 3, get new ppm range, centered at cursor_position and zoom in by a factor of magnifying_factor
          * keep in mind this.x_ppm > this.x2_ppm and this.y_ppm > this.y2_ppm (NMR convention)
          */
-        let x_ppm_new = cursor_position[0] + (this.x_ppm -x_ppm_center) / magnifying_factor;
-        let x2_ppm_new = cursor_position[0] +  (this.x2_ppm - x_ppm_center) / magnifying_factor; 
-        let y_ppm_new =  cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor;
-        let y2_ppm_new =  cursor_position[1] +  (this.y2_ppm - y_ppm_center) / magnifying_factor;
+        let x_ppm_new = cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor;
+        let x2_ppm_new = cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor;
+        let y_ppm_new = cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor;
+        let y2_ppm_new = cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor;
 
-        
+
 
         /**
          * Draw the contour plot again, but only the center part
@@ -428,7 +424,7 @@ class webgl_contour_plot {
          */
         this.gl.disable(this.gl.SCISSOR_TEST);
     }
- 
+
     /**
      * Directly set this.camera position by calling this function.
      * This is useful when we want to zoom to a specific location, 
@@ -464,7 +460,7 @@ class webgl_contour_plot {
      * Set the camera according to ppm
      * Later in drawScene(), we will use this information to set the camera
      */
-    setCamera_ppm(x_ppm,x2_ppm,y_ppm,y2_ppm) {
+    setCamera_ppm(x_ppm, x2_ppm, y_ppm, y2_ppm) {
         this.x_ppm = x_ppm;
         this.x2_ppm = x2_ppm;
         this.y_ppm = y_ppm;
