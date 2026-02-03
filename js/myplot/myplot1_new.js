@@ -838,6 +838,7 @@ plotit.prototype.draw = function () {
     this.contour_plot = new webgl_contour_plot(this.drawto_contour);
 
     self.setup_axis_pan();
+    self.setup_axis_wheel();
 
     if (self.b_show_projection) {
         self.show_projection();
@@ -2231,3 +2232,84 @@ plotit.prototype.setup_axis_pan = function () {
 
     this.$vis.call(drag);
 };
+
+
+plotit.prototype.setup_axis_wheel = function () {
+    let self = this;
+
+    // Attach native wheel event to the SVG element node
+    // d3 selection .on("wheel", ...) might be easier but let's use node() to be sure about options like passive: false
+    let svgNode = this.$vis.node();
+
+    svgNode.addEventListener("wheel", function (event) {
+
+        // Check location
+        let x = event.offsetX;
+        let y = event.offsetY;
+
+        let isX = (y > self.HEIGHT - self.MARGINS.bottom);
+        let isY = (x < self.MARGINS.left);
+
+        if (!isX && !isY) {
+            return; // Not in axis region
+        }
+
+        event.preventDefault(); // Prevent page scroll
+
+        // Zoom Factor
+        let k = event.deltaY > 0 ? 1.1 : 0.9;
+
+        // Perform Zoom
+
+        // Determine Pivot Point (Cursor vs Center)
+        let pivot_x_pixel = x;
+        let pivot_y_pixel = y;
+
+        // If Double Zoom (Corner), use Viewer Center as Pivot
+        if (isX && isY) {
+            pivot_x_pixel = self.MARGINS.left + (self.WIDTH - self.MARGINS.left - self.MARGINS.right) / 2.0;
+            pivot_y_pixel = self.MARGINS.top + (self.HEIGHT - self.MARGINS.top - self.MARGINS.bottom) / 2.0;
+        }
+
+        if (isX) {
+            // Center zoom around Pivot PPM
+            let pivot_ppm = self.xRange.invert(pivot_x_pixel);
+            let current_domain = self.xscale;
+            let span = current_domain[1] - current_domain[0];
+            let new_span = span * k;
+
+            // Maintain relative position of pivot_ppm 
+            // PPM = Start + (Span * Ratio)
+            // Ratio = (PPM - Start) / Span
+            let ratio = (pivot_ppm - current_domain[0]) / span;
+
+            let new_start = pivot_ppm - (new_span * ratio);
+            let new_end = new_start + new_span;
+
+            self.xscale = [new_start, new_end];
+        }
+
+        if (isY) {
+            let pivot_ppm = self.yRange.invert(pivot_y_pixel);
+            let current_domain = self.yscale;
+            let span = current_domain[1] - current_domain[0];
+            let new_span = span * k;
+            let ratio = (pivot_ppm - current_domain[0]) / span;
+
+            let new_start = pivot_ppm - (new_span * ratio);
+            let new_end = new_start + new_span;
+
+            self.yscale = [new_start, new_end];
+        }
+
+        // Apply Updates
+        self.xRange.domain(self.xscale);
+        self.yRange.domain(self.yscale);
+
+        self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+        self.contour_plot.drawScene();
+        self.reset_axis();
+
+    }, { passive: false });
+};
+
