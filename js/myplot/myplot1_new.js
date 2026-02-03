@@ -837,6 +837,8 @@ plotit.prototype.draw = function () {
      */
     this.contour_plot = new webgl_contour_plot(this.drawto_contour);
 
+    self.setup_axis_pan();
+
     if (self.b_show_projection) {
         self.show_projection();
     }
@@ -2153,4 +2155,79 @@ plotit.prototype.handleLabelClick = function (event, target, isRotated) {
     input.on("blur", function () {
         saveAndClose();
     });
+};
+
+plotit.prototype.setup_axis_pan = function () {
+    let self = this;
+    let mode = ""; // "x", "y", or ""
+    let start_domain_x = [];
+    let start_domain_y = [];
+    let start_mouse = [];
+
+    // Temporary scales for calculating delta
+    let start_scale_x = null;
+    let start_scale_y = null;
+
+    let drag = d3.drag()
+        .on("start", function (event) {
+            // Check location. event.x, event.y are relative to the container ($vis)
+            let x = event.x;
+            let y = event.y;
+
+            // Define detection zones (Margins)
+            // Left Margin: x < MARGINS.left
+            // Bottom Margin: y > HEIGHT - MARGINS.bottom
+            if (y > self.HEIGHT - self.MARGINS.bottom) {
+                mode = "x";
+                start_scale_x = d3.scaleLinear().domain(self.xscale).range([self.MARGINS.left, self.WIDTH - self.MARGINS.right]);
+            } else if (x < self.MARGINS.left) {
+                mode = "y";
+                // Y Scale is inverted pixel-wise: Range [Bottom, Top]
+                start_scale_y = d3.scaleLinear().domain(self.yscale).range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top]);
+            } else {
+                mode = "";
+                return; // Do not consume if not in axis area
+            }
+
+            start_domain_x = self.xscale.slice();
+            start_domain_y = self.yscale.slice();
+            start_mouse = [x, y];
+        })
+        .on("drag", function (event) {
+            if (mode === "") return;
+
+            let x = event.x;
+            let y = event.y;
+
+            if (mode === "x") {
+                // Calculate PPM shift using the initial scale
+                let start_ppm = start_scale_x.invert(start_mouse[0]);
+                let curr_ppm = start_scale_x.invert(x);
+                let delta_ppm = start_ppm - curr_ppm;
+
+                self.xscale = [start_domain_x[0] + delta_ppm, start_domain_x[1] + delta_ppm];
+
+                // Update Range and View
+                self.xRange.domain(self.xscale);
+                // Update View
+                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+                self.contour_plot.drawScene();
+                self.reset_axis();
+            }
+            else if (mode === "y") {
+                let start_ppm = start_scale_y.invert(start_mouse[1]);
+                let curr_ppm = start_scale_y.invert(y);
+                let delta_ppm = start_ppm - curr_ppm;
+
+                self.yscale = [start_domain_y[0] + delta_ppm, start_domain_y[1] + delta_ppm];
+
+                self.yRange.domain(self.yscale);
+                // Update View
+                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+                self.contour_plot.drawScene();
+                self.reset_axis();
+            }
+        });
+
+    this.$vis.call(drag);
 };

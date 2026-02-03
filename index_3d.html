@@ -107,15 +107,18 @@
                             <input type="color" id="peak_color" value="#ff0000">
                         </div>
 
-                        <input type="radio" id="select_plot_1d_proj" name="select_plot_1d" value="projection" checked>
-                        <label for="select_plot_1d_proj">Projection</label>
-                        <input type="radio" id="select_plot_1d_cross" name="select_plot_1d" value="cross_section">
-                        <label for="select_plot_1d_cross">Cross section</label>
-                        <br><br>
+                        <div style="display:none">
+                            <input type="radio" id="select_plot_1d_proj" name="select_plot_1d" value="projection"
+                                checked>
+                            <label for="select_plot_1d_proj">Projection</label>
+                            <input type="radio" id="select_plot_1d_cross" name="select_plot_1d" value="cross_section">
+                            <label for="select_plot_1d_cross">Cross section</label>
+                            <br><br>
+                        </div>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="display: flex; flex-direction: row; gap: 10px;">
+                        <div style="display: none; flex-direction: row; gap: 10px;">
                             <!-- Empty div with size 200*200 -->
                             <div id="cross_section_empty" class="resizable_stack_invisible"
                                 style="width: 200px; height: 200px;">
@@ -136,7 +139,7 @@
                         <div style="display: flex; flex-direction: row; gap: 10px;">
                             <!-- On the left of the main plot, show vertical 1D cross section. Same height as 2D plot -->
                             <div id="cross_section_y" class="resizable_stack"
-                                style="position: relative;width:fit-content; height: fit-content;">
+                                style="display:none; position: relative;width:fit-content; height: fit-content;">
                                 <div id="cross_section_y_info" class="tooltip"
                                     style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
                                     p0 = <span id="p0_indirect">0</span>.<br>
