@@ -2,10 +2,20 @@
 <html lang="en">
 
 <head>
-    <title>Colmar Viewer 3D</title>
+    <title>COLMARvista 3D</title>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" type="text/css" href="colmarview.css">
 </head>
 
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TWNDSX3RVS"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+
+    gtag('config', 'G-TWNDSX3RVS');
+</script>
 
 <body>
 
@@ -14,85 +24,179 @@
     <div id="body">
 
         <span id="contour_message"></span>
+        <span id="webassembly_message"></span>
 
-        <div>
-            <h1>2D NMR spectra viewer in 3D</h1>
+        <div id="section1" style=" Padding: 10px; width: 100%">
+            <div>
+                <h1>COLMARvista 3D: 3D NMR Viewer</h1>
+                <h2>Load a 3D spectrum from a series of 2D .ft2 files (planes).</h2>
+            </div>
         </div>
 
-        <div id="canvas_container" class="resizable" style="width: 1200px; margin: 0 auto; text-align: center;">
-            <canvas id="canvas1"></canvas>
+        <div id="section2">
+
+            <div id="file_area" class="drop-area" style="width: 1200px;">
+                <h4>Upload 3D Spectrum (Series of 2D Planes):</h4>
+                <form id="ft2_file_form" action="" enctype="multipart/form-data">
+                    <label for="userfile">Select 2D spectral files (.ft2) representing the planes: </label>
+                    <input type="file" multiple id="userfile" accept=".ft2,.ft3,.ucsf"><br>
+                    <span class="information"> Files will be sorted alphabetically and stacked to form the 3D
+                        spectrum.</span><br>
+                    <input type="submit" id="button_ft2_process" value="Upload and Process Spectra"></br>
+                </form>
+            </div>
+
+            <div id="spectra_list" style=" Padding: 10px; width: 1200px; display:none;" class="drop-area-neighbor">
+                <!-- Hidden list, used by myplot if needed, or we might not use it -->
+                <ol id="spectra_list_ol" type="1"></ol>
+            </div>
+
+            <!-- Slice Control -->
+            <div id="slice_control_area" class="drop-area-neighbor"
+                style="width: 1200px; padding: 10px; display: none;">
+                <label for="slice_slider" style="font-size: 1.2em; font-weight: bold;">Z-Plane (Slice): </label>
+                <button id="prev_slice">&lt;</button>
+                <input type="range" id="slice_slider" min="0" max="0" value="0"
+                    style="width: 500px; vertical-align: middle;">
+                <button id="next_slice">&gt;</button>
+                <span id="slice_info" style="font-size: 1.2em; font-weight: bold; margin-left: 10px;">0 / 0</span>
+                <span id="slice_filename" style="margin-left: 20px; font-style: italic;"></span>
+            </div>
+
+            <div class="flex-container" id="main_plot_area" style="display:none;">
+
+                <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
+
+                    <div>
+                        <strong>Control:</strong>
+                        <button onclick="resetzoom()">Reset all Zoom</button>
+                        <button onclick="popzoom()">Zoom Back</button>
+
+                        <label for="plot_font_size">Plot font size: </label>
+                        <input type="number" id="plot_font_size" value="24" min="12" max="72">
+
+                        <button onclick="download_plot()">Download plot</button>
+                        <br>
+
+                        <label for="peak_size">Peak size: </label>
+                        <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
+                        <input type="checkbox" id="filled_peaks" checked>
+                        <label for="filled_peaks"> Filled peaks</label>
+
+                        <input type="checkbox" id="show_peak_label">
+                        <label for="show_peak_label"> Show peak label</label>
+
+                        <!-- Required by myplot1_new.js logic if checkboxes exist -->
+                        <div style="display:none">
+                            <input type="checkbox" id="allow_brush_to_remove" disabled>
+                            <input type="checkbox" id="allow_drag_and_drop" disabled>
+                            <input type="checkbox" id="allow_click_to_add_peak" disabled>
+                            <input type="checkbox" id="show_pseudo3d_peaks" disabled>
+                            <input type="checkbox" id="enable_magnifying_glass">
+                            <input type="checkbox" id="pause_cursor">
+                            <input type="checkbox" id="right_click" checked>
+                            <input type="number" id="magnifying_glass_size" value="40">
+                            <input type="number" id="magnifying_glass_ratio" value="10.0">
+                            <input type="number" id="min_distance" value="40">
+                            <input type="number" id="max_distance" value="80">
+                            <input type="number" id="repulsive_force" value="100">
+                            <input type="number" id="peak_label_size" value="24">
+                            <select name="labels" id="labels">
+                                <option value="ASS">ASS</option>
+                            </select>
+                            <input type="color" id="peak_color" value="#ff0000">
+                        </div>
+
+                        <input type="radio" id="select_plot_1d_proj" name="select_plot_1d" value="projection" checked>
+                        <label for="select_plot_1d_proj">Projection</label>
+                        <input type="radio" id="select_plot_1d_cross" name="select_plot_1d" value="cross_section">
+                        <label for="select_plot_1d_cross">Cross section</label>
+                        <br><br>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; flex-direction: row; gap: 10px;">
+                            <!-- Empty div with size 200*200 -->
+                            <div id="cross_section_empty" class="resizable_stack_invisible"
+                                style="width: 200px; height: 200px;">
+                            </div>
+
+                            <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->
+                            <div id="cross_section_x" class="resizable_stack"
+                                style="position: relative; width:fit-content; height: fit-content;">
+                                <div id="cross_section_x_info" class="tooltip"
+                                    style="display:none; position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
+                                    p0 = <span id="p0_direct">0</span>. Anchor = <span id="anchor_direct">not
+                                        set</span>. P1 = <span id="p1_direct">0</span>.
+                                </div>
+                                <svg id="cross_section_svg_x" width="1200" height="200"></svg>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; flex-direction: row; gap: 10px;">
+                            <!-- On the left of the main plot, show vertical 1D cross section. Same height as 2D plot -->
+                            <div id="cross_section_y" class="resizable_stack"
+                                style="position: relative;width:fit-content; height: fit-content;">
+                                <div id="cross_section_y_info" class="tooltip"
+                                    style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
+                                    p0 = <span id="p0_indirect">0</span>.<br>
+                                    Anchor = <span id="anchor_indirect">not set</span>.<br>
+                                    P1 = <span id="p1_indirect">0</span>.
+                                </div>
+                                <svg id="cross_section_svg_y" width="200" height="800"></svg>
+                            </div>
+
+                            <!-- This is the main 2D plot -->
+                            <div id="vis_parent" class="resizable"
+                                style="position: relative; width: 1200px; height: 800px;">
+                                <div id="information_bar" class="tooltip"
+                                    style="position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
+                                    <span id="infor">Information</span>
+                                </div>
+                                <div id="canvas_parent" style="position: absolute; top: 0px; left: 0px; z-index: 1;">
+                                    <canvas id="canvas1" style="border:0px;"></canvas>
+                                </div>
+
+                                <div id="svg_parent" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
+                                    <svg id="visualization"></svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div style="clear: both">
-            <label for="rotation_x">Tilt</label>
-            <input type="range" id="rotation_x" min="-200" max="200" value="-45" step="1" />
-            <label for="rotation_z">Rotation</label>
-            <input type="range" id="rotation_z" min="0" max="360" value="0" step="1" />
-            <label for="scale_z">Scale Z</label>
-            <input type="range" id="scale_z" min="0.1" max="20" value="1" step="0.1" />
-            <label for="scale_y">Scale Y</label>
-            <input type="range" id="scale_y" min="0.2" max="5" value="1" step="0.1" />
+        <!-- Hidden pop up div -->
+        <div id="peak_information_div" class="popup_div" style="display: block">
+            <div id="pseudo3d_fitting_plot"></div>
         </div>
 
-        <div style="clear: both">
-            <label for="light_tilt">Light Angle</label>
-            <input type="range" id="light_tilt" min="-90" max="90" value="0" step="1" />
-            <label for="light_orientation">Light Orientation</label>
-            <input type="range" id="light_orientation" min="0" max="360" value="120" step="5" />
-            <br>
-            <label for="color_surface">Surface color</label>
-            <input type="color" id="color_surface" value="#ffd700" onchange="update_color(0)">
-            <label for="color_contour">Contour color</label>
-            <input type="color" id="color_contour" value="#0000ff" onchange="update_color(1)">
-            <button id="button_download" onclick="download_figure()">Download figure</button>
-            <br>
+        <!-- dummy elements to prevent JS errors if referenced by shared code -->
+        <div style="display:none;">
+            <input type="file" id="load_file">
+            <textarea id="log"></textarea>
+            <input type="file" id="pseudo3d_file">
+            <button id="button_download_fitted_peaks"></button>
+            <input type="file" id="assignment_file">
+            <input type="hidden" id="plot_group" value="1">
         </div>
 
-
-        <div id="file_area" class="drop-area" style="width: 1200px;">
-            <h4>Upload frequency domain spectra:</h4>
-            <form id="ft2_file_form" action="" enctype="multipart/form-data">
-                <label for="userfile">Frequency domain spectral file (.ft2) </label><input type="file"
-                    id="userfile"><br>
-                <fieldset class="fieldset-auto-width">
-                    <legend>3D plot options</legend>
-                    <input type="radio" id="smooth" name="plot_type" value="smooth" checked>
-                    <label for="surface">3D surface</label>
-                    <br>
-                    <input type="radio" id="terrace" name="plot_type" value="terrace">
-                    <label for="terrace">3D terrace</label>
-                    <br>
-                    <br>
-                </fieldset>
-
-                <fieldset class="fieldset-auto-width">
-                    <legend>Contour options</legend>
-                    <input type="radio" id="Logarithmic_Linear" name="contour_type" value="Logarithmic_Linear" checked>
-                    <label for="Logarithmic_Linear">Logarithmic-linear contour</label>
-                    <br>
-                    <input type="radio" id="Logarithmic" name="contour_type" value="Logarithmic">
-                    <label for="Logarithmic">Logarithmic contour</label>
-                    <br>
-                    <input type="radio" id="Linear" name="contour_type" value="Linear">
-                    <label for="Linear">Linear contour</label>
-                </fieldset>
-                <br>
-                <input type="submit" id="button_ft2_process" value="Upload and process spectra"></br>
-            </form>
-        </div>
-
-    </div>
-
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
-    <script type="text/javascript" src="js/ldwmath.js"></script>
-    <script type="text/javascript" src="js/webgl-utils.js"></script>
-    <script type="text/javascript" src="js/m3.js"></script>
-    <script type="text/javascript" src="js/m4.js"></script>
-    <script type="text/javascript" src="js/myplot/myplot_webgl_3d.js"></script>
-    <script type="text/javascript" src="js/peaks.js"></script>
-    <script type="text/javascript" src="js/spectrum.js"></script>
-    <script type="text/javascript" src="js/file_drop.js"></script>
-    <script type="text/javascript" src="js/index_3d.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+        <script type="text/javascript" src="js/webgl-utils.js"></script>
+        <script type="text/javascript" src="js/d3.7.min.js"></script>
+        <script type="text/javascript" src="js/ldwmath.js"></script>
+        <script type="text/javascript" src="js/m3.js"></script>
+        <script type="text/javascript" src="js/myplot/myplot_webgl.js"></script>
+        <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
+        <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
+        <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
+        <script type="text/javascript" src="js/peaks.js"></script>
+        <script type="text/javascript" src="js/spectrum.js"></script>
+        <script type="text/javascript" src="js/file_drop.js"></script>
+        <script type="text/javascript" src="js/make_table.js"></script>
+        <!-- Use 3d.js instead of nmrwebview.js -->
+        <script type="text/javascript" src="js/3d.js"></script>
     </div>
 </body>
 
