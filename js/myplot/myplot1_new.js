@@ -459,6 +459,24 @@ plotit.prototype.brushend = function (e) {
     this.$vis.select(".brush").call(this.brush.move, null);
 
     this.send_scales_to_other_window();
+
+    // Sync other plots based on which plot was zoomed
+    if (this.drawto === '#visualization') {
+        // Main XY plot - sync sliders and axes to XZ/YZ
+        if (typeof sync_sliders_to_center === 'function') {
+            sync_sliders_to_center();
+        }
+    } else if (this.drawto === '#visualization_xz') {
+        // XZ plot - sync to main and YZ
+        if (typeof sync_from_xz_plot === 'function') {
+            sync_from_xz_plot();
+        }
+    } else if (this.drawto === '#visualization_yz') {
+        // YZ plot - sync to main and XZ
+        if (typeof sync_from_yz_plot === 'function') {
+            sync_from_yz_plot();
+        }
+    }
 };
 
 plotit.prototype.send_scales_to_other_window = function () {
@@ -550,11 +568,28 @@ plotit.prototype.popzoom = function () {
         */
         this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
         this.contour_plot.drawScene();
-
         this.reset_axis();
         this.x_cross_section_plot.zoom_x(this.xscale);
         this.y_cross_section_plot.zoom_y(this.yscale);
         this.send_scales_to_other_window();
+
+        // Sync other plots based on which plot was zoomed
+        if (this.drawto === '#visualization') {
+            // Main XY plot - sync sliders and axes to XZ/YZ
+            if (typeof sync_sliders_to_center === 'function') {
+                sync_sliders_to_center();
+            }
+        } else if (this.drawto === '#visualization_xz') {
+            // XZ plot - sync to main and YZ
+            if (typeof sync_from_xz_plot === 'function') {
+                sync_from_xz_plot();
+            }
+        } else if (this.drawto === '#visualization_yz') {
+            // YZ plot - sync to main and XZ
+            if (typeof sync_from_yz_plot === 'function') {
+                sync_from_yz_plot();
+            }
+        }
     }
 };
 
@@ -1664,6 +1699,63 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
 
 }
 
+/**
+ * Draw persistent center lines (crosshairs) at the center of the plot.
+ * These are fixed reference lines like axes, independent of data.
+ */
+plotit.prototype.draw_center_lines = function () {
+    let self = this;
+    console.log("draw_center_lines called", self.$vis ? "SVG exists" : "NO SVG");
+    if (!self.$vis) return;
+
+    // Get plot dimensions
+    let plot_width = self.WIDTH - self.MARGINS.left - self.MARGINS.right;
+    let plot_height = self.HEIGHT - self.MARGINS.top - self.MARGINS.bottom;
+
+    console.log("Plot dimensions:", plot_width, "x", plot_height);
+
+    // Calculate center positions
+    let center_x = plot_width / 2;
+    let center_y = plot_height / 2;
+
+    console.log("Center position:", center_x, center_y);
+
+    // --- Draw Horizontal Line (at vertical center) ---
+    let hline = self.$vis.selectAll(".center-hline").data([null]);
+
+    hline.enter().append("line")
+        .attr("class", "center-hline")
+        .attr("clip-path", "url(#clip)")
+        .merge(hline)
+        .attr("x1", 0)
+        .attr("x2", plot_width)
+        .attr("y1", center_y)
+        .attr("y2", center_y)
+        .attr("stroke-width", 1.5)
+        .attr("stroke", "cyan")
+        .attr("stroke-dasharray", "5,5");
+
+    hline.exit().remove();
+
+    // --- Draw Vertical Line (at horizontal center) ---
+    let vline = self.$vis.selectAll(".center-vline").data([null]);
+
+    vline.enter().append("line")
+        .attr("class", "center-vline")
+        .attr("clip-path", "url(#clip)")
+        .merge(vline)
+        .attr("x1", center_x)
+        .attr("x2", center_x)
+        .attr("y1", 0)
+        .attr("y2", plot_height)
+        .attr("stroke-width", 1.5)
+        .attr("stroke", "cyan")
+        .attr("stroke-dasharray", "5,5");
+
+    vline.exit().remove();
+
+    console.log("Crosshairs drawn - check SVG for .center-hline and .center-vline elements");
+};
 
 /**
  * Draw peaks on the plot
