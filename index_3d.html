@@ -170,6 +170,51 @@
             </div>
         </div>
 
+        <!-- XZ and YZ Plane Views -->
+        <div class="row" style="margin-top: 20px;">
+            <!-- XZ Plot: Shares X axis with main plot -->
+            <div class="col-md-6" id="main_plot_area_xz"
+                style="display:flex; flex-direction:column; align-items: center;">
+                <h4>XZ Plane (Direct vs Z)</h4>
+
+                <div style="width: 80%; margin-bottom: 10px; text-align: center;">
+                    <label for="slider_xz" class="form-label">Y Slice: <span id="val_xz">0</span></label>
+                    <input type="range" class="form-range" id="slider_xz" style="width: 100%;">
+                </div>
+
+                <div id="vis_parent_xz" class="resizable"
+                    style="position: relative; width: 600px; height: 400px; border: 1px solid #ccc;">
+                    <div id="canvas_parent_xz" style="position: absolute; top: 0px; left: 0px; z-index: 1;">
+                        <canvas id="canvas_xz" style="border:0px;"></canvas>
+                    </div>
+                    <div id="svg_parent_xz" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
+                        <svg id="visualization_xz"></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- YZ Plot: Shares Y axis with main plot -->
+            <div class="col-md-6" id="main_plot_area_yz"
+                style="display:flex; flex-direction:column; align-items: center;">
+                <h4>YZ Plane (Indirect vs Z)</h4>
+
+                <div style="width: 80%; margin-bottom: 10px; text-align: center;">
+                    <label for="slider_yz" class="form-label">X Slice: <span id="val_yz">0</span></label>
+                    <input type="range" class="form-range" id="slider_yz" style="width: 100%;">
+                </div>
+
+                <div id="vis_parent_yz" class="resizable"
+                    style="position: relative; width: 400px; height: 600px; border: 1px solid #ccc;">
+                    <div id="canvas_parent_yz" style="position: absolute; top: 0px; left: 0px; z-index: 1;">
+                        <canvas id="canvas_yz" style="border:0px;"></canvas>
+                    </div>
+                    <div id="svg_parent_yz" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;">
+                        <svg id="visualization_yz"></svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Hidden pop up div -->
         <div id="peak_information_div" class="popup_div" style="display: block">
             <div id="pseudo3d_fitting_plot"></div>
