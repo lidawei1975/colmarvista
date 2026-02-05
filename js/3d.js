@@ -8,6 +8,93 @@ var main_plot = null;
 var my_contour_worker = null;
 var tooldiv = document.getElementById("information_bar");
 var zoom_on_call_function = null;
+
+// Function to download 3D region as text
+function download_region() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectra loaded.");
+        return;
+    }
+
+    let s0 = spectra_3d[0];
+
+    // Get Ranges from plots
+    // XY Plot (Direct vs Indirect)
+    if (!main_plot) return;
+    let x_dom = main_plot.xRange.domain(); // Direct
+    let y_dom = main_plot.yRange.domain(); // Indirect
+
+    // XZ Plot (defines Z range)
+    if (!main_plot_xz) {
+        alert("XZ plot not initialized.");
+        return;
+    }
+    let z_dom = main_plot_xz.yRange.domain(); // Z axis is Y-axis of XZ plot
+
+    // Calculate Indices
+    function get_indices(val_min, val_max, start, step, max_idx) {
+        let idx1 = Math.round((val_min - start) / step);
+        let idx2 = Math.round((val_max - start) / step);
+        let i_min = Math.min(idx1, idx2);
+        let i_max = Math.max(idx1, idx2);
+        i_min = Math.max(0, i_min);
+        i_max = Math.min(max_idx - 1, i_max);
+        return [i_min, i_max];
+    }
+
+    let [ix_min, ix_max] = get_indices(x_dom[0], x_dom[1], s0.x_ppm_start, s0.x_ppm_step, s0.n_direct);
+    let [iy_min, iy_max] = get_indices(y_dom[0], y_dom[1], s0.y_ppm_start, s0.y_ppm_step, s0.n_indirect);
+
+    // For Z index, we use Z params from spectrum
+    let [iz_min, iz_max] = get_indices(z_dom[0], z_dom[1], s0.z_ppm_start, s0.z_ppm_step, spectra_3d.length);
+
+    // console.log("Download Region:", 
+    //     "X:", ix_min, ix_max, 
+    //     "Y:", iy_min, iy_max, 
+    //     "Z:", iz_min, iz_max);
+
+    let content = [];
+    content.push(`# 3D Region Export`);
+    content.push(`# Z-Slices: ${iz_min} to ${iz_max} (Indices)`);
+    content.push(`# Y-Range: ${iy_min} to ${iy_max} (Indices)`);
+    content.push(`# X-Range: ${ix_min} to ${ix_max} (Indices)`);
+    content.push(`# Format: Matrix of size (Z_count * Y_count) rows x (X_count) columns`);
+    content.push(`# Loop order: Outer Loop Z, Inner Loop Y`);
+
+    // Header row with PPMs? Or just data?
+    // User requested "human readable text file". Matrix format.
+
+    for (let z = iz_min; z <= iz_max; z++) {
+        let s = spectra_3d[z];
+        if (!s || !s.raw_data) continue;
+
+        // s.raw_data is Float32Array. 
+        // Assuming row-major: index = y * n_direct + x
+
+        for (let y = iy_min; y <= iy_max; y++) {
+            let row_vals = [];
+            for (let x = ix_min; x <= ix_max; x++) {
+                let idx = y * s.n_direct + x;
+                if (idx < s.raw_data.length) {
+                    row_vals.push(s.raw_data[idx].toExponential(6));
+                } else {
+                    row_vals.push("0");
+                }
+            }
+            content.push(row_vals.join(" "));
+        }
+    }
+
+    let blob = new Blob([content.join("\n")], { type: "text/plain" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = "region_3d.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
 var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
 var current_slice_index = -1;
 
@@ -666,8 +753,12 @@ function sync_sliders_to_center() {
         let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
         val_yz.innerText = ppm_x.toFixed(3) + " ppm";
         refresh_yz_view();
-        update_3d_crosshairs(); // Ensure crosshairs update
+        refresh_yz_view();
     }
+
+    // Always update crosshairs because even if indices (PPM center) didn't change,
+    // the zoom scale might have changed, requiring new pixel coordinates.
+    update_3d_crosshairs();
 
     // Sync axes: XZ plot X-axis matches XY plot X-axis (Direct)
     if (main_plot_xz) {
