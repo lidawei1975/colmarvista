@@ -465,7 +465,9 @@ function draw_slice(index) {
     s.spectrum_index = 0; // It's always the 0-th element in this view
 
     // Update Info Display
-    document.getElementById('slice_info').innerText = (index + 1) + " / " + spectra_3d.length;
+    // Update Info Display
+    let z_ppm = (s.z_ppm_start !== undefined) ? (s.z_ppm_start + index * s.z_ppm_step).toFixed(3) : (index + 1);
+    document.getElementById('slice_info').innerText = z_ppm + " ppm (" + (index + 1) + "/" + spectra_3d.length + ")";
     document.getElementById('slice_filename').innerText = s.filename || ("Slice " + index);
 
     // Check if we have contour data
@@ -853,10 +855,10 @@ function init_ortho_plots(s) {
     }
 
 
-    let plot_font_size = 12;
-    let plot_margin_left = 60;
-    let plot_margin_top = 10;
-    let plot_margin_bottom = 30;
+    let plot_font_size = 24;
+    let plot_margin_left = 30 + plot_font_size * 5;
+    let plot_margin_bottom = 30 + plot_font_size * 3;
+    let plot_margin_top = 30;
     let plot_margin_right = 30;
 
     let margins = {
@@ -867,14 +869,25 @@ function init_ortho_plots(s) {
     };
 
     // Create Plot objects if not exist
-    // Create Plot objects if not exist
     if (!main_plot_xz) {
         let parent = document.getElementById("vis_parent_xz");
         let cr = parent.getBoundingClientRect();
 
+        let plot_width = cr.width - plot_margin_left - plot_margin_right;
+        let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
         let cvs = document.getElementById("canvas_xz");
         let svg = document.getElementById("visualization_xz");
-        if (cvs) { cvs.width = cr.width; cvs.height = cr.height; }
+
+        // Correctly position canvas
+        if (cvs) {
+            cvs.style.position = "absolute";
+            cvs.style.left = plot_margin_left + "px";
+            cvs.style.top = plot_margin_top + "px";
+            cvs.setAttribute("width", plot_width);
+            cvs.setAttribute("height", plot_height);
+        }
+
         if (svg) { svg.setAttribute("width", cr.width); svg.setAttribute("height", cr.height); }
 
         let input_xz = {
@@ -884,8 +897,8 @@ function init_ortho_plots(s) {
             fontsize: plot_font_size,
             x_ppm_start: s.x_ppm_start,      // Placeholder, updated in refresh
             x_ppm_step: s.x_ppm_step,
-            y_ppm_start: 1,
-            y_ppm_step: 1,
+            y_ppm_start: s.z_ppm_start,
+            y_ppm_step: s.z_ppm_step,
             n_direct: s.n_direct,
             n_indirect: spectra_3d.length,
             drawto: "#visualization_xz",
@@ -905,9 +918,21 @@ function init_ortho_plots(s) {
         let parent = document.getElementById("vis_parent_yz");
         let cr = parent.getBoundingClientRect();
 
+        let plot_width = cr.width - plot_margin_left - plot_margin_right;
+        let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
         let cvs = document.getElementById("canvas_yz");
         let svg = document.getElementById("visualization_yz");
-        if (cvs) { cvs.width = cr.width; cvs.height = cr.height; }
+
+        // Correctly position canvas
+        if (cvs) {
+            cvs.style.position = "absolute";
+            cvs.style.left = plot_margin_left + "px";
+            cvs.style.top = plot_margin_top + "px";
+            cvs.setAttribute("width", plot_width);
+            cvs.setAttribute("height", plot_height);
+        }
+
         if (svg) { svg.setAttribute("width", cr.width); svg.setAttribute("height", cr.height); }
 
         let input_yz = {
@@ -915,8 +940,8 @@ function init_ortho_plots(s) {
             HEIGHT: cr.height,
             MARGINS: margins,
             fontsize: plot_font_size,
-            x_ppm_start: 1,
-            x_ppm_step: 1,
+            x_ppm_start: s.z_ppm_start,
+            x_ppm_step: s.z_ppm_step,
             y_ppm_start: s.y_ppm_start,
             y_ppm_step: s.y_ppm_step,
             n_direct: spectra_3d.length,
@@ -968,9 +993,9 @@ function refresh_xz_view() {
     spec.n_indirect = spectra_3d.length;
     spec.x_ppm_start = base_spec.x_ppm_start;
     spec.x_ppm_step = base_spec.x_ppm_step;
-    // For Z axis (Y of this plot), use 1-based index
-    spec.y_ppm_start = 1;
-    spec.y_ppm_step = 1;
+    // For Z axis (Y of this plot), use Z PPM params
+    spec.y_ppm_start = base_spec.z_ppm_start;
+    spec.y_ppm_step = base_spec.z_ppm_step;
 
     spec.levels = base_spec.levels;
     spec.negative_levels = base_spec.negative_levels;
@@ -1019,9 +1044,9 @@ function refresh_yz_view() {
     spec.n_direct = spectra_3d.length; // Z is X axis
     spec.n_indirect = base_spec.n_indirect;
 
-    // For Z axis (Y of this plot), use 1-based index
-    spec.x_ppm_start = 1;
-    spec.x_ppm_step = 1;
+    // For Z axis (X of this plot), use Z PPM params
+    spec.x_ppm_start = base_spec.z_ppm_start;
+    spec.x_ppm_step = base_spec.z_ppm_step;
 
     spec.y_ppm_start = base_spec.y_ppm_start;
     spec.y_ppm_step = base_spec.y_ppm_step;
@@ -1164,7 +1189,7 @@ function update_3d_crosshairs() {
     // Calculate PPM values for current center indices
     let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
     let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-    let ppm_z = current_slice_index + 1; // Z-axis is 1-based index
+    let ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
 
     // Update Main Plot (XY)
     if (main_plot && typeof main_plot.draw_center_lines === 'function') {

@@ -344,8 +344,9 @@ class spectrum {
 
         this.header = new Float32Array(arrayBuffer, 0, 512);
 
-        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum
-        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
+        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (FDSPECNUM)
+        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum (FDSIZE)
+        this.n_indirect2 = this.header[15]; //size of indirect dimension of the input spectrum (FDF3SIZE)
 
         this.tp = this.header[221];
 
@@ -364,6 +365,7 @@ class spectrum {
          */
         this.datatype_direct = this.header[56];
         this.datatype_indirect = this.header[55];
+        this.datatype_indirect2 = this.header[50];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
@@ -382,11 +384,14 @@ class spectrum {
         else if (this.datatype_direct == 1 && this.datatype_indirect == 1) {
             console.log("Real data along both dimensions.");
         }
+        console.log("datatype_indirect2: ", this.datatype_indirect2);
+
         console.log("n_direct: ", this.n_direct);
         console.log("n_indirect: ", this.n_indirect);
 
         this.direct_ndx = this.header[24]; //must be 2
         this.indirect_ndx = this.header[25]; //must be 1 or 3
+        this.indirect_ndx2 = this.header[26]; //must be 1 or 3, not the same as indirect_ndx
         /**
          * direct_ndx must be 1, otherwise set error and return
          */
@@ -401,7 +406,17 @@ class spectrum {
             this.error = "Indirect dimension must be the first or third dimension";
             return result;
         }
-
+        /**
+         * indirect_ndx2 must be 1 or 3, not the same as indirect_ndx, otherwise set error and return
+         */
+        if (this.indirect_ndx2 !== 1 && this.indirect_ndx2 !== 3) {
+            this.error = "Indirect dimension must be the first or third dimension";
+            return result;
+        }
+        if (this.indirect_ndx === this.indirect_ndx2) {
+            this.error = "Indirect dimension must be the first or third dimension";
+            return result;
+        }
         /**
          * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
          * All are array of length 4
@@ -434,6 +449,9 @@ class spectrum {
         this.frq2 = this.frq[this.indirect_ndx - 1];
         this.ref1 = this.ref[this.direct_ndx - 1];
         this.ref2 = this.ref[this.indirect_ndx - 1];
+        this.sw3 = this.sw[this.indirect_ndx2 - 1];
+        this.frq3 = this.frq[this.indirect_ndx2 - 1];
+        this.ref3 = this.ref[this.indirect_ndx2 - 1];
 
 
         this.x_ppm_start = (this.ref1 + this.sw1) / this.frq1;
@@ -442,15 +460,20 @@ class spectrum {
         this.y_ppm_width = this.sw2 / this.frq2;
         this.x_ppm_step = -this.x_ppm_width / this.n_direct;
         this.y_ppm_step = -this.y_ppm_width / this.n_indirect;
+        this.z_ppm_start = (this.ref3 + this.sw3) / this.frq3;
+        this.z_ppm_width = this.sw3 / this.frq3;
+        this.z_ppm_step = -this.z_ppm_width / this.n_indirect2;
 
         /**
          * shift by half of the bin size because the contour plot is defined by the center of each bin
          */
         this.x_ppm_start -= this.x_ppm_width / this.n_direct / 2;
         this.y_ppm_start -= this.y_ppm_width / this.n_indirect / 2;
+        this.z_ppm_start -= this.z_ppm_width / this.n_indirect2 / 2;
 
         this.x_ppm_ref = 0.0;
         this.y_ppm_ref = 0.0;
+        this.z_ppm_ref = 0.0;
 
         const spectral_data = new Float32Array(arrayBuffer);
 

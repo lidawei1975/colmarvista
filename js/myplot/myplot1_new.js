@@ -1703,58 +1703,62 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
  * Draw persistent center lines (crosshairs) at the center of the plot.
  * These are fixed reference lines like axes, independent of data.
  */
-plotit.prototype.draw_center_lines = function () {
+plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
     let self = this;
-    console.log("draw_center_lines called", self.$vis ? "SVG exists" : "NO SVG");
+    // console.log("draw_center_lines called", self.$vis ? "SVG exists" : "NO SVG", ppm_x, ppm_y);
     if (!self.$vis) return;
 
-    // Get plot dimensions
-    let plot_width = self.WIDTH - self.MARGINS.left - self.MARGINS.right;
-    let plot_height = self.HEIGHT - self.MARGINS.top - self.MARGINS.bottom;
+    // Use current scales to determine drawing bounds
+    // Note: range() returns the pixel extent of the axis
+    let x_range = self.xRange.range();
+    let y_range = self.yRange.range();
 
-    console.log("Plot dimensions:", plot_width, "x", plot_height);
+    // Determine center position
+    let x_center, y_center;
 
-    // Calculate center positions
-    let center_x = plot_width / 2;
-    let center_y = plot_height / 2;
+    if (ppm_x !== undefined && ppm_y !== undefined && ppm_x !== null && ppm_y !== null) {
+        // Use provided PPM values
+        x_center = self.xRange(ppm_x);
+        y_center = self.yRange(ppm_y);
+    } else {
+        // Default to geometric center of the axis area
+        x_center = (x_range[0] + x_range[1]) / 2;
+        y_center = (y_range[0] + y_range[1]) / 2;
+    }
 
-    console.log("Center position:", center_x, center_y);
-
-    // --- Draw Horizontal Line (at vertical center) ---
+    // --- Draw Horizontal Line ---
     let hline = self.$vis.selectAll(".center-hline").data([null]);
 
     hline.enter().append("line")
         .attr("class", "center-hline")
         .attr("clip-path", "url(#clip)")
         .merge(hline)
-        .attr("x1", 0)
-        .attr("x2", plot_width)
-        .attr("y1", center_y)
-        .attr("y2", center_y)
+        .attr("x1", x_range[0])
+        .attr("x2", x_range[1])
+        .attr("y1", y_center)
+        .attr("y2", y_center)
         .attr("stroke-width", 1.5)
         .attr("stroke", "cyan")
         .attr("stroke-dasharray", "5,5");
 
     hline.exit().remove();
 
-    // --- Draw Vertical Line (at horizontal center) ---
+    // --- Draw Vertical Line ---
     let vline = self.$vis.selectAll(".center-vline").data([null]);
 
     vline.enter().append("line")
         .attr("class", "center-vline")
         .attr("clip-path", "url(#clip)")
         .merge(vline)
-        .attr("x1", center_x)
-        .attr("x2", center_x)
-        .attr("y1", 0)
-        .attr("y2", plot_height)
+        .attr("x1", x_center)
+        .attr("x2", x_center)
+        .attr("y1", y_range[0])
+        .attr("y2", y_range[1])
         .attr("stroke-width", 1.5)
         .attr("stroke", "cyan")
         .attr("stroke-dasharray", "5,5");
 
     vline.exit().remove();
-
-    console.log("Crosshairs drawn - check SVG for .center-hline and .center-vline elements");
 };
 
 /**
