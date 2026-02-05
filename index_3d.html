@@ -52,16 +52,7 @@
             </div>
 
             <!-- Slice Control -->
-            <div id="slice_control_area" class="drop-area-neighbor"
-                style="width: 1200px; padding: 10px; display: none;">
-                <label for="slice_slider" style="font-size: 1.2em; font-weight: bold;">Z-Plane (Slice): </label>
-                <button id="prev_slice">&lt;</button>
-                <input type="range" id="slice_slider" min="0" max="0" value="0"
-                    style="width: 500px; vertical-align: middle;">
-                <button id="next_slice">&gt;</button>
-                <span id="slice_info" style="font-size: 1.2em; font-weight: bold; margin-left: 10px;">0 / 0</span>
-                <span id="slice_filename" style="margin-left: 20px; font-style: italic;"></span>
-            </div>
+            <!-- Slice Control Moved to Main Plot Area -->
 
             <div class="flex-container" id="main_plot_area" style="display:none;">
 
@@ -150,7 +141,18 @@
                             </div>
 
                             <!-- This is the main 2D plot (XY) -->
-                            <div style="float:left; margin: 10px;">
+                            <div
+                                style="float:left; margin: 10px; display:flex; flex-direction:column; align-items: center;">
+                                <!-- Slice Control -->
+                                <div id="slice_control_area" class="drop-area-neighbor"
+                                    style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
+                                    <label for="slice_slider" style="font-weight: bold;">Z-Plane (Slice): </label>
+                                    <button id="prev_slice">&lt;</button>
+                                    <input type="range" id="slice_slider" min="0" max="0" value="0"
+                                        style="width: 300px; vertical-align: middle;">
+                                    <button id="next_slice">&gt;</button>
+                                    <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
+                                </div>
                                 <div id="vis_parent" class="resizable"
                                     style="position: relative; width: 600px; height: 600px;">
                                     <div id="information_bar" class="tooltip"
