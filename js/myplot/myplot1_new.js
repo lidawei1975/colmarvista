@@ -460,7 +460,14 @@ plotit.prototype.brushend = function (e) {
 
     this.send_scales_to_other_window();
 
-    // Sync other plots based on which plot was zoomed
+    // Sync other plots
+    this.sync_3d_views();
+};
+
+/**
+ * Synchronize this plot's view with other 3D plots
+ */
+plotit.prototype.sync_3d_views = function () {
     if (this.drawto === '#visualization') {
         // Main XY plot - sync sliders and axes to XZ/YZ
         if (typeof sync_sliders_to_center === 'function') {
@@ -573,23 +580,8 @@ plotit.prototype.popzoom = function () {
         this.y_cross_section_plot.zoom_y(this.yscale);
         this.send_scales_to_other_window();
 
-        // Sync other plots based on which plot was zoomed
-        if (this.drawto === '#visualization') {
-            // Main XY plot - sync sliders and axes to XZ/YZ
-            if (typeof sync_sliders_to_center === 'function') {
-                sync_sliders_to_center();
-            }
-        } else if (this.drawto === '#visualization_xz') {
-            // XZ plot - sync to main and YZ
-            if (typeof sync_from_xz_plot === 'function') {
-                sync_from_xz_plot();
-            }
-        } else if (this.drawto === '#visualization_yz') {
-            // YZ plot - sync to main and XZ
-            if (typeof sync_from_yz_plot === 'function') {
-                sync_from_yz_plot();
-            }
-        }
+        // Sync other plots
+        this.sync_3d_views();
     }
 };
 
@@ -642,6 +634,7 @@ plotit.prototype.zoomout = function () {
     this.x_cross_section_plot.zoom_x(this.xscale);
     this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
+    this.sync_3d_views();
 
 };
 
@@ -2419,7 +2412,37 @@ plotit.prototype.setup_axis_wheel = function () {
         self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
         self.contour_plot.drawScene();
         self.reset_axis();
+        self.sync_3d_views();
 
     }, { passive: false });
+};
+
+
+/**
+ * Pan the view to center on a specific PPM value for a given axis
+ * @param {string} axis - "x" or "y"
+ * @param {number} center_ppm - The new center PPM
+ */
+plotit.prototype.pan_to_center_ppm = function (axis, center_ppm) {
+    let self = this;
+    if (axis === "x") {
+        let span = self.xscale[1] - self.xscale[0];
+        let half_span = span / 2;
+        self.xscale = [center_ppm - half_span, center_ppm + half_span];
+        self.xRange.domain(self.xscale);
+    } else if (axis === "y") {
+        let span = self.yscale[1] - self.yscale[0];
+        let half_span = span / 2;
+        self.yscale = [center_ppm - half_span, center_ppm + half_span];
+        self.yRange.domain(self.yscale);
+    }
+
+    self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+    self.contour_plot.drawScene();
+    self.reset_axis();
+
+    // We do NOT call sync_3d_views() recursively if this was called FROM a sync event
+    // But here we assume this is called from a slider or internal logic.
+    self.sync_3d_views();
 };
 

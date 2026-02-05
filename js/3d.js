@@ -138,10 +138,57 @@ function handle_worker_message(e) {
 
         // Check if this is the currently displayed slice
         if (slice_idx === current_slice_index) {
-            refresh_current_view();
+            refresh_current_view(spec);
         }
 
         document.getElementById("contour_message").innerText = "";
+    }
+}
+
+function draw_slice(index, update_ortho_views = true) {
+    current_slice_index = index;
+    let s = spectra_3d[index];
+
+    // Update the global hsqc_spectra for the main plot
+    hsqc_spectra = [s];
+    s.visible = true; // Ensure visibility for WebGL renderer
+    s.spectrum_index = 0; // It's always the 0-th element in this view
+
+    if (main_plot) {
+        main_plot.local_spectra = hsqc_spectra;
+    }
+
+    // Update slice info display
+    document.getElementById('slice_info').innerText = `Slice ${index + 1}/${spectra_3d.length} - ${s.filename}`;
+
+    // Draw contour if we have it
+    if (s.cached_contour_pos && s.cached_contour_neg) { // Check for both positive and negative
+        refresh_current_view(s);
+        update_3d_crosshairs();
+    } else {
+        // Request it
+        document.getElementById("contour_message").innerText = "Loading contour...";
+        request_contour_calculation(s, index, 0); // Positive levels
+        request_contour_calculation(s, index, 1); // Negative levels
+
+        // Also update crosshairs immediately even if contour is loading
+        update_3d_crosshairs();
+    }
+
+    // Pan orthogonal plots to center on Z slice ONLY if requested (to avoid loops)
+    // This must happen REGARDLESS of whether the slice was cached or newly requested
+    if (update_ortho_views === true && s.z_ppm_start !== undefined && s.z_ppm_step !== undefined) {
+        let z_ppm = s.z_ppm_start + (index * s.z_ppm_step);
+
+        // XZ Plot: Z is Y-axis
+        if (main_plot_xz) {
+            main_plot_xz.pan_to_center_ppm('y', z_ppm);
+        }
+
+        // YZ Plot: Z is X-axis
+        if (main_plot_yz) {
+            main_plot_yz.pan_to_center_ppm('x', z_ppm);
+        }
     }
 }
 
@@ -454,41 +501,7 @@ function init_main_plot(first_spectrum) {
     init_ortho_plots(first_spectrum);
 }
 
-function draw_slice(index) {
-    if (index < 0 || index >= spectra_3d.length) return;
 
-    current_slice_index = index;
-    let s = spectra_3d[index];
-
-    // Update global hsqc_spectra (length 1)
-    hsqc_spectra = [s];
-    s.spectrum_index = 0; // It's always the 0-th element in this view
-
-    // Update Info Display
-    // Update Info Display
-    let z_ppm = (s.z_ppm_start !== undefined) ? (s.z_ppm_start + index * s.z_ppm_step).toFixed(3) : (index + 1);
-    document.getElementById('slice_info').innerText = z_ppm + " ppm (" + (index + 1) + "/" + spectra_3d.length + ")";
-    document.getElementById('slice_filename').innerText = s.filename || ("Slice " + index);
-
-    // Check if we have contour data
-    if (s.cached_contour_pos) {
-        refresh_current_view();
-    } else {
-        // Clear the previous view to prevent "flashing" / ghosting
-        if (main_plot && main_plot.contour_plot && main_plot.contour_plot.gl) {
-            main_plot.contour_plot.gl.clearColor(1, 1, 1, 1);
-            main_plot.contour_plot.gl.clear(main_plot.contour_plot.gl.COLOR_BUFFER_BIT);
-        }
-
-        // Request Worker
-        request_contour_calculation(s, index, 0); // Positive
-    }
-
-    // Also request negative if not cached
-    if (!s.cached_contour_neg) {
-        request_contour_calculation(s, index, 1); // Negative
-    }
-}
 
 
 function request_contour_calculation(spectrum, index, sign) {
@@ -523,11 +536,15 @@ function Float32Concat(first, second) {
     return result;
 }
 
-function refresh_current_view() {
+function refresh_current_view(spectrum_in) {
     if (!main_plot) return;
 
-    let s = hsqc_spectra[0];
+    let s = spectrum_in || hsqc_spectra[0];
     if (!s) return;
+
+    // console.log("refresh_current_view drawing slice:", current_slice_index, "filename:", s.filename);
+    // console.log("Has cached pos?", !!s.cached_contour_pos);
+
 
     // Prepare arrays for set_data
     // We construct arrays of length 1 (since we only show 1 spectrum)
@@ -598,6 +615,9 @@ function refresh_current_view() {
     main_plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], y_dom[0], y_dom[1]);
 
     // Redraw only the WebGL scene
+    if (main_plot.contour_plot.gl) {
+        main_plot.contour_plot.gl.clear(main_plot.contour_plot.gl.COLOR_BUFFER_BIT);
+    }
     main_plot.contour_plot.drawScene();
 }
 
@@ -635,6 +655,7 @@ function sync_sliders_to_center() {
         let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
         val_xz.innerText = ppm_y.toFixed(3) + " ppm";
         refresh_xz_view();
+        update_3d_crosshairs(); // Ensure crosshairs update
     }
 
     let sl_yz = document.getElementById("slider_yz");
@@ -645,24 +666,25 @@ function sync_sliders_to_center() {
         let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
         val_yz.innerText = ppm_x.toFixed(3) + " ppm";
         refresh_yz_view();
+        update_3d_crosshairs(); // Ensure crosshairs update
     }
 
-    // Sync axes: XZ plot X-axis matches XY plot X-axis
+    // Sync axes: XZ plot X-axis matches XY plot X-axis (Direct)
     if (main_plot_xz) {
-        console.log("Before sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
-        console.log("Syncing XZ X-axis from XY:", x_domain);
+        // console.log("Before sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
+        // console.log("Syncing XZ X-axis from XY:", x_domain);
         main_plot_xz.xscale = [x_domain[0], x_domain[1]];
         main_plot_xz.xRange.domain(main_plot_xz.xscale);
-        console.log("After sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
-        console.log("Calling reset_axis on XZ plot");
+        // console.log("After sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
+        // console.log("Calling reset_axis on XZ plot");
         main_plot_xz.reset_axis();
 
         // Force axis redraw by explicitly calling axis generator
         if (main_plot_xz.$xAxis_svg) {
             main_plot_xz.$xAxis_svg.call(main_plot_xz.xAxis);
-            console.log("Explicitly updated XZ X-axis SVG");
+            // console.log("Explicitly updated XZ X-axis SVG");
         }
-        console.log("reset_axis completed");
+        // console.log("reset_axis completed");
 
         // Update WebGL camera if contour plot exists
         if (main_plot_xz.contour_plot) {
@@ -674,10 +696,10 @@ function sync_sliders_to_center() {
             main_plot_xz.contour_plot.drawScene();
         }
     } else {
-        console.log("main_plot_xz not available for sync");
+        // console.log("main_plot_xz not available for sync");
     }
 
-    // Sync axes: YZ plot Y-axis matches XY plot Y-axis
+    // Sync axes: YZ plot Y-axis matches XY plot Y-axis (Indirect)
     if (main_plot_yz) {
         main_plot_yz.yscale = [y_domain[0], y_domain[1]];
         main_plot_yz.yRange.domain(main_plot_yz.yscale);
@@ -701,10 +723,10 @@ function sync_sliders_to_center() {
 function sync_from_xz_plot() {
     if (!main_plot_xz || !main_plot || !main_plot_yz || !spectra_3d || spectra_3d.length === 0) return;
 
-    let x_domain = main_plot_xz.xRange.domain();
-    let z_domain = main_plot_xz.yRange.domain(); // Z-axis is Y in XZ plot
+    let x_domain = main_plot_xz.xRange.domain(); // X-axis (Direct)
+    let y_domain = main_plot_xz.yRange.domain(); // Y-axis (Z)
 
-    // Sync main plot X-axis
+    // Sync main plot X-axis (Direct)
     main_plot.xscale = [x_domain[0], x_domain[1]];
     main_plot.xRange.domain(main_plot.xscale);
     main_plot.reset_axis();
@@ -715,15 +737,12 @@ function sync_from_xz_plot() {
         main_plot.contour_plot.drawScene();
     }
 
-    // Sync YZ plot Y-axis (shares Direct dimension with XZ X-axis)
-    main_plot_yz.yscale = [x_domain[0], x_domain[1]];
-    main_plot_yz.yRange.domain(main_plot_yz.yscale);
-
-    // Sync YZ plot X-axis (shares Z dimension with XZ Y-axis)
-    main_plot_yz.xscale = [z_domain[0], z_domain[1]];
+    // Sync YZ plot X-axis (Z) - Matches XZ plot Y-axis (Z)
+    main_plot_yz.xscale = [y_domain[0], y_domain[1]];
     main_plot_yz.xRange.domain(main_plot_yz.xscale);
-
     main_plot_yz.reset_axis();
+
+    // YZ Y-axis (Indirect) remains unchanged as XZ doesn't show Indirect dimension
 
     if (main_plot_yz.contour_plot) {
         main_plot_yz.contour_plot.setCamera_ppm(
@@ -733,9 +752,11 @@ function sync_from_xz_plot() {
         main_plot_yz.contour_plot.drawScene();
     }
 
-    // Update Z slider based on center of Z range
-    let center_z = (z_domain[0] + z_domain[1]) / 2;
-    let new_z_index = Math.round(center_z - 1); // Z is 1-based, index is 0-based
+    // Update Z slider based on center of Z range (which is Y-axis of XZ plot)
+    let s = spectra_3d[0];
+    let center_z_ppm = (y_domain[0] + y_domain[1]) / 2;
+    let new_z_index = Math.round((center_z_ppm - s.z_ppm_start) / s.z_ppm_step);
+
     new_z_index = Math.max(0, Math.min(spectra_3d.length - 1, new_z_index));
 
     if (new_z_index !== current_slice_index) {
@@ -749,10 +770,10 @@ function sync_from_xz_plot() {
 function sync_from_yz_plot() {
     if (!main_plot_yz || !main_plot || !main_plot_xz || !spectra_3d || spectra_3d.length === 0) return;
 
-    let y_domain = main_plot_yz.yRange.domain(); // Indirect dimension
-    let z_domain = main_plot_yz.xRange.domain(); // Z-axis is X in YZ plot
+    let x_domain = main_plot_yz.xRange.domain(); // X-axis (Z)
+    let y_domain = main_plot_yz.yRange.domain(); // Y-axis (Indirect)
 
-    // Sync main plot Y-axis
+    // Sync main plot Y-axis (Indirect)
     main_plot.yscale = [y_domain[0], y_domain[1]];
     main_plot.yRange.domain(main_plot.yscale);
     main_plot.reset_axis();
@@ -763,13 +784,11 @@ function sync_from_yz_plot() {
         main_plot.contour_plot.drawScene();
     }
 
-    // Sync XZ plot X-axis (shares Indirect dimension with YZ Y-axis)
-    main_plot_xz.xscale = [y_domain[0], y_domain[1]];
-    main_plot_xz.xRange.domain(main_plot_xz.xscale);
-
-    // Sync XZ plot Y-axis (shares Z dimension with YZ X-axis)
-    main_plot_xz.yscale = [z_domain[0], z_domain[1]];
+    // Sync XZ plot Y-axis (Z) - Matches YZ plot X-axis (Z)
+    main_plot_xz.yscale = [x_domain[0], x_domain[1]];
     main_plot_xz.yRange.domain(main_plot_xz.yscale);
+
+    // XZ X-axis (Direct) remains unchanged as YZ doesn't show Direct dimension
 
     main_plot_xz.reset_axis();
 
@@ -781,9 +800,11 @@ function sync_from_yz_plot() {
         main_plot_xz.contour_plot.drawScene();
     }
 
-    // Update Z slider based on center of Z range
-    let center_z = (z_domain[0] + z_domain[1]) / 2;
-    let new_z_index = Math.round(center_z - 1); // Z is 1-based, index is 0-based
+    // Update Z slider based on center of Z range (which is X-axis of YZ plot)
+    let s = spectra_3d[0];
+    let center_z_ppm = (x_domain[0] + x_domain[1]) / 2;
+    let new_z_index = Math.round((center_z_ppm - s.z_ppm_start) / s.z_ppm_step);
+
     new_z_index = Math.max(0, Math.min(spectra_3d.length - 1, new_z_index));
 
     if (new_z_index !== current_slice_index) {
@@ -829,7 +850,12 @@ function init_ortho_plots(s) {
             current_y_index = parseInt(this.value);
             let ppm = s.y_ppm_start + (current_y_index * s.y_ppm_step);
             val_xz.innerText = ppm.toFixed(3) + " ppm";
+            update_3d_crosshairs();
             refresh_xz_view();
+
+            // Pan connected views to center on Y slice
+            if (main_plot) main_plot.pan_to_center_ppm('y', ppm);
+            if (main_plot_yz) main_plot_yz.pan_to_center_ppm('y', ppm);
         };
     }
 
@@ -850,7 +876,12 @@ function init_ortho_plots(s) {
             current_x_index = parseInt(this.value);
             let ppm = s.x_ppm_start + (current_x_index * s.x_ppm_step);
             val_yz.innerText = ppm.toFixed(3) + " ppm";
+            update_3d_crosshairs();
             refresh_yz_view();
+
+            // Pan connected views to center on X slice
+            if (main_plot) main_plot.pan_to_center_ppm('x', ppm);
+            if (main_plot_xz) main_plot_xz.pan_to_center_ppm('x', ppm);
         };
     }
 

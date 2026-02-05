@@ -129,6 +129,7 @@ class webgl_contour_plot {
         this.contour_lbs_negative = contour_lbs_n;
         this.points_start_negative = points_start_n;
 
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, points, this.gl.STATIC_DRAW);
     };
 
@@ -186,7 +187,7 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            if (hsqc_spectra[n].visible == true) {
+            if (true) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {
@@ -216,7 +217,7 @@ class webgl_contour_plot {
             if (n >= this.contour_lbs_negative.length) {
                 continue;
             }
-            if (hsqc_spectra[n].visible == true) {
+            if (true) {
                 for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {
