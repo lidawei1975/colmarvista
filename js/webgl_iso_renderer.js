@@ -28,6 +28,11 @@ class IsoSurfaceRenderer {
         this.rotationY = -45;
         this.distance = 3.0; // Zoom level (3.0 to fit unit cube comfortably)
 
+        // Panning (Camera space offset)
+        this.panX = 0;
+        this.panY = 0;
+
+
         this.setupInteraction();
 
         // --- Shader Source ---
@@ -106,14 +111,19 @@ class IsoSurfaceRenderer {
     }
 
     setupInteraction() {
+        // Prevent context menu on right click
+        this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
         this.canvas.addEventListener('mousedown', (e) => {
             this.isDragging = true;
             this.lastMouseX = e.clientX;
             this.lastMouseY = e.clientY;
+            this.mouseButton = e.button; // 0: Left, 2: Right
         });
 
         window.addEventListener('mouseup', () => {
             this.isDragging = false;
+            this.mouseButton = -1;
         });
 
         window.addEventListener('mousemove', (e) => {
@@ -123,9 +133,17 @@ class IsoSurfaceRenderer {
             this.lastMouseX = e.clientX;
             this.lastMouseY = e.clientY;
 
-            // Update rotation
-            this.rotationY += deltaX * 0.5;
-            this.rotationX += deltaY * 0.5;
+            if (this.mouseButton === 2) {
+                // Right Click: Pan
+                // Scale pan speed by distance to keep it feeling consistent
+                const panSpeed = 0.002 * this.distance;
+                this.panX += deltaX * panSpeed;
+                this.panY -= deltaY * panSpeed; // Y is inverted in screen space vs 3D
+            } else {
+                // Left Click: Rotate
+                this.rotationY += deltaX * 0.5;
+                this.rotationX += deltaY * 0.5;
+            }
 
             this.requestRender();
         });
@@ -137,7 +155,45 @@ class IsoSurfaceRenderer {
             this.distance = Math.max(0.1, this.distance);
             this.requestRender();
         });
+
+        // Touch support (basic)
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                this.isDragging = true;
+                this.lastMouseX = e.touches[0].clientX;
+                this.lastMouseY = e.touches[0].clientY;
+                this.mouseButton = 0; // Treat as rotate
+            }
+        }, { passive: false });
+
+        this.canvas.addEventListener('touchmove', (e) => {
+            if (this.isDragging && e.touches.length === 1) {
+                e.preventDefault();
+                const deltaX = e.touches[0].clientX - this.lastMouseX;
+                const deltaY = e.touches[0].clientY - this.lastMouseY;
+                this.lastMouseX = e.touches[0].clientX;
+                this.lastMouseY = e.touches[0].clientY;
+
+                this.rotationY += deltaX * 0.5;
+                this.rotationX += deltaY * 0.5;
+                this.requestRender();
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            this.isDragging = false;
+        });
     }
+
+    resetView() {
+        this.rotationX = 30;
+        this.rotationY = -45;
+        this.distance = 3.0;
+        this.panX = 0;
+        this.panY = 0;
+        this.requestRender();
+    }
+
 
     /**
      * Set the geometry data to render.
@@ -202,7 +258,7 @@ class IsoSurfaceRenderer {
             this.canvas.width, "x", this.canvas.height,
             "Objects:", this.objectData.length);
 
-        this.gl.clearColor(0.1, 0.1, 0.2, 1.0); // Dark Blue background (to see if rendering happens)
+        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // Light Gray background
         this.gl.disable(this.gl.DEPTH_TEST);
         this.gl.disable(this.gl.CULL_FACE); // Disable culling to see both sides
         this.gl.disable(this.gl.BLEND);
@@ -231,7 +287,13 @@ class IsoSurfaceRenderer {
         // Camera Orbit
         // Move camera back by 'distance', then rotate around origin
         let view = m4.identity();
-        view = m4.translate(view, 0, 0, -this.distance);
+        // Apply Panning (in screen space / camera space)
+        // We translate the world relative to camera by (panX, panY). 
+        // Or conceptually, move camera by (-panX, -panY).
+        // Since we are building the VIEW matrix (World -> Camera),
+        // Translating geometry by (panX, panY, -distance) works.
+        view = m4.translate(view, this.panX, this.panY, -this.distance);
+
         view = m4.xRotate(view, degToRad(this.rotationX));
         view = m4.yRotate(view, degToRad(this.rotationY));
 

@@ -229,13 +229,14 @@
                             <div id="main_plot_area_3d"
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>3D Visualization</h4>
+                                <button onclick="reset_3d_view()" style="margin-bottom: 5px;">Reset View</button>
 
                                 <div id="loading_3d" style="display:none; color: red; font-weight: bold;">
                                     Processing 3D Geometry...
                                 </div>
 
                                 <div id="vis_parent_3d" class="resizable"
-                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc; background: #000;">
+                                    style="position: relative; width: 1200px; height: 800px; border: 1px solid #ccc; background: #f0f0f0;">
                                     <canvas id="canvas_3d" style="width: 100%; height: 100%; display:block;"></canvas>
                                 </div>
                             </div>

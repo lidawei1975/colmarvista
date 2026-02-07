@@ -1514,6 +1514,28 @@ function visualize_3d() {
         centerMesh(meshSolid, upsampled.dims);
         centerMesh(meshWire, upsampled.dims);
 
+        // --- Generate Axis Cylinders ---
+        // Axes should span 0 to dx, 0 to dy, 0 to dz
+        // And then be centered using the SAME transform as the data.
+
+        let cylinderRadius = 2.0; // Fixed radius in data coordinates (might need adjustment based on scale)
+        // Actually, radius should be relative to maxDim to look consistent.
+        const maxDim = Math.max(dx, dy, dz);
+        cylinderRadius = maxDim * 0.01; // 1% of max dimension
+
+        // X Axis: 0 to dx
+        let meshAxisX = createCylinder({ x: 0, y: 0, z: 0 }, { x: dx, y: 0, z: 0 }, cylinderRadius);
+        // Y Axis: 0 to dy
+        let meshAxisY = createCylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: dy, z: 0 }, cylinderRadius);
+        // Z Axis: 0 to dz
+        let meshAxisZ = createCylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: dz }, cylinderRadius);
+
+        // Center axes
+        centerMesh(meshAxisX, upsampled.dims);
+        centerMesh(meshAxisY, upsampled.dims);
+        centerMesh(meshAxisZ, upsampled.dims);
+
+
         // 6. Render
         if (!iso_renderer) {
             console.log("Creating new IsoSurfaceRenderer...");
@@ -1536,8 +1558,27 @@ function visualize_3d() {
             {
                 vertices: meshWire.vertices,
                 normals: meshWire.normals,
-                color: [0.5, 0.5, 0.5, 0.3], // Grey Wireframe
+                color: [0.2, 0.2, 0.2, 0.3], // Dark Grey Wireframe for visibility on light background
                 mode: 'LINES'
+            },
+            // Axes
+            {
+                vertices: meshAxisX.vertices,
+                normals: meshAxisX.normals,
+                color: [1.0, 0.0, 0.0, 1.0], // Red X Axis
+                mode: 'TRIANGLES'
+            },
+            {
+                vertices: meshAxisY.vertices,
+                normals: meshAxisY.normals,
+                color: [0.0, 1.0, 0.0, 1.0], // Green Y Axis
+                mode: 'TRIANGLES'
+            },
+            {
+                vertices: meshAxisZ.vertices,
+                normals: meshAxisZ.normals,
+                color: [0.0, 0.0, 1.0, 1.0], // Blue Z Axis
+                mode: 'TRIANGLES'
             }
         ];
 
@@ -1548,4 +1589,105 @@ function visualize_3d() {
         console.log("3D visualization complete!");
 
     }, 50); // Small timeout for UI render
+}
+
+function reset_3d_view() {
+    if (iso_renderer) {
+        iso_renderer.resetView();
+    }
+}
+
+/**
+ * Create a simple cylinder mesh
+ */
+function createCylinder(start, end, radius) {
+    let vertices = [];
+    let normals = [];
+
+    // Vector along cylinder axis
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let dz = end.z - start.z;
+    let len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // Normalize axis
+    if (len < 0.0001) return { vertices: new Float32Array(0), normals: new Float32Array(0) };
+
+    // Basis vectors for circle (plane perpendicular to axis)
+    // Arbitrary vector not parallel to axis
+    let ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
+    let p = { x: 0, y: 0, z: 0 };
+    if (ax <= ay && ax <= az) p.x = 1;
+    else if (ay <= ax && ay <= az) p.y = 1;
+    else p.z = 1;
+
+    // u = cross(axis, p)
+    let ux = dy * p.z - dz * p.y;
+    let uy = dz * p.x - dx * p.z;
+    let uz = dx * p.y - dy * p.x;
+    // normalize u
+    let ulen = Math.sqrt(ux * ux + uy * uy + uz * uz);
+    ux /= ulen; uy /= ulen; uz /= ulen;
+
+    // v = cross(axis, u)
+    // axis is (dx, dy, dz) but not normalized? Cross product should use normalized axis for orthogonal consistency,
+    // NO, we want orthogonal to axis vector.
+    // Let's normalize axis first for basis calc
+    let ndx = dx / len, ndy = dy / len, ndz = dz / len;
+    let vx = ndy * uz - ndz * uy;
+    let vy = ndz * ux - ndx * uz;
+    let vz = ndx * uy - ndy * ux;
+
+    // Generate segments
+    let segments = 32; // smoothness
+    for (let i = 0; i < segments; i++) {
+        let theta = (i / segments) * 2 * Math.PI;
+        let theta2 = ((i + 1) / segments) * 2 * Math.PI;
+
+        let c1 = Math.cos(theta), s1 = Math.sin(theta);
+        let c2 = Math.cos(theta2), s2 = Math.sin(theta2);
+
+        // Points on circle at Start
+        let p1x_s = start.x + radius * (c1 * ux + s1 * vx);
+        let p1y_s = start.y + radius * (c1 * uy + s1 * vy);
+        let p1z_s = start.z + radius * (c1 * uz + s1 * vz);
+
+        let p2x_s = start.x + radius * (c2 * ux + s2 * vx);
+        let p2y_s = start.y + radius * (c2 * uy + s2 * vy);
+        let p2z_s = start.z + radius * (c2 * uz + s2 * vz);
+
+        // Points on circle at End
+        let p1x_e = end.x + radius * (c1 * ux + s1 * vx);
+        let p1y_e = end.y + radius * (c1 * uy + s1 * vy);
+        let p1z_e = end.z + radius * (c1 * uz + s1 * vz);
+
+        let p2x_e = end.x + radius * (c2 * ux + s2 * vx);
+        let p2y_e = end.y + radius * (c2 * uy + s2 * vy);
+        let p2z_e = end.z + radius * (c2 * uz + s2 * vz);
+
+        // Normals (radial outward)
+        // Same for start/end
+        let n1x = c1 * ux + s1 * vx;
+        let n1y = c1 * uy + s1 * vy;
+        let n1z = c1 * uz + s1 * vz;
+
+        let n2x = c2 * ux + s2 * vx;
+        let n2y = c2 * uy + s2 * vy;
+        let n2z = c2 * uz + s2 * vz;
+
+        // Quad 1: p1_s, p2_s, p1_e
+        vertices.push(p1x_s, p1y_s, p1z_s); normals.push(n1x, n1y, n1z);
+        vertices.push(p2x_s, p2y_s, p2z_s); normals.push(n2x, n2y, n2z);
+        vertices.push(p1x_e, p1y_e, p1z_e); normals.push(n1x, n1y, n1z);
+
+        // Quad 2: p2_s, p2_e, p1_e
+        vertices.push(p2x_s, p2y_s, p2z_s); normals.push(n2x, n2y, n2z);
+        vertices.push(p2x_e, p2y_e, p2z_e); normals.push(n2x, n2y, n2z);
+        vertices.push(p1x_e, p1y_e, p1z_e); normals.push(n1x, n1y, n1z);
+    }
+
+    return {
+        vertices: new Float32Array(vertices),
+        normals: new Float32Array(normals)
+    };
 }
