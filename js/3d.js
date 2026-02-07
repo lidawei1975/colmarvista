@@ -1471,8 +1471,8 @@ function visualize_3d() {
         // 5. Generate Meshes
         // Use user-defined levels or noise-based defaults
         const noise = s0.noise_level || (maxVal / 100);
-        // Solid: High threshold (40 * noise, or fallback to user levels)
-        const isoSolid = (s0.levels && s0.levels.length > 3) ? s0.levels[3] : (noise * 40.0);
+        // User Request: Solid Red at 40 * noise
+        const isoSolid = noise * 40.0;
 
         let meshSolid;
         try {
@@ -1483,19 +1483,21 @@ function visualize_3d() {
             return;
         }
 
-        // Level 2: Wireframe (r=10)
-        const isoWire = (s0.levels && s0.levels.length > 0) ? s0.levels[0] : (noise * 10.0);
+        // User Request: Mesh (Transparent) at 10 * noise
+        const isoWire = noise * 10.0;
 
         console.log(`Marching Cubes Thresholds: Solid=${isoSolid.toFixed(3)}, Wire=${isoWire.toFixed(3)} (Noise=${noise.toFixed(3)})`);
 
-        let meshWire = { vertices: new Float32Array(0), normals: new Float32Array(0) };
-        /* 
-        if (isoWire > minVal) {
-             // meshWire logic reserved for future optimization
-        } 
-        */
+        let meshWire;
+        try {
+            meshWire = MarchingCubes.compute(upsampled.data, upsampled.dims, isoWire);
+        } catch (err) {
+            console.error("Failed to generate wire mesh:", err);
+            // Fallback to empty if fails
+            meshWire = { vertices: new Float32Array(0), normals: new Float32Array(0) };
+        }
 
-        console.log("Vertices:", meshSolid.vertices.length / 3);
+        console.log("Vertices Solid:", meshSolid.vertices.length / 3, "Vertices Wire:", meshWire.vertices.length / 3);
 
         // Center the mesh
         function centerMesh(mesh, d) {
