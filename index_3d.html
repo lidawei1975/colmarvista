@@ -21,6 +21,22 @@
 
     <div id="navbar-placeholder"></div>
 
+    <!-- 3D Visualization Modal -->
+    <div id="modal_3d"
+        style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000;">
+        <div style="position: absolute; top: 20px; right: 20px; z-index: 1001;">
+            <button onclick="document.getElementById('modal_3d').style.display='none'"
+                style="font-size: 20px; padding: 10px;">Close X</button>
+        </div>
+        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+            <canvas id="canvas_3d" style="width: 90%; height: 90%; background: #000; border: 1px solid #555;"></canvas>
+        </div>
+        <div id="loading_3d"
+            style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; font-weight: bold;">
+            Processing 3D Geometry...
+        </div>
+    </div>
+
     <div id="body">
 
         <span id="contour_message"></span>
@@ -68,6 +84,7 @@
 
                         <button onclick="download_plot()">Download plot</button>
                         <button onclick="download_region()">Download Region</button>
+                        <button onclick="visualize_3d()">Visualize 3D</button>
                         <br>
 
                         <label for="peak_size">Peak size: </label>
@@ -250,6 +267,12 @@
                         <script type="text/javascript" src="js/spectrum.js"></script>
                         <script type="text/javascript" src="js/file_drop.js"></script>
                         <script type="text/javascript" src="js/make_table.js"></script>
+                        <!-- 3D Visualization Scripts -->
+                        <script type="text/javascript" src="js/m4.js"></script>
+                        <script type="text/javascript" src="js/marching_cubes_tables.js"></script>
+                        <script type="text/javascript" src="js/marching_cubes.js"></script>
+                        <script type="text/javascript" src="js/webgl_iso_renderer.js"></script>
+
                         <!-- Use 3d.js instead of nmrwebview.js -->
                         <script type="text/javascript" src="js/3d.js"></script>
                     </div>

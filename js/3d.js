@@ -1353,4 +1353,249 @@ function request_orthogonal_contour(spectrum, sign, type) {
 function show_cross_section() { }
 function show_peak_table() { }
 function remove_peak_table() { }
-function draw_spectrum() { } // We define our own logic
+function draw_spectrum() { }
+
+// -- 3D Visualization Integration --
+
+var iso_renderer = null;
+
+function visualize_3d() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectra loaded.");
+        return;
+    }
+
+    // 1. Get Ranges (Copy from download_region)
+    if (!main_plot) return;
+    let x_dom = main_plot.xRange.domain();
+    let y_dom = main_plot.yRange.domain();
+    if (!main_plot_xz) { alert("XZ plot not initialized."); return; }
+    let z_dom = main_plot_xz.yRange.domain();
+
+    let s0 = spectra_3d[0];
+
+    function get_indices(val_min, val_max, start, step, max_idx) {
+        let idx1 = Math.round((val_min - start) / step);
+        let idx2 = Math.round((val_max - start) / step);
+        let i_min = Math.min(idx1, idx2);
+        let i_max = Math.max(idx1, idx2);
+        i_min = Math.max(0, i_min);
+        i_max = Math.min(max_idx - 1, i_max);
+        return [i_min, i_max];
+    }
+
+    let [ix_min, ix_max] = get_indices(x_dom[0], x_dom[1], s0.x_ppm_start, s0.x_ppm_step, s0.n_direct);
+    let [iy_min, iy_max] = get_indices(y_dom[0], y_dom[1], s0.y_ppm_start, s0.y_ppm_step, s0.n_indirect);
+    let [iz_min, iz_max] = get_indices(z_dom[0], z_dom[1], s0.z_ppm_start, s0.z_ppm_step, spectra_3d.length);
+
+    console.log("3D Viz Range:", ix_min, ix_max, iy_min, iy_max, iz_min, iz_max);
+
+    // Check size
+    const dx = ix_max - ix_min + 1;
+    const dy = iy_max - iy_min + 1;
+    const dz = iz_max - iz_min + 1;
+
+    if (dx < 2 || dy < 2 || dz < 2) {
+        alert("Selected region is too small for 3D visualization.");
+        return;
+    }
+
+    // Show UI
+    const modal = document.getElementById('modal_3d');
+    modal.style.display = 'block'; // Or 'flex' if centered
+    // Force Reflow to ensure layout is updated before canvas init
+    void modal.offsetWidth;
+
+    document.getElementById('loading_3d').style.display = 'block';
+
+    // Delay to allow UI to update
+    setTimeout(() => {
+        // Double check canvas visibility/size
+        const canvas = document.getElementById("canvas_3d");
+        if (canvas && (canvas.clientWidth === 0 || canvas.clientHeight === 0)) {
+            console.warn("Canvas 3D is 0x0. Forcing resize...");
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+        }
+
+        // 2. Extract Real Data
+        console.log(`Extracting 3D Region: ${dx}x${dy}x${dz} (Vol: ${dx * dy * dz})`);
+
+        const size = dx * dy * dz;
+        const volumeData = new Float32Array(size);
+
+        let ptr = 0;
+        // Loop Order: Z, Y, X to match linear buffer packing
+        for (let z = 0; z < dz; z++) {
+            let slice_idx = iz_min + z;
+            let s = spectra_3d[slice_idx];
+
+            if (s && s.raw_data) {
+                // Pre-calculate row offsets
+                for (let y = 0; y < dy; y++) {
+                    let gy = iy_min + y; // Global Y index
+                    let row_offset = gy * s.n_direct;
+
+                    for (let x = 0; x < dx; x++) {
+                        let gx = ix_min + x; // Global X index
+
+                        // Safety check for bounds
+                        if (gx >= 0 && gx < s.n_direct && gy >= 0 && gy < s.n_indirect) {
+                            let val = s.raw_data[row_offset + gx];
+                            volumeData[ptr++] = val;
+                        } else {
+                            volumeData[ptr++] = 0;
+                        }
+                    }
+                }
+            } else {
+                // Missing slice? Pad with zeros
+                for (let i = 0; i < dx * dy; i++) volumeData[ptr++] = 0;
+            }
+        }
+
+        // 4. Use raw data
+        const upsampled = {
+            data: volumeData,
+            dims: { x: dx, y: dy, z: dz }
+        };
+
+        // Debug Data Range
+        let minVal = Infinity, maxVal = -Infinity, nanCount = 0, infCount = 0;
+        for (let i = 0; i < upsampled.data.length; i++) {
+            const v = upsampled.data[i];
+            if (isNaN(v)) nanCount++;
+            else if (!isFinite(v)) infCount++;
+            else {
+                if (v < minVal) minVal = v;
+                if (v > maxVal) maxVal = v;
+            }
+        }
+        console.log(`3D Data Range: Min=${minVal.toFixed(3)}, Max=${maxVal.toFixed(3)}, NaN=${nanCount}, Inf=${infCount}`);
+
+        if (nanCount > 0 || infCount > 0) {
+            alert(`Invalid data detected: ${nanCount} NaN, ${infCount} Inf values. Cannot generate mesh.`);
+            document.getElementById('loading_3d').style.display = 'none';
+            return;
+        }
+
+        // 5. Generate Meshes
+        // Use user-defined levels or noise-based defaults
+        const noise = s0.noise_level || (maxVal / 100);
+        // Solid: High threshold (40 * noise, or fallback to user levels)
+        const isoSolid = (s0.levels && s0.levels.length > 3) ? s0.levels[3] : (noise * 40.0);
+
+
+
+        let meshSolid;
+        try {
+            meshSolid = MarchingCubes.compute(upsampled.data, upsampled.dims, isoSolid);
+        } catch (err) {
+            console.error("Failed to generate solid mesh:", err);
+            // alert(`Mesh generation failed: ...`);
+            document.getElementById('loading_3d').style.display = 'none';
+            return;
+        }
+
+        // Level 2: Wireframe (r=10)
+        const isoWire = (s0.levels && s0.levels.length > 0) ? s0.levels[0] : (noise * 10.0);
+
+
+        console.log(`Marching Cubes Thresholds: Solid=${isoSolid.toFixed(3)}, Wire=${isoWire.toFixed(3)} (Noise=${noise.toFixed(3)})`);
+
+
+        let meshWire = { vertices: new Float32Array(0), normals: new Float32Array(0) };
+        /* 
+        if (isoWire > minVal) {
+             // meshWire logic reserved for future optimization
+        } 
+        */
+
+        console.log("Vertices:", meshSolid.vertices.length / 3);
+
+        // DEBUG: Check mesh data before centering
+        console.log("Solid mesh normals sample (before center):", meshSolid.normals.slice(0, 9));
+        console.log("Solid mesh vertices sample (before center):", meshSolid.vertices.slice(0, 9));
+        console.log("Normals are Float32Array?", meshSolid.normals instanceof Float32Array);
+        console.log("Vertices are Float32Array?", meshSolid.vertices instanceof Float32Array);
+
+        // Center the mesh
+        function centerMesh(mesh, d) {
+            const cx = d.x / 2;
+            const cy = d.y / 2;
+            const cz = d.z / 2;
+            const maxDim = Math.max(d.x, d.y, d.z);
+            const scale = 2.0 / maxDim;
+
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+
+            for (let i = 0; i < mesh.vertices.length; i += 3) {
+                mesh.vertices[i] = (mesh.vertices[i] - cx) * scale;
+                mesh.vertices[i + 1] = (mesh.vertices[i + 1] - cy) * scale;
+                mesh.vertices[i + 2] = (mesh.vertices[i + 2] - cz) * scale;
+
+                // Track bounds
+                const x = mesh.vertices[i], y = mesh.vertices[i + 1], z = mesh.vertices[i + 2];
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+            }
+            console.log(`Centered Mesh Bounds: X[${minX.toFixed(3)}, ${maxX.toFixed(3)}], Y[${minY.toFixed(3)}, ${maxY.toFixed(3)}], Z[${minZ.toFixed(3)}, ${maxZ.toFixed(3)}]`);
+        }
+        console.log("Centering Solid Mesh...");
+        centerMesh(meshSolid, upsampled.dims);
+        console.log("Centering Wireframe Mesh...");
+        centerMesh(meshWire, upsampled.dims);
+
+        console.log("Mesh centered. Sample vertices (Solid):",
+            meshSolid.vertices.slice(0, 9).map(v => v.toFixed(3)));
+
+        // 6. Render
+        console.log("Canvas element:", canvas, "Size:", canvas?.clientWidth, "x", canvas?.clientHeight);
+
+        if (!iso_renderer) {
+            console.log("Creating new IsoSurfaceRenderer...");
+            iso_renderer = new IsoSurfaceRenderer("canvas_3d");
+        }
+
+        if (!iso_renderer || !iso_renderer.gl) {
+            console.error("Failed to initialize IsoSurfaceRenderer!");
+            alert("Failed to initialize 3D renderer. Check console for errors.");
+            document.getElementById('loading_3d').style.display = 'none';
+            return;
+        }
+
+        const meshes = [
+            {
+                vertices: meshSolid.vertices,
+                normals: meshSolid.normals,
+                color: [1.0, 0.0, 0.0, 1.0], // Red Solid
+                mode: 'TRIANGLES'
+            },
+            {
+                vertices: meshWire.vertices,
+                normals: meshWire.normals,
+                color: [0.5, 0.5, 0.5, 0.3], // Grey Wireframe
+                mode: 'LINES'
+            }
+        ];
+
+        console.log("Updating geometry with meshes:", meshes.map(m => ({
+            vertexCount: m.vertices.length / 3,
+            mode: m.mode,
+            color: m.color
+        })));
+
+        iso_renderer.updateGeometry(meshes);
+
+        // Force immediate render to ensure something displays
+        console.log("Forcing initial render...");
+        iso_renderer.render();
+
+        document.getElementById('loading_3d').style.display = 'none';
+        console.log("3D visualization complete!");
+
+    }, 50); // Small timeout for UI render
+}
