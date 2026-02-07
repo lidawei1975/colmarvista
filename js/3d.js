@@ -1616,7 +1616,6 @@ function update_3d_view() {
                 { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
                 { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
             ];
-
             iso_renderer.updateGeometry(meshes);
             iso_renderer.render();
         }
@@ -1631,6 +1630,70 @@ function reset_3d_view() {
     if (iso_renderer) {
         iso_renderer.resetView();
     }
+}
+
+function center_3d_on_crosshair() {
+    if (!iso_renderer || !current_volume_data) return;
+
+    // Get Plots
+    // Assumes global variables main_plot (XY) and main_plot_xz (XZ)
+    if (!main_plot || !main_plot_xz) {
+        alert("2D plots are not initialized.");
+        return;
+    }
+
+    // Get View Center (PPM) from 2D Plots
+    // XY Plot
+    let x_domain = main_plot.xRange.domain();
+    let y_domain = main_plot.yRange.domain();
+    let x_ppm = (x_domain[0] + x_domain[1]) / 2.0;
+    let y_ppm = (y_domain[0] + y_domain[1]) / 2.0;
+
+    // XZ Plot (Z is Y-axis of XZ)
+    let z_domain = main_plot_xz.yRange.domain();
+    let z_ppm = (z_domain[0] + z_domain[1]) / 2.0;
+
+    // Convert to Data Indices
+    // Indices are 0-based.
+    // x_ppm = start + index * step
+    // index = (x_ppm - start) / step
+    const data = current_volume_data;
+
+    if (!spectra_3d || spectra_3d.length === 0) return;
+    const s0 = spectra_3d[0]; // Reference spectrum for X/Y dims
+
+    // X Index (Direct)
+    let idx_x = (x_ppm - s0.x_ppm_start) / s0.x_ppm_step;
+    // Y Index (Indirect)
+    let idx_y = (y_ppm - s0.y_ppm_start) / s0.y_ppm_step;
+    // Z Index
+    let z_start = s0.z_ppm_start || 0;
+    let z_step = s0.z_ppm_step || 1;
+    let idx_z = (z_ppm - z_start) / z_step;
+
+    // Convert to Mesh Coordinates
+    // centerMesh logic:
+    // cx = dx / 2, cy = dy / 2, cz = dz / 2
+    // val = (val - cx) * scale
+
+    const dx = data.dims.x;
+    const dy = data.dims.y;
+    const dz = data.dims.z;
+
+    const cx = dx / 2;
+    const cy = dy / 2;
+    const cz = dz / 2;
+
+    const maxDim = Math.max(dx, dy, dz);
+    const scale = 2.0 / maxDim;
+
+    let meshX = (idx_x - cx) * scale;
+    let meshY = (idx_y - cy) * scale;
+    let meshZ = (idx_z - cz) * scale;
+
+    console.log(`Centering on View Center: PPM(${x_ppm.toFixed(2)}, ${y_ppm.toFixed(2)}, ${z_ppm.toFixed(2)}) -> Idx(${idx_x.toFixed(1)}, ${idx_y.toFixed(1)}, ${idx_z.toFixed(1)}) -> Mesh(${meshX.toFixed(2)}, ${meshY.toFixed(2)}, ${meshZ.toFixed(2)})`);
+
+    iso_renderer.centerView(meshX, meshY, meshZ);
 }
 
 /**

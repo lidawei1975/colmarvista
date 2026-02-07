@@ -194,6 +194,98 @@ class IsoSurfaceRenderer {
         this.requestRender();
     }
 
+    centerView(x, y, z) {
+        // Calculate rotated position of the point (x,y,z)
+        // We need to apply the same rotation as the view matrix
+        const degToRad = (d) => d * Math.PI / 180;
+        let mat = m4.identity();
+        mat = m4.xRotate(mat, degToRad(this.rotationX));
+        mat = m4.yRotate(mat, degToRad(this.rotationY));
+
+        // Transform point
+        // m4.transformPoint(m, v) -- check m4.js for signature, usually it's v * M or M * v
+        // m4.js usually simulates OpenGL: v' = M * v
+        // But let's check m4.js basics. If not available, do manually.
+
+        // Manual rotation
+        // Rotation Order in render(): X then Y.
+        // Wait, render() does:
+        // view = m4.translate(..., pan...);
+        // view = m4.xRotate(view, rotX);
+        // view = m4.yRotate(view, rotY);
+        // This constructs M = T * Rx * Ry.
+        // Vertex v' = T * Rx * Ry * v.
+        // We want v'.x = 0, v'.y = 0.
+        // v' = T * (Rx * Ry * v).
+        // Let P_rot = Rx * Ry * v.
+        // v' = P_rot + translation.
+        // translation = (panX, panY, -dist).
+        // 0 = P_rot.x + panX => panX = -P_rot.x.
+        // 0 = P_rot.y + panY => panY = -P_rot.y.
+
+        // Compute P_rot = Rx * Ry * v
+        // Ry rotation (around Y axis)
+        let ry = degToRad(this.rotationY);
+        let rx = degToRad(this.rotationX);
+
+        // Rotate around Y
+        // x' = x cos - z sin
+        // z' = x sin + z cos
+        let x1 = x * Math.cos(ry) + z * Math.sin(ry); // Check sign convention of m4.yRotate
+        let y1 = y;
+        let z1 = -x * Math.sin(ry) + z * Math.cos(ry); // m4.yRotate usually standard
+
+        // Rotate around X
+        // y' = y cos - z sin
+        // z' = y sin + z cos
+        let x2 = x1;
+        let y2 = y1 * Math.cos(rx) - z1 * Math.sin(rx);
+        let z2 = y1 * Math.sin(rx) + z1 * Math.cos(rx);
+
+        // Actually, m4.yRotate might be different. Let's use m4 matrix if possible.
+        // But manually is safer if we match the matrix construction order.
+        // View construction: view = m4.xRotate(view, ...); view = m4.yRotate(view, ...);
+        // This implies View = View * Rx; View = View * Ry;
+        // If View start Identity: V = Rx * Ry.
+        // Vertex transformation: V * v = Rx * Ry * v.
+
+        // Let's verify M4 multiplication order.
+        // Common library: matrix multiplication A * B applies B first then A?
+        // Or Row-major vs Column-major? 
+        // WebGL is Column-Major. m4.translate(m, ...) usually means NewM = M * TranslationMatrix.
+        // So V = I * T * Rx * Ry.
+        // This effectively applies Ry first, then Rx, then T to the vertex.
+        // v' = T(Rx(Ry(v))).
+
+        // So:
+        // 1. Ry
+        // 2. Rx
+        // 3. Pan
+
+        // Ry
+        let cy = Math.cos(ry);
+        let sy = Math.sin(ry);
+        let x_ry = x * cy + z * sy;
+        let y_ry = y;
+        let z_ry = -x * sy + z * cy;
+
+        // Rx
+        let cx = Math.cos(rx);
+        let sx = Math.sin(rx);
+        let x_final = x_ry;
+        let y_final = y_ry * cx - z_ry * sx;
+        // let z_final = y_ry * sx + z_ry * cx; 
+
+        this.panX = -x_final;
+        this.panY = -y_final; // Note: In screen space Y is up? 
+        // Pan logic: this.panY -= deltaY * speed.
+        // m4.translate(..., panX, panY, ...).
+        // WebGL Y is up. Canvas Y (mouse) is down.
+        // If y_final is positive (up), we need panY to shift it down (-y_final). Correct.
+
+        this.requestRender();
+    }
+
 
     /**
      * Set the geometry data to render.
