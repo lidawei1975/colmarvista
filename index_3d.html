@@ -231,6 +231,20 @@
                                 <h4>3D Visualization</h4>
                                 <button onclick="reset_3d_view()" style="margin-bottom: 5px;">Reset View</button>
 
+                                <div id="iso_controls"
+                                    style="width: 80%; margin-bottom: 10px; border: 1px solid #ddd; padding: 5px; background: #fff;">
+                                    <div>
+                                        <label for="iso_solid_slider">Solid (Red): <span
+                                                id="iso_solid_val">0.0</span></label><br>
+                                        <input type="range" id="iso_solid_slider" style="width:100%">
+                                    </div>
+                                    <div>
+                                        <label for="iso_wire_slider">Mesh (Blue): <span
+                                                id="iso_wire_val">0.0</span></label><br>
+                                        <input type="range" id="iso_wire_slider" style="width:100%">
+                                    </div>
+                                </div>
+
                                 <div id="loading_3d" style="display:none; color: red; font-weight: bold;">
                                     Processing 3D Geometry...
                                 </div>

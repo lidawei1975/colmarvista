@@ -1364,9 +1364,15 @@ function draw_spectrum() { }
 
 var iso_renderer = null;
 
+var current_volume_data = null; // Stores { data, dims, min, max, noise }
+
 function visualize_3d() {
+    // Wrapper to start the process
+    extract_3d_data();
+}
+
+function extract_3d_data() {
     if (!spectra_3d || spectra_3d.length === 0) {
-        // alert("No spectra loaded."); // Silent return if auto-called? Or alert?
         console.warn("visualize_3d called but no spectra loaded.");
         return;
     }
@@ -1402,7 +1408,6 @@ function visualize_3d() {
         // Double check canvas visibility/size
         const canvas = document.getElementById("canvas_3d");
         if (canvas) {
-            // Ensure it has size
             if (canvas.width === 0) canvas.width = canvas.parentElement.clientWidth;
             if (canvas.height === 0) canvas.height = canvas.parentElement.clientHeight;
         }
@@ -1414,92 +1419,144 @@ function visualize_3d() {
         const volumeData = new Float32Array(size);
 
         let ptr = 0;
-        // Loop Order: Z, Y, X to match linear buffer packing
+        // Loop Order: Z, Y, X
         for (let z = 0; z < dz; z++) {
             let slice_idx = iz_min + z;
             let s = spectra_3d[slice_idx];
 
             if (s && s.raw_data) {
-                // Pre-calculate row offsets
                 for (let y = 0; y < dy; y++) {
-                    let gy = iy_min + y; // Global Y index
+                    let gy = iy_min + y;
                     let row_offset = gy * s.n_direct;
-
                     for (let x = 0; x < dx; x++) {
-                        let gx = ix_min + x; // Global X index
-
-                        // Safety check for bounds
+                        let gx = ix_min + x;
                         if (gx >= 0 && gx < s.n_direct && gy >= 0 && gy < s.n_indirect) {
-                            let val = s.raw_data[row_offset + gx];
-                            volumeData[ptr++] = val;
+                            volumeData[ptr++] = s.raw_data[row_offset + gx];
                         } else {
                             volumeData[ptr++] = 0;
                         }
                     }
                 }
             } else {
-                // Missing slice? Pad with zeros
                 for (let i = 0; i < dx * dy; i++) volumeData[ptr++] = 0;
             }
         }
 
-        // 4. Use raw data
-        const upsampled = {
-            data: volumeData,
-            dims: { x: dx, y: dy, z: dz }
-        };
-
-        // Debug Data Range
-        let minVal = Infinity, maxVal = -Infinity, nanCount = 0, infCount = 0;
-        for (let i = 0; i < upsampled.data.length; i++) {
-            const v = upsampled.data[i];
-            if (isNaN(v)) nanCount++;
-            else if (!isFinite(v)) infCount++;
-            else {
+        // Stats
+        let minVal = Infinity, maxVal = -Infinity;
+        for (let i = 0; i < volumeData.length; i++) {
+            const v = volumeData[i];
+            if (isFinite(v)) {
                 if (v < minVal) minVal = v;
                 if (v > maxVal) maxVal = v;
             }
         }
-        console.log(`3D Data Range: Min=${minVal.toFixed(3)}, Max=${maxVal.toFixed(3)}, NaN=${nanCount}, Inf=${infCount}`);
 
-        if (nanCount > 0 || infCount > 0) {
-            console.error(`Invalid data detected: ${nanCount} NaN, ${infCount} Inf values. Cannot generate mesh.`);
-            if (loadingEl) loadingEl.style.display = 'none';
-            return;
-        }
-
-        // 5. Generate Meshes
-        // Use user-defined levels or noise-based defaults
         const noise = s0.noise_level || (maxVal / 100);
-        // User Request: Solid Red at 40 * noise
-        const isoSolid = noise * 40.0;
 
-        let meshSolid;
+        current_volume_data = {
+            data: volumeData,
+            dims: { x: dx, y: dy, z: dz },
+            min: minVal,
+            max: maxVal,
+            noise: noise
+        };
+
+        setup_sliders();
+        update_3d_view();
+
+    }, 50);
+}
+
+function setup_sliders() {
+    if (!current_volume_data) return;
+
+    const data = current_volume_data;
+    const noise = data.noise;
+    const maxVal = data.max;
+
+    // Range: 5.5 * noise to 0.75 * max
+    const minRange = 5.5 * noise;
+    const maxRange = 0.75 * maxVal;
+
+    // Step size
+    const step = (maxRange - minRange) / 100;
+
+    const sliderSolid = document.getElementById("iso_solid_slider");
+    const sliderWire = document.getElementById("iso_wire_slider");
+
+    if (sliderSolid && sliderWire) {
+        sliderSolid.min = minRange;
+        sliderSolid.max = maxRange;
+        sliderSolid.step = step;
+        sliderSolid.value = Math.max(minRange, Math.min(maxRange, 40 * noise)); // Default 40*noise
+
+        sliderWire.min = minRange;
+        sliderWire.max = maxRange;
+        sliderWire.step = step;
+        sliderWire.value = Math.max(minRange, Math.min(maxRange, 10 * noise)); // Default 10*noise
+
+        // Attach Events (using 'change' to avoid lag during drag, or 'input' with debounce)
+        // User requested constraints: Mesh < Solid.
+
+        sliderSolid.onchange = function () {
+            // Enforce constraints?
+            let val = parseFloat(this.value);
+            let wireVal = parseFloat(sliderWire.value);
+            if (val <= wireVal) {
+                // If Solid dragged below Mesh, move Mesh down? 
+                // "mesh should be always smaller than solid red"
+                sliderWire.value = val - step;
+            }
+            update_3d_view();
+        };
+
+        sliderWire.onchange = function () {
+            let val = parseFloat(this.value);
+            let solidVal = parseFloat(sliderSolid.value);
+            if (val >= solidVal) {
+                // If Mesh dragged above Solid, clamp it
+                this.value = solidVal - step;
+            }
+            update_3d_view();
+        }
+    }
+}
+
+function update_3d_view() {
+    if (!current_volume_data) return;
+
+    let loadingEl = document.getElementById('loading_3d');
+    if (loadingEl) loadingEl.style.display = 'block';
+
+    // Allow UI update
+    setTimeout(() => {
+        const data = current_volume_data;
+
+        const sliderSolid = document.getElementById("iso_solid_slider");
+        const sliderWire = document.getElementById("iso_wire_slider");
+
+        // Update labels
+        if (document.getElementById("iso_solid_val")) document.getElementById("iso_solid_val").innerText = parseFloat(sliderSolid.value).toFixed(1);
+        if (document.getElementById("iso_wire_val")) document.getElementById("iso_wire_val").innerText = parseFloat(sliderWire.value).toFixed(1);
+
+        const isoSolid = parseFloat(sliderSolid.value);
+        const isoWire = parseFloat(sliderWire.value);
+
+        console.log(`Generating Meshes. Solid: ${isoSolid}, Wire: ${isoWire}`);
+
+        let meshSolid, meshWire;
+
         try {
-            meshSolid = MarchingCubes.compute(upsampled.data, upsampled.dims, isoSolid);
+            meshSolid = MarchingCubes.compute(data.data, data.dims, isoSolid);
+            meshWire = MarchingCubes.compute(data.data, data.dims, isoWire);
         } catch (err) {
-            console.error("Failed to generate solid mesh:", err);
+            console.error(err);
             if (loadingEl) loadingEl.style.display = 'none';
             return;
         }
 
-        // User Request: Mesh (Transparent) at 10 * noise
-        const isoWire = noise * 10.0;
-
-        console.log(`Marching Cubes Thresholds: Solid=${isoSolid.toFixed(3)}, Wire=${isoWire.toFixed(3)} (Noise=${noise.toFixed(3)})`);
-
-        let meshWire;
-        try {
-            meshWire = MarchingCubes.compute(upsampled.data, upsampled.dims, isoWire);
-        } catch (err) {
-            console.error("Failed to generate wire mesh:", err);
-            // Fallback to empty if fails
-            meshWire = { vertices: new Float32Array(0), normals: new Float32Array(0) };
-        }
-
-        console.log("Vertices Solid:", meshSolid.vertices.length / 3, "Vertices Wire:", meshWire.vertices.length / 3);
-
-        // Center the mesh
+        // Center Meshes
         function centerMesh(mesh, d) {
             const cx = d.x / 2;
             const cy = d.y / 2;
@@ -1513,85 +1570,62 @@ function visualize_3d() {
                 mesh.vertices[i + 2] = (mesh.vertices[i + 2] - cz) * scale;
             }
         }
-        centerMesh(meshSolid, upsampled.dims);
-        centerMesh(meshWire, upsampled.dims);
+        centerMesh(meshSolid, data.dims);
+        centerMesh(meshWire, data.dims);
 
-        // --- Generate Axis Cylinders ---
-        // Axes should span 0 to dx, 0 to dy, 0 to dz
-        // And then be centered using the SAME transform as the data.
+        // Generate Axes (reuse previous logic)
+        // ... (We need to re-generate axes if they are not stored, or logic is consistent)
+        // Or we can just generating them once global? But data dims might change if we reload files.
+        // Let's regenerate for safety.
 
-        let cylinderRadius = 2.0; // Fixed radius in data coordinates (might need adjustment based on scale)
-        // Actually, radius should be relative to maxDim to look consistent.
+        const dx = data.dims.x;
+        const dy = data.dims.y;
+        const dz = data.dims.z;
         const maxDim = Math.max(dx, dy, dz);
-        cylinderRadius = maxDim * 0.01; // 1% of max dimension
+        const cylinderRadius = maxDim * 0.01;
 
-        // X Axis: 0 to dx
         let meshAxisX = createCylinder({ x: 0, y: 0, z: 0 }, { x: dx, y: 0, z: 0 }, cylinderRadius);
-        // Y Axis: 0 to dy
         let meshAxisY = createCylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: dy, z: 0 }, cylinderRadius);
-        // Z Axis: 0 to dz
         let meshAxisZ = createCylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: dz }, cylinderRadius);
 
-        // Center axes
-        centerMesh(meshAxisX, upsampled.dims);
-        centerMesh(meshAxisY, upsampled.dims);
-        centerMesh(meshAxisZ, upsampled.dims);
+        centerMesh(meshAxisX, data.dims);
+        centerMesh(meshAxisY, data.dims);
+        centerMesh(meshAxisZ, data.dims);
 
-
-        // 6. Render
+        // Render
         if (!iso_renderer) {
-            console.log("Creating new IsoSurfaceRenderer...");
             iso_renderer = new IsoSurfaceRenderer("canvas_3d");
         }
 
-        if (!iso_renderer || !iso_renderer.gl) {
-            console.error("Failed to initialize IsoSurfaceRenderer!");
-            if (loadingEl) loadingEl.style.display = 'none';
-            return;
+        if (iso_renderer && iso_renderer.gl) {
+            const meshes = [
+                {
+                    vertices: meshSolid.vertices,
+                    normals: meshSolid.normals,
+                    color: [1.0, 0.0, 0.0, 1.0], // Red Solid
+                    mode: 'TRIANGLES'
+                },
+                {
+                    vertices: meshWire.vertices,
+                    normals: meshWire.normals,
+                    color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
+                    mode: 'LINES'
+                },
+                // Axes
+                { vertices: meshAxisX.vertices, normals: meshAxisX.normals, color: [1.0, 0.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
+            ];
+
+            iso_renderer.updateGeometry(meshes);
+            iso_renderer.render();
         }
 
-        const meshes = [
-            {
-                vertices: meshSolid.vertices,
-                normals: meshSolid.normals,
-                color: [1.0, 0.0, 0.0, 1.0], // Red Solid
-                mode: 'TRIANGLES'
-            },
-            {
-                vertices: meshWire.vertices,
-                normals: meshWire.normals,
-                color: [0.2, 0.2, 0.2, 0.3], // Dark Grey Wireframe for visibility on light background
-                mode: 'LINES'
-            },
-            // Axes
-            {
-                vertices: meshAxisX.vertices,
-                normals: meshAxisX.normals,
-                color: [1.0, 0.0, 0.0, 1.0], // Red X Axis
-                mode: 'TRIANGLES'
-            },
-            {
-                vertices: meshAxisY.vertices,
-                normals: meshAxisY.normals,
-                color: [0.0, 1.0, 0.0, 1.0], // Green Y Axis
-                mode: 'TRIANGLES'
-            },
-            {
-                vertices: meshAxisZ.vertices,
-                normals: meshAxisZ.normals,
-                color: [0.0, 0.0, 1.0, 1.0], // Blue Z Axis
-                mode: 'TRIANGLES'
-            }
-        ];
-
-        iso_renderer.updateGeometry(meshes);
-        iso_renderer.render();
-
         if (loadingEl) loadingEl.style.display = 'none';
-        console.log("3D visualization complete!");
 
-    }, 50); // Small timeout for UI render
+    }, 20);
 }
+
 
 function reset_3d_view() {
     if (iso_renderer) {
