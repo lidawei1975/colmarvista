@@ -209,17 +209,20 @@ async function load_theoretical_peaks() {
         line = line.trim();
         if (!line || line.startsWith("Peak") || line.startsWith("=")) continue;
 
-        // Format: ID Amp X Y Z Wx Wy Wz
+        // Format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
         let parts = line.split(/\s+/);
-        if (parts.length >= 8) {
+        if (parts.length >= 11) {
             peaks.push({
                 amp: parseFloat(parts[1]),
                 x: parseFloat(parts[2]),
                 y: parseFloat(parts[3]),
                 z: parseFloat(parts[4]),
-                wx: parseFloat(parts[5]),
-                wy: parseFloat(parts[6]),
-                wz: parseFloat(parts[7])
+                fwhh_x: parseFloat(parts[5]),
+                fwhh_y: parseFloat(parts[6]),
+                fwhh_z: parseFloat(parts[7]),
+                lx: parseFloat(parts[8]),
+                ly: parseFloat(parts[9]),
+                lz: parseFloat(parts[10])
             });
         }
     }
@@ -229,12 +232,15 @@ async function load_theoretical_peaks() {
         return;
     }
 
-    console.log("Loaded " + peaks.length + " theoretical peaks.");
+    console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
     generate_theoretical_volume(peaks);
 
     // Refresh views to show overlay
     if (current_slice_index >= 0) {
         draw_slice(current_slice_index);
+        refresh_xz_view();
+        refresh_yz_view();
+        update_3d_crosshairs();
     }
 }
 
@@ -262,52 +268,67 @@ function generate_theoretical_volume(peaks) {
 
         s.raw_data = new Float32Array(nx * ny);
         s.spectrum_color = "#00FF00"; // Green for theoretical
-        s.spectrum_color_negative = "#FF00FF"; // Magenta? Or disable negative.
-        s.levels = calculate_levels(s0.noise_level, 1.5, 30); // Use same levels logic?
-        s.negative_levels = []; // Assume Gaussian peaks are positive
+        s.spectrum_color_negative = "#FF00FF";
+        s.levels = calculate_levels(s0.noise_level, 1.5, 30);
+        s.negative_levels = [];
 
         theoretical_spectra_3d.push(s);
     }
 
-    // Add Gaussian peaks
-    // Amp * exp(-(x-xc)^2/wx^2 - (y-yc)^2/wy^2 - (z-zc)^2/wz^2)
-    // Optimization: Loop over peaks, and for each peak, update only a bounding box
+    // Constants
+    const S2L2 = 2.0 * Math.sqrt(2.0 * Math.log(2.0));
+
+    // Helper for 1D Pseudo-Voigt
+    function get_pv_val(delta, fwhh, eta) {
+        let sig = fwhh / S2L2;
+        let gam = fwhh / 2.0;
+
+        let d2 = delta * delta;
+
+        let G = Math.exp(-d2 / (2.0 * sig * sig));
+        let L = (gam * gam) / (d2 + (gam * gam));
+
+        return (1.0 - eta) * G + eta * L;
+    }
 
     for (let p of peaks) {
-        // Bounding box: +/- 4 * width
-        // Widths in file are likely defined as parameter 'w' in exp(-(x-xc)^2/w^2)
-        // or FWHM? "example_3d_peaks.txt" header says "Width".
-        // Assuming standard Gaussian form used in typical fitting or similar to generic equation provided in prompt:
-        // Amp*exp(-(x-x_center)^2/x_width^2 - ...)
+        // Bounding box
+        // Use FWHH to determine bounds. 3 * FWHH covers significant area
+        let bound_mult = 3.0;
 
-        let bound = 4.0;
+        let wx = p.fwhh_x;
+        let wy = p.fwhh_y;
+        let wz = p.fwhh_z;
 
-        let z_start = Math.max(0, Math.floor(p.z - bound * p.wz));
-        let z_end = Math.min(nz - 1, Math.ceil(p.z + bound * p.wz));
+        let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));
+        let z_end = Math.min(nz - 1, Math.ceil(p.z + bound_mult * wz));
 
-        let y_start = Math.max(0, Math.floor(p.y - bound * p.wy));
-        let y_end = Math.min(ny - 1, Math.ceil(p.y + bound * p.wy));
+        let y_start = Math.max(0, Math.floor(p.y - bound_mult * wy));
+        let y_end = Math.min(ny - 1, Math.ceil(p.y + bound_mult * wy));
 
-        let x_start = Math.max(0, Math.floor(p.x - bound * p.wx));
-        let x_end = Math.min(nx - 1, Math.ceil(p.x + bound * p.wx));
+        let x_start = Math.max(0, Math.floor(p.x - bound_mult * wx));
+        let x_end = Math.min(nx - 1, Math.ceil(p.x + bound_mult * wx));
 
         for (let z = z_start; z <= z_end; z++) {
             let dz = z - p.z;
-            let z_term = (dz * dz) / (p.wz * p.wz);
+            let val_z = get_pv_val(dz, wz, p.lz);
+            if (val_z < 0.001) continue; // Optimization
+
             let s_data = theoretical_spectra_3d[z].raw_data;
 
             for (let y = y_start; y <= y_end; y++) {
                 let dy = y - p.y;
-                let y_term = (dy * dy) / (p.wy * p.wy);
+                let val_y = get_pv_val(dy, wy, p.ly);
+                if (val_y < 0.001) continue;
 
                 let row_offset = y * nx;
+                let combined_zy = p.amp * val_z * val_y;
 
                 for (let x = x_start; x <= x_end; x++) {
                     let dx = x - p.x;
-                    let x_term = (dx * dx) / (p.wx * p.wx);
+                    let val_x = get_pv_val(dx, wx, p.lx);
 
-                    let val = p.amp * Math.exp(-(x_term + y_term + z_term) / 2.0);
-                    s_data[row_offset + x] += val;
+                    s_data[row_offset + x] += combined_zy * val_x;
                 }
             }
         }
