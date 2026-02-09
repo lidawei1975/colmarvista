@@ -306,7 +306,7 @@ function generate_theoretical_volume(peaks) {
                     let dx = x - p.x;
                     let x_term = (dx * dx) / (p.wx * p.wx);
 
-                    let val = p.amp * Math.exp(-(x_term + y_term + z_term));
+                    let val = p.amp * Math.exp(-(x_term + y_term + z_term) / 2.0);
                     s_data[row_offset + x] += val;
                 }
             }
