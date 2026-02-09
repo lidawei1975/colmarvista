@@ -48,6 +48,12 @@
                         spectrum.</span><br>
                     <input type="submit" id="button_ft2_process" value="Upload and Process Spectra"></br>
                 </form>
+                <div style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
+                    <h4>Overlay Theoretical 3D Peaks:</h4>
+                    <label for="theoretical_peaks_file">Select peaks file (.txt): </label>
+                    <input type="file" id="theoretical_peaks_file" accept=".txt"><br>
+                    <button id="btn_load_theoretical">Load and Overlay Peaks</button>
+                </div>
             </div>
 
             <div id="spectra_list" style=" Padding: 10px; width: 1200px; display:none;" class="drop-area-neighbor">

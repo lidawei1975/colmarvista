@@ -4,6 +4,9 @@
  */
 var hsqc_spectra = []; // Defines the current slice being displayed (length 1)
 var spectra_3d = [];   // Stores all loaded 3D planes (spectrum objects)
+var theoretical_spectra_3d = []; // Stores theoretical 3D volume
+var theoretical_spectrum_xz = null;
+var theoretical_spectrum_yz = null;
 var main_plot = null;
 var my_contour_worker = null;
 var tooldiv = document.getElementById("information_bar");
@@ -177,7 +180,139 @@ document.addEventListener('DOMContentLoaded', function () {
             slider.dispatchEvent(new Event('input'));
         }
     });
+
+    // Load Theoretical Peaks
+    document.getElementById('btn_load_theoretical').addEventListener('click', function () {
+        load_theoretical_peaks();
+    });
 });
+
+async function load_theoretical_peaks() {
+    let fileInput = document.getElementById('theoretical_peaks_file');
+    if (fileInput.files.length === 0) {
+        alert("Please select a .txt file first.");
+        return;
+    }
+
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("Please load experimental 3D spectrum first to define dimensions.");
+        return;
+    }
+
+    let file = fileInput.files[0];
+    let text = await file.text();
+    let lines = text.split('\n');
+
+    let peaks = [];
+    // Parse file. Skip header lines (start with "Peak" or "=")
+    for (let line of lines) {
+        line = line.trim();
+        if (!line || line.startsWith("Peak") || line.startsWith("=")) continue;
+
+        // Format: ID Amp X Y Z Wx Wy Wz
+        let parts = line.split(/\s+/);
+        if (parts.length >= 8) {
+            peaks.push({
+                amp: parseFloat(parts[1]),
+                x: parseFloat(parts[2]),
+                y: parseFloat(parts[3]),
+                z: parseFloat(parts[4]),
+                wx: parseFloat(parts[5]),
+                wy: parseFloat(parts[6]),
+                wz: parseFloat(parts[7])
+            });
+        }
+    }
+
+    if (peaks.length === 0) {
+        alert("No valid peaks found in file.");
+        return;
+    }
+
+    console.log("Loaded " + peaks.length + " theoretical peaks.");
+    generate_theoretical_volume(peaks);
+
+    // Refresh views to show overlay
+    if (current_slice_index >= 0) {
+        draw_slice(current_slice_index);
+    }
+}
+
+function generate_theoretical_volume(peaks) {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+
+    let s0 = spectra_3d[0];
+    let nz = spectra_3d.length;
+    let ny = s0.n_indirect;
+    let nx = s0.n_direct;
+
+    // Initialize empty volume
+    theoretical_spectra_3d = [];
+    for (let z = 0; z < nz; z++) {
+        let s = new spectrum();
+        // Copy params from experimental
+        s.n_direct = nx;
+        s.n_indirect = ny;
+        s.x_ppm_start = s0.x_ppm_start;
+        s.x_ppm_step = s0.x_ppm_step;
+        s.y_ppm_start = s0.y_ppm_start;
+        s.y_ppm_step = s0.y_ppm_step;
+        s.z_ppm_start = s0.z_ppm_start;
+        s.z_ppm_step = s0.z_ppm_step;
+
+        s.raw_data = new Float32Array(nx * ny);
+        s.spectrum_color = "#00FF00"; // Green for theoretical
+        s.spectrum_color_negative = "#FF00FF"; // Magenta? Or disable negative.
+        s.levels = calculate_levels(s0.noise_level, 1.5, 30); // Use same levels logic?
+        s.negative_levels = []; // Assume Gaussian peaks are positive
+
+        theoretical_spectra_3d.push(s);
+    }
+
+    // Add Gaussian peaks
+    // Amp * exp(-(x-xc)^2/wx^2 - (y-yc)^2/wy^2 - (z-zc)^2/wz^2)
+    // Optimization: Loop over peaks, and for each peak, update only a bounding box
+
+    for (let p of peaks) {
+        // Bounding box: +/- 4 * width
+        // Widths in file are likely defined as parameter 'w' in exp(-(x-xc)^2/w^2)
+        // or FWHM? "example_3d_peaks.txt" header says "Width".
+        // Assuming standard Gaussian form used in typical fitting or similar to generic equation provided in prompt:
+        // Amp*exp(-(x-x_center)^2/x_width^2 - ...)
+
+        let bound = 4.0;
+
+        let z_start = Math.max(0, Math.floor(p.z - bound * p.wz));
+        let z_end = Math.min(nz - 1, Math.ceil(p.z + bound * p.wz));
+
+        let y_start = Math.max(0, Math.floor(p.y - bound * p.wy));
+        let y_end = Math.min(ny - 1, Math.ceil(p.y + bound * p.wy));
+
+        let x_start = Math.max(0, Math.floor(p.x - bound * p.wx));
+        let x_end = Math.min(nx - 1, Math.ceil(p.x + bound * p.wx));
+
+        for (let z = z_start; z <= z_end; z++) {
+            let dz = z - p.z;
+            let z_term = (dz * dz) / (p.wz * p.wz);
+            let s_data = theoretical_spectra_3d[z].raw_data;
+
+            for (let y = y_start; y <= y_end; y++) {
+                let dy = y - p.y;
+                let y_term = (dy * dy) / (p.wy * p.wy);
+
+                let row_offset = y * nx;
+
+                for (let x = x_start; x <= x_end; x++) {
+                    let dx = x - p.x;
+                    let x_term = (dx * dx) / (p.wx * p.wx);
+
+                    let val = p.amp * Math.exp(-(x_term + y_term + z_term));
+                    s_data[row_offset + x] += val;
+                }
+            }
+        }
+    }
+}
 
 
 /**
@@ -202,11 +337,28 @@ function handle_worker_message(e) {
             return;
         }
 
+        // Ortho Theoretical
+        if (e.data.spectrum_type === "xz_theo") {
+            handle_ortho_response(e.data, "xz_theo");
+            return;
+        }
+        if (e.data.spectrum_type === "yz_theo") {
+            handle_ortho_response(e.data, "yz_theo");
+            return;
+        }
+
         let slice_idx = e.data.spectrum_index; // We passed slice index as spectrum_index
 
-        if (slice_idx < 0 || slice_idx >= spectra_3d.length) return;
+        let spec = null;
+        if (e.data.spectrum_type === "theoretical") {
+            if (slice_idx < 0 || slice_idx >= theoretical_spectra_3d.length) return;
+            spec = theoretical_spectra_3d[slice_idx];
+        } else {
+            if (slice_idx < 0 || slice_idx >= spectra_3d.length) return;
+            spec = spectra_3d[slice_idx];
+        }
 
-        let spec = spectra_3d[slice_idx];
+        if (!spec) return;
 
         // Cache the contour data in the spectrum object
         spec.cached_contour = {
@@ -225,7 +377,9 @@ function handle_worker_message(e) {
 
         // Check if this is the currently displayed slice
         if (slice_idx === current_slice_index) {
-            refresh_current_view(spec);
+            // For theoretical, we just refresh the view which pulls from both
+            // If experimental, same thing.
+            refresh_current_view(spectra_3d[current_slice_index]);
         }
 
         document.getElementById("contour_message").innerText = "";
@@ -262,6 +416,20 @@ function draw_slice(index, update_ortho_views = true) {
         update_3d_crosshairs();
     }
 
+    // Request Theoretical Contour if available
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > index) {
+        let st = theoretical_spectra_3d[index];
+        if (st) {
+            // We use a special origin ID or just rely on index/object identity?
+            // worker returns spectrum_index. We need to distinguish exp vs theo.
+            // modify request_contour_calculation to accept 'type' or similar?
+            // Or better, attach a flag to the spectrum object and check it in handle_worker_message?
+            // The worker message passes 'spectrum_index'.
+            // Let's rely on a custom property in the request.
+            request_contour_calculation(st, index, 0, "theoretical");
+        }
+    }
+
     // Pan orthogonal plots to center on Z slice ONLY if requested (to avoid loops)
     // This must happen REGARDLESS of whether the slice was cached or newly requested
     if (update_ortho_views === true && s.z_ppm_start !== undefined && s.z_ppm_step !== undefined) {
@@ -280,7 +448,10 @@ function draw_slice(index, update_ortho_views = true) {
 }
 
 function handle_ortho_response(data, type) {
-    let spec = (type === "xz") ? spectrum_xz : spectrum_yz;
+    let spec = (type === "xz") ? spectrum_xz :
+        (type === "yz") ? spectrum_yz :
+            (type === "xz_theo") ? theoretical_spectrum_xz : theoretical_spectrum_yz;
+
     if (!spec) return;
 
     if (data.contour_sign === 0) {
@@ -292,7 +463,9 @@ function handle_ortho_response(data, type) {
     // Refresh the ortho view if we have data
     // We can do it immediately or wait for both? 
     // refresh_ortho_plot can handle partial data
-    refresh_ortho_plot(type);
+    if (type === "xz_theo") refresh_ortho_plot("xz");
+    else if (type === "yz_theo") refresh_ortho_plot("yz");
+    else refresh_ortho_plot(type);
 }
 
 function refresh_ortho_plot(type) {
@@ -596,7 +769,7 @@ function init_main_plot(first_spectrum) {
 
 
 
-function request_contour_calculation(spectrum, index, sign) {
+function request_contour_calculation(spectrum, index, sign, spectrum_type = "full") {
     // Mimic the message structure expected by contour.js
     // contour.js reads: e.data.spectrum.levels, etc.
 
@@ -605,7 +778,7 @@ function request_contour_calculation(spectrum, index, sign) {
         n_direct: spectrum.n_direct,
         n_indirect: spectrum.n_indirect,
         contour_sign: sign,
-        spectrum_type: "full",
+        spectrum_type: spectrum_type,
         spectrum_index: index, // Use actual slice index
         spectrum_origin: -1
     };
@@ -637,68 +810,103 @@ function refresh_current_view(spectrum_in) {
     // console.log("refresh_current_view drawing slice:", current_slice_index, "filename:", s.filename);
     // console.log("Has cached pos?", !!s.cached_contour_pos);
 
-
     // Prepare arrays for set_data
-    // We construct arrays of length 1 (since we only show 1 spectrum)
+    // We construct arrays of length 1 (experimental) or 2 (experimental + theoretical)
 
-    let points_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
-    // Ensure it's a Float32Array
-    if (!(points_pos instanceof Float32Array)) {
-        points_pos = new Float32Array(points_pos);
+    let spectra_list = [s];
+
+    // Check for theoretical
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > current_slice_index) {
+        let st = theoretical_spectra_3d[current_slice_index];
+        if (st && st.cached_contour_pos) {
+            spectra_list.push(st);
+        }
     }
 
-    let len_pos = s.cached_contour_pos ? [s.cached_contour_pos.levels_length] : [[]]; // Array of array
-    let poly_pos = s.cached_contour_pos ? [s.cached_contour_pos.polygon_length] : [[]]; // Array of array
+    let points_pos_list = [];
+    let len_pos_list = [];
+    let poly_pos_list = [];
+    let points_neg_list = [];
+    let len_neg_list = [];
+    let poly_neg_list = [];
+    let color_pos_list = [];
+    let color_neg_list = [];
+    let lbs_pos_list = [];
+    let lbs_neg_list = [];
+    let start_pos_list = [];
+    let start_neg_list = [];
+    let spectral_info_list = [];
+    let spectral_order_list = [];
 
-    let points_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
-    if (!(points_neg instanceof Float32Array)) {
-        points_neg = new Float32Array(points_neg);
+    let total_points = 0;
+
+    for (let i = 0; i < spectra_list.length; i++) {
+        let spec = spectra_list[i];
+
+        let p_pos = spec.cached_contour_pos ? spec.cached_contour_pos.points : new Float32Array([]);
+        if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
+
+        let p_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
+
+        points_pos_list.push(p_pos);
+        points_neg_list.push(p_neg);
+
+        len_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.levels_length : []);
+        poly_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.polygon_length : []);
+
+        len_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.polygon_length : []);
+
+        color_pos_list.push(hexToRgb(spec.spectrum_color));
+        color_neg_list.push(hexToRgb(spec.spectrum_color_negative));
+
+        lbs_pos_list.push(0);
+        lbs_neg_list.push(0);
+
+        start_pos_list.push(total_points);
+        total_points += p_pos.length;
+        start_neg_list.push(total_points);
+        total_points += p_neg.length;
+
+        spectral_info_list.push({
+            x_ppm_start: spec.x_ppm_start,
+            x_ppm_step: spec.x_ppm_step,
+            y_ppm_start: spec.y_ppm_start,
+            y_ppm_step: spec.y_ppm_step,
+            x_ppm_ref: 0,
+            y_ppm_ref: 0
+        });
+
+        spectral_order_list.push(i);
     }
 
-    let len_neg = s.cached_contour_neg ? [s.cached_contour_neg.levels_length] : [[]];
-    let poly_neg = s.cached_contour_neg ? [s.cached_contour_neg.polygon_length] : [[]];
-
-    let color_pos = [hexToRgb(s.spectrum_color)];
-    let color_neg = [hexToRgb(s.spectrum_color_negative)];
-
-    let lbs_pos = [0]; // Show all levels starting from index 0
-    let lbs_neg = [0];
-
-    let start_pos = [0];
-
-    // Concatenate points for single buffer requirement of myplot_webgl
-    let combined_points = Float32Concat(points_pos, points_neg);
-
-    // Negative start offset is length of positive points
-    let start_neg = [points_pos.length];
-
-    // Construct spectral_information for the plot
-    // setCamera uses this (line 154 of myplot_webgl.js)
-    let spectral_info = [{
-        x_ppm_start: s.x_ppm_start,
-        x_ppm_step: s.x_ppm_step,
-        y_ppm_start: s.y_ppm_start,
-        y_ppm_step: s.y_ppm_step,
-        x_ppm_ref: 0, // Assume 0 if not set
-        y_ppm_ref: 0
-    }];
+    // Concatenate all points
+    let combined_points = new Float32Array(total_points);
+    let offset = 0;
+    for (let i = 0; i < spectra_list.length; i++) {
+        combined_points.set(points_pos_list[i], offset);
+        offset += points_pos_list[i].length;
+        combined_points.set(points_neg_list[i], offset);
+        offset += points_neg_list[i].length;
+    }
 
     // Set the data
-    main_plot.contour_plot.spectral_order = [0]; // Should draw index 0
+    main_plot.contour_plot.spectral_order = spectral_order_list;
 
     main_plot.contour_plot.set_data(
-        spectral_info,
+        spectral_info_list,
         combined_points,
-        start_pos,
-        poly_pos,
-        len_pos,
-        color_pos,
-        lbs_pos,
-        start_neg,
-        poly_neg,
-        len_neg,
-        color_neg,
-        lbs_neg
+        start_pos_list,
+        poly_pos_list,
+        len_pos_list,
+        color_pos_list,
+        lbs_pos_list,
+        start_neg_list,
+        poly_neg_list,
+        len_neg_list,
+        color_neg_list,
+        lbs_neg_list
     );
 
     // Explicitly sync camera to ensuring initial view is correct (Fixes "Zoom Once" issue)
@@ -1153,8 +1361,46 @@ function refresh_xz_view() {
 
     spectrum_xz = spec;
 
+    // Handle Theoretical
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+        let base_spec_theo = theoretical_spectra_3d[0];
+        let spec_theo = new spectrum();
+        spec_theo.n_direct = base_spec_theo.n_direct;
+        spec_theo.n_indirect = theoretical_spectra_3d.length;
+        spec_theo.x_ppm_start = base_spec_theo.x_ppm_start;
+        spec_theo.x_ppm_step = base_spec_theo.x_ppm_step;
+        spec_theo.y_ppm_start = base_spec_theo.z_ppm_start;
+        spec_theo.y_ppm_step = base_spec_theo.z_ppm_step;
+
+        spec_theo.levels = base_spec_theo.levels;
+        spec_theo.negative_levels = base_spec_theo.negative_levels;
+        spec_theo.noise_level = base_spec_theo.noise_level;
+        spec_theo.spectrum_color = base_spec_theo.spectrum_color;
+        spec_theo.spectrum_color_negative = base_spec_theo.spectrum_color_negative;
+
+        let sz = theoretical_spectra_3d.length;
+        let nx = base_spec_theo.n_direct;
+        let raw_theo = new Float32Array(sz * nx);
+
+        for (let z = 0; z < sz; z++) {
+            let slice = theoretical_spectra_3d[z];
+            if (slice.raw_data && slice.raw_data.length > 0) {
+                let start = current_y_index * nx;
+                let end = start + nx;
+                let row = slice.raw_data.subarray(start, end);
+                raw_theo.set(row, z * nx);
+            }
+        }
+        spec_theo.raw_data = raw_theo;
+        theoretical_spectrum_xz = spec_theo;
+
+        request_orthogonal_contour(spec_theo, 0, "xz_theo");
+        request_orthogonal_contour(spec_theo, 1, "xz_theo");
+    }
+
     if (main_plot_xz) {
         main_plot_xz.local_spectra = [spec];
+        if (theoretical_spectrum_xz) main_plot_xz.local_spectra.push(theoretical_spectrum_xz);
     }
 }
 
@@ -1210,8 +1456,49 @@ function refresh_yz_view() {
 
     spectrum_yz = spec;
 
+    // Handle Theoretical
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+        let base_spec_theo = theoretical_spectra_3d[0];
+
+        let spec_theo = new spectrum();
+        spec_theo.n_direct = theoretical_spectra_3d.length;
+        spec_theo.n_indirect = base_spec_theo.n_indirect;
+        spec_theo.x_ppm_start = base_spec_theo.z_ppm_start;
+        spec_theo.x_ppm_step = base_spec_theo.z_ppm_step;
+        spec_theo.y_ppm_start = base_spec_theo.y_ppm_start;
+        spec_theo.y_ppm_step = base_spec_theo.y_ppm_step;
+
+        spec_theo.levels = base_spec_theo.levels;
+        spec_theo.negative_levels = base_spec_theo.negative_levels;
+        spec_theo.spectrum_color = base_spec_theo.spectrum_color;
+        spec_theo.spectrum_color_negative = base_spec_theo.spectrum_color_negative;
+
+        let sz = theoretical_spectra_3d.length;
+        let nx = base_spec_theo.n_direct;
+        let ny = base_spec_theo.n_indirect;
+
+        let raw_theo = new Float32Array(sz * ny);
+
+        for (let y = 0; y < ny; y++) {
+            for (let z = 0; z < sz; z++) {
+                let slice = theoretical_spectra_3d[z];
+                let val = 0;
+                if (slice.raw_data && slice.raw_data.length > 0) {
+                    val = slice.raw_data[y * nx + current_x_index];
+                }
+                raw_theo.set([val], y * sz + z);
+            }
+        }
+        spec_theo.raw_data = raw_theo;
+        theoretical_spectrum_yz = spec_theo;
+
+        request_orthogonal_contour(spec_theo, 0, "yz_theo");
+        request_orthogonal_contour(spec_theo, 1, "yz_theo");
+    }
+
     if (main_plot_yz) {
         main_plot_yz.local_spectra = [spec];
+        if (theoretical_spectrum_yz) main_plot_yz.local_spectra.push(theoretical_spectrum_yz);
     }
 }
 
@@ -1254,51 +1541,97 @@ function refresh_ortho_plot(type) {
         // Don't reset xscale/yscale here
     }
 
-    let points_pos = spec.cached_contour_pos ? spec.cached_contour_pos.points : new Float32Array([]);
-    if (!(points_pos instanceof Float32Array)) points_pos = new Float32Array(points_pos);
+    let points_pos_list = [];
+    let len_pos_list = [];
+    let poly_pos_list = [];
+    let points_neg_list = [];
+    let len_neg_list = [];
+    let poly_neg_list = [];
+    let color_pos_list = [];
+    let color_neg_list = [];
+    let lbs_pos_list = [];
+    let lbs_neg_list = [];
+    let start_pos_list = [];
+    let start_neg_list = [];
+    let spectral_info_list = [];
+    let spectral_order_list = [];
 
-    let len_pos = spec.cached_contour_pos ? [spec.cached_contour_pos.levels_length] : [[]];
-    let poly_pos = spec.cached_contour_pos ? [spec.cached_contour_pos.polygon_length] : [[]];
+    let spectra_list = [spec];
+    if (type === "xz" && theoretical_spectrum_xz) spectra_list.push(theoretical_spectrum_xz);
+    if (type === "yz" && theoretical_spectrum_yz) spectra_list.push(theoretical_spectrum_yz);
 
-    let points_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
-    if (!(points_neg instanceof Float32Array)) points_neg = new Float32Array(points_neg);
+    let total_points = 0;
 
-    let len_neg = spec.cached_contour_neg ? [spec.cached_contour_neg.levels_length] : [[]];
-    let poly_neg = spec.cached_contour_neg ? [spec.cached_contour_neg.polygon_length] : [[]];
+    for (let i = 0; i < spectra_list.length; i++) {
+        let s = spectra_list[i];
 
-    let color_pos = [hexToRgb(spec.spectrum_color)];
-    let color_neg = [hexToRgb(spec.spectrum_color_negative)];
+        // Ensure cached contours exist (might be loading)
+        // If loading, just render empty for now on this refreshed cycle?
+        // Or if base experimental is missing, we return earlier.
 
-    let lbs_pos = [0];
-    let lbs_neg = [0];
-    let start_pos = [0];
-    let combined_points = Float32Concat(points_pos, points_neg);
-    let start_neg = [points_pos.length];
+        let p_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
+        if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-    let spectral_info = [{
-        x_ppm_start: spec.x_ppm_start,
-        x_ppm_step: spec.x_ppm_step,
-        y_ppm_start: spec.y_ppm_start,
-        y_ppm_step: spec.y_ppm_step,
-        x_ppm_ref: 0,
-        y_ppm_ref: 0
-    }];
+        let p_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
 
-    plot.contour_plot.spectral_order = [0];
+        points_pos_list.push(p_pos);
+        points_neg_list.push(p_neg);
+
+        len_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.levels_length : []);
+        poly_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.polygon_length : []);
+
+        len_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.polygon_length : []);
+
+        color_pos_list.push(hexToRgb(s.spectrum_color));
+        color_neg_list.push(hexToRgb(s.spectrum_color_negative));
+
+        lbs_pos_list.push(0);
+        lbs_neg_list.push(0);
+
+        start_pos_list.push(total_points);
+        total_points += p_pos.length;
+        start_neg_list.push(total_points);
+        total_points += p_neg.length;
+
+        spectral_info_list.push({
+            x_ppm_start: s.x_ppm_start,
+            x_ppm_step: s.x_ppm_step,
+            y_ppm_start: s.y_ppm_start,
+            y_ppm_step: s.y_ppm_step,
+            x_ppm_ref: 0,
+            y_ppm_ref: 0
+        });
+
+        spectral_order_list.push(i);
+    }
+
+    // Concatenate all points
+    let combined_points = new Float32Array(total_points);
+    let offset = 0;
+    for (let i = 0; i < spectra_list.length; i++) {
+        combined_points.set(points_pos_list[i], offset);
+        offset += points_pos_list[i].length;
+        combined_points.set(points_neg_list[i], offset);
+        offset += points_neg_list[i].length;
+    }
+
+    plot.contour_plot.spectral_order = spectral_order_list;
 
     plot.contour_plot.set_data(
-        spectral_info,
+        spectral_info_list,
         combined_points,
-        start_pos,
-        poly_pos,
-        len_pos,
-        color_pos,
-        lbs_pos,
-        start_neg,
-        poly_neg,
-        len_neg,
-        color_neg,
-        lbs_neg
+        start_pos_list,
+        poly_pos_list,
+        len_pos_list,
+        color_pos_list,
+        lbs_pos_list,
+        start_neg_list,
+        poly_neg_list,
+        len_neg_list,
+        color_neg_list,
+        lbs_neg_list
     );
 
     // Sync Camera
