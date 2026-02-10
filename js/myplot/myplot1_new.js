@@ -127,6 +127,9 @@ function plotit(input) {
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
     this.magnifying_glass_size = 10; //default is 10% of the plot size
+
+    this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
+    this.$extra_peaks_group = null; // SVG group for extra peaks
 };
 
 plotit.prototype.enable_magnifying_glass = function (flag, ratio, size) {
@@ -371,6 +374,13 @@ plotit.prototype.reset_axis = function () {
      */
     this.$vis.selectAll(".hline").attr("d", self.lineFunc(self.hline_data));
     this.$vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
+
+    /**
+     * Update extra peaks position
+     */
+    if (this.extra_peaks && this.extra_peaks.length > 0) {
+        this.draw_extra_peaks();
+    }
 
     if (this.zoom_on_call_function) {
         this.zoom_on_call_function();
@@ -1821,6 +1831,132 @@ plotit.prototype.draw_peaks = function () {
         })
         .attr('stroke-width', self.peak_thickness);
 };
+
+/**
+ * Add extra peaks to be visualized on top of the plot
+ * @param {Array} peaks - Array of peak objects {x, y, symbol, color, size, fill}
+ */
+plotit.prototype.add_extra_peaks = function (peaks) {
+    this.extra_peaks = peaks;
+    this.draw_extra_peaks();
+};
+
+/**
+ * Draw extra peaks (theoretical peaks) from this.extra_peaks
+ */
+plotit.prototype.draw_extra_peaks = function () {
+    let self = this;
+
+    // Create group if not exists
+    if (!this.$extra_peaks_group) {
+        this.$extra_peaks_group = this.$vis.append('g').attr('class', 'extra-peaks-group');
+    }
+
+    // Bind data
+    let selection = this.$extra_peaks_group.selectAll('.extra-peak')
+        .data(this.extra_peaks);
+
+    // Remove old
+    selection.exit().remove();
+
+    // Add new
+    let enter = selection.enter().append('path')
+        .attr('class', 'extra-peak')
+        .attr("clip-path", "url(#clip)");
+
+    // Update all
+    enter.merge(selection)
+        .attr('d', function (d) {
+            let cx = self.xRange(d.x);
+            let cy = self.yRange(d.y);
+            let r = d.size || 5;
+
+            if (d.symbol === 'square') {
+                return `M${cx - r},${cy - r} L${cx + r},${cy - r} L${cx + r},${cy + r} L${cx - r},${cy + r} Z`;
+            } else if (d.symbol === 'cross') { // X shape
+                return `M${cx - r},${cy - r} L${cx + r},${cy + r} M${cx + r},${cy - r} L${cx - r},${cy + r}`;
+            } else { // 'circle' or default
+                // Draw circle path
+                return `M${cx},${cy} m${-r},0 a${r},${r} 0 1,0 ${r * 2},0 a${r},${r} 0 1,0 ${-r * 2},0`;
+            }
+        })
+        .attr('stroke', function (d) { return d.color || 'red'; })
+        .attr('stroke-width', 2)
+        .attr('fill', function (d) { return d.fill ? (d.color || 'red') : 'none'; })
+        .attr('visibility', function (d) {
+            // Check boundaries
+            if (d.x > self.xscale[0] && d.x < self.xscale[1] && // Note: xscale might be inverted
+                ((self.xscale[0] < self.xscale[1] && d.x > self.xscale[0] && d.x < self.xscale[1]) ||
+                    (self.xscale[0] > self.xscale[1] && d.x < self.xscale[0] && d.x > self.xscale[1]))) {
+                // X invisible? D3 clip path handles it mostly.
+            }
+            return "visible";
+        });
+};
+
+
+/**
+ * Add extra peaks to be visualized on top of the plot
+ * @param {Array} peaks - Array of peak objects {x, y, symbol, color, size, fill}
+ */
+plotit.prototype.add_extra_peaks = function (peaks) {
+    this.extra_peaks = peaks;
+    this.draw_extra_peaks();
+};
+
+/**
+ * Draw extra peaks (theoretical peaks) from this.extra_peaks
+ */
+plotit.prototype.draw_extra_peaks = function () {
+    let self = this;
+
+    // Create group if not exists
+    if (!this.$extra_peaks_group) {
+        this.$extra_peaks_group = this.$vis.append('g').attr('class', 'extra-peaks-group');
+    }
+
+    // Bind data
+    let selection = this.$extra_peaks_group.selectAll('.extra-peak')
+        .data(this.extra_peaks);
+
+    // Remove old
+    selection.exit().remove();
+
+    // Add new
+    let enter = selection.enter().append('path')
+        .attr('class', 'extra-peak')
+        .attr("clip-path", "url(#clip)");
+
+    // Update all
+    enter.merge(selection)
+        .attr('d', function (d) {
+            let cx = self.xRange(d.x);
+            let cy = self.yRange(d.y);
+            let r = d.size || 5;
+
+            if (d.symbol === 'square') {
+                return `M${cx - r},${cy - r} L${cx + r},${cy - r} L${cx + r},${cy + r} L${cx - r},${cy + r} Z`;
+            } else if (d.symbol === 'cross') { // X shape
+                return `M${cx - r},${cy - r} L${cx + r},${cy + r} M${cx + r},${cy - r} L${cx - r},${cy + r}`;
+            } else { // 'circle' or default
+                // Draw circle path
+                return `M${cx},${cy} m${-r},0 a${r},${r} 0 1,0 ${r * 2},0 a${r},${r} 0 1,0 ${-r * 2},0`;
+            }
+        })
+        .attr('stroke', function (d) { return d.color || 'red'; })
+        .attr('stroke-width', 2)
+        .attr('fill', function (d) { return d.fill ? (d.color || 'red') : 'none'; })
+        .attr('visibility', function (d) {
+            // Check boundaries
+            if (d.x > self.xscale[0] && d.x < self.xscale[1] && // Note: xscale might be inverted
+                ((self.xscale[0] < self.xscale[1] && d.x > self.xscale[0] && d.x < self.xscale[1]) ||
+                    (self.xscale[0] > self.xscale[1] && d.x < self.xscale[0] && d.x > self.xscale[1]))) {
+                // X invisible? D3 clip path handles it mostly.
+            }
+            return "visible";
+        });
+};
+
 
 /**
  * Function to allow clicking on peaks, to pop up a window with peak information

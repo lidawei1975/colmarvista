@@ -187,6 +187,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+var theoretical_peaks_data = []; // Store raw peak data
+
 async function load_theoretical_peaks() {
     let fileInput = document.getElementById('theoretical_peaks_file');
     if (fileInput.files.length === 0) {
@@ -204,26 +206,73 @@ async function load_theoretical_peaks() {
     let lines = text.split('\n');
 
     let peaks = [];
-    // Parse file. Skip header lines (start with "Peak" or "=")
+    let header_map = null;
+
+    // Parse file.
     for (let line of lines) {
         line = line.trim();
-        if (!line || line.startsWith("Peak") || line.startsWith("=")) continue;
+        if (!line) continue;
 
-        // Format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
         let parts = line.split(/\s+/);
-        if (parts.length >= 11) {
-            peaks.push({
-                amp: parseFloat(parts[1]),
-                x: parseFloat(parts[2]),
-                y: parseFloat(parts[3]),
-                z: parseFloat(parts[4]),
-                fwhh_x: parseFloat(parts[5]),
-                fwhh_y: parseFloat(parts[6]),
-                fwhh_z: parseFloat(parts[7]),
-                lx: parseFloat(parts[8]),
-                ly: parseFloat(parts[9]),
-                lz: parseFloat(parts[10])
+
+        // Check for header line
+        if (!header_map && parts.includes("Amplitude") && parts.includes("X_Center")) {
+            header_map = {};
+            parts.forEach((col, idx) => {
+                header_map[col] = idx;
             });
+            continue;
+        }
+
+        // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
+        if (line.startsWith("=") || line.startsWith("-")) continue;
+        // Skip explicitly known header starts if we are in legacy mode check or if they are redundant
+        if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
+
+        if (header_map) {
+            // Dynamic parsing based on header
+            let get_val = (key) => {
+                let idx = header_map[key];
+                if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
+                return 0.0;
+            };
+
+            // Basic validation: Amplitude must be a number
+            let amp = get_val("Amplitude");
+            if (isNaN(amp)) continue;
+
+            peaks.push({
+                amp: amp,
+                x: get_val("X_Center"),
+                y: get_val("Y_Center"),
+                z: get_val("Z_Center"),
+                fwhh_x: get_val("X_FWHH"),
+                fwhh_y: get_val("Y_FWHH"),
+                fwhh_z: get_val("Z_FWHH"),
+                lx: get_val("Lx"),
+                ly: get_val("Ly"),
+                lz: get_val("Lz")
+            });
+        } else {
+            // Legacy format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
+            // 11 columns expected.
+            if (parts.length >= 11) {
+                // Ensure it's data by checking if ID (0) or Amp (1) is a number
+                if (isNaN(parseFloat(parts[1]))) continue;
+
+                peaks.push({
+                    amp: parseFloat(parts[1]),
+                    x: parseFloat(parts[2]),
+                    y: parseFloat(parts[3]),
+                    z: parseFloat(parts[4]),
+                    fwhh_x: parseFloat(parts[5]),
+                    fwhh_y: parseFloat(parts[6]),
+                    fwhh_z: parseFloat(parts[7]),
+                    lx: parseFloat(parts[8]),
+                    ly: parseFloat(parts[9]),
+                    lz: parseFloat(parts[10])
+                });
+            }
         }
     }
 
@@ -233,6 +282,7 @@ async function load_theoretical_peaks() {
     }
 
     console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
+    theoretical_peaks_data = peaks;
     generate_theoretical_volume(peaks);
 
     // Refresh views to show overlay
@@ -465,6 +515,85 @@ function draw_slice(index, update_ortho_views = true) {
         if (main_plot_yz) {
             main_plot_yz.pan_to_center_ppm('x', z_ppm);
         }
+    }
+
+    // Visualize Theoretical Peaks on 2D Plot
+    if (main_plot && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        let visible_peaks = [];
+        // Z-Index is 'index'. 
+        // Peak.z is in index units (if parsed as such? No, it seemed to be index/ppm mixed in user's file...)
+        // In the parsing logic: 'z' was parsed from 'Z_Center'. 
+        // User file: "Z_Center" = 24.047615. "Partition_Index" = 7. 
+        // Wait, is Z_Center index or ppm? 
+        // In `generate_theoretical_volume`: `let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));`
+        // This implies p.z is treated as index coordinate for the volume generation loop `for (let z = 0; z < nz; z++)`.
+        // So p.z IS index-based coordinate (or at least used directly against slice index).
+        // Let's assume p.z explains the slice index.
+
+        // Also note: we need Z Width for the condition.
+        // User said: "show filled circle if peak Z < current Z but within Z_width"
+        // "show square if Z within +-1 of current Z"
+        // "show cross if peak Z > current Z but within Z_width"
+
+        let current_z = index;
+
+        for (let p of theoretical_peaks_data) {
+            let diff = p.z - current_z;
+            let abs_diff = Math.abs(diff);
+
+            // Width. Using FWHH_Z (in index units?)
+            // If z is index, fwhh_z should be too.
+            let width = p.fwhh_z; // Z_FWHH
+            // Define a range of visibility. Maybe 2 * width? Or just width?
+            // User said "within Z_width". Let's assume "distance <= width".
+
+            if (abs_diff <= 1.0) {
+                // Square
+                visible_peaks.push({
+                    x: p.x_ppm || (s.x_ppm_start + p.x * s.x_ppm_step), // Wait, p.x is index?
+                    y: p.y_ppm || (s.y_ppm_start + p.y * s.y_ppm_step), // p.y is index?
+                    // Rewind: In load_theoretical_peaks, we stored p.x, p.y directly from file.
+                    // User file has "X_Center". 
+                    // 3d.js line 217: `x: parseFloat(parts[2])`.
+                    // generate_theoretical_volume uses `p.x` as index for array access: `s_data[row_offset + x]`. 
+                    // So p.x, p.y, p.z ARE INDICES.
+                    // But 2D plot expects PPM.
+                    // We must convert index to PPM.
+                    // PPM = Start + Index * Step (assuming standard direction, check logic)
+                    // In `plotit`: `x = (x_ppm - start)/step`. So `x_ppm = start + x * step`.
+
+                    x: s.x_ppm_start + p.x * s.x_ppm_step,
+                    y: s.y_ppm_start + p.y * s.y_ppm_step,
+                    symbol: 'square',
+                    color: 'red', // Use Red as requested
+                    size: 6,
+                    fill: false
+                });
+            } else if (Math.abs(diff) <= width) {
+                if (diff < 0) {
+                    // Peak Z < Current Z -> Filled Circle
+                    visible_peaks.push({
+                        x: s.x_ppm_start + p.x * s.x_ppm_step,
+                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        symbol: 'circle',
+                        color: 'red',
+                        size: 5,
+                        fill: true
+                    });
+                } else {
+                    // Peak Z > Current Z -> Cross
+                    visible_peaks.push({
+                        x: s.x_ppm_start + p.x * s.x_ppm_step,
+                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        symbol: 'cross',
+                        color: 'red',
+                        size: 5,
+                        fill: false
+                    });
+                }
+            }
+        }
+        main_plot.add_extra_peaks(visible_peaks);
     }
 }
 
@@ -1422,6 +1551,55 @@ function refresh_xz_view() {
     if (main_plot_xz) {
         main_plot_xz.local_spectra = [spec];
         if (theoretical_spectrum_xz) main_plot_xz.local_spectra.push(theoretical_spectrum_xz);
+
+        // Visualize Theoretical Peaks on XZ Plot
+        // XZ Plot:
+        // Horizontal (X-axis): Direct Dimension (X)
+        // Vertical (Y-axis): Z Dimension
+        // Slice Dimension: Indirect Dimension (Y) -> current_y_index
+        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+            let visible_peaks_xz = [];
+            let current_slice_y = current_y_index;
+            let s = spectra_3d[0];
+
+            for (let p of theoretical_peaks_data) {
+                // Depth check (Y dimension)
+                let diff = p.y - current_slice_y;
+                let abs_diff = Math.abs(diff);
+                let width = p.fwhh_y; // Y_FWHH
+
+                if (abs_diff <= width) {
+                    let symbol_type = 'circle';
+                    let fill_flag = true;
+
+                    if (abs_diff <= 1.0) {
+                        symbol_type = 'square';
+                        fill_flag = false;
+                    } else if (diff < 0) {
+                        // Behind slice
+                        symbol_type = 'circle';
+                        fill_flag = true;
+                    } else {
+                        // In front of slice (diff > 0)
+                        symbol_type = 'cross';
+                        fill_flag = false;
+                    }
+
+                    // Map coordinates for XZ plot
+                    // X-axis: X PPM
+                    // Y-axis: Z PPM
+                    visible_peaks_xz.push({
+                        x: s.x_ppm_start + p.x * s.x_ppm_step,
+                        y: s.z_ppm_start + p.z * s.z_ppm_step,
+                        symbol: symbol_type,
+                        color: 'red',
+                        size: (symbol_type === 'square') ? 6 : 5,
+                        fill: fill_flag
+                    });
+                }
+            }
+            main_plot_xz.add_extra_peaks(visible_peaks_xz);
+        }
     }
 }
 
@@ -1520,6 +1698,55 @@ function refresh_yz_view() {
     if (main_plot_yz) {
         main_plot_yz.local_spectra = [spec];
         if (theoretical_spectrum_yz) main_plot_yz.local_spectra.push(theoretical_spectrum_yz);
+
+        // Visualize Theoretical Peaks on YZ Plot
+        // YZ Plot:
+        // Horizontal (X-axis): Z Dimension
+        // Vertical (Y-axis): Indirect Dimension (Y)
+        // Slice Dimension: Direct Dimension (X) -> current_x_index
+        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+            let visible_peaks_yz = [];
+            let current_slice_x = current_x_index;
+            let s = spectra_3d[0];
+
+            for (let p of theoretical_peaks_data) {
+                // Depth check (X dimension)
+                let diff = p.x - current_slice_x;
+                let abs_diff = Math.abs(diff);
+                let width = p.fwhh_x; // X_FWHH
+
+                if (abs_diff <= width) {
+                    let symbol_type = 'circle';
+                    let fill_flag = true;
+
+                    if (abs_diff <= 1.0) {
+                        symbol_type = 'square';
+                        fill_flag = false;
+                    } else if (diff < 0) {
+                        // Behind slice
+                        symbol_type = 'circle';
+                        fill_flag = true;
+                    } else {
+                        // In front of slice
+                        symbol_type = 'cross';
+                        fill_flag = false;
+                    }
+
+                    // Map coordinates for YZ plot
+                    // X-axis: Z PPM
+                    // Y-axis: Y PPM
+                    visible_peaks_yz.push({
+                        x: s.z_ppm_start + p.z * s.z_ppm_step,
+                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        symbol: symbol_type,
+                        color: 'red',
+                        size: (symbol_type === 'square') ? 6 : 5,
+                        fill: fill_flag
+                    });
+                }
+            }
+            main_plot_yz.add_extra_peaks(visible_peaks_yz);
+        }
     }
 }
 
