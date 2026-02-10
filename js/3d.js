@@ -1917,6 +1917,16 @@ function update_3d_crosshairs() {
     if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') {
         main_plot_yz.draw_center_lines(ppm_z, ppm_y); // Arguments: x_ppm, y_ppm
     }
+
+    // Update Info Div
+    let info_div = document.getElementById("center_info");
+    if (info_div) {
+        info_div.innerHTML = `
+            X: ${ppm_x.toFixed(3)} ppm (${current_x_index})<br>
+            Y: ${ppm_y.toFixed(3)} ppm (${current_y_index})<br>
+            Z: ${ppm_z.toFixed(3)} ppm (${current_slice_index})
+        `;
+    }
 }
 
 function request_orthogonal_contour(spectrum, sign, type) {
@@ -2276,6 +2286,37 @@ function center_3d_on_crosshair() {
 
     iso_renderer.centerView(meshX, meshY, meshZ);
 }
+
+function center_3d_on_slices() {
+    if (!iso_renderer || !current_volume_data) return;
+
+    // Use current slice indices directly
+    let idx_x = current_x_index;
+    let idx_y = current_y_index;
+    let idx_z = current_slice_index;
+
+    const data = current_volume_data;
+    const dx = data.dims.x;
+    const dy = data.dims.y;
+    const dz = data.dims.z;
+
+    const cx = dx / 2;
+    const cy = dy / 2;
+    const cz = dz / 2;
+
+    const maxDim = Math.max(dx, dy, dz);
+    const scale = 2.0 / maxDim;
+
+    let meshX = (idx_x - cx) * scale;
+    let meshY = (idx_y - cy) * scale;
+    let meshZ = (idx_z - cz) * scale;
+
+    console.log(`Centering on Slices: Idx(${idx_x}, ${idx_y}, ${idx_z}) -> Mesh(${meshX.toFixed(2)}, ${meshY.toFixed(2)}, ${meshZ.toFixed(2)})`);
+
+    iso_renderer.centerView(meshX, meshY, meshZ);
+}
+
+
 
 /**
  * Create a simple cylinder mesh

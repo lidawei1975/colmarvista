@@ -32,6 +32,9 @@ class IsoSurfaceRenderer {
         this.panX = 0;
         this.panY = 0;
 
+        // Target (Pivot Point)
+        this.target = { x: 0, y: 0, z: 0 };
+
 
         this.setupInteraction();
 
@@ -191,101 +194,112 @@ class IsoSurfaceRenderer {
         this.distance = 3.0;
         this.panX = 0;
         this.panY = 0;
+        this.target = { x: 0, y: 0, z: 0 };
         this.requestRender();
     }
 
     centerView(x, y, z) {
-        // Calculate rotated position of the point (x,y,z)
-        // We need to apply the same rotation as the view matrix
-        const degToRad = (d) => d * Math.PI / 180;
-        let mat = m4.identity();
-        mat = m4.xRotate(mat, degToRad(this.rotationX));
-        mat = m4.yRotate(mat, degToRad(this.rotationY));
+        // Set the pivot point to the requested coordinates
+        this.target = { x: x, y: y, z: z };
 
-        // Transform point
-        // m4.transformPoint(m, v) -- check m4.js for signature, usually it's v * M or M * v
-        // m4.js usually simulates OpenGL: v' = M * v
-        // But let's check m4.js basics. If not available, do manually.
-
-        // Manual rotation
-        // Rotation Order in render(): X then Y.
-        // Wait, render() does:
-        // view = m4.translate(..., pan...);
-        // view = m4.xRotate(view, rotX);
-        // view = m4.yRotate(view, rotY);
-        // This constructs M = T * Rx * Ry.
-        // Vertex v' = T * Rx * Ry * v.
-        // We want v'.x = 0, v'.y = 0.
-        // v' = T * (Rx * Ry * v).
-        // Let P_rot = Rx * Ry * v.
-        // v' = P_rot + translation.
-        // translation = (panX, panY, -dist).
-        // 0 = P_rot.x + panX => panX = -P_rot.x.
-        // 0 = P_rot.y + panY => panY = -P_rot.y.
-
-        // Compute P_rot = Rx * Ry * v
-        // Ry rotation (around Y axis)
-        let ry = degToRad(this.rotationY);
-        let rx = degToRad(this.rotationX);
-
-        // Rotate around Y
-        // x' = x cos - z sin
-        // z' = x sin + z cos
-        let x1 = x * Math.cos(ry) + z * Math.sin(ry); // Check sign convention of m4.yRotate
-        let y1 = y;
-        let z1 = -x * Math.sin(ry) + z * Math.cos(ry); // m4.yRotate usually standard
-
-        // Rotate around X
-        // y' = y cos - z sin
-        // z' = y sin + z cos
-        let x2 = x1;
-        let y2 = y1 * Math.cos(rx) - z1 * Math.sin(rx);
-        let z2 = y1 * Math.sin(rx) + z1 * Math.cos(rx);
-
-        // Actually, m4.yRotate might be different. Let's use m4 matrix if possible.
-        // But manually is safer if we match the matrix construction order.
-        // View construction: view = m4.xRotate(view, ...); view = m4.yRotate(view, ...);
-        // This implies View = View * Rx; View = View * Ry;
-        // If View start Identity: V = Rx * Ry.
-        // Vertex transformation: V * v = Rx * Ry * v.
-
-        // Let's verify M4 multiplication order.
-        // Common library: matrix multiplication A * B applies B first then A?
-        // Or Row-major vs Column-major? 
-        // WebGL is Column-Major. m4.translate(m, ...) usually means NewM = M * TranslationMatrix.
-        // So V = I * T * Rx * Ry.
-        // This effectively applies Ry first, then Rx, then T to the vertex.
-        // v' = T(Rx(Ry(v))).
-
-        // So:
-        // 1. Ry
-        // 2. Rx
-        // 3. Pan
-
-        // Ry
-        let cy = Math.cos(ry);
-        let sy = Math.sin(ry);
-        let x_ry = x * cy + z * sy;
-        let y_ry = y;
-        let z_ry = -x * sy + z * cy;
-
-        // Rx
-        let cx = Math.cos(rx);
-        let sx = Math.sin(rx);
-        let x_final = x_ry;
-        let y_final = y_ry * cx - z_ry * sx;
-        // let z_final = y_ry * sx + z_ry * cx; 
-
-        this.panX = -x_final;
-        this.panY = -y_final; // Note: In screen space Y is up? 
-        // Pan logic: this.panY -= deltaY * speed.
-        // m4.translate(..., panX, panY, ...).
-        // WebGL Y is up. Canvas Y (mouse) is down.
-        // If y_final is positive (up), we need panY to shift it down (-y_final). Correct.
+        // Reset pan so the target is exactly in the center of the screen
+        this.panX = 0;
+        this.panY = 0;
 
         this.requestRender();
     }
 
+
+    getViewCenter() {
+        if (!this.invViewMatrix) return this.target;
+
+        // We want the point P_world that maps to (0, 0, -distance) in View Space.
+        // P_world = InvView * (0, 0, -distance, 1)
+
+        let v_view = [0, 0, -this.distance, 1];
+
+        // m4.multiply_vec(matrix, vec) 
+        // Note: m4.js multiply_vec logic:
+        // b0 * a00 + b1 * a10 ...
+        // It computes Vector * Matrix? Or Matrix * Vector?
+        // Let's check m4.js again.
+        // b0*a00 + b1*a10...
+        // a00, a10, a20, a30 is Column 0.
+        // So this computes v[0]*Col0 + v[1]*Col1 ...
+        // This is Matrix * Vector? No.
+        // If v is row vector: v * M = v[0]*Row0 + ...
+        // If v is col vector: M * v = v[0]*Col0 + ...
+
+        // m4.js is column-major storage.
+        // a00, a10, a20, a30 are indices 0, 4, 8, 12?
+        // m4.js: "var a10 = a[1 * 4 + 0]" which is index 4.
+        // Yes, a10 is Row 1 Col 0 (if naming convention is RowCol).
+        // Standard Math Convention: M_10 is Row 1, Col 0.
+        // In column-major array: Index 1 is Row 1, Col 0.
+        // So a[1] is M_10.
+
+        // In m4.multiply_vec:
+        // var a10 = a[4]. (Index 4 is M_01: Row 0, Col 1).
+        // Wait.
+        // Standard Column Major:
+        // 0 4 8 12
+        // 1 5 9 13
+        // ...
+
+        // m4 code: var a10 = a[4].
+        // If a[4] is M_01 (Row 0 Col 1).
+        // Then variable name `a10` is confusing or means "1st index of 2nd col".
+
+        // The computation: b0 * a00 + b1 * a10 + ...
+        // = b0 * a[0] + b1 * a[4] + ...
+        // = b0 * M_00 + b1 * M_01 + ...
+        // This is Row 0 of M dotted with b?
+        // No, this is: b0 * Col0_Element ?
+        // b0 * M_00 + b1 * M_01 ...
+        // This looks like Row 0 computation for M*v if M was Row Major??
+
+        // Let's look at output res[0]:
+        // b0*a00 + b1*a10 ...
+        // If m4 represents matrix as:
+        // [ m00, m01, m02, m03,    (Row 0)
+        //   m10, m11, ... ]
+        // Then a[4] is m10 (Row 1 Col 0).
+        // Then b0 * m00 + b1 * m10 ... is Column 0 dotted with b.
+        // This would be (v * M)[0].
+
+        // BUT m4.projection returns:
+        // 2/w, 0, 0, 0, ...
+        // 0, -2/h, 0, 0...
+        // This looks row-major visual layout in code?
+        // But passed to WebGL (column major expected).
+        // So WebGL reads [2/w, 0, 0, 0] as Column 0.
+        // Thus M_00 = 2/w.
+
+        // So m4.js matrices are Column Major.
+        // And multiply_vec does a transform.
+        // I will trust m4.transformPoint if it exists, but simpler:
+        // Just implement the multiplication manually using standard indices.
+        // InvView * v.
+
+        let m = this.invViewMatrix;
+        let v = v_view;
+
+        // x = m00*v0 + m10*v1 + m20*v2 + m30*v3  (Row 0 dot v)
+        // In column-major array 'm':
+        // Row 0 is indices 0, 4, 8, 12.
+        // Row 1 is indices 1, 5, 9, 13.
+
+        let x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3];
+        let y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3];
+        let z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3];
+        let w = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3];
+
+        return {
+            x: x / w,
+            y: y / w,
+            z: z / w
+        };
+    }
 
     /**
      * Set the geometry data to render.
@@ -379,15 +393,19 @@ class IsoSurfaceRenderer {
         // Camera Orbit
         // Move camera back by 'distance', then rotate around origin
         let view = m4.identity();
-        // Apply Panning (in screen space / camera space)
-        // We translate the world relative to camera by (panX, panY). 
-        // Or conceptually, move camera by (-panX, -panY).
-        // Since we are building the VIEW matrix (World -> Camera),
-        // Translating geometry by (panX, panY, -distance) works.
+
+        // 1. Move camera back and apply screen-space pan
         view = m4.translate(view, this.panX, this.panY, -this.distance);
 
+        // 2. Rotate camera (orbit)
         view = m4.xRotate(view, degToRad(this.rotationX));
         view = m4.yRotate(view, degToRad(this.rotationY));
+
+        // 3. Translate world to center the Pivot Point (Target) at origin
+        // This ensures rotation happens around the target
+        view = m4.translate(view, -this.target.x, -this.target.y, -this.target.z);
+
+
 
         console.log("View Matrix:", view);
         console.log("Projection Matrix:", projection);

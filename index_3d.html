@@ -236,8 +236,13 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>3D Visualization</h4>
                                 <button onclick="reset_3d_view()" style="margin-bottom: 5px;">Reset View</button>
-                                <button onclick="center_3d_on_crosshair()" style="margin-bottom: 5px;">Center to
-                                    View</button>
+
+                                <div id="center_info"
+                                    style="margin-bottom: 5px; font-weight: bold; font-size: 14px; text-align: center;">
+                                    Center: -
+                                </div>
+                                <button onclick="center_3d_on_slices()" style="margin-bottom: 5px;">Set 3D
+                                    Center</button>
 
                                 <div id="iso_controls"
                                     style="width: 80%; margin-bottom: 10px; border: 1px solid #ddd; padding: 5px; background: #fff;">
