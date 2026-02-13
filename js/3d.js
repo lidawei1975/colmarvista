@@ -211,7 +211,7 @@ async function load_theoretical_peaks() {
     // Parse file.
     for (let line of lines) {
         line = line.trim();
-        if (!line) continue;
+        if (!line || line.startsWith("#")) continue;
 
         let parts = line.split(/\s+/);
 
@@ -292,6 +292,9 @@ async function load_theoretical_peaks() {
         refresh_yz_view();
         update_3d_crosshairs();
     }
+
+    // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
+    fileInput.value = '';
 }
 
 function generate_theoretical_volume(peaks) {
