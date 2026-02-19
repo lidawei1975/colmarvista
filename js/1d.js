@@ -2008,9 +2008,28 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 async function download_plot() {
     /**
          * Generate a link to download main_plot as a SVG file
-         * The top SVG element has id = "plot_1d"
+         * The top SVG element has id = "main_plot"
          */
-    var svgData = document.getElementById("plot_1d").outerHTML;
+    // Clone the SVG node so we can modify it without affecting the live plot
+    var svg = document.getElementById("main_plot").cloneNode(true);
+
+    // If Y-axis labels are hidden in the plot object, remove the axis group from the clone
+    if (main_plot && main_plot.y_axis_labels_visible === false) {
+        var yAxis = svg.querySelector(".yaxis");
+        if (yAxis) {
+            // Remove the Y-axis group
+            yAxis.remove();
+
+            // Also, we might want to adjust the viewBox or width if we want to "crop" it, 
+            // but the request is just to "remove y axis". The margin area will still be there but empty.
+            // If the margin was reduced to 20px in the live plot (which it is), the clone will reflect that.
+        }
+    }
+
+    var svgData = svg.outerHTML;
+    // Remove id="main_plot" from the svg tag
+    svgData = svgData.replace(/id="main_plot"/, "");
+
     var svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
     var svgUrl = URL.createObjectURL(svgBlob);
     var downloadLink = document.createElement("a");
