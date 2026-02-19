@@ -4496,3 +4496,18 @@ function exit_reprocessing_ui(index) {
         if (div) div.style.backgroundColor = ""; // Reset to default (or remove inline style)
     }
 }
+
+/**
+ * Toggle Y-axis labels visibility
+ */
+function toggle_y_axis_labels() {
+    if (main_plot) {
+        // If checked, we want to HIDE (visible = false)
+        // If unchecked, we want to SHOW (visible = true)
+        let element = document.getElementById("hide_y_labels");
+        if (element) {
+            let visible = !element.checked;
+            main_plot.set_y_axis_labels_visibility(visible);
+        }
+    }
+}

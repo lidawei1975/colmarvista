@@ -121,6 +121,9 @@ class myplot_1d {
         this.peak_type = null;
 
         this.current_spectrum_index = -1; // -1 means no current spectrum is selected
+
+        this.y_axis_labels_visible = true;
+        this.original_left_margin = this.margin.left;
     }
 
     /**
@@ -528,9 +531,10 @@ class myplot_1d {
             }
 
             /**
-            * left side of the Y axis or shift key is pressed, Y zoom only
+            * left side of the Y axis + buffer, or shift key is pressed, Y zoom only
+            * When labels are hidden, margin is small, so we add a buffer (e.g. 15px) to allow easier interaction
             */
-            else if (e.clientX - bound.left < self.margin.left) {
+            else if (e.clientX - bound.left < self.margin.left + (self.y_axis_labels_visible ? 0 : 15)) {
                 /**
                  * Get top and bottom of the visible range
                  * We need to zoom in/out around the mouse position
@@ -547,7 +551,10 @@ class myplot_1d {
             /**
              * Right side of the Y axis, X zoom only
              */
-            else if (e.clientX - bound.left > self.margin.left && e.clientX - bound.left < self.width - self.margin.right) {
+            /**
+             * Right side of the Y axis, X zoom only
+             */
+            else if (e.clientX - bound.left > self.margin.left + (self.y_axis_labels_visible ? 0 : 15) && e.clientX - bound.left < self.width - self.margin.right) {
                 /**
                  * Get left and right of the visible range
                  * We need to zoom in/out around the mouse position
@@ -690,6 +697,20 @@ class myplot_1d {
         }
     }
 
+    set_y_axis_labels_visibility(visible) {
+        this.y_axis_labels_visible = visible;
+        if (visible) {
+            this.margin.left = this.original_left_margin;
+        } else {
+            // Ensure we have a valid original margin before overwriting
+            if (this.margin.left > 30) {
+                this.original_left_margin = this.margin.left;
+            }
+            this.margin.left = 20;
+        }
+        this.recalculate_true_size_and_redraw();
+    }
+
 
     update_margins_and_font(new_margins, new_fontsize) {
         this.margin = new_margins;
@@ -752,7 +773,13 @@ class myplot_1d {
         this.$xLabel
             .attr("font-size", this.fontsize + "px")
 
-        this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
+        if (this.y_axis_labels_visible) {
+            this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
+            this.$yLabelGroup.style("display", "inline");
+        } else {
+            this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat("");
+            this.$yLabelGroup.style("display", "none");
+        }
         this.$yAxis_element
             .attr('transform', 'translate(' + (this.margin.left) + ',0)')
             .call(this.yAxis);

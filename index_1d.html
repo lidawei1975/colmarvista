@@ -150,6 +150,8 @@
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
                         <button onclick="download_plot()">Download plot</button>
+                        <input type="checkbox" id="hide_y_labels" onclick="toggle_y_axis_labels()">
+                        <label for="hide_y_labels">Hide Y Labels</label>
                         <button onclick="write_current_size()">Fill plot size and zoom</button>
                         <input type="text" id="size_and_zoom_string" placeholder="size and zoom level of plot"
                             style="width: 300px;">
