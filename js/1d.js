@@ -3135,7 +3135,8 @@ async function run_ann_phase_correction(ndx) {
     if (all_spectra[ndx].raw_data.length < 32768) {
         alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
     }
-    document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
+    // document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
+    document.getElementById("contour_message").innerText = "Automatic phasing in progress";
     /**
      * Disable manual phase correction and myself button during auto phase correction
      */
@@ -3293,7 +3294,8 @@ async function run_ann_phase_correction(ndx) {
     if (btn) {
         btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
     }
-    document.getElementById("webassembly_message").innerText = "";
+    // document.getElementById("webassembly_message").innerText = "";
+    document.getElementById("contour_message").innerText = "";
 }
 
 /**
