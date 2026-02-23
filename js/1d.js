@@ -546,6 +546,17 @@ $(document).ready(function () {
         main_plot.peak_color = this.value;
         main_plot.redraw_peaks(4);
     });
+    /**
+     * Event listener for allow_drag_and_drop checkbox
+     * Calls main_plot.allow_peak_dragging() to enable/disable peak dragging
+     */
+    document.getElementById('allow_drag_and_drop').addEventListener('change', function () {
+        if (this.checked) {
+            main_plot.allow_peak_dragging(true);
+        } else {
+            main_plot.allow_peak_dragging(false);
+        }
+    });
 });
 
 webassembly_1d_worker_2.onmessage = function (e) {
@@ -2291,6 +2302,14 @@ function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
  */
 function show_hide_peaks(index, flag, b_show) {
     /**
+     * Reset and disable the drag-and-drop checkbox. It will be re-enabled below
+     * only when showing picked peaks of an experimental spectrum.
+     */
+    main_plot.allow_peak_dragging(false);
+    document.getElementById("allow_drag_and_drop").checked = false;
+    document.getElementById("allow_drag_and_drop").disabled = true;
+
+    /**
      * Turn off checkbox of all other spectra
      */
     for (let i = 0; i < all_spectra.length; i++) {
@@ -2325,6 +2344,13 @@ function show_hide_peaks(index, flag, b_show) {
 
         if (flag === 'picked') {
             main_plot.add_peaks(all_spectra[index].picked_peaks_object, 'picked');
+            /**
+             * Enable drag-and-drop checkbox only for picked peaks of experimental spectra
+             * (spectrum_origin === -1: from ft1 file, -2: from FID processing)
+             */
+            if (all_spectra[index].spectrum_origin === -1 || all_spectra[index].spectrum_origin === -2) {
+                document.getElementById("allow_drag_and_drop").disabled = false;
+            }
         }
         else {
             main_plot.add_peaks(all_spectra[index].fitted_peaks_object, 'fitted');

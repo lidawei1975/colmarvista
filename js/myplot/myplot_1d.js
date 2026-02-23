@@ -119,6 +119,8 @@ class myplot_1d {
         this.current_actively_corrected_spectrum_data = []; // This is the data of the current actively corrected spectrum index after phase correction
 
         this.peak_type = null;
+        this.peak_drag_enabled = false; // flag to enable/disable peak dragging
+        this.current_peak_object = null; // reference to the cpeaks object currently displayed
 
         this.current_spectrum_index = -1; // -1 means no current spectrum is selected
 
@@ -1324,6 +1326,7 @@ class myplot_1d {
     add_peaks(peak_obj, peak_type = 'picked') {
         let self = this;
         self.peak_type = peak_type; // save peak type for later use
+        self.current_peak_object = peak_obj; // save reference for drag updates
         /**
          * Construct peak data, array of [x,y,z] 
          * x is ppm: peak_obj.column['X_PPM']
@@ -1350,6 +1353,11 @@ class myplot_1d {
             .style("stroke-width", self.peak_thickness) // thickness of the circle
             .style("stroke", self.peak_color) // color of the circle
             ;
+
+        // If dragging is already enabled, attach drag behavior to the newly added peaks
+        if (self.peak_drag_enabled && peak_type === 'picked') {
+            self.allow_peak_dragging(true);
+        }
     };
 
     /**
@@ -1394,10 +1402,95 @@ class myplot_1d {
             this.$peaks_symbol = null;
         }
         this.peak_type = null; // reset peak type
+        this.current_peak_object = null; // clear peak object reference
         /**
          * also remove reconstructed peaks if they exist (if it is from fitted peaks)
          */
         this.update_reconstructed_peaks([]);
+    };
+
+    /**
+     * Enable or disable peak dragging for the 1D plot.
+     * When enabled, the user can drag peak markers to move them (adjust PPM and height)
+     * or remove them by dragging above the top of the plot area.
+     * @param {boolean} flag - true to enable, false to disable
+     */
+    allow_peak_dragging(flag) {
+        let self = this;
+        self.peak_drag_enabled = flag;
+
+        if (!self.$peaks_symbol || self.peak_type !== 'picked') {
+            return;
+        }
+
+        if (flag === true) {
+            const peak_drag = d3.drag()
+                .on('start', function (event, d) {
+                    // Bring this circle to front and stop plot panning
+                    d3.select(this).raise().classed('peak-dragging', true);
+                    // Temporarily disable mouse-based plot panning
+                    self.mouse_is_down = false;
+                })
+                .on('drag', function (event, d) {
+                    // Move the circle visually
+                    d3.select(this)
+                        .attr('cx', event.x)
+                        .attr('cy', event.y);
+                })
+                .on('end', function (event, d) {
+                    d3.select(this).classed('peak-dragging', false);
+
+                    // Get the margin/height boundary of the clip region
+                    const margin = self.margin;
+                    const plot_top = margin.top;
+
+                    // If dragged above the top of the plot, remove the peak
+                    if (event.y < plot_top) {
+                        // Remove from data model (d[2] is the INDEX value)
+                        if (self.current_peak_object) {
+                            // find row index from INDEX value
+                            let index_col = self.current_peak_object.column_headers.indexOf('INDEX');
+                            let row_idx = index_col !== -1
+                                ? self.current_peak_object.columns[index_col].indexOf(d[2])
+                                : -1;
+                            if (row_idx !== -1) {
+                                self.current_peak_object.remove_row(row_idx);
+                            }
+                        }
+                        // Remove the circle from the DOM
+                        d3.select(this).remove();
+                    } else {
+                        // Convert screen coordinates back to data space
+                        let new_ppm = self.xscale.invert(event.x) - self.spectrum_reference[self.current_spectrum_index];
+                        let scale_factor = self.spectral_scale[self.current_spectrum_index];
+                        let new_height = scale_factor !== 0
+                            ? self.yscale.invert(event.y) / scale_factor
+                            : 0;
+
+                        // Update the bound data
+                        d[0] = new_ppm;
+                        d[1] = new_height;
+
+                        // Snap circle to the exact scaled position
+                        d3.select(this)
+                            .attr('cx', self.xscale(new_ppm + self.spectrum_reference[self.current_spectrum_index]))
+                            .attr('cy', self.yscale(new_height * scale_factor));
+
+                        // Persist to the peaks data model
+                        if (self.current_peak_object) {
+                            self.current_peak_object.update_row_1d(d[2], new_ppm, new_height);
+                        }
+                    }
+                });
+
+            self.$peaks_symbol.call(peak_drag);
+            // Change cursor to indicate draggable
+            self.$peaks_symbol.style('cursor', 'grab');
+        } else {
+            // Disable drag
+            self.$peaks_symbol.on('.drag', null);
+            self.$peaks_symbol.style('cursor', null);
+        }
     };
 
     zoom_to = function (x_scale) {
