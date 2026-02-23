@@ -65,7 +65,7 @@ class spectrum_1d {
          */
         this.fid_process_parameters = null;
 
-        this.mathTool  = new ldwmath();
+        this.mathTool = new ldwmath();
     };
 
     /**
@@ -76,10 +76,9 @@ class spectrum_1d {
      */
     create_shallow_copy_wo_float32() {
         let new_spectrum = new Object();
-        for(var key in this) {
+        for (var key in this) {
             if (this.hasOwnProperty(key)) {
-                if (key == "fid_process_parameters")
-                {
+                if (key == "fid_process_parameters") {
                     // do not copy fid_process_parameters, it is not needed in the copied spectrum
                 }
                 else if (key === "header" || key === "raw_data" || key === "raw_data_i") {
@@ -111,10 +110,10 @@ class spectrum_1d {
         this.header[101] += delta_ppm * this.frq1;
         this.ref1 = this.header[101];
 
-         /**
-         * Update peaks as well if there are any
-         */
-         if (this.picked_peaks_object != null) {
+        /**
+        * Update peaks as well if there are any
+        */
+        if (this.picked_peaks_object != null) {
             this.picked_peaks_object.update_x_ppm_ref(delta_ppm);
         }
         if (this.fitted_peaks_object != null) {
@@ -174,7 +173,7 @@ class spectrum_1d {
                 this.n_direct = parseInt(temp[location + 2]);
                 number_of_info_retrieved++;
             }
-            if (number_of_info_retrieved >= 2 && this.n_direct !== undefined && this.x_ppm_start !== undefined ) {
+            if (number_of_info_retrieved >= 2 && this.n_direct !== undefined && this.x_ppm_start !== undefined) {
                 number_of_info_retrieved = -1; //this is a flag to show that we have found all 4 values
                 data_start = i + 1;
                 break;
@@ -220,7 +219,7 @@ class spectrum_1d {
          * Noise level, spectral_max and min, projection, levels, negative_levels code.
          */
         this.filename = file_name;
-        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct, this.raw_data);
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
         /**
@@ -229,6 +228,7 @@ class spectrum_1d {
          */
         this.header = new Float32Array(512); //empty array
         this.header[0] = 0.0; //magic number for nmrPipe header
+        this.header[9] = 1.0; //dimension of the input spectrum
 
         this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
         this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
@@ -239,7 +239,7 @@ class spectrum_1d {
         this.header[24] = 2; //direct dimension is the second dimension
         this.header[25] = 1; //indirect dimension is the first dimension
 
-        
+
         this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
         this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
 
@@ -272,9 +272,9 @@ class spectrum_1d {
 
     };
 
-    process_ft_file_type2(header,spectral_data, file_name, spectrum_origin) {
-        
-        this.header=header;
+    process_ft_file_type2(header, spectral_data, file_name, spectrum_origin) {
+
+        this.header = header;
 
         this.spectrum_format = "ft1";
 
@@ -284,30 +284,30 @@ class spectrum_1d {
         this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
         this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
 
-       
+
         /**
          * Datatype of the direct and indirect dimension
          * 0: complex
          * 1: real
          */
-        this.header[56] =1;
+        this.header[56] = 1;
         this.datatype_direct = this.header[56];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
          * this.datatype_indirect: 1 means real, 0 means complex
          */
-        if (this.datatype_direct == 0 ) {
+        if (this.datatype_direct == 0) {
             console.log("Complex data ");
         }
-       
+
         else if (this.datatype_direct == 1) {
             console.log("Real data ");
         }
         console.log("n_direct: ", this.n_direct);
 
         this.direct_ndx = 2;
-        
+
         /**
          * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
          * All are array of length 4
@@ -355,13 +355,13 @@ class spectrum_1d {
          * If no initialization here, it will have default size of 0 (empty array)
          */
         this.raw_data = spectral_data;
-        
+
 
         /**
          * Keep original file name
          */
         this.filename = file_name;
-        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct, this.raw_data);
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
     };
@@ -386,7 +386,7 @@ class spectrum_1d {
         this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
         this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
 
-       
+
         /**
          * Datatype of the direct and indirect dimension
          * 0: complex
@@ -398,17 +398,17 @@ class spectrum_1d {
          * this.datatype_direct: 1 means real, 0 means complex
          * this.datatype_indirect: 1 means real, 0 means complex
          */
-        if (this.datatype_direct == 0 ) {
+        if (this.datatype_direct == 0) {
             console.log("Complex data ");
         }
-       
+
         else if (this.datatype_direct == 1) {
             console.log("Real data ");
         }
         console.log("n_direct: ", this.n_direct);
 
         this.direct_ndx = 2;
-        
+
         /**
          * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
          * All are array of length 4
@@ -464,12 +464,12 @@ class spectrum_1d {
         if (this.datatype_direct === 1) {
             data_size_per_point = 1;
         }
-        else if (this.datatype_direct === 0 ) {
+        else if (this.datatype_direct === 0) {
             data_size_per_point = 2;
         }
-        
 
-        if (data_size !== this.n_direct *  data_size_per_point) {
+
+        if (data_size !== this.n_direct * data_size_per_point) {
             this.error = "Data size does not match the size of the spectrum";
         }
 
@@ -503,18 +503,18 @@ class spectrum_1d {
         if (this.datatype_direct === 0) {
             this.raw_data_i.set(spectral_data.subarray(current_position, current_position + this.n_direct), 0);
         }
-            
+
 
         /**
          * Keep original file name
          */
         this.filename = file_name;
-        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct, this.raw_data);
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
     };
 
-    
+
     process_sparky_file(arrayBuffer, file_name, spectrum_origin) {
 
         /**
@@ -557,10 +557,10 @@ class spectrum_1d {
 
         this.raw_data = new Float32Array(this.n_direct);
         this.raw_data_i = new Float32Array(0); //no imaginary part at this time for Sparky format
-       
 
 
-        let current_file_position = 436-128; //start of the spectral data. Aligned to 4 bytes boundary, so there is not need to use DataView
+
+        let current_file_position = 436 - 128; //start of the spectral data. Aligned to 4 bytes boundary, so there is not need to use DataView
 
         /**
          * Because Sparky stores data in big endian, we need to swap the byte order
@@ -581,6 +581,7 @@ class spectrum_1d {
          */
         this.header = new Float32Array(512); //empty array
         this.header[0] = 0.0; //magic number for nmrPipe header
+        this.header[9] = 1.0; //dimension of the input spectrum
 
         this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
         this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
@@ -618,7 +619,7 @@ class spectrum_1d {
          * Noise level, spectral_max and min.
          */
         this.filename = file_name;
-        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct,this.raw_data);
+        this.noise_level = this.mathTool.estimate_noise_level_1d(this.n_direct, this.raw_data);
         [this.spectral_max, this.spectral_min] = this.mathTool.find_max_min(this.raw_data);
 
     };

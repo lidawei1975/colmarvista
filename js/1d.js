@@ -3704,6 +3704,7 @@ function run_baseline_correction() {
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
+        noise_level: all_spectra[spectrum_index].noise_level,
         a0: Math.pow(10, smooth_parameter),
         b0: 1.5,
         n_water: n_water,

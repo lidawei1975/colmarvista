@@ -511,7 +511,7 @@ self.onmessage = async function (event) {
 
 
         // for baseline, these values are ignored, but need to call  init.
-        obj.init(5.5, 3.0, 0.0);
+        obj.init(5.5, 3.0, event.data.noise_level);
 
 
         /**
