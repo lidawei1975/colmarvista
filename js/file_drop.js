@@ -10,6 +10,7 @@ class file_drop_processor {
         this.supportsFileSystemAccessAPI = 'getAsFileSystemHandle' in DataTransferItem.prototype;
         this.supportsWebkitGetAsEntry = 'webkitGetAsEntry' in DataTransferItem.prototype;
         this.container = new DataTransfer();
+        this._click_to_select_folder = false;
     }
 
     drop_area(drop_area_id) {
@@ -34,6 +35,17 @@ class file_drop_processor {
 
     required_files(required_files) {
         this.required_files = required_files;
+        return this;
+    }
+
+    /**
+     * Enable click-to-select-folder on the drop area background.
+     * When enabled, clicking the empty background of the drop zone
+     * opens a native OS folder picker.
+     * Should only be enabled where appropriate (e.g. FID area).
+     */
+    click_to_select_folder() {
+        this._click_to_select_folder = true;
         return this;
     }
 
@@ -64,11 +76,14 @@ class file_drop_processor {
             }
         });
 
-        this.elem.style.cursor = 'pointer';
-        this.elem.title = 'Drag and drop files here, or click to select a folder manually';
-
         this.elem.addEventListener('drop', this.drop_handler.bind(this));
-        this.elem.addEventListener('click', this.click_handler.bind(this));
+
+        if (this._click_to_select_folder) {
+            this.elem.style.cursor = 'pointer';
+            this.elem.title = 'Drag and drop files here, or click the background to select a folder';
+            this.elem.addEventListener('click', this.click_handler.bind(this));
+        }
+
         return this;
     }
 
@@ -291,6 +306,12 @@ class file_drop_processor {
     }
 
     async click_handler(e) {
+        // Prevent clicking if the user actually clicked a child element (like a button, form, or file input)
+        // inside the drop area box. It MUST be the exact drop area DIV background.
+        if (e.target.id !== this.drop_area_id) {
+            return;
+        }
+
         e.preventDefault();
 
         // 1. Try modern File System Access API

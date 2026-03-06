@@ -212,6 +212,7 @@ $(document).ready(function () {
         .files_id(["acquisition_file2", "acquisition_file2", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
+        .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
     // Tutorial Implementation
