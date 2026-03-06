@@ -182,6 +182,7 @@ $(document).ready(function () {
         .files_id(["acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 1])
+        .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
 
