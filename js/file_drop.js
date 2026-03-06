@@ -63,7 +63,12 @@ class file_drop_processor {
                 this.elem.style.outline = '';
             }
         });
+
+        this.elem.style.cursor = 'pointer';
+        this.elem.title = 'Drag and drop files here, or click to select a folder manually';
+
         this.elem.addEventListener('drop', this.drop_handler.bind(this));
+        this.elem.addEventListener('click', this.click_handler.bind(this));
         return this;
     }
 
@@ -206,12 +211,10 @@ class file_drop_processor {
 
         // Prepare an array of handles
         let fileHandlesPromises = [];
-        let itemsProcessed = 0;
 
         if (e.dataTransfer.items) {
             for (const item of [...e.dataTransfer.items]) {
                 if (item.kind !== 'file') continue;
-                itemsProcessed++;
 
                 let handle = null;
                 if (this.supportsFileSystemAccessAPI) {
@@ -285,13 +288,50 @@ class file_drop_processor {
                 this.process_file_attachment(handle);
             }
         }
+    }
 
-        // Total fallback for environments (like ChromeOS) where e.dataTransfer.items ONLY contains "string" types
-        if (itemsProcessed === 0 && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            console.warn("Fallback to processing e.dataTransfer.files directly");
-            for (let i = 0; i < e.dataTransfer.files.length; i++) {
-                this.process_file_attachment(e.dataTransfer.files[i]);
+    async click_handler(e) {
+        e.preventDefault();
+
+        // 1. Try modern File System Access API
+        if (typeof window.showDirectoryPicker !== 'undefined') {
+            try {
+                const directoryHandle = await window.showDirectoryPicker();
+                console.log(`Directory selected manually: ${directoryHandle.name}`);
+
+                for await (const entry of directoryHandle.values()) {
+                    if (entry.kind === 'file' || entry.isFile) {
+                        this.process_file_attachment(entry);
+                    }
+                }
+                return; // Success
+            } catch (err) {
+                // User may have cancelled the dialog or the API is restricted, fall through to fallback
+                if (err.name !== 'AbortError') {
+                    console.warn("Failed to showDirectoryPicker, falling back to input trick:", err);
+                } else {
+                    return; // User aborted
+                }
             }
         }
+
+        // 2. Legacy fallback for browsers without showDirectoryPicker
+        let dirInput = document.createElement('input');
+        dirInput.type = 'file';
+        dirInput.webkitdirectory = true;
+        dirInput.directory = true; // For Firefox
+        dirInput.multiple = true;
+
+        dirInput.addEventListener('change', (evt) => {
+            const files = evt.target.files;
+            if (!files || files.length === 0) return;
+
+            console.log(`Fallback picked ${files.length} flat files from directory`);
+            for (let i = 0; i < files.length; i++) {
+                this.process_file_attachment(files[i]);
+            }
+        });
+
+        dirInput.click();
     }
 };
