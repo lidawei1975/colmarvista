@@ -256,6 +256,16 @@
                                                 id="iso_wire_val">0.0</span></label><br>
                                         <input type="range" id="iso_wire_slider" style="width:100%">
                                     </div>
+                                    <div style="display: flex; flex-direction: column;">
+                                        <label for="iso_peak_slider" style="margin-bottom: 2px;">Peak Size:</label>
+                                        <div style="display: flex; align-items: center;">
+                                            <input type="range" id="iso_peak_slider"
+                                                style="flex-grow: 1; margin-right: 10px;" min="0.002" max="0.03"
+                                                step="0.001" value="0.015">
+                                            <input type="number" id="iso_peak_input" style="width: 70px;" min="0.002"
+                                                max="0.03" step="0.001" value="0.015">
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div id="loading_3d" style="display:none; color: red; font-weight: bold;">

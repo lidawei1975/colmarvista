@@ -293,6 +293,9 @@ async function load_theoretical_peaks() {
         update_3d_crosshairs();
     }
 
+    // Refresh the 3D viewer to show the new peak spheres
+    update_3d_view();
+
     // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
     fileInput.value = '';
 }
@@ -736,6 +739,8 @@ async function load_files() {
     spectra_3d = [];
     hsqc_spectra = [];
     current_slice_index = -1;
+    theoretical_peaks_data = []; // Clear loaded peaks
+    theoretical_spectra_3d = []; // Clear generated volume
 
     // Sort files alphabetically by name to ensure correct Z ordering
     files.sort((a, b) => a.name.localeCompare(b.name));
@@ -2115,6 +2120,27 @@ function setup_sliders() {
             update_3d_view();
         }
     }
+
+    const sliderPeak = document.getElementById("iso_peak_slider");
+    const inputPeak = document.getElementById("iso_peak_input");
+
+    if (sliderPeak && inputPeak) {
+        sliderPeak.oninput = function () {
+            inputPeak.value = this.value;
+        };
+        sliderPeak.onchange = function () {
+            inputPeak.value = this.value;
+            update_3d_view();
+        };
+
+        inputPeak.oninput = function () {
+            sliderPeak.value = this.value;
+        };
+        inputPeak.onchange = function () {
+            sliderPeak.value = this.value;
+            update_3d_view();
+        };
+    }
 }
 
 function update_3d_view() {
@@ -2129,6 +2155,7 @@ function update_3d_view() {
 
         const sliderSolid = document.getElementById("iso_solid_slider");
         const sliderWire = document.getElementById("iso_wire_slider");
+        const sliderPeak = document.getElementById("iso_peak_slider");
 
         // Update labels
         if (document.getElementById("iso_solid_val")) document.getElementById("iso_solid_val").innerText = parseFloat(sliderSolid.value).toFixed(1);
@@ -2167,11 +2194,7 @@ function update_3d_view() {
         centerMesh(meshSolid, data.dims);
         centerMesh(meshWire, data.dims);
 
-        // Generate Axes (reuse previous logic)
-        // ... (We need to re-generate axes if they are not stored, or logic is consistent)
-        // Or we can just generating them once global? But data dims might change if we reload files.
-        // Let's regenerate for safety.
-
+        // Generate Axes
         const dx = data.dims.x;
         const dy = data.dims.y;
         const dz = data.dims.z;
@@ -2186,17 +2209,82 @@ function update_3d_view() {
         centerMesh(meshAxisY, data.dims);
         centerMesh(meshAxisZ, data.dims);
 
+        // Generate Peak Spheres
+        let meshPeaks = { vertices: new Float32Array(0), normals: new Float32Array(0), color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' }; // Green opaque spheres
+        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0 && spectra_3d.length > 0) {
+            let s0 = spectra_3d[0];
+            let z_start = s0.z_ppm_start || 0;
+            let z_step = s0.z_ppm_step || 1;
+
+            const cx = dx / 2;
+            const cy = dy / 2;
+            const cz = dz / 2;
+            const scale = 2.0 / maxDim;
+            const peakSize = sliderPeak ? parseFloat(sliderPeak.value) : 0.03;
+
+            let allVerts = [];
+            let allNorms = [];
+
+            // A single sphere template
+            let templatePeak = createSphere(peakSize, 10, 10);
+
+            for (let i = 0; i < theoretical_peaks_data.length; i++) {
+                let p = theoretical_peaks_data[i];
+                // If loaded peaks are indices (1-based), we just subtract 1 to get 0-based index.
+                let idx_x = p.x - 1;
+                let idx_y = p.y - 1;
+                let idx_z = p.z - 1;
+
+                // Mesh space coords
+                let meshX = (idx_x - cx) * scale;
+                let meshY = (idx_y - cy) * scale;
+                let meshZ = (idx_z - cz) * scale;
+
+                if (i === 0) {
+                    console.log(`Peak 0: DataCoord(${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}) -> Idx(${idx_x.toFixed(1)},${idx_y.toFixed(1)},${idx_z.toFixed(1)}) -> Mesh(${meshX.toFixed(2)},${meshY.toFixed(2)},${meshZ.toFixed(2)})`);
+                }
+
+                // Stamp template peak at this location
+                for (let i = 0; i < templatePeak.vertices.length; i += 3) {
+                    allVerts.push(templatePeak.vertices[i] + meshX);
+                    allVerts.push(templatePeak.vertices[i + 1] + meshY);
+                    allVerts.push(templatePeak.vertices[i + 2] + meshZ);
+                    // Normals are the same for translations
+                    allNorms.push(templatePeak.normals[i], templatePeak.normals[i + 1], templatePeak.normals[i + 2]);
+                }
+            }
+            meshPeaks.vertices = new Float32Array(allVerts);
+            meshPeaks.normals = new Float32Array(allNorms);
+        }
+
+
+
         // Render
         if (!iso_renderer) {
             iso_renderer = new IsoSurfaceRenderer("canvas_3d");
         }
 
         if (iso_renderer && iso_renderer.gl) {
-            const meshes = [
+            let meshes = [];
+
+            // Add peaks (Opaque green spheres) - Render Opaque first!
+            if (meshPeaks && meshPeaks.vertices && meshPeaks.vertices.length > 0) {
+                meshes.push(meshPeaks);
+            }
+
+            // Axes (Opaque) - Render Opaque first!
+            meshes.push(
+                { vertices: meshAxisX.vertices, normals: meshAxisX.normals, color: [1.0, 0.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
+            );
+
+            // Transparent Surfaces - Render Last!
+            meshes.push(
                 {
                     vertices: meshSolid.vertices,
                     normals: meshSolid.normals,
-                    color: [1.0, 0.0, 0.0, 1.0], // Red Solid
+                    color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
                     mode: 'TRIANGLES'
                 },
                 {
@@ -2204,12 +2292,9 @@ function update_3d_view() {
                     normals: meshWire.normals,
                     color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
                     mode: 'LINES'
-                },
-                // Axes
-                { vertices: meshAxisX.vertices, normals: meshAxisX.normals, color: [1.0, 0.0, 0.0, 1.0], mode: 'TRIANGLES' },
-                { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
-                { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
-            ];
+                }
+            );
+
             iso_renderer.updateGeometry(meshes);
             iso_renderer.render();
         }
@@ -2408,6 +2493,136 @@ function createCylinder(start, end, radius) {
         vertices.push(p2x_s, p2y_s, p2z_s); normals.push(n2x, n2y, n2z);
         vertices.push(p2x_e, p2y_e, p2z_e); normals.push(n2x, n2y, n2z);
         vertices.push(p1x_e, p1y_e, p1z_e); normals.push(n1x, n1y, n1z);
+    }
+
+    return {
+        vertices: new Float32Array(vertices),
+        normals: new Float32Array(normals)
+    };
+}
+
+/**
+ * Create a simple sphere mesh
+ * @param {number} radius Radius of the sphere
+ * @param {number} latBands Number of latitude bands
+ * @param {number} longBands Number of longitude bands
+ * @returns { vertices: Float32Array, normals: Float32Array }
+ */
+function createSphere(radius, latBands = 10, longBands = 10) {
+    let vertices = [];
+    let normals = [];
+
+    for (let latNumber = 0; latNumber <= latBands; latNumber++) {
+        let theta = latNumber * Math.PI / latBands;
+        let sinTheta = Math.sin(theta);
+        let cosTheta = Math.cos(theta);
+
+        for (let longNumber = 0; longNumber <= longBands; longNumber++) {
+            let phi = longNumber * 2 * Math.PI / longBands;
+            let sinPhi = Math.sin(phi);
+            let cosPhi = Math.cos(phi);
+
+            let x = cosPhi * sinTheta;
+            let y = cosTheta;
+            let z = sinPhi * sinTheta;
+
+            normals.push(x, y, z);
+            vertices.push(radius * x, radius * y, radius * z);
+        }
+    }
+
+    let indexData = [];
+    for (let latNumber = 0; latNumber < latBands; latNumber++) {
+        for (let longNumber = 0; longNumber < longBands; longNumber++) {
+            let first = (latNumber * (longBands + 1)) + longNumber;
+            let second = first + longBands + 1;
+
+            // Reverse winding order to CCW (first, first+1, second) instead of (first, second, first+1)
+            indexData.push(first, first + 1, second);
+            indexData.push(second, first + 1, second + 1);
+        }
+    }
+
+    // Convert from indexed to flat unindexed for WebGL renderer which expects TRIANGLES mode
+    let flatVertices = [];
+    let flatNormals = [];
+
+    for (let i = 0; i < indexData.length; i++) {
+        let idx = indexData[i];
+        flatVertices.push(
+            vertices[idx * 3],
+            vertices[idx * 3 + 1],
+            vertices[idx * 3 + 2]
+        );
+        flatNormals.push(
+            normals[idx * 3],
+            normals[idx * 3 + 1],
+            normals[idx * 3 + 2]
+        );
+    }
+
+    return {
+        vertices: new Float32Array(flatVertices),
+        normals: new Float32Array(flatNormals)
+    };
+}
+
+/**
+ * Create a simple pyramid mesh (4 sides + square base = 6 triangles)
+ * @param {number} size Size of the pyramid
+ * @returns { vertices: Float32Array, normals: Float32Array }
+ */
+function createPyramid(size) {
+    let s = size / 2;
+    let vertices = [
+        // Front face (CCW)
+        s, -s, s,
+        -s, -s, s,
+        0, s, 0,
+        // Right face
+        s, -s, -s,
+        s, -s, s,
+        0, s, 0,
+        // Back face
+        -s, -s, -s,
+        s, -s, -s,
+        0, s, 0,
+        // Left face
+        -s, -s, s,
+        -s, -s, -s,
+        0, s, 0,
+        // Base Triangle 1
+        -s, -s, -s,
+        -s, -s, s,
+        s, -s, s,
+        // Base Triangle 2
+        -s, -s, -s,
+        s, -s, s,
+        s, -s, -s
+    ];
+
+    let normals = [];
+    for (let i = 0; i < vertices.length; i += 9) {
+        let ax = vertices[i + 3] - vertices[i];
+        let ay = vertices[i + 4] - vertices[i + 1];
+        let az = vertices[i + 5] - vertices[i + 2];
+
+        let bx = vertices[i + 6] - vertices[i];
+        let by = vertices[i + 7] - vertices[i + 1];
+        let bz = vertices[i + 8] - vertices[i + 2];
+
+        // Normal = A x B
+        let nx = ay * bz - az * by;
+        let ny = az * bx - ax * bz;
+        let nz = ax * by - ay * bx;
+
+        let len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len === 0) len = 1;
+        nx /= len; ny /= len; nz /= len;
+
+        normals.push(nx, ny, nz);
+        normals.push(nx, ny, nz);
+        normals.push(nx, ny, nz);
     }
 
     return {

@@ -365,9 +365,14 @@ class IsoSurfaceRenderer {
             "Objects:", this.objectData.length);
 
         this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // Light Gray background
-        this.gl.disable(this.gl.DEPTH_TEST);
+        this.gl.enable(this.gl.DEPTH_TEST);
+        this.gl.depthFunc(this.gl.LEQUAL);
+
         this.gl.disable(this.gl.CULL_FACE); // Disable culling to see both sides
-        this.gl.disable(this.gl.BLEND);
+
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         // Check if clear worked
