@@ -159,7 +159,8 @@ class myplot_1d {
             .attr("id", "main_plot")
             .attr("xmlns", "http://www.w3.org/2000/svg")
             .attr("width", this.width)
-            .attr("height", this.height);
+            .attr("height", this.height)
+            .style("touch-action", "none");
 
         /**
          * Default (initial) x is from 12 ppm to 0 ppm
@@ -451,15 +452,14 @@ class myplot_1d {
                 return;
             }
 
+            let isTrackpadPinch = e.ctrlKey && (Math.abs(delta) < 50 || !Number.isInteger(delta));
+
             if (delta > 0) {
                 delta = 1.1;
             }
             else {
                 delta = 0.9;
             }
-
-
-
 
             /**
              * Get the ppm and amp of the mouse position
@@ -470,8 +470,10 @@ class myplot_1d {
 
             /**
              * Manual phase correction using mouse wheel when shift key or control key is pressed
+             * OR Touchpad Pinch-to-Zoom (which fires wheel event with ctrlKey=true but small/fractional deltaY).
              */
-            if (b_allow_manual_phase_correction && this.spectrum_dimension[this.current_spectrum_index] === 3 && (e.shiftKey || e.ctrlKey)) {
+
+            if (!isTrackpadPinch && b_allow_manual_phase_correction && this.spectrum_dimension[this.current_spectrum_index] === 3 && (e.shiftKey || e.ctrlKey)) {
 
                 /**
                  * Set current actively corrected spectrum index.
@@ -569,6 +571,102 @@ class myplot_1d {
 
             this.redraw();
             this.send_scales_to_other_windows();
+        });
+
+        // ================= TOUCH EVENTS =================
+        this.touchCache = [];
+        this.initialTouchDistance = -1;
+
+        this.$vis.on('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                // 1 finger panning
+                this.click_event = true;
+                this.mouse_is_down = true;
+                let touch = e.touches[0];
+                self.startMousePos = [touch.clientX, touch.clientY];
+            } else if (e.touches.length === 2) {
+                // 2 fingers zooming, stop panning
+                this.mouse_is_down = false;
+                let dx = e.touches[0].clientX - e.touches[1].clientX;
+                let dy = e.touches[0].clientY - e.touches[1].clientY;
+                this.initialTouchDistance = Math.hypot(dx, dy);
+            }
+        });
+
+        this.$vis.on('touchmove', (e) => {
+            e.preventDefault(); // Prevent scrolling the page
+            if (this.mouse_is_down && e.touches.length === 1) {
+                // Panning logic (similar to handleMouseMove panning)
+                let touch = e.touches[0];
+                let delta_ppm = this.xscale.invert(touch.clientX) - this.xscale.invert(this.startMousePos[0]);
+                let delta_intensity = this.yscale.invert(touch.clientY) - this.yscale.invert(this.startMousePos[1]);
+
+                self.startMousePos = [touch.clientX, touch.clientY];
+
+                self.xscale.domain([self.xscale.domain()[0] - delta_ppm, self.xscale.domain()[1] - delta_ppm]);
+                self.yscale.domain([self.yscale.domain()[0] - delta_intensity, self.yscale.domain()[1] - delta_intensity]);
+                self.redraw();
+
+            } else if (e.touches.length === 2 && this.initialTouchDistance > 0) {
+                // Zooming logic
+                let touch1 = e.touches[0];
+                let touch2 = e.touches[1];
+                let dx = touch1.clientX - touch2.clientX;
+                let dy = touch1.clientY - touch2.clientY;
+                let newDistance = Math.hypot(dx, dy);
+
+                // Calculate zoom delta (pinch out = zoom in)
+                let zoomRatio = this.initialTouchDistance / newDistance;
+                this.initialTouchDistance = newDistance; // Update for next move
+
+                let bound = document.getElementById('main_plot').getBoundingClientRect();
+                let centerX = (touch1.clientX + touch2.clientX) / 2;
+                let centerY = (touch1.clientY + touch2.clientY) / 2;
+
+                let ppm = self.xscale.invert(centerX - bound.left);
+                let amp = self.yscale.invert(centerY - bound.top);
+
+                // Apply zoom ratio
+                if (centerX - bound.left < self.margin.left) {
+                    // Y axis only
+                    let top = self.yscale.domain()[0];
+                    let bottom = self.yscale.domain()[1];
+                    let new_top = amp - (amp - top) * zoomRatio;
+                    let new_bottom = amp + (bottom - amp) * zoomRatio;
+                    this.yscale.domain([new_top, new_bottom]);
+                } else if (centerX - bound.left > self.margin.left && centerX - bound.left < self.width - self.margin.right) {
+                    // X axis only
+                    let left = self.xscale.domain()[0];
+                    let right = self.xscale.domain()[1];
+                    let new_left = ppm - (ppm - left) * zoomRatio;
+                    let new_right = ppm + (right - ppm) * zoomRatio;
+                    this.xscale.domain([new_left, new_right]);
+                    if (this.peak_type === "fitted" && this.zoom_pan_on_call_function && this.current_spectrum_index != -1) {
+                        this.zoom_pan_on_call_function(self.current_spectrum_index);
+                    }
+                }
+                this.redraw();
+                this.send_scales_to_other_windows();
+            }
+        });
+
+        this.$vis.on('touchend', (e) => {
+            if (e.touches.length < 2) {
+                this.initialTouchDistance = -1; // Reset zoom
+            }
+            if (e.touches.length === 0) {
+                this.mouse_is_down = false; // Reset pan
+                if (this.click_event) {
+                    // Emulate mouse up for click
+                    let emulatedEvent = { clientX: self.startMousePos[0], clientY: self.startMousePos[1], altKey: false };
+                    this.handleMouseUpHandler(emulatedEvent);
+                }
+            } else if (e.touches.length === 1) {
+                // If one finger remains, resume panning from its position
+                let touch = e.touches[0];
+                self.startMousePos = [touch.clientX, touch.clientY];
+                this.mouse_is_down = true;
+            }
         });
 
     }
