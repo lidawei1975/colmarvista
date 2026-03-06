@@ -69,7 +69,10 @@ class file_drop_processor {
 
     async process_file_attachment(entry) {
         let file;
-        if (typeof FileSystemFileHandle !== 'undefined' && entry instanceof FileSystemFileHandle) {
+        if (entry instanceof File) {
+            file = entry;
+        }
+        else if (typeof FileSystemFileHandle !== 'undefined' && entry instanceof FileSystemFileHandle) {
             file = await entry.getFile();
         }
         else if (typeof FileSystemFileEntry !== 'undefined' && entry instanceof FileSystemFileEntry) {
@@ -196,19 +199,27 @@ class file_drop_processor {
         // Un-highlight the drop zone.
         this.elem.style.outline = '';
 
-        // Prepare an array of promises…
-        const fileHandlesPromises = [...e.dataTransfer.items]
-            // …by including only files (where file misleadingly means actual file _or_
-            // directory)…
-            .filter((item) => item.kind === 'file')
-            // …and, depending on previous feature detection…
-            .map((item) =>
-                this.supportsFileSystemAccessAPI
-                    // …either get a modern `FileSystemHandle`…
-                    ? item.getAsFileSystemHandle()
-                    // …or a classic `FileSystemFileEntry`.
-                    : item.webkitGetAsEntry(),
-            );
+        // Prepare an array of handles
+        let fileHandlesPromises = [];
+        for (const item of [...e.dataTransfer.items]) {
+            if (item.kind !== 'file') continue;
+
+            try {
+                if (this.supportsFileSystemAccessAPI) {
+                    let handle = await item.getAsFileSystemHandle();
+                    if (handle) fileHandlesPromises.push(handle);
+                } else if (this.supportsWebkitGetAsEntry) {
+                    let handle = item.webkitGetAsEntry();
+                    if (handle) fileHandlesPromises.push(handle);
+                }
+            } catch (err) {
+                console.warn("Failed to get file handle, falling back to standard File API:", err);
+                const file = item.getAsFile();
+                if (file) {
+                    this.process_file_attachment(file);
+                }
+            }
+        }
 
         // Loop over the array of promises.
         for await (const handle of fileHandlesPromises) {
