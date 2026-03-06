@@ -1005,7 +1005,7 @@ class myplot_1d {
     }
 
     handleMouseUp(e) {
-        e.preventDefault();
+        if (e.preventDefault) e.preventDefault();
         var self = this;
         this.$vis.on('mouseup', null);
 
