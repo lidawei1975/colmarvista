@@ -69,13 +69,16 @@ class file_drop_processor {
 
     async process_file_attachment(entry) {
         let file;
+
+        if (!entry) return;
+
         if (entry instanceof File) {
             file = entry;
         }
-        else if (typeof FileSystemFileHandle !== 'undefined' && entry instanceof FileSystemFileHandle) {
+        else if (typeof entry.getFile === 'function') {
             file = await entry.getFile();
         }
-        else if (typeof FileSystemFileEntry !== 'undefined' && entry instanceof FileSystemFileEntry) {
+        else if (typeof entry.file === 'function') {
             file = await new Promise((resolve, reject) => {
                 entry.file(resolve, reject);
             });
@@ -83,6 +86,8 @@ class file_drop_processor {
         else {
             return;
         }
+
+        if (!file) return;
 
         /**
          * Only if the dropped file is in the list
@@ -201,22 +206,37 @@ class file_drop_processor {
 
         // Prepare an array of handles
         let fileHandlesPromises = [];
-        for (const item of [...e.dataTransfer.items]) {
-            if (item.kind !== 'file') continue;
+        let itemsProcessed = 0;
 
-            try {
+        if (e.dataTransfer.items) {
+            for (const item of [...e.dataTransfer.items]) {
+                if (item.kind !== 'file') continue;
+                itemsProcessed++;
+
+                let handle = null;
                 if (this.supportsFileSystemAccessAPI) {
-                    let handle = await item.getAsFileSystemHandle();
-                    if (handle) fileHandlesPromises.push(handle);
-                } else if (this.supportsWebkitGetAsEntry) {
-                    let handle = item.webkitGetAsEntry();
-                    if (handle) fileHandlesPromises.push(handle);
+                    try {
+                        handle = await item.getAsFileSystemHandle();
+                    } catch (err) {
+                        console.warn("Failed to get file handle via FileSystemAccessAPI:", err);
+                    }
                 }
-            } catch (err) {
-                console.warn("Failed to get file handle, falling back to standard File API:", err);
-                const file = item.getAsFile();
-                if (file) {
-                    this.process_file_attachment(file);
+                if (!handle && this.supportsWebkitGetAsEntry) {
+                    try {
+                        handle = item.webkitGetAsEntry();
+                    } catch (err) {
+                        console.warn("Failed to get file handle via webkitGetAsEntry:", err);
+                    }
+                }
+
+                if (handle) {
+                    fileHandlesPromises.push(handle);
+                } else {
+                    console.warn("Total fallback to standard File API");
+                    const file = item.getAsFile();
+                    if (file) {
+                        this.process_file_attachment(file);
+                    }
                 }
             }
         }
@@ -230,7 +250,7 @@ class file_drop_processor {
                 /**
                  * Get all files in the directory
                  */
-                if (typeof FileSystemDirectoryHandle !== 'undefined' && handle instanceof FileSystemDirectoryHandle) {
+                if (typeof handle.values === 'function') {
                     for await (const entry of handle.values()) {
                         if (entry.kind === 'file' || entry.isFile) {
                             /**
@@ -240,7 +260,7 @@ class file_drop_processor {
                         }
                     }
                 }
-                else if (typeof FileSystemDirectoryEntry !== 'undefined' && handle instanceof FileSystemDirectoryEntry) {
+                else if (typeof handle.createReader === 'function') {
                     /**
                      * Read all files in the directory
                      */
@@ -263,6 +283,14 @@ class file_drop_processor {
              */
             else if (handle.kind === 'file' || handle.isFile) {
                 this.process_file_attachment(handle);
+            }
+        }
+
+        // Total fallback for environments (like ChromeOS) where e.dataTransfer.items ONLY contains "string" types
+        if (itemsProcessed === 0 && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            console.warn("Fallback to processing e.dataTransfer.files directly");
+            for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                this.process_file_attachment(e.dataTransfer.files[i]);
             }
         }
     }
