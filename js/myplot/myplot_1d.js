@@ -4,6 +4,7 @@
  */
 
 function lttb(data, threshold) {
+    threshold = Math.floor(threshold);
     if (threshold >= data.length || threshold === 0) {
         return data; // Nothing to do
     }
