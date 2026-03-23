@@ -378,8 +378,15 @@ plotit.prototype.reset_axis = function () {
     /**
      * Update extra peaks position
      */
+    /**
+     * Update extra peaks position
+     */
     if (this.extra_peaks && this.extra_peaks.length > 0) {
         this.draw_extra_peaks();
+    }
+
+    if (this.bounding_box_data) {
+        this.draw_bounding_box();
     }
 
     if (this.zoom_on_call_function) {
@@ -1896,65 +1903,52 @@ plotit.prototype.draw_extra_peaks = function () {
 
 
 /**
- * Add extra peaks to be visualized on top of the plot
- * @param {Array} peaks - Array of peak objects {x, y, symbol, color, size, fill}
+ * Draw a bounding box on the 2D plot
+ * @param {Number} x0 - Starting X PPM coordinate
+ * @param {Number} x1 - Ending X PPM coordinate
+ * @param {Number} y0 - Starting Y PPM coordinate
+ * @param {Number} y1 - Ending Y PPM coordinate
+ * @param {String} color - Color of the bounding box
  */
-plotit.prototype.add_extra_peaks = function (peaks) {
-    this.extra_peaks = peaks;
-    this.draw_extra_peaks();
-};
-
-/**
- * Draw extra peaks (theoretical peaks) from this.extra_peaks
- */
-plotit.prototype.draw_extra_peaks = function () {
+plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
     let self = this;
 
-    // Create group if not exists
-    if (!this.$extra_peaks_group) {
-        this.$extra_peaks_group = this.$vis.append('g').attr('class', 'extra-peaks-group');
+    if (arguments.length > 0) {
+        if (x0 === undefined) {
+            this.bounding_box_data = null;
+        } else {
+            this.bounding_box_data = { x0: x0, x1: x1, y0: y0, y1: y1, color: color };
+        }
     }
 
-    // Bind data
-    let selection = this.$extra_peaks_group.selectAll('.extra-peak')
-        .data(this.extra_peaks);
+    // Create group if not exists
+    if (!this.$bounding_box_group) {
+        this.$bounding_box_group = this.$vis.append('g').attr('class', 'bounding-box-group');
+    }
 
-    // Remove old
+    // Bind data (1 item if defined, else 0)
+    let box_data = [];
+    if (this.bounding_box_data) {
+        box_data.push(this.bounding_box_data);
+    }
+
+    let selection = this.$bounding_box_group.selectAll('.bounding-box-rect')
+        .data(box_data);
+
     selection.exit().remove();
 
-    // Add new
-    let enter = selection.enter().append('path')
-        .attr('class', 'extra-peak')
-        .attr("clip-path", "url(#clip)");
+    let enter = selection.enter().append('rect')
+        .attr('class', 'bounding-box-rect')
+        .attr("clip-path", "url(#clip)")
+        .attr('fill', 'none')
+        .attr('stroke-width', 2);
 
-    // Update all
     enter.merge(selection)
-        .attr('d', function (d) {
-            let cx = self.xRange(d.x);
-            let cy = self.yRange(d.y);
-            let r = d.size || 5;
-
-            if (d.symbol === 'square') {
-                return `M${cx - r},${cy - r} L${cx + r},${cy - r} L${cx + r},${cy + r} L${cx - r},${cy + r} Z`;
-            } else if (d.symbol === 'cross') { // X shape
-                return `M${cx - r},${cy - r} L${cx + r},${cy + r} M${cx + r},${cy - r} L${cx - r},${cy + r}`;
-            } else { // 'circle' or default
-                // Draw circle path
-                return `M${cx},${cy} m${-r},0 a${r},${r} 0 1,0 ${r * 2},0 a${r},${r} 0 1,0 ${-r * 2},0`;
-            }
-        })
-        .attr('stroke', function (d) { return d.color || 'red'; })
-        .attr('stroke-width', 2)
-        .attr('fill', function (d) { return d.fill ? (d.color || 'red') : 'none'; })
-        .attr('visibility', function (d) {
-            // Check boundaries
-            if (d.x > self.xscale[0] && d.x < self.xscale[1] && // Note: xscale might be inverted
-                ((self.xscale[0] < self.xscale[1] && d.x > self.xscale[0] && d.x < self.xscale[1]) ||
-                    (self.xscale[0] > self.xscale[1] && d.x < self.xscale[0] && d.x > self.xscale[1]))) {
-                // X invisible? D3 clip path handles it mostly.
-            }
-            return "visible";
-        });
+        .attr('x', function (d) { return Math.min(self.xRange(d.x0), self.xRange(d.x1)); })
+        .attr('y', function (d) { return Math.min(self.yRange(d.y0), self.yRange(d.y1)); })
+        .attr('width', function (d) { return Math.abs(self.xRange(d.x1) - self.xRange(d.x0)); })
+        .attr('height', function (d) { return Math.abs(self.yRange(d.y1) - self.yRange(d.y0)); })
+        .attr('stroke', function (d) { return d.color; });
 };
 
 

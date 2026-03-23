@@ -188,6 +188,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 var theoretical_peaks_data = []; // Store raw peak data
+var partition_bounds_data = null; // Store global partition bounds
 
 async function load_theoretical_peaks() {
     let fileInput = document.getElementById('theoretical_peaks_file');
@@ -207,10 +208,24 @@ async function load_theoretical_peaks() {
 
     let peaks = [];
     let header_map = null;
+    partition_bounds_data = null; // Reset bounds
 
     // Parse file.
     for (let line of lines) {
         line = line.trim();
+        
+        if (line.startsWith("# Partition Bounds")) {
+            let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
+            if (match) {
+                partition_bounds_data = {
+                    x: [parseInt(match[1], 10), parseInt(match[2], 10)],
+                    y: [parseInt(match[3], 10), parseInt(match[4], 10)],
+                    z: [parseInt(match[5], 10), parseInt(match[6], 10)]
+                };
+                console.log("Parsed partition bounds:", partition_bounds_data);
+            }
+        }
+
         if (!line || line.startsWith("#")) continue;
 
         let parts = line.split(/\s+/);
@@ -594,6 +609,21 @@ function draw_slice(index, update_ortho_views = true) {
             }
         }
         main_plot.add_extra_peaks(visible_peaks);
+
+        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+            let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+            let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+            let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+            let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+            
+            if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
+                main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
+            } else {
+                main_plot.draw_bounding_box(); // Clear
+            }
+        } else {
+            if (main_plot.draw_bounding_box) main_plot.draw_bounding_box();
+        }
     }
 }
 
@@ -1601,6 +1631,22 @@ function refresh_xz_view() {
                 }
             }
             main_plot_xz.add_extra_peaks(visible_peaks_xz);
+
+            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+                let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+                let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+                
+                if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
+                    // X-axis is X PPM, Y-axis is Z PPM
+                    main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
+                } else {
+                    main_plot_xz.draw_bounding_box();
+                }
+            } else {
+                if (main_plot_xz.draw_bounding_box) main_plot_xz.draw_bounding_box();
+            }
         }
     }
 }
@@ -1748,6 +1794,22 @@ function refresh_yz_view() {
                 }
             }
             main_plot_yz.add_extra_peaks(visible_peaks_yz);
+
+            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+                let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+                let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+                
+                if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
+                    // X-axis is Z PPM, Y-axis is Y PPM
+                    main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
+                } else {
+                    main_plot_yz.draw_bounding_box();
+                }
+            } else {
+                if (main_plot_yz.draw_bounding_box) main_plot_yz.draw_bounding_box();
+            }
         }
     }
 }
@@ -2256,9 +2318,42 @@ function update_3d_view() {
             meshPeaks.normals = new Float32Array(allNorms);
         }
 
-
-
-        // Render
+        // Generate Partition Bounds Prism
+        let meshBoundsCylinders = [];
+        if (typeof partition_bounds_data !== 'undefined' && partition_bounds_data !== null) {
+            let x0 = partition_bounds_data.x[0];
+            let x1 = partition_bounds_data.x[1];
+            let y0 = partition_bounds_data.y[0];
+            let y1 = partition_bounds_data.y[1];
+            let z0 = partition_bounds_data.z[0];
+            let z1 = partition_bounds_data.z[1];
+            
+            // Edges of the box
+            let edges = [
+                // Bottom Z0
+                [{x:x0, y:y0, z:z0}, {x:x1, y:y0, z:z0}],
+                [{x:x1, y:y0, z:z0}, {x:x1, y:y1, z:z0}],
+                [{x:x1, y:y1, z:z0}, {x:x0, y:y1, z:z0}],
+                [{x:x0, y:y1, z:z0}, {x:x0, y:y0, z:z0}],
+                // Top Z1
+                [{x:x0, y:y0, z:z1}, {x:x1, y:y0, z:z1}],
+                [{x:x1, y:y0, z:z1}, {x:x1, y:y1, z:z1}],
+                [{x:x1, y:y1, z:z1}, {x:x0, y:y1, z:z1}],
+                [{x:x0, y:y1, z:z1}, {x:x0, y:y0, z:z1}],
+                // Vertical Z edges
+                [{x:x0, y:y0, z:z0}, {x:x0, y:y0, z:z1}],
+                [{x:x1, y:y0, z:z0}, {x:x1, y:y0, z:z1}],
+                [{x:x1, y:y1, z:z0}, {x:x1, y:y1, z:z1}],
+                [{x:x0, y:y1, z:z0}, {x:x0, y:y1, z:z1}]
+            ];
+            
+            for (let edge of edges) {
+                // Use a much thinner cylinder for the bounds (e.g., 20% of max cylinder radius)
+                let m = createCylinder(edge[0], edge[1], cylinderRadius * 0.2);
+                centerMesh(m, data.dims);
+                meshBoundsCylinders.push(m);
+            }
+        }        // Render
         if (!iso_renderer) {
             iso_renderer = new IsoSurfaceRenderer("canvas_3d");
         }
@@ -2277,6 +2372,18 @@ function update_3d_view() {
                 { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
                 { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
             );
+
+            // Add Bounds Prism (Opaque)
+            if (meshBoundsCylinders.length > 0) {
+                for (let m of meshBoundsCylinders) {
+                    meshes.push({
+                        vertices: m.vertices, 
+                        normals: m.normals, 
+                        color: [1.0, 0.0, 0.0, 1.0], // Red
+                        mode: 'TRIANGLES'
+                    });
+                }
+            }
 
             // Transparent Surfaces - Render Last!
             meshes.push(
