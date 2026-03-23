@@ -231,10 +231,10 @@ async function load_theoretical_peaks() {
 
         if (header_map) {
             // Dynamic parsing based on header
-            let get_val = (key) => {
+            let get_val = (key, default_val = 0.0) => {
                 let idx = header_map[key];
                 if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
-                return 0.0;
+                return default_val;
             };
 
             // Basic validation: Amplitude must be a number
@@ -246,6 +246,9 @@ async function load_theoretical_peaks() {
                 x: get_val("X_Center"),
                 y: get_val("Y_Center"),
                 z: get_val("Z_Center"),
+                x_ppm: get_val("X_Center_ppm", undefined),
+                y_ppm: get_val("Y_Center_ppm", undefined),
+                z_ppm: get_val("Z_Center_ppm", undefined),
                 fwhh_x: get_val("X_FWHH"),
                 fwhh_y: get_val("Y_FWHH"),
                 fwhh_z: get_val("Z_FWHH"),
@@ -265,6 +268,9 @@ async function load_theoretical_peaks() {
                     x: parseFloat(parts[2]),
                     y: parseFloat(parts[3]),
                     z: parseFloat(parts[4]),
+                    x_ppm: undefined,
+                    y_ppm: undefined,
+                    z_ppm: undefined,
                     fwhh_x: parseFloat(parts[5]),
                     fwhh_y: parseFloat(parts[6]),
                     fwhh_z: parseFloat(parts[7]),
@@ -556,20 +562,8 @@ function draw_slice(index, update_ortho_views = true) {
             if (abs_diff <= 1.0) {
                 // Square
                 visible_peaks.push({
-                    x: p.x_ppm || (s.x_ppm_start + p.x * s.x_ppm_step), // Wait, p.x is index?
-                    y: p.y_ppm || (s.y_ppm_start + p.y * s.y_ppm_step), // p.y is index?
-                    // Rewind: In load_theoretical_peaks, we stored p.x, p.y directly from file.
-                    // User file has "X_Center". 
-                    // 3d.js line 217: `x: parseFloat(parts[2])`.
-                    // generate_theoretical_volume uses `p.x` as index for array access: `s_data[row_offset + x]`. 
-                    // So p.x, p.y, p.z ARE INDICES.
-                    // But 2D plot expects PPM.
-                    // We must convert index to PPM.
-                    // PPM = Start + Index * Step (assuming standard direction, check logic)
-                    // In `plotit`: `x = (x_ppm - start)/step`. So `x_ppm = start + x * step`.
-
-                    x: s.x_ppm_start + p.x * s.x_ppm_step,
-                    y: s.y_ppm_start + p.y * s.y_ppm_step,
+                    x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                    y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                     symbol: 'square',
                     color: 'red', // Use Red as requested
                     size: 6,
@@ -579,8 +573,8 @@ function draw_slice(index, update_ortho_views = true) {
                 if (diff < 0) {
                     // Peak Z < Current Z -> Filled Circle
                     visible_peaks.push({
-                        x: s.x_ppm_start + p.x * s.x_ppm_step,
-                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                        y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: 'circle',
                         color: 'red',
                         size: 5,
@@ -589,8 +583,8 @@ function draw_slice(index, update_ortho_views = true) {
                 } else {
                     // Peak Z > Current Z -> Cross
                     visible_peaks.push({
-                        x: s.x_ppm_start + p.x * s.x_ppm_step,
-                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                        y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: 'cross',
                         color: 'red',
                         size: 5,
@@ -1597,8 +1591,8 @@ function refresh_xz_view() {
                     // X-axis: X PPM
                     // Y-axis: Z PPM
                     visible_peaks_xz.push({
-                        x: s.x_ppm_start + p.x * s.x_ppm_step,
-                        y: s.z_ppm_start + p.z * s.z_ppm_step,
+                        x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                        y: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
                         symbol: symbol_type,
                         color: 'red',
                         size: (symbol_type === 'square') ? 6 : 5,
@@ -1744,8 +1738,8 @@ function refresh_yz_view() {
                     // X-axis: Z PPM
                     // Y-axis: Y PPM
                     visible_peaks_yz.push({
-                        x: s.z_ppm_start + p.z * s.z_ppm_step,
-                        y: s.y_ppm_start + p.y * s.y_ppm_step,
+                        x: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
+                        y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: symbol_type,
                         color: 'red',
                         size: (symbol_type === 'square') ? 6 : 5,
@@ -2228,12 +2222,17 @@ function update_3d_view() {
             // A single sphere template
             let templatePeak = createSphere(peakSize, 10, 10);
 
+            let s0_z_start = s0.z_ppm_start !== undefined ? s0.z_ppm_start : 0;
+            let s0_z_step = s0.z_ppm_step !== undefined ? s0.z_ppm_step : 1;
+
             for (let i = 0; i < theoretical_peaks_data.length; i++) {
                 let p = theoretical_peaks_data[i];
-                // If loaded peaks are indices (1-based), we just subtract 1 to get 0-based index.
-                let idx_x = p.x - 1;
-                let idx_y = p.y - 1;
-                let idx_z = p.z - 1;
+                
+                // If ppm values are provided, use them to calculate the exact index for mesh rendering
+                // Otherwise fallback to subtracting 1 from the 1-based index
+                let idx_x = p.x_ppm !== undefined ? (p.x_ppm - s0.x_ppm_start) / s0.x_ppm_step : p.x - 1;
+                let idx_y = p.y_ppm !== undefined ? (p.y_ppm - s0.y_ppm_start) / s0.y_ppm_step : p.y - 1;
+                let idx_z = p.z_ppm !== undefined ? (p.z_ppm - s0_z_start) / s0_z_step : p.z - 1;
 
                 // Mesh space coords
                 let meshX = (idx_x - cx) * scale;
