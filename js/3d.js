@@ -11,6 +11,8 @@ var main_plot = null;
 var my_contour_worker = null;
 var tooldiv = document.getElementById("information_bar");
 var zoom_on_call_function = null;
+var iso_renderer = null;
+var iso_renderer_recon = null;
 
 // Function to download 3D region as text
 function download_region() {
@@ -2223,10 +2225,26 @@ function update_3d_view() {
         console.log(`Generating Meshes. Solid: ${isoSolid}, Wire: ${isoWire}`);
 
         let meshSolid, meshWire;
+        let meshSolid_recon = null, meshWire_recon = null;
 
         try {
             meshSolid = MarchingCubes.compute(data.data, data.dims, isoSolid);
             meshWire = MarchingCubes.compute(data.data, data.dims, isoWire);
+            
+            // Reconstructed processing
+            if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+                let data_recon = new Float32Array(data.dims.x * data.dims.y * data.dims.z);
+                let idx = 0;
+                for (let z = 0; z < data.dims.z; z++) {
+                    let s_theo = theoretical_spectra_3d[z];
+                    if (s_theo && s_theo.raw_data) {
+                        data_recon.set(s_theo.raw_data, idx);
+                    }
+                    idx += data.dims.x * data.dims.y;
+                }
+                meshSolid_recon = MarchingCubes.compute(data_recon, data.dims, isoSolid);
+                meshWire_recon = MarchingCubes.compute(data_recon, data.dims, isoWire);
+            }
         } catch (err) {
             console.error(err);
             if (loadingEl) loadingEl.style.display = 'none';
@@ -2249,6 +2267,9 @@ function update_3d_view() {
         }
         centerMesh(meshSolid, data.dims);
         centerMesh(meshWire, data.dims);
+        
+        if (meshSolid_recon) centerMesh(meshSolid_recon, data.dims);
+        if (meshWire_recon) centerMesh(meshWire_recon, data.dims);
 
         // Generate Axes
         const dx = data.dims.x;
@@ -2356,6 +2377,15 @@ function update_3d_view() {
         }        // Render
         if (!iso_renderer) {
             iso_renderer = new IsoSurfaceRenderer("canvas_3d");
+            iso_renderer.onCameraChange = function (cam) {
+                if (iso_renderer_recon) iso_renderer_recon.setCameraState(cam);
+            };
+        }
+        if (!iso_renderer_recon) {
+            iso_renderer_recon = new IsoSurfaceRenderer("canvas_3d_recon");
+            iso_renderer_recon.onCameraChange = function (cam) {
+                if (iso_renderer) iso_renderer.setCameraState(cam);
+            };
         }
 
         if (iso_renderer && iso_renderer.gl) {
@@ -2405,6 +2435,50 @@ function update_3d_view() {
             iso_renderer.render();
         }
 
+        if (iso_renderer_recon && iso_renderer_recon.gl) {
+            let meshes_recon = [];
+
+            // Axes (Opaque)
+            meshes_recon.push(
+                { vertices: meshAxisX.vertices, normals: meshAxisX.normals, color: [1.0, 0.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisY.vertices, normals: meshAxisY.normals, color: [0.0, 1.0, 0.0, 1.0], mode: 'TRIANGLES' },
+                { vertices: meshAxisZ.vertices, normals: meshAxisZ.normals, color: [0.0, 0.0, 1.0, 1.0], mode: 'TRIANGLES' }
+            );
+
+            // Add Bounds Prism (Opaque)
+            if (meshBoundsCylinders.length > 0) {
+                for (let m of meshBoundsCylinders) {
+                    meshes_recon.push({
+                        vertices: m.vertices, 
+                        normals: m.normals, 
+                        color: [1.0, 0.0, 0.0, 1.0], 
+                        mode: 'TRIANGLES'
+                    });
+                }
+            }
+
+            // Transparent Surfaces - Render Last!
+            if (meshSolid_recon && meshWire_recon) {
+                meshes_recon.push(
+                    {
+                        vertices: meshSolid_recon.vertices,
+                        normals: meshSolid_recon.normals,
+                        color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
+                        mode: 'TRIANGLES'
+                    },
+                    {
+                        vertices: meshWire_recon.vertices,
+                        normals: meshWire_recon.normals,
+                        color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
+                        mode: 'LINES'
+                    }
+                );
+            }
+
+            iso_renderer_recon.updateGeometry(meshes_recon);
+            iso_renderer_recon.render();
+        }
+
         if (loadingEl) loadingEl.style.display = 'none';
 
     }, 20);
@@ -2414,6 +2488,9 @@ function update_3d_view() {
 function reset_3d_view() {
     if (iso_renderer) {
         iso_renderer.resetView();
+    }
+    if (iso_renderer_recon) {
+        iso_renderer_recon.resetView();
     }
 }
 
@@ -2478,7 +2555,8 @@ function center_3d_on_crosshair() {
 
     console.log(`Centering on View Center: PPM(${x_ppm.toFixed(2)}, ${y_ppm.toFixed(2)}, ${z_ppm.toFixed(2)}) -> Idx(${idx_x.toFixed(1)}, ${idx_y.toFixed(1)}, ${idx_z.toFixed(1)}) -> Mesh(${meshX.toFixed(2)}, ${meshY.toFixed(2)}, ${meshZ.toFixed(2)})`);
 
-    iso_renderer.centerView(meshX, meshY, meshZ);
+    if (iso_renderer) iso_renderer.centerView(meshX, meshY, meshZ);
+    if (iso_renderer_recon) iso_renderer_recon.centerView(meshX, meshY, meshZ);
 }
 
 function center_3d_on_slices() {
@@ -2507,7 +2585,8 @@ function center_3d_on_slices() {
 
     console.log(`Centering on Slices: Idx(${idx_x}, ${idx_y}, ${idx_z}) -> Mesh(${meshX.toFixed(2)}, ${meshY.toFixed(2)}, ${meshZ.toFixed(2)})`);
 
-    iso_renderer.centerView(meshX, meshY, meshZ);
+    if (iso_renderer) iso_renderer.centerView(meshX, meshY, meshZ);
+    if (iso_renderer_recon) iso_renderer_recon.centerView(meshX, meshY, meshZ);
 }
 
 

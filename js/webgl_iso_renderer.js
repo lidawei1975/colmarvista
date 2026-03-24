@@ -18,10 +18,12 @@ class IsoSurfaceRenderer {
             return;
         }
 
-        // --- Interaction State ---
         this.isDragging = false;
         this.lastMouseX = 0;
         this.lastMouseY = 0;
+
+        // Callback for camera sync
+        this.onCameraChange = null;
 
         // Orbit angles (in degrees)
         this.rotationX = 30;
@@ -149,6 +151,7 @@ class IsoSurfaceRenderer {
             }
 
             this.requestRender();
+            this.notifyCameraChange();
         });
 
         this.canvas.addEventListener('wheel', (e) => {
@@ -157,6 +160,7 @@ class IsoSurfaceRenderer {
             this.distance += e.deltaY * zoomSpeed * this.distance;
             this.distance = Math.max(0.1, this.distance);
             this.requestRender();
+            this.notifyCameraChange();
         });
 
         // Touch support (basic)
@@ -180,6 +184,7 @@ class IsoSurfaceRenderer {
                 this.rotationY += deltaX * 0.5;
                 this.rotationX += deltaY * 0.5;
                 this.requestRender();
+                this.notifyCameraChange();
             }
         }, { passive: false });
 
@@ -196,6 +201,7 @@ class IsoSurfaceRenderer {
         this.panY = 0;
         this.target = { x: 0, y: 0, z: 0 };
         this.requestRender();
+        this.notifyCameraChange();
     }
 
     centerView(x, y, z) {
@@ -207,6 +213,7 @@ class IsoSurfaceRenderer {
         this.panY = 0;
 
         this.requestRender();
+        this.notifyCameraChange();
     }
 
 
@@ -344,6 +351,31 @@ class IsoSurfaceRenderer {
 
         console.log(`Total objects to render: ${this.objectData.length}`);
         this.requestRender();
+    }
+
+    notifyCameraChange() {
+        if (this.onCameraChange && !this._isApplyingCameraState) {
+            this.onCameraChange({
+                rotationX: this.rotationX,
+                rotationY: this.rotationY,
+                distance: this.distance,
+                panX: this.panX,
+                panY: this.panY,
+                target: { ...this.target }
+            });
+        }
+    }
+
+    setCameraState(state) {
+        this._isApplyingCameraState = true;
+        this.rotationX = state.rotationX;
+        this.rotationY = state.rotationY;
+        this.distance = state.distance;
+        this.panX = state.panX;
+        this.panY = state.panY;
+        this.target = { ...state.target };
+        this.requestRender();
+        this._isApplyingCameraState = false;
     }
 
     resize() {
