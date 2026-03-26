@@ -1044,6 +1044,51 @@ webassembly_1d_worker_2.onmessage = function (e) {
 }
 
 
+/**
+ * Handle messages from webassembly_1d_worker_2 (webdp1d_cpp module).
+ * Handles peak_picker_2d responses from the JS-driven spectrum_pick class.
+ */
+webassembly_1d_worker_2.onmessage = function (e) {
+
+    if (e.data.stdout) {
+        document.getElementById("log").value += e.data.stdout + "\n";
+        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    }
+
+    else if (e.data.error) {
+        console.error('webassembly_1d_worker_2 error:', e.data.error);
+        document.getElementById("webassembly_message").innerText = "Peak picking error: " + e.data.error;
+    }
+
+    /**
+     * peak_picker_2d response: picked_peaks_tab is the NMRPipe tab string of picked peaks
+     */
+    else if (e.data.webassembly_job === "peak_picker_2d") {
+        let peaks = new cpeaks();
+        peaks.process_peaks_tab(e.data.picked_peaks_tab);
+        hsqc_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
+
+        /**
+         * Reset fitted peaks when new picked peaks are received
+         */
+        hsqc_spectra[e.data.spectrum_index].fitted_peaks_object = null;
+        disable_enable_fitted_peak_buttons(e.data.spectrum_index, 0);
+
+        /**
+         * Save scale and scale2 used for picking (needed later for peak fitting)
+         */
+        hsqc_spectra[e.data.spectrum_index].scale = e.data.scale;
+        hsqc_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
+
+        disable_enable_peak_buttons(e.data.spectrum_index, 1);
+
+        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
+        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+
+        document.getElementById("webassembly_message").innerText = "";
+    }
+};
+
 webassembly_worker.onmessage = function (e) {
 
     /**
@@ -3940,8 +3985,8 @@ function run_DEEP_Picker(spectrum_index, flag) {
     /**
      * Add title to textarea "log"
      */
-    webassembly_worker.postMessage({
-        webassembly_job: "peak_picker",
+    webassembly_1d_worker_2.postMessage({
+        webassembly_job: "peak_picker_2d",
         spectrum_data: data_uint8,
         spectrum_index: spectrum_index,
         scale: scale,
@@ -3950,7 +3995,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
         scale2_negative: scale2_negative,
         noise_level: noise_level,
         remove_t1_noise: remove_t1_noise,
-        flag: flag //0: DEEP Picker, 1: Simple Picker
+        flag: flag //0: DEEP Picker (model 2), 1: DEEP Picker (model 1)
     });
     /**
      * Let user know the processing is started

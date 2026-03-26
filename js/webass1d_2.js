@@ -556,6 +556,94 @@ self.onmessage = async function (event) {
     }
 
 
+    /**
+     * 2D Peak Picking using JS-driven spectrum_pick class (webdp1d_cpp module).
+     * Follows the C++ workflow:
+     *   spectrum_pick x;
+     *   x.set_scale(user_scale, user_scale2);
+     *   x.set_scale_negative(user_scale_negative, user_scale2_negative);
+     *   x.set_model_selection(model_selection);
+     *   if (x.read_first_spectrum_from_buffer(spectrum_vec)) {
+     *       if (noise_level > 1e-20) x.set_noise_level(noise_level);
+     *       if (b_auto_ppp) x.adjust_ppp_of_spectrum(target_width);
+     *       x.ann_peak_picking(debug_flag1, t1_flag, b_negative);
+     *       peaks_tab = x.print_peaks_as_string();
+     *   }
+     */
+    else if (event.data.webassembly_job === "peak_picker_2d") {
+
+        const obj = new Module.spectrum_pick();
+
+        /**
+         * Set scale and model selection parameters
+         * flag: 0 = DEEP Picker (model 2, target_width=6), 1 = DEEP Picker (model 1, target_width=12)
+         */
+        obj.set_scale(event.data.scale, event.data.scale2);
+        obj.set_scale_negative(event.data.scale_negative, event.data.scale2_negative);
+        obj.set_model_selection(2); // 2 = DEEP Picker (model 2, target_width=6)
+
+        /**
+         * Convert the Uint8Array ft2 binary into separate header and data VectorFloat objects.
+         * NMRPipe .ft2 format: first 512 float32s are the header, the rest is spectrum data.
+         * C++ signature: read_first_spectrum_from_buffer(vector<float> header, vector<float> data)
+         */
+        const HEADER_SIZE = 512; // NMRPipe header is always 512 float32 words
+        const spectrum_float32 = new Float32Array(event.data.spectrum_data.buffer,
+            event.data.spectrum_data.byteOffset,
+            event.data.spectrum_data.byteLength / 4);
+
+        const header_vec = new Module.VectorFloat();
+        for (let i = 0; i < HEADER_SIZE; i++) {
+            header_vec.push_back(spectrum_float32[i]);
+        }
+
+        const data_vec = new Module.VectorFloat();
+        for (let i = HEADER_SIZE; i < spectrum_float32.length; i++) {
+            data_vec.push_back(spectrum_float32[i]);
+        }
+
+        if (obj.read_first_spectrum_from_buffer(header_vec, data_vec)) {
+
+            /**
+             * Set noise level if provided
+             */
+            if (event.data.noise_level > 1e-20) {
+                obj.set_noise_level(event.data.noise_level);
+            }
+
+            obj.adjust_ppp_of_spectrum(6.0); // 6.0 is the default value for target_width for model 2 (see above)
+
+            /**
+             * The main working function for peak picking
+             * flag: 0: run special case using line angle, 1: not run. 2: inertia based method
+             * flag_t1_noise: 0: not run, 1: run (column by column noise estimation)
+             * b_negative: true: also pick negative peaks (false: not pick negative peaks
+            */
+            const t1_flag = 1 ? 0 : (event.data.remove_t1_noise === "yes");
+            obj.ann_peak_picking(0, t1_flag, true);
+
+            /**
+             * Retrieve picked peaks as NMRPipe tab format string
+             */
+            const peaks_tab = obj.print_peaks_as_string();
+
+            self.postMessage({
+                webassembly_job: event.data.webassembly_job,
+                picked_peaks_tab: peaks_tab,
+                spectrum_index: event.data.spectrum_index,
+                scale: event.data.scale,
+                scale2: event.data.scale2
+            });
+        }
+        else {
+            self.postMessage({ error: 'peak_picker_2d: init_from_buffer failed' });
+        }
+
+        header_vec.delete();
+        data_vec.delete();
+        obj.delete();
+    }
+
     else {
         // Handle other jobs or errors
         self.postMessage({ error: 'Unknown webassembly job type' });
