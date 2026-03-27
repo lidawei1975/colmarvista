@@ -19,6 +19,15 @@ try {
     webassembly_worker = new Worker('./js/webass.js');
     webassembly_worker2 = new Worker('./js/webass2.js');
     webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
+
+function clear_webassembly_message_after_delay(delay_ms = 5000) {
+    window.setTimeout(function () {
+        const message_div = document.getElementById("webassembly_message");
+        if (message_div) {
+            message_div.innerText = "";
+        }
+    }, delay_ms);
+}
 }
 catch (err) {
     console.log(err);
@@ -1036,6 +1045,13 @@ webassembly_1d_worker_2.onmessage = function (e) {
                 finalize_peak_fitter_v2_if_done(e.data.spectrum_index);
             }
         }
+        else if (e.data.error.startsWith("generate_recon_spectrum_v2:")) {
+            const idx = e.data.spectrum_index;
+            if (typeof idx !== "undefined" && hsqc_spectra[idx]) {
+                hsqc_spectra[idx].recon_generated_v2 = false;
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks updated, but reconstructed spectrum generation failed.";
+            }
+        }
     }
 
     /**
@@ -1051,6 +1067,53 @@ webassembly_1d_worker_2.onmessage = function (e) {
             document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... " + done + "/" + total;
         }
         finalize_peak_fitter_v2_if_done(spectrum_index);
+    }
+
+    else if (e.data.webassembly_job === "generate_recon_spectrum_v2") {
+        const spectrum_index = e.data.spectrum_index;
+        if (!hsqc_spectra[spectrum_index]) {
+            return;
+        }
+
+        const recon_raw_data = new Float32Array(e.data.recon_raw_data);
+        const source = hsqc_spectra[spectrum_index];
+        const expected_size = source.n_direct * source.n_indirect;
+
+        if (recon_raw_data.length !== expected_size) {
+            source.recon_generated_v2 = false;
+            document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Reconstructed spectrum size mismatch.";
+            return;
+        }
+
+        const header = new Float32Array(source.header);
+        header[55] = 1.0;
+        header[56] = 1.0;
+        header[99] = source.n_direct;
+        header[219] = source.n_indirect;
+
+        const ft2_data = Float32Concat(header, recon_raw_data);
+        const arrayBuffer = ft2_data.buffer.slice(0);
+
+        let result_spectrum_name = "recon-".concat(spectrum_index.toString(), ".ft2");
+        let result_spectrum = new spectrum();
+        result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, spectrum_index);
+
+        result_spectrum.header = source.header;
+        result_spectrum.noise_level = source.noise_level;
+        result_spectrum.levels = source.levels;
+        result_spectrum.negative_levels = source.negative_levels;
+        result_spectrum.spectral_max = source.spectral_max;
+        result_spectrum.spectral_min = source.spectral_min;
+        result_spectrum.picked_peaks_object = source.picked_peaks_object;
+        result_spectrum.fitted_peaks_object = source.fitted_peaks_object;
+        result_spectrum.scale = source.scale;
+        result_spectrum.scale2 = source.scale2;
+
+        draw_spectrum([result_spectrum], false, false);
+
+        source.recon_generated_v2 = true;
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
+        clear_webassembly_message_after_delay(5000);
     }
 
     /**
@@ -1107,6 +1170,43 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
         disable_enable_fitted_peak_buttons(spectrum_index, 1);
         document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
         document.getElementById("show_fitted_peaks-".concat(spectrum_index)).click();
+
+        if (!s.recon_generation_requested_v2) {
+            s.recon_generation_requested_v2 = true;
+            const fitted = s.fitted_peaks_object;
+
+            webassembly_1d_worker_2.postMessage({
+                webassembly_job: "generate_recon_spectrum_v2",
+                spectrum_index: spectrum_index,
+                xdim_local: s.n_direct,
+                ydim_local: s.n_indirect,
+                inten: Float64Array.from(fitted.get_column_by_header("HEIGHT")),
+                sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
+                sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
+                gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),
+                gammay: Float64Array.from(fitted.get_column_by_header("GAMMAY")),
+                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS")),
+                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS"))
+            });
+
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Generating reconstructed spectrum from fitted peaks...";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Generating reconstructed spectrum...";
+            }
+            return;
+        }
+
+        if (s.recon_generated_v2) {
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Fitted peaks and reconstructed spectrum updated.";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
+            }
+            return;
+        }
     }
 
     if (failed > 0) {
@@ -1114,9 +1214,6 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
     }
     else if (!has_fitted) {
         document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. No fitted peaks found.";
-    }
-    else {
-        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks updated (no reconstructed spectrum in v2).";
     }
 }
 
@@ -4155,6 +4252,8 @@ function run_Voigt_fitter_v2(spectrum_index, flag) {
     selected_spectrum.total_peak_fitting_jobs = 0;
     selected_spectrum.completed_peak_fitting_jobs = 0;
     selected_spectrum.failed_peak_fitting_jobs = 0;
+    selected_spectrum.recon_generation_requested_v2 = false;
+    selected_spectrum.recon_generated_v2 = false;
 
     if (typeof SpectrumFitter === "undefined") {
         disable_enable_peak_buttons(spectrum_index, 1);

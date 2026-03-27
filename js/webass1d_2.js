@@ -349,6 +349,132 @@ self.onmessage = async function (event) {
             });
         }
     }
+
+    else if (event.data.webassembly_job === "generate_recon_spectrum_v2") {
+        try {
+            const inten = new Module.VectorDouble();
+            const sigmax = new Module.VectorDouble();
+            const sigmay = new Module.VectorDouble();
+            const gammax = new Module.VectorDouble();
+            const gammay = new Module.VectorDouble();
+            const centerx = new Module.VectorDouble();
+            const centery = new Module.VectorDouble();
+
+            for (let i = 0; i < event.data.inten.length; i++) {
+                inten.push_back(event.data.inten[i]);
+                sigmax.push_back(event.data.sigmax[i]);
+                sigmay.push_back(event.data.sigmay[i]);
+                gammax.push_back(event.data.gammax[i]);
+                gammay.push_back(event.data.gammay[i]);
+                centerx.push_back(event.data.centerx[i]);
+                centery.push_back(event.data.centery[i]);
+            }
+
+            const vector2DNames = [
+                "VectorVectorDouble",
+                "VectorDoubleVector",
+                "VectorVectorFloat64"
+            ];
+
+            let Spectrum2DClass = null;
+            for (let i = 0; i < vector2DNames.length; i++) {
+                if (typeof Module[vector2DNames[i]] === "function") {
+                    Spectrum2DClass = Module[vector2DNames[i]];
+                    break;
+                }
+            }
+
+            if (Spectrum2DClass === null) {
+                const moduleKeys = Object.keys(Module);
+                for (let i = 0; i < moduleKeys.length; i++) {
+                    const k = moduleKeys[i];
+                    if (!/vector.*vector.*double/i.test(k)) {
+                        continue;
+                    }
+                    if (typeof Module[k] === "function") {
+                        Spectrum2DClass = Module[k];
+                        break;
+                    }
+                }
+            }
+
+            if (Spectrum2DClass === null) {
+                throw new Error("cannot find registered vector<vector<double>> type in wasm bindings");
+            }
+
+            const spectrum2d = new Spectrum2DClass();
+
+            let ok = false;
+            if (typeof Module.generate_spectrum_voigt === "function") {
+                ok = Module.generate_spectrum_voigt(
+                    inten,
+                    sigmax,
+                    sigmay,
+                    gammax,
+                    gammay,
+                    centerx,
+                    centery,
+                    spectrum2d,
+                    event.data.xdim_local,
+                    event.data.ydim_local
+                );
+            }
+            else if (typeof Module.gaussian_fit === "function") {
+                const obj = new Module.gaussian_fit();
+                if (typeof obj.generate_spectrum_voigt !== "function") {
+                    obj.delete();
+                    throw new Error("generate_spectrum_voigt is not exposed on gaussian_fit");
+                }
+                ok = obj.generate_spectrum_voigt(
+                    inten,
+                    sigmax,
+                    sigmay,
+                    gammax,
+                    gammay,
+                    centerx,
+                    centery,
+                    spectrum2d,
+                    event.data.xdim_local,
+                    event.data.ydim_local
+                );
+                obj.delete();
+            }
+            else {
+                throw new Error("generate_spectrum_voigt binding is not found");
+            }
+
+            if (!ok) {
+                throw new Error("generate_spectrum_voigt returned false");
+            }
+
+            const ydim = event.data.ydim_local;
+            const xdim = event.data.xdim_local;
+            const recon = new Float32Array(xdim * ydim);
+
+            let yLimit = Math.min(ydim, spectrum2d.size());
+            for (let y = 0; y < yLimit; y++) {
+                const row = spectrum2d.get(y);
+                const xLimit = Math.min(xdim, row.size());
+                for (let x = 0; x < xLimit; x++) {
+                    recon[y * xdim + x] = row.get(x);
+                }
+            }
+
+            self.postMessage({
+                webassembly_job: "generate_recon_spectrum_v2",
+                spectrum_index: event.data.spectrum_index,
+                recon_raw_data: recon,
+            }, [recon.buffer]);
+        }
+        catch (err) {
+            self.postMessage({
+                webassembly_job: event.data.webassembly_job,
+                spectrum_index: event.data.spectrum_index,
+                error: "generate_recon_spectrum_v2: " + err.message
+            });
+        }
+    }
+
     /**
      * 1D FID processing job
      */
