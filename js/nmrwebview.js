@@ -1015,40 +1015,6 @@ webassembly_worker2.onmessage = function (e) {
 }
 
 webassembly_1d_worker_2.onmessage = function (e) {
-    /**
-     * if result is stdout, it is the processing message
-     */
-    if (e.data.stdout) {
-
-        /**
-         * Append e.data.stdout to textarea with ID "log"
-         * and add a new line
-         */
-        document.getElementById("log").value += e.data.stdout + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
-    /**
-     * e.data.stdout is defined but empty, it is the end of the processing message
-     */
-    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
-    }
-
-    /**
-     * If job is "gaussian_fitting"
-     */
-    else if (e.data.webassembly_job === "gaussian_fitting") {
-        console.log("Fitted peaks received from C++ worker");
-        let spectrum_index = e.data.spectrum_index;
-        hsqc_spectra[spectrum_index].process_gaussian_fitting_result(e.data);
-    }
-}
-
-
-/**
- * Handle messages from webassembly_1d_worker_2 (webdp1d_cpp module).
- * Handles peak_picker_2d responses from the JS-driven spectrum_pick class.
- */
-webassembly_1d_worker_2.onmessage = function (e) {
 
     if (e.data.stdout) {
         document.getElementById("log").value += e.data.stdout + "\n";
@@ -1057,7 +1023,34 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
     else if (e.data.error) {
         console.error('webassembly_1d_worker_2 error:', e.data.error);
-        document.getElementById("webassembly_message").innerText = "Peak picking error: " + e.data.error;
+        document.getElementById("webassembly_message").innerText = "Worker error: " + e.data.error;
+        if (e.data.error.startsWith("peak_fitter_region_v2:")) {
+            document.getElementById("webassembly_message").innerText = "Peak fitting v2 error: " + e.data.error;
+            if (typeof e.data.spectrum_index !== "undefined" && hsqc_spectra[e.data.spectrum_index]) {
+                const s = hsqc_spectra[e.data.spectrum_index];
+                s.failed_peak_fitting_jobs = (s.failed_peak_fitting_jobs || 0) + 1;
+                s.completed_peak_fitting_jobs = Math.min(
+                    (s.completed_peak_fitting_jobs || 0) + 1,
+                    s.total_peak_fitting_jobs || 0
+                );
+                finalize_peak_fitter_v2_if_done(e.data.spectrum_index);
+            }
+        }
+    }
+
+    /**
+     * Region-wise 2D peak fitting response from the v2 worker workflow.
+     */
+    else if (e.data.webassembly_job === "peak_fitter_v2") {
+        let spectrum_index = e.data.spectrum_index;
+        hsqc_spectra[spectrum_index].process_peak_fitter_v2_result(e.data);
+
+        let done = hsqc_spectra[spectrum_index].completed_peak_fitting_jobs;
+        let total = hsqc_spectra[spectrum_index].total_peak_fitting_jobs;
+        if (total > 0 && done < total) {
+            document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... " + done + "/" + total;
+        }
+        finalize_peak_fitter_v2_if_done(spectrum_index);
     }
 
     /**
@@ -1088,6 +1081,44 @@ webassembly_1d_worker_2.onmessage = function (e) {
         document.getElementById("webassembly_message").innerText = "";
     }
 };
+
+function finalize_peak_fitter_v2_if_done(spectrum_index) {
+    if (!hsqc_spectra[spectrum_index]) {
+        return;
+    }
+
+    const s = hsqc_spectra[spectrum_index];
+    const total = s.total_peak_fitting_jobs || 0;
+    const done = s.completed_peak_fitting_jobs || 0;
+    const failed = s.failed_peak_fitting_jobs || 0;
+
+    if (total <= 0 || done < total) {
+        return;
+    }
+
+    disable_enable_peak_buttons(spectrum_index, 1);
+
+    const has_fitted = s.fitted_peaks_object
+        && s.fitted_peaks_object.columns
+        && s.fitted_peaks_object.columns.length > 0
+        && s.fitted_peaks_object.columns[0].length > 0;
+
+    if (has_fitted) {
+        disable_enable_fitted_peak_buttons(spectrum_index, 1);
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).click();
+    }
+
+    if (failed > 0) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s).";
+    }
+    else if (!has_fitted) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. No fitted peaks found.";
+    }
+    else {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks updated (no reconstructed spectrum in v2).";
+    }
+}
 
 webassembly_worker.onmessage = function (e) {
 
@@ -2047,7 +2078,7 @@ function add_to_list(index) {
             let index = parseInt(this.id.split("-")[1]);
             let run_voigt_fitter_select = document.getElementById("run_voigt_fitter_select-".concat(index));
             let option = parseInt(run_voigt_fitter_select.value);
-            run_Voigt_fitter(index, option);
+            run_Voigt_fitter_v2(index, option);
         };
         if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
             run_voigt_fitter_button0.disabled = true;
@@ -4076,6 +4107,145 @@ function run_Voigt_fitter(spectrum_index, flag) {
      */
     document.getElementById("webassembly_message").innerText = "Run Peak fitting, please wait...";
 
+}
+
+/**
+ * v2 peak fitting workflow: partition 2D spectrum into regions and fit region-wise via webassembly_1d_worker_2.
+ * Keep run_Voigt_fitter() for the legacy full-spectrum fitting path.
+ */
+function run_Voigt_fitter_v2(spectrum_index, flag) {
+    disable_enable_peak_buttons(spectrum_index, 2);
+    disable_enable_fitted_peak_buttons(spectrum_index, 0);
+
+    let maxround = parseInt(document.getElementById("maxround-" + spectrum_index).value);
+    let combine_peak_cutoff = parseFloat(document.getElementById("combine_peak_cutoff-" + spectrum_index).value);
+
+    let selected_spectrum = hsqc_spectra[spectrum_index];
+    if (selected_spectrum === undefined || selected_spectrum.picked_peaks_object === null) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No picked peaks found for fitting.";
+        return;
+    }
+
+    let [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+
+    let picked_peaks_copy = new cpeaks();
+    picked_peaks_copy.copy_data(selected_spectrum.picked_peaks_object);
+    picked_peaks_copy.filter_by_column_range("X_PPM", x_ppm_visible_start, x_ppm_visible_end);
+    picked_peaks_copy.filter_by_column_range("Y_PPM", y_ppm_visible_start, y_ppm_visible_end);
+
+    if (picked_peaks_copy.columns.length === 0 || picked_peaks_copy.columns[0].length === 0) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No picked peaks in current visible region.";
+        return;
+    }
+
+    // Keep assignment array aligned with filtered peaks for downstream result assembly.
+    selected_spectrum.peak_assignments = picked_peaks_copy.get_column_by_header("ASS");
+
+    let peak_shape = 1; // Voigt
+    if (flag === 1) {
+        peak_shape = 0; // Gaussian
+    }
+    else if (flag === 2) {
+        peak_shape = 3; // Voigt_Lorentzian
+    }
+
+    selected_spectrum.fitted_peaks_object = null;
+    selected_spectrum.total_peak_fitting_jobs = 0;
+    selected_spectrum.completed_peak_fitting_jobs = 0;
+    selected_spectrum.failed_peak_fitting_jobs = 0;
+
+    if (typeof SpectrumFitter === "undefined") {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "Peak fitting v2 requires js/spectrum_fit.js to be loaded.";
+        return;
+    }
+
+    let xw = picked_peaks_copy.get_column_by_header("XW");
+    let yw = picked_peaks_copy.get_column_by_header("YW");
+    let median_width_x = xw.length > 0 ? mathTool.get_median(xw) : 3.0;
+    let median_width_y = yw.length > 0 ? mathTool.get_median(yw) : 3.0;
+    let wx = median_width_x * 1.6;
+    let wy = median_width_y * 1.6;
+
+    let scale2_for_v2 = Number.isFinite(selected_spectrum.scale2) ? selected_spectrum.scale2 : 3.0;
+    let scale_for_v2 = Number.isFinite(selected_spectrum.scale) ? selected_spectrum.scale : 5.5;
+
+    let fitter = new SpectrumFitter(null);
+    let regions = fitter.prepareRegionsForWorker(selected_spectrum, picked_peaks_copy, {
+        userScale2: scale2_for_v2,
+        tooNearCutoff: combine_peak_cutoff,
+        removalCutoff: combine_peak_cutoff,
+        maxround: maxround,
+        peakShape: peak_shape,
+    });
+
+    if (!regions || regions.length === 0) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No fitting regions found in current visible area.";
+        return;
+    }
+
+    selected_spectrum.total_peak_fitting_jobs = regions.length;
+
+    for (let i = 0; i < regions.length; i++) {
+        const region = regions[i];
+        const spectParts = Float32Array.from(region.surface);
+        const aas = Float32Array.from(region.amp);
+        const xx = Float32Array.from(region.x);
+        const yy = Float32Array.from(region.y);
+        const sx = Float32Array.from(region.sigmax);
+        const sy = Float32Array.from(region.sigmay);
+        const gx = Float32Array.from(region.gammax);
+        const gy = Float32Array.from(region.gammay);
+        const ori_index = Int32Array.from(region.originalNdx);
+        const region_peak_cannot_move_flag = Int32Array.from(region.cannotMove);
+
+        const payload = {
+            webassembly_job: "peak_fitter_region_v2",
+            spectrum_index: spectrum_index,
+            cluster_counter: i,
+            total_jobs: regions.length,
+            peak_shape: peak_shape,
+            maxround: maxround,
+            peak_sign: region.peakSign,
+            min1: region.xstart,
+            min2: region.ystart,
+            size1: region.xdim,
+            size2: region.ydim,
+            nspect: region.nspectra,
+            spect_parts: spectParts,
+            xx: xx,
+            yy: yy,
+            aas: aas,
+            sx: sx,
+            sy: sy,
+            gx: gx,
+            gy: gy,
+            ori_index: ori_index,
+            region_peak_cannot_move_flag: region_peak_cannot_move_flag,
+            median_width_x: region.medianWidthX,
+            median_width_y: region.medianWidthY,
+            wx: wx,
+            wy: wy,
+            noise_level: selected_spectrum.noise_level,
+            user_scale2: scale2_for_v2,
+            scale: scale_for_v2,
+            step1: selected_spectrum.x_ppm_step,
+            step2: selected_spectrum.y_ppm_step,
+            too_near_cutoff: combine_peak_cutoff,
+            removal_cutoff: combine_peak_cutoff,
+        };
+
+        webassembly_1d_worker_2.postMessage(payload, [
+            spectParts.buffer, aas.buffer, xx.buffer, yy.buffer,
+            sx.buffer, sy.buffer, gx.buffer, gy.buffer,
+            ori_index.buffer, region_peak_cannot_move_flag.buffer
+        ]);
+    }
+
+    document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... 0/" + regions.length;
 }
 
 /**
