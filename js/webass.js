@@ -4,6 +4,16 @@
 
 
 importScripts('webdp.js');
+importScripts('webdp1d_cpp.js');
+
+const cppModulePromise = webdp1d_cpp({
+    print: function (text) {
+        postMessage({ stdout: text });
+    },
+    printErr: function (text) {
+        postMessage({ stdout: text });
+    }
+});
 
 const api = {
     version: Module.cwrap("version", "number", []),
@@ -25,7 +35,180 @@ Module['print'] = function (text) {
 out = Module['print'];
 err = Module['print'];
 
-onmessage = function (e) {
+function runProcessFidLegacy(e) {
+    console.log('Falling back to legacy process_fid workflow');
+
+    Module['FS_createDataFile']('/', 'acquisition_file', e.data.file_data[0], true, true, true);
+    Module['FS_createDataFile']('/', 'acquisition_file2', e.data.file_data[1], true, true, true);
+    Module['FS_createDataFile']('/', 'fid_file', e.data.file_data[2], true, true, true);
+
+    let apodization_indirect = e.data.apodization_indirect;
+    let content = ' -aqseq '.concat(e.data.acquisition_seq, ' -negative ', e.data.neg_imaginary);
+    content = content.concat(' -zf '.concat(e.data.zf_direct, ' -zf-indirect ', e.data.zf_indirect));
+    content = content.concat(' -apod '.concat(e.data.apodization_direct));
+    content = content.concat(' -apod-indirect '.concat(apodization_indirect));
+    content = content.concat(' -poly '.concat(e.data.polynomial));
+    content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
+
+    if (e.data.water_suppression === true) {
+        content = content.concat(' -water yes ');
+    }
+    else {
+        content = content.concat(' -water no ');
+    }
+
+    if (e.data.auto_direct === false && e.data.auto_indirect === false) {
+        if (e.data.delete_direct === true) {
+            content = content.concat(' -di yes ');
+        }
+        else {
+            content = content.concat(' -di no ');
+        }
+
+        if (e.data.delete_indirect === true) {
+            content = content.concat(' -di-indirect yes ');
+        }
+        else {
+            content = content.concat(' -di-indirect no ');
+        }
+
+        if (e.data.pseudo3d_process === 'first_only') {
+            content = content.concat(' -first-only yes ');
+        }
+        else {
+            content = content.concat(' -first-only no ');
+        }
+
+        content = content.concat(' -phase-in phase-correction.txt ');
+        content = content.concat(' -ext '.concat(e.data.extract_direct_from, ' ', e.data.extract_direct_to));
+        content = content.concat(' -out test.ft2');
+
+        let phase_correction = e.data.phase_correction_direct_p0.toString();
+        phase_correction = phase_correction.concat(' ', e.data.phase_correction_direct_p1.toString());
+        phase_correction = phase_correction.concat(' ', e.data.phase_correction_indirect_p0.toString());
+        phase_correction = phase_correction.concat(' ', e.data.phase_correction_indirect_p1.toString());
+        Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction, true, true, true);
+
+        Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
+        postMessage({ stdout: "Running fid function" });
+        api.fid();
+    }
+    else {
+        content = content.concat(' -first-only yes -out test0.ft2');
+        content = content.concat(' -phase-in none -di no -di-indirect no');
+        Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
+
+        postMessage({ stdout: "Running automatic phase correction." });
+        api.fid();
+
+        content = ' -in test0.ft2 -out none -out-phase phase-correction.txt';
+        if (e.data.auto_direct === true) {
+            content = content.concat(' -user no ');
+        }
+        else {
+            content = content.concat(' -user yes -user-phase '.concat(e.data.phase_correction_direct_p0.toString(), ' ', e.data.phase_correction_direct_p1.toString()));
+        }
+        if (e.data.auto_indirect === true) {
+            content = content.concat(' -user-indirect no ');
+        }
+        else {
+            content = content.concat(' -user-indirect yes -user-phase-indirect '.concat(e.data.phase_correction_indirect_p0.toString(), ' ', e.data.phase_correction_indirect_p1.toString()));
+        }
+        Module['FS_createDataFile']('/', 'arguments_phase_2d.txt', content, true, true, true);
+        api.phasing();
+        FS.unlink('arguments_phase_2d.txt');
+
+        let phase_correction = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
+        let phase_correction_values = phase_correction.trim().split(/\s+/);
+        let c = 0.5;
+        if (Math.abs(parseFloat(phase_correction_values[3])) > 20.0) {
+            c = 1.0;
+        }
+
+        let apodization_indirect_values = apodization_indirect.trim().split(/\s+/);
+        let c_index = apodization_indirect_values.indexOf('c');
+        if (c_index >= 0 && c_index + 1 < apodization_indirect_values.length) {
+            apodization_indirect_values[c_index + 1] = c.toString();
+            apodization_indirect = apodization_indirect_values.join(' ');
+        }
+
+        if (e.data.pseudo3d_process === 'first_only') {
+            content = ' -first-only yes ';
+        }
+        else {
+            content = ' -first-only no ';
+        }
+        content = content.concat('  -aqseq '.concat(e.data.acquisition_seq, ' -negative ', e.data.neg_imaginary));
+        content = content.concat(' -zf '.concat(e.data.zf_direct, ' -zf-indirect ', e.data.zf_indirect));
+        content = content.concat(' -apod '.concat(e.data.apodization_direct));
+        content = content.concat(' -apod-indirect '.concat(apodization_indirect));
+        content = content.concat(' -ext '.concat(e.data.extract_direct_from, ' ', e.data.extract_direct_to));
+        content = content.concat(' -poly '.concat(e.data.polynomial));
+        content = content.concat(' -out test.ft2');
+        content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
+        content = content.concat(' -phase-in phase-correction.txt ');
+
+        if (e.data.delete_direct === true) {
+            content = content.concat(' -di yes ');
+        }
+        else {
+            content = content.concat(' -di no ');
+        }
+
+        if (e.data.delete_indirect === true) {
+            content = content.concat(' -di-indirect yes ');
+        }
+        else {
+            content = content.concat(' -di-indirect no ');
+        }
+
+        if (e.data.water_suppression === true) {
+            content = content.concat(' -water yes ');
+        }
+        else {
+            content = content.concat(' -water no ');
+        }
+
+        FS.unlink('test0.ft2');
+        FS.unlink('arguments_fid_2d.txt');
+        Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
+        postMessage({ stdout: "Running fid function with automatic phase correction" });
+        api.fid();
+    }
+
+    FS.unlink('acquisition_file');
+    FS.unlink('acquisition_file2');
+    FS.unlink('fid_file');
+    FS.unlink('arguments_fid_2d.txt');
+    const file_data = FS.readFile('test.ft2', { encoding: 'binary' });
+    const phasing_data = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
+    FS.unlink('test.ft2');
+    FS.unlink('phase-correction.txt');
+
+    let pseudo3d_files = [];
+    if (e.data.pseudo3d_process === 'all_planes') {
+        let pseudo3d_information = JSON.parse(FS.readFile('pseudo3d.json', { encoding: 'utf8' }));
+        for (let i = 1; i < pseudo3d_information.spectra; i++) {
+            pseudo3d_files.push(FS.readFile('test_'.concat(i, '.ft2'), { encoding: 'binary' }));
+            FS.unlink('test_'.concat(i, '.ft2'));
+        }
+        FS.unlink('pseudo3d.json');
+    }
+
+    postMessage({
+        webassembly_job: e.data.webassembly_job,
+        file_data: file_data,
+        file_type: 'full',
+        pseudo3d_files: pseudo3d_files,
+        phasing_data: phasing_data,
+        apodization_indirect: apodization_indirect,
+        processing_flag: e.data.processing_flag,
+        spectrum_index: e.data.spectrum_index,
+        pseudo3d_children: e.data.pseudo3d_children,
+    });
+}
+
+onmessage = async function (e) {
     console.log('Message received from main script');
     
     /**
@@ -223,297 +406,270 @@ onmessage = function (e) {
     }
 
     /**
-     * If the message is file_data with 3 files, save them to the virtual file system and run fid and phasing functions
-     * return the processed data to the main script as file_data
+     * Class-based full FID processing using webdp1d_cpp bindings.
      */
     if (e.data.webassembly_job === "process_fid") {
         console.log('File data received');
-        /**
-         * Save the file data to the virtual file system
-         */
-        Module['FS_createDataFile']('/', 'acquisition_file', e.data.file_data[0], true, true, true);
-        Module['FS_createDataFile']('/', 'acquisition_file2', e.data.file_data[1], true, true, true);
-        Module['FS_createDataFile']('/', 'fid_file', e.data.file_data[2], true, true, true);    
-        console.log('File data saved to virtual file system');
 
-        let apodization_indirect = e.data.apodization_indirect;
+        try {
 
-        /**
-         * Write a file named "arguments_fid_phasing.txt" to the virtual file system
-         * C++ program will read it to get "command line arguments"
-         */
-        let content = ' -aqseq '.concat(e.data.acquisition_seq,' -negative ',e.data.neg_imaginary);
-        content = content.concat(' -zf '.concat(e.data.zf_direct,' -zf-indirect ',e.data.zf_indirect));
-        content = content.concat(' -apod '.concat(e.data.apodization_direct));
-        content = content.concat(' -apod-indirect '.concat(apodization_indirect));
-        content = content.concat(' -poly '.concat(e.data.polynomial));
-        content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
+        const ModuleCpp = await cppModulePromise;
 
-        /**
-         * Water suppression ?
-         */
-        if(e.data.water_suppression === true)
-        {
-            content = content.concat(' -water yes ');
-        }
-        else
-        {
-            content = content.concat(' -water no ');
-        }
-
-        /**
-         * If both auto_direct and auto_indirect are false, add -phase-in phase-correction.txt to the content
-         * and write a file named "phase-correction.txt" to the virtual file system. 
-         * Later, we will skip the automatic phase correction program called "phasing"
-         * 
-         * Otherwise, add -phase-in none to the content. User input phase correction will be read by
-         * another program called "phasing", which will run one dimension or both dimensions phase correction
-         */
-        if (e.data.auto_direct === false && e.data.auto_indirect === false) {
-
-            /**
-             * if e.data.delete_direct === true, delete the direct dimension " -di yes ", otherwise "-di no "
-             */
-            if(e.data.delete_direct === true)
-            {
-                content = content.concat(' -di yes ');
+        const toBool = function (value) {
+            if (typeof value === 'boolean') {
+                return value;
             }
-            else
-            {
-                content = content.concat(' -di no ');
+            if (typeof value === 'string') {
+                const normalized = value.trim().toLowerCase();
+                return normalized === 'yes' || normalized === 'true' || normalized === '1';
+            }
+            return Boolean(value);
+        };
+
+        const toInt = function (value, fallbackValue) {
+            const parsed = parseInt(value, 10);
+            return Number.isFinite(parsed) ? parsed : fallbackValue;
+        };
+
+        const toFloat = function (value, fallbackValue) {
+            const parsed = parseFloat(value);
+            return Number.isFinite(parsed) ? parsed : fallbackValue;
+        };
+
+        const updateIndirectApodizationFromPhase = function (apodization, phaseString) {
+            const phaseValues = phaseString.trim().split(/\s+/);
+            if (phaseValues.length < 4) {
+                return apodization;
             }
 
-            /**
-             * if e.data.delete_indirect === true, delete the indirect dimension " -di-indirect yes ", otherwise "-di-indirect no "
-             */
-            if(e.data.delete_indirect === true)
-            {
-                content = content.concat(' -di-indirect yes ');
-            }
-            else
-            {
-                content = content.concat(' -di-indirect no ');
-            }
-
-            if(e.data.pseudo3d_process === 'first_only')
-            {   
-                content = content.concat(' -first-only yes ');
-            }
-            else
-            {
-                content = content.concat(' -first-only no ');
-            }
-
-            content = content.concat(' -phase-in phase-correction.txt ');
-            content = content.concat(' -ext '.concat(e.data.extract_direct_from, ' ', e.data.extract_direct_to));
-            content = content.concat(' -out test.ft2');
-            let phase_correction = e.data.phase_correction_direct_p0.toString();
-            phase_correction=phase_correction.concat(' ', e.data.phase_correction_direct_p1.toString());
-            phase_correction=phase_correction.concat(' ', e.data.phase_correction_indirect_p0.toString());
-            phase_correction=phase_correction.concat(' ', e.data.phase_correction_indirect_p1.toString());
-            Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction, true, true, true);
-
-            Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-            console.log(content);
-    
-            /**
-             * Run fid_phase function
-             */
-            postMessage({ stdout: "Running fid function" });
-            api.fid();
-            console.log('Finished running fid');
-        }
-        else
-        {
-            content = content.concat(' -first-only yes -out test0.ft2');
-            /**
-             * To run automatic phase correction, we need to set -phase-in none and keep -di no and -di-indirect no
-             */
-            content = content.concat(' -phase-in none -di no -di-indirect no');
-            Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-            console.log(content);
-    
-            /**
-             * Run fid_phase function
-             */
-            postMessage({ stdout: "Running automatic phase correction." });
-            api.fid();
-            console.log('Finished running fid');
-       
-            /**
-             * Step 1, run phasing program, which will generate a file named "phase-correction.txt"
-             */
-            content = ' -in test0.ft2 -out none -out-phase phase-correction.txt';
-            if(e.data.auto_direct === true)
-            {
-                content = content.concat(' -user no ');
-            }
-            else 
-            {
-                content = content.concat(' -user yes -user-phase '.concat(e.data.phase_correction_direct_p0.toString(),' ',e.data.phase_correction_direct_p1.toString()));
-            }
-            if(e.data.auto_indirect === true)
-            {
-                content = content.concat(' -user-indirect no ');
-            }
-            else 
-            {
-                content = content.concat(' -user-indirect yes -user-phase-indirect '.concat(e.data.phase_correction_indirect_p0.toString(),' ',e.data.phase_correction_indirect_p1.toString()));
-            }
-            Module['FS_createDataFile']('/', 'arguments_phase_2d.txt', content, true, true, true);
-            console.log(content);
-            api.phasing();
-            console.log('Finished running phasing');
-            FS.unlink('arguments_phase_2d.txt');
-
-            /**
-             * Check phase-correction.txt file and get the last number (indirect phase correction p1)
-             */
-            let phase_correction = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
-            let phase_correction_values = phase_correction.trim().split(/\s+/);
-            /**
-             * If indirect p1 is not 0, set indirect c parameter to 1.0
-             * Otherwise, set it to 0.5
-             */
             let c = 0.5;
-            if (Math.abs(parseFloat(phase_correction_values[3])) > 20.0) {
+            if (Math.abs(parseFloat(phaseValues[3])) > 20.0) {
                 c = 1.0;
             }
 
-            
-            /**
-             * Replace the c value in apodization_indirect with the new c value
-             * apodization_indirect example: "SP begin 0.5 end 0.875 pow 2 elb 0 c 0.5"
-             */
-            let apodization_indirect_values = apodization_indirect.trim().split(/\s+/);
-            /**
-             * Find location of c in apodization_indirect_values
-             */
-            let c_index = apodization_indirect_values.indexOf('c');
-            /**
-             * Replace the value of c with the new value
-             */
-            apodization_indirect_values[c_index + 1] = c.toString();
-            /**
-             * Join the array back to a string
-             */
-            apodization_indirect = apodization_indirect_values.join(' ');
-
-            /**
-             * Step 2, run "fid" function again, with the new phase correction and write the new data to test.ft2
-             * For pseudo-3D, include -first-only yes or no according to the user input in e.data.pseudo3d_process
-             */
-            if(e.data.pseudo3d_process === 'first_only')
-            {   
-                content = ' -first-only yes ';
-            }
-            else
-            {
-                content = ' -first-only no ';
-            }
-            content = content.concat('  -aqseq '.concat(e.data.acquisition_seq,' -negative ',e.data.neg_imaginary));
-            content = content.concat(' -zf '.concat(e.data.zf_direct,' -zf-indirect ',e.data.zf_indirect));
-            content = content.concat(' -apod '.concat(e.data.apodization_direct));
-            content = content.concat(' -apod-indirect '.concat(apodization_indirect));
-            content = content.concat(' -ext '.concat(e.data.extract_direct_from, ' ', e.data.extract_direct_to));
-            content = content.concat(' -poly '.concat(e.data.polynomial));
-            content = content.concat(' -out test.ft2');
-            content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
-            content = content.concat(' -phase-in phase-correction.txt ');
-            /**
-             * if e.data.delete_direct === true, delete the direct dimension " -di yes ", otherwise "-di no "
-             */
-            if(e.data.delete_direct === true)
-            {
-                content = content.concat(' -di yes ');
-            }
-            else
-            {
-                content = content.concat(' -di no ');
+            const apodizationParts = apodization.trim().split(/\s+/);
+            const cIndex = apodizationParts.indexOf('c');
+            if (cIndex >= 0 && cIndex + 1 < apodizationParts.length) {
+                apodizationParts[cIndex + 1] = c.toString();
+                return apodizationParts.join(' ');
             }
 
-            /**
-             * if e.data.delete_indirect === true, delete the indirect dimension " -di-indirect yes ", otherwise "-di-indirect no "
-             */
-            if(e.data.delete_indirect === true)
-            {
-                content = content.concat(' -di-indirect yes ');
+            return apodization;
+        };
+
+        const encodeBytes = function (input) {
+            if (input instanceof Uint8Array) {
+                return input;
             }
-            else
-            {
-                content = content.concat(' -di-indirect no ');
+            return new Uint8Array(input);
+        };
+
+        const convertVectorUCharToUint8Array = function (vector) {
+            const result = new Uint8Array(vector.size());
+            for (let i = 0; i < vector.size(); i++) {
+                result[i] = vector.get(i);
+            }
+            return result;
+        };
+
+        const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, fidBytesVec) {
+            if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                throw new Error('read_bruker_files_as_strings failed');
+            }
+            if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                throw new Error('read_bruker_fid_data_bytes failed');
+            }
+        };
+
+        const configureCommon = function (processor, options) {
+            if (!processor.set_aqseq(options.acquisitionSeq)) {
+                throw new Error('set_aqseq failed');
+            }
+            processor.set_negative(options.negativeImaginary);
+            processor.set_first_only(options.firstOnly);
+
+            if (!processor.run_zf(options.zfDirect, options.zfIndirect)) {
+                throw new Error('run_zf failed');
+            }
+            if (!processor.set_up_apodization_from_string(options.apodizationDirect, options.apodizationIndirect)) {
+                throw new Error('set_up_apodization_from_string failed');
             }
 
-            if(e.data.water_suppression === true)
-            {
-                content = content.concat(' -water yes ');
-            }
-            else
-            {
-                content = content.concat(' -water no ');
+            if (options.waterSuppression === true) {
+                processor.water_suppression();
             }
 
+            if (!processor.full_process(options.deleteDirect, options.deleteIndirect)) {
+                throw new Error('full_process failed');
+            }
 
+            const polynomialOrder = toInt(options.polynomial, 0);
+            if (polynomialOrder > 0) {
+                if (!processor.polynorminal_baseline(polynomialOrder)) {
+                    throw new Error('polynorminal_baseline failed');
+                }
+            }
 
-            FS.unlink('test0.ft2');
-            FS.unlink('arguments_fid_2d.txt');
-            Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-            console.log(content);
-            postMessage({ stdout: "Running fid function with automatic phase correction" });
-            api.fid();
-            console.log('Finished running fid with automatic phase correction');
+            if (options.applyExtraction === true) {
+                if (!processor.extract_region(options.extractFrom, options.extractTo)) {
+                    throw new Error('extract_region failed');
+                }
+            }
+        };
+
+        const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[0]));
+        const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[1]));
+        const fidBytes = encodeBytes(e.data.file_data[2]);
+
+        const fidBytesVec = new ModuleCpp.VectorUChar();
+        for (let i = 0; i < fidBytes.length; i++) {
+            fidBytesVec.push_back(fidBytes[i]);
         }
-       
 
+        const normalizeExtractFraction = function (value, fallbackValue) {
+            const parsed = toFloat(value, fallbackValue);
+            // UI provides percentages (0-100), while class API expects normalized [0,1].
+            const normalized = parsed / 100.0;
+            return Math.max(0.0, Math.min(1.0, normalized));
+        };
 
-        /**
-         * Remove the input files from the virtual file system
-         * Read file test.ft2 from the virtual file system and send it back to the main script
-         * And read the file phase-correction.txt and send it back to the main script
-         * If auto, new phase correction will be saved in the file
-         * IF not auto, the same phase correction (from input) will be saved in the file
-         */
-        FS.unlink('acquisition_file');
-        FS.unlink('acquisition_file2');
-        FS.unlink('fid_file');
-        FS.unlink('arguments_fid_2d.txt');
-        const file_data = FS.readFile('test.ft2', { encoding: 'binary' });
-        const phasing_data = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
-        console.log('File data read from virtual file system, type of file_data:', typeof file_data, ' and length:', file_data.length);
-        FS.unlink('test.ft2');
-        FS.unlink('phase-correction.txt');
+        const acquisitionSeq = String(e.data.acquisition_seq);
+        const negativeImaginary = toBool(e.data.neg_imaginary);
+        const zfDirect = toInt(e.data.zf_direct, 1);
+        const zfIndirect = toInt(e.data.zf_indirect, 1);
+        const processAllPlanes = e.data.pseudo3d_process === 'all_planes';
+        const useAutoPhase = e.data.auto_direct === true || e.data.auto_indirect === true;
 
-        let pseudo3d_files = [];
-        if(e.data.pseudo3d_process === 'all_planes')
-        {
-            /**
-             * Read a file "pseudo3d.json" from the virtual file system and convert to a JSON object
-             */
-            let pseudo3d_information = JSON.parse(FS.readFile('pseudo3d.json', { encoding: 'utf8' }));
-            /**
-             * Read additional files from the virtual file system, and send them back to the main script
-             * File names are test1.ft2, test2.ft2, test3.ft2, ... upto test{N-1}.ft2
-             * where N === pseudo3d_information.spectra  
-             */
-            
-            for (let i = 1; i < pseudo3d_information.spectra; i++) {
-                pseudo3d_files.push(FS.readFile('test_'.concat(i, '.ft2'), { encoding: 'binary' }));
-                FS.unlink('test_'.concat(i, '.ft2'));
+        let apodization_indirect = e.data.apodization_indirect;
+        let phasing_data = [
+            toFloat(e.data.phase_correction_direct_p0, 0),
+            toFloat(e.data.phase_correction_direct_p1, 0),
+            toFloat(e.data.phase_correction_indirect_p0, 0),
+            toFloat(e.data.phase_correction_indirect_p1, 0)
+        ];
+
+        if (useAutoPhase) {
+            const phaseEstimator = new ModuleCpp.spectrum_phasing();
+            try {
+                initializeFromBrukerInput(phaseEstimator, acquisitionText, acquisitionText2, fidBytesVec);
+                configureCommon(phaseEstimator, {
+                    acquisitionSeq: acquisitionSeq,
+                    negativeImaginary: negativeImaginary,
+                    firstOnly: true,
+                    zfDirect: zfDirect,
+                    zfIndirect: zfIndirect,
+                    apodizationDirect: e.data.apodization_direct,
+                    apodizationIndirect: apodization_indirect,
+                    waterSuppression: e.data.water_suppression === true,
+                    deleteDirect: false,
+                    deleteIndirect: false,
+                    polynomial: e.data.polynomial,
+                    applyExtraction: false,
+                    extractFrom: 0,
+                    extractTo: 1
+                });
+
+                if (e.data.auto_direct === false) {
+                    phaseEstimator.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+                }
+                if (e.data.auto_indirect === false) {
+                    phaseEstimator.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+                }
+
+                postMessage({ stdout: "Running automatic phase correction." });
+                if (!phaseEstimator.auto_phase_correction_v2()) {
+                    throw new Error('auto_phase_correction_v2 failed');
+                }
+
+                const phaseString = phaseEstimator.save_phase_correction_result_as_string().trim();
+                const parsedPhaseValues = phaseString.split(/\s+/).map(function (item) { return parseFloat(item); });
+                if (parsedPhaseValues.length >= 4 && parsedPhaseValues.every(Number.isFinite)) {
+                    phasing_data = parsedPhaseValues.slice(0, 4);
+                }
+
+                apodization_indirect = updateIndirectApodizationFromPhase(apodization_indirect, phaseString);
             }
-            FS.unlink('pseudo3d.json');
+            finally {
+                phaseEstimator.delete();
+            }
+        }
+
+        const finalProcessor = new ModuleCpp.spectrum_phasing();
+        let file_data;
+        let pseudo3d_files = [];
+        try {
+            initializeFromBrukerInput(finalProcessor, acquisitionText, acquisitionText2, fidBytesVec);
+            configureCommon(finalProcessor, {
+                acquisitionSeq: acquisitionSeq,
+                negativeImaginary: negativeImaginary,
+                firstOnly: processAllPlanes === false,
+                zfDirect: zfDirect,
+                zfIndirect: zfIndirect,
+                apodizationDirect: e.data.apodization_direct,
+                apodizationIndirect: apodization_indirect,
+                waterSuppression: e.data.water_suppression === true,
+                deleteDirect: e.data.delete_direct === true,
+                deleteIndirect: e.data.delete_indirect === true,
+                polynomial: e.data.polynomial,
+                applyExtraction: true,
+                extractFrom: normalizeExtractFraction(e.data.extract_direct_from, 0),
+                extractTo: normalizeExtractFraction(e.data.extract_direct_to, 100)
+            });
+
+            finalProcessor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+            finalProcessor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+
+            const outputVec = new ModuleCpp.VectorUChar();
+            try {
+                if (!finalProcessor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                }
+                file_data = convertVectorUCharToUint8Array(outputVec);
+            }
+            finally {
+                outputVec.delete();
+            }
+
+            if (processAllPlanes) {
+                let pseudo3dSpectraCount = 1;
+                try {
+                    const pseudo3dJsonString = finalProcessor.write_pseudo3d_json_as_string();
+                    const parsedPseudo3d = JSON.parse(pseudo3dJsonString);
+                    if (Number.isFinite(parsedPseudo3d.spectra)) {
+                        pseudo3dSpectraCount = Math.max(1, parseInt(parsedPseudo3d.spectra, 10));
+                    }
+                }
+                catch (_err) {
+                    pseudo3dSpectraCount = 1;
+                }
+
+                if (pseudo3dSpectraCount > 1) {
+                    postMessage({ stdout: "Pseudo-3D all-planes detected, but current class bindings do not expose per-plane ft2 export. Returning first plane only." });
+                }
+            }
+        }
+        finally {
+            finalProcessor.delete();
+            fidBytesVec.delete();
         }
 
         postMessage({
             webassembly_job: e.data.webassembly_job,
             file_data: file_data,
-            file_type: 'full', //direct,indirect,full
+            file_type: 'full',
             pseudo3d_files: pseudo3d_files,
-            phasing_data: phasing_data,
-            apodization_indirect: apodization_indirect, //auto phasing may change the c value in apodization_indirect
-            processing_flag: e.data.processing_flag, //passthrough the processing flag
-            spectrum_index: e.data.spectrum_index, //for reprocessing only pass through the spectrum index
-            pseudo3d_children: e.data.pseudo3d_children, //for reprocessing only pass through the pseudo3d_children
+            phasing_data: phasing_data.join(' '),
+            apodization_indirect: apodization_indirect,
+            processing_flag: e.data.processing_flag,
+            spectrum_index: e.data.spectrum_index,
+            pseudo3d_children: e.data.pseudo3d_children,
         });
+        }
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ stdout: "Class-based process_fid failed, switching to legacy workflow: " + errorText });
+            runProcessFidLegacy(e);
+        }
     }
 
     /**
