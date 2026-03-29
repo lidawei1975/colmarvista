@@ -751,77 +751,133 @@ onmessage = async function (e) {
 
 
     /**
-     * With spectrum_data and phase_correction, run fid function to apply phase correction only
+     * Pure JavaScript phase correction: apply direct + indirect phase rotation.
+     *
+     * Component convention used here:
+     *   raw_data    -> RR (real direct, real indirect)
+     *   raw_data_ri -> RI (real direct, imag indirect)
+     *   raw_data_ir -> IR (imag direct, real indirect)
+     *   raw_data_ii -> II (imag direct, imag indirect)
      */
     else if (e.data.webassembly_job === "apply_phase_correction") {
-        console.log('Spectrum data and phase correction received');
-        /**
-         * Save the spectrum data to the virtual file system
-         */
-        Module['FS_createDataFile']('/', 'input.ft2', e.data.spectrum_data, true, true, true);
-        console.log('Spectrum data saved to virtual file system, size is:', e.data.spectrum_data.length);
+        console.log('Spectrum data and phase correction received (pure JS)');
         
-        /**
-         * Write a file named "arguments_fid_2d.txt" to the virtual file system
-         */
-        let content = ' -in input.ft2 -out test.ft2 ';
-        
-        
-        let b_auto = false;
-        /**
-         * If all are 0, add "-phase-in none " to the content
-         */
-        if(e.data.phase_correction[0][0] === 0 && e.data.phase_correction[0][1] === 0 && e.data.phase_correction[1][0] === 0 && e.data.phase_correction[1][1] === 0)
-        {
-            content = content.concat(' -user no ');
-            content = content.concat(' -out-phase phase-correction.txt');
-            b_auto = true;
-            Module['FS_createDataFile']('/', 'arguments_phase_2d.txt', content, true, true, true);
-            postMessage({ stdout: "Running phase function to apply automatic phase correction" });
-            api.phasing();
-            console.log('Finished running phase for phase correction');
-            FS.unlink('arguments_phase_2d.txt');
+        try {
+            const spectrumUint8 = new Uint8Array(e.data.spectrum_data);
+            const inputFloat32 = new Float32Array(spectrumUint8.buffer);
+            const outputFloat32 = new Float32Array(inputFloat32.length);
+            outputFloat32.set(inputFloat32);
+
+            const headerFloat32 = outputFloat32.subarray(0, 512);
+            
+            // Extract header information (nmrPipe ft2 format)
+            const n_direct = Math.abs(Math.round(headerFloat32[99]));   // FSIZE (direct)
+            const n_indirect = Math.abs(Math.round(headerFloat32[219])); // NDSIZE (indirect)
+            const datatype_direct = Math.round(headerFloat32[55]);  // FDTYPE: 0=complex, 1=real
+            const datatype_indirect = Math.round(headerFloat32[56]); // FDTYPE indirect
+            
+            const p0_direct = e.data.phase_correction[0][0];
+            const p1_direct = e.data.phase_correction[0][1];
+            const p0_indirect = e.data.phase_correction[1][0];
+            const p1_indirect = e.data.phase_correction[1][1];
+            
+            const b_auto = (p0_direct === 0 && p1_direct === 0 && p0_indirect === 0 && p1_indirect === 0);
+
+            // Data block order per indirect row in the packed buffer:
+            // [RR] [RI if present] [IR if present] [II if RI and IR are present]
+            const has_ri = (datatype_direct === 0);
+            const has_ir = (datatype_indirect === 0);
+
+            const points_per_slice = n_direct * (1 + (has_ri ? 1 : 0) + (has_ir ? 1 : 0) + (has_ri && has_ir ? 1 : 0));
+            const spectrum_data = outputFloat32.subarray(512);
+
+            const rr_offset = 0;
+            const ri_offset = has_ri ? n_direct : -1;
+            const ir_offset = has_ir ? (n_direct + (has_ri ? n_direct : 0)) : -1;
+            const ii_offset = (has_ri && has_ir) ? (n_direct + n_direct + n_direct) : -1;
+
+            // Apply phase correction in two steps per point.
+            // In this packed layout, the second block pairs with RR for direct phasing,
+            // and the third block pairs with RR for indirect phasing.
+            for (let ind = 0; ind < n_indirect; ind++) {
+                const slice_offset = ind * points_per_slice;
+
+                const indirect_phase_rad = (p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0;
+                const cos_indirect = Math.cos(indirect_phase_rad);
+                const sin_indirect = Math.sin(indirect_phase_rad);
+
+                for (let f = 0; f < n_direct; f++) {
+                    const direct_phase_rad = (p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0;
+                    const cos_direct = Math.cos(direct_phase_rad);
+                    const sin_direct = Math.sin(direct_phase_rad);
+
+                    const rr_idx = slice_offset + rr_offset + f;
+                    const ri_idx = (ri_offset >= 0) ? (slice_offset + ri_offset + f) : -1;
+                    const ir_idx = (ir_offset >= 0) ? (slice_offset + ir_offset + f) : -1;
+                    const ii_idx = (ii_offset >= 0) ? (slice_offset + ii_offset + f) : -1;
+
+                    let rr = spectrum_data[rr_idx];
+                    let ri = (ri_idx >= 0) ? spectrum_data[ri_idx] : 0;
+                    let ir = (ir_idx >= 0) ? spectrum_data[ir_idx] : 0;
+                    let ii = (ii_idx >= 0) ? spectrum_data[ii_idx] : 0;
+
+                    // Direct rotation.
+                    {
+                        const rr_d = rr * cos_direct - ri * sin_direct;
+                        const ri_d = rr * sin_direct + ri * cos_direct;
+                        const ir_d = ir * cos_direct - ii * sin_direct;
+                        const ii_d = ir * sin_direct + ii * cos_direct;
+                        rr = rr_d;
+                        ri = ri_d;
+                        ir = ir_d;
+                        ii = ii_d;
+                    }
+
+                    // Indirect rotation.
+                    {
+                        const rr_i = rr * cos_indirect - ir * sin_indirect;
+                        const ir_i = rr * sin_indirect + ir * cos_indirect;
+                        const ri_i = ri * cos_indirect - ii * sin_indirect;
+                        const ii_i = ri * sin_indirect + ii * cos_indirect;
+                        rr = rr_i;
+                        ir = ir_i;
+                        ri = ri_i;
+                        ii = ii_i;
+                    }
+
+                    spectrum_data[rr_idx] = rr;
+                    if (ri_idx >= 0) {
+                        spectrum_data[ri_idx] = ri;
+                    }
+                    if (ir_idx >= 0) {
+                        spectrum_data[ir_idx] = ir;
+                    }
+                    if (ii_idx >= 0) {
+                        spectrum_data[ii_idx] = ii;
+                    }
+                }
+            }
+
+            // Convert back to Uint8Array for transmission
+            const outputUint8 = new Uint8Array(outputFloat32.buffer);
+            const phase_correction_str = b_auto ? "" : e.data.phase_correction.map(x => x.join(' ')).join(' ');
+            
+            postMessage({
+                webassembly_job: e.data.webassembly_job,
+                file_data: outputUint8,
+                automatic_pc: b_auto,
+                phase_correction: phase_correction_str,
+                spectrum_name: e.data.spectrum_name,
+                spectrum_index: e.data.spectrum_index
+            });
+            
+        } catch (error) {
+            postMessage({
+                error: "Pure JS phase correction failed: " + error.message,
+                spectrum_index: e.data.spectrum_index,
+                spectrum_name: e.data.spectrum_name
+            });
         }
-        else
-        {
-            content = content.concat(' -phase-in phase-correction.txt ');
-            content = content.concat(' -di no -di-indirect no -process other -nus none -water no -poly -1');
-            let phase_correction_string = e.data.phase_correction.map(x => x.join(' ')).join(' ');
-            Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction_string, true, true, true);
-            b_auto = false;
-
-            Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-            postMessage({ stdout: "Running fid function to apply phase correction or run automatic phase correction" });
-            api.fid();
-            console.log('Finished running fid for phase correction');
-            FS.unlink('arguments_fid_2d.txt');
-        }
-
-        /**
-         * Remove the input files from the virtual file system
-         */
-        FS.unlink('input.ft2');
-        const file_data = FS.readFile('test.ft2', { encoding: 'binary' });
-        console.log('File data read from virtual file system length:', file_data.length);
-        FS.unlink('test.ft2');
-
-        let phase_correction = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
-        FS.unlink('phase-correction.txt');
-
-       
-        if(b_auto === false)
-        {
-            FS.unlink('fid-information.json');
-        }
-        
-        postMessage({
-            webassembly_job: e.data.webassembly_job,
-            file_data: file_data,
-            automatic_pc: b_auto,
-            phase_correction: phase_correction,
-            spectrum_name: e.data.spectrum_name, //pass through the spectrum name
-            spectrum_index: e.data.spectrum_index //pass through the spectrum index
-        });
     }
 
 
