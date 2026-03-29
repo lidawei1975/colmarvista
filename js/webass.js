@@ -548,58 +548,12 @@ onmessage = async function (e) {
             toFloat(e.data.phase_correction_indirect_p1, 0)
         ];
 
-        if (useAutoPhase) {
-            const phaseEstimator = new ModuleCpp.spectrum_phasing();
-            try {
-                initializeFromBrukerInput(phaseEstimator, acquisitionText, acquisitionText2, fidBytesVec);
-                configureCommon(phaseEstimator, {
-                    acquisitionSeq: acquisitionSeq,
-                    negativeImaginary: negativeImaginary,
-                    firstOnly: true,
-                    zfDirect: zfDirect,
-                    zfIndirect: zfIndirect,
-                    apodizationDirect: e.data.apodization_direct,
-                    apodizationIndirect: apodization_indirect,
-                    waterSuppression: e.data.water_suppression === true,
-                    deleteDirect: false,
-                    deleteIndirect: false,
-                    polynomial: e.data.polynomial,
-                    applyExtraction: false,
-                    extractFrom: 0,
-                    extractTo: 1
-                });
-
-                if (e.data.auto_direct === false) {
-                    phaseEstimator.set_user_phase_correction(phasing_data[0], phasing_data[1]);
-                }
-                if (e.data.auto_indirect === false) {
-                    phaseEstimator.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
-                }
-
-                postMessage({ stdout: "Running automatic phase correction." });
-                if (!phaseEstimator.auto_phase_correction_v2()) {
-                    throw new Error('auto_phase_correction_v2 failed');
-                }
-
-                const phaseString = phaseEstimator.save_phase_correction_result_as_string().trim();
-                const parsedPhaseValues = phaseString.split(/\s+/).map(function (item) { return parseFloat(item); });
-                if (parsedPhaseValues.length >= 4 && parsedPhaseValues.every(Number.isFinite)) {
-                    phasing_data = parsedPhaseValues.slice(0, 4);
-                }
-
-                apodization_indirect = updateIndirectApodizationFromPhase(apodization_indirect, phaseString);
-            }
-            finally {
-                phaseEstimator.delete();
-            }
-        }
-
-        const finalProcessor = new ModuleCpp.spectrum_phasing();
+        const processor = new ModuleCpp.spectrum_phasing();
         let file_data;
         let pseudo3d_files = [];
         try {
-            initializeFromBrukerInput(finalProcessor, acquisitionText, acquisitionText2, fidBytesVec);
-            configureCommon(finalProcessor, {
+            initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, fidBytesVec);
+            configureCommon(processor, {
                 acquisitionSeq: acquisitionSeq,
                 negativeImaginary: negativeImaginary,
                 firstOnly: processAllPlanes === false,
@@ -611,17 +565,50 @@ onmessage = async function (e) {
                 deleteDirect: e.data.delete_direct === true,
                 deleteIndirect: e.data.delete_indirect === true,
                 polynomial: e.data.polynomial,
-                applyExtraction: true,
-                extractFrom: normalizeExtractFraction(e.data.extract_direct_from, 0),
-                extractTo: normalizeExtractFraction(e.data.extract_direct_to, 100)
+                applyExtraction: false,
+                extractFrom: 0,
+                extractTo: 1
             });
 
-            finalProcessor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
-            finalProcessor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+            // Apply phase correction: automatic (if enabled) or manual (if provided)
+            if (useAutoPhase) {
+                // Apply manual phase overrides if auto is disabled for those dimensions
+                if (e.data.auto_direct === false) {
+                    processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+                }
+                if (e.data.auto_indirect === false) {
+                    processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+                }
+
+                postMessage({ stdout: "Running automatic phase correction." });
+                if (!processor.auto_phase_correction_v2()) {
+                    throw new Error('auto_phase_correction_v2 failed');
+                }
+
+                const phaseString = processor.save_phase_correction_result_as_string().trim();
+                const parsedPhaseValues = phaseString.split(/\s+/).map(function (item) { return parseFloat(item); });
+                if (parsedPhaseValues.length >= 4 && parsedPhaseValues.every(Number.isFinite)) {
+                    phasing_data = parsedPhaseValues.slice(0, 4);
+                }
+
+                apodization_indirect = updateIndirectApodizationFromPhase(apodization_indirect, phaseString);
+            } else {
+                // Apply manual phase corrections if no auto phase correction
+                processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+                processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+            }
+
+            // Extract region after phase correction
+            if (!processor.extract_region(
+                normalizeExtractFraction(e.data.extract_direct_from, 0),
+                normalizeExtractFraction(e.data.extract_direct_to, 100)
+            )) {
+                throw new Error('extract_region failed');
+            }
 
             const outputVec = new ModuleCpp.VectorUChar();
             try {
-                if (!finalProcessor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
                     throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
                 file_data = convertVectorUCharToUint8Array(outputVec);
@@ -633,7 +620,7 @@ onmessage = async function (e) {
             if (processAllPlanes) {
                 let pseudo3dSpectraCount = 1;
                 try {
-                    const pseudo3dJsonString = finalProcessor.write_pseudo3d_json_as_string();
+                    const pseudo3dJsonString = processor.write_pseudo3d_json_as_string();
                     const parsedPseudo3d = JSON.parse(pseudo3dJsonString);
                     if (Number.isFinite(parsedPseudo3d.spectra)) {
                         pseudo3dSpectraCount = Math.max(1, parseInt(parsedPseudo3d.spectra, 10));
@@ -649,7 +636,7 @@ onmessage = async function (e) {
             }
         }
         finally {
-            finalProcessor.delete();
+            processor.delete();
             fidBytesVec.delete();
         }
 
