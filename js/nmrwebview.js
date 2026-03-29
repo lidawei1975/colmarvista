@@ -1455,27 +1455,6 @@ webassembly_worker.onmessage = function (e) {
     }
 
     /**
-     * Only file_data and phase_correction. it is a phase corrected spectrum
-     */
-    else if (e.data.file_data && e.data.spectrum_name) {
-        console.log("Phase corrected spectrum received");
-        document.getElementById("webassembly_message").innerText = "";
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
-        let result_spectrum = new spectrum();
-        result_spectrum.process_ft_file(arrayBuffer, e.data.spectrum_name, -1);
-        result_spectrum.spectrum_index = e.data.spectrum_index;
-        draw_spectrum([result_spectrum], false/**from fid */, true/**re-process of fid or ft2 */);
-        document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
-        /**
-         * If e.data.b_auto is true. This is an automatic phase correction run. We need to update
-         * html element "pc_info" with the e.data.phase_correction (trim ending newline if it exists)
-         */
-        if (e.data.automatic_pc) {
-            document.getElementById("pc_info").innerText = "Phase correction: " + e.data.phase_correction.trim();
-        }
-    }
-
-    /**
      * If result is pseudo3d_fitted_peaks, it is from the pseudo 3D fitting
      */
     else if (e.data.pseudo3d_fitted_peaks_tab) {
@@ -4773,49 +4752,153 @@ function apply_current_pc_or_auto_pc(flag) {
         document.getElementById("pc_info").innerText = "Phase correction: " + current_ps[0][0].toFixed(1) + " " + current_ps[0][1].toFixed(1) + " " + current_ps[1][0].toFixed(1) + " " + current_ps[1][1].toFixed(1);
     }
 
+    function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
+        const n_direct = spectrum_obj.n_direct;
+        const n_indirect = spectrum_obj.n_indirect;
+        const total_points = n_direct * n_indirect;
+
+        const has_ri = spectrum_obj.datatype_direct === 0 && spectrum_obj.raw_data_ri.length === total_points;
+        const has_ir = spectrum_obj.datatype_indirect === 0 && spectrum_obj.raw_data_ir.length === total_points;
+        const has_ii = has_ri && has_ir && spectrum_obj.raw_data_ii.length === total_points;
+
+        const p0_direct = phase_deg[0][0];
+        const p1_direct = phase_deg[0][1];
+        const p0_indirect = phase_deg[1][0];
+        const p1_indirect = phase_deg[1][1];
+
+        for (let ind = 0; ind < n_indirect; ind++) {
+            const cos_indirect = Math.cos((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+            const sin_indirect = Math.sin((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+
+            for (let f = 0; f < n_direct; f++) {
+                const idx = ind * n_direct + f;
+                const cos_direct = Math.cos((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+                const sin_direct = Math.sin((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+
+                let rr = spectrum_obj.raw_data[idx];
+                let ri = has_ri ? spectrum_obj.raw_data_ri[idx] : 0.0;
+                let ir = has_ir ? spectrum_obj.raw_data_ir[idx] : 0.0;
+                let ii = has_ii ? spectrum_obj.raw_data_ii[idx] : 0.0;
+
+                // Direct phasing: rotate along direct-complex axis.
+                {
+                    const rr_d = rr * cos_direct - ri * sin_direct;
+                    const ri_d = rr * sin_direct + ri * cos_direct;
+                    const ir_d = ir * cos_direct - ii * sin_direct;
+                    const ii_d = ir * sin_direct + ii * cos_direct;
+                    rr = rr_d;
+                    ri = ri_d;
+                    ir = ir_d;
+                    ii = ii_d;
+                }
+
+                // Indirect phasing: rotate along indirect-complex axis.
+                {
+                    const rr_i = rr * cos_indirect - ir * sin_indirect;
+                    const ir_i = rr * sin_indirect + ir * cos_indirect;
+                    const ri_i = ri * cos_indirect - ii * sin_indirect;
+                    const ii_i = ri * sin_indirect + ii * cos_indirect;
+                    rr = rr_i;
+                    ir = ir_i;
+                    ri = ri_i;
+                    ii = ii_i;
+                }
+
+                spectrum_obj.raw_data[idx] = rr;
+                if (has_ri) {
+                    spectrum_obj.raw_data_ri[idx] = ri;
+                }
+                if (has_ir) {
+                    spectrum_obj.raw_data_ir[idx] = ir;
+                }
+                if (has_ii) {
+                    spectrum_obj.raw_data_ii[idx] = ii;
+                }
+            }
+        }
+
+        // Keep min/max in sync for contour and UI scaling.
+        let max_v = spectrum_obj.raw_data[0];
+        let min_v = spectrum_obj.raw_data[0];
+        for (let i = 1; i < spectrum_obj.raw_data.length; i++) {
+            if (spectrum_obj.raw_data[i] > max_v) {
+                max_v = spectrum_obj.raw_data[i];
+            }
+            if (spectrum_obj.raw_data[i] < min_v) {
+                min_v = spectrum_obj.raw_data[i];
+            }
+        }
+        spectrum_obj.spectral_max = max_v;
+        spectrum_obj.spectral_min = min_v;
+    }
+
+    function refresh_contours_for_spectrum(index) {
+        const s = hsqc_spectra[index];
+        let spectrum_information = {
+            n_direct: s.n_direct,
+            n_indirect: s.n_indirect,
+            levels: s.levels,
+            spectrum_type: "full",
+            spectrum_index: index,
+            spectrum_origin: s.spectrum_origin,
+            contour_sign: 0
+        };
+        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+
+        spectrum_information = {
+            n_direct: s.n_direct,
+            n_indirect: s.n_indirect,
+            levels: s.negative_levels,
+            spectrum_type: "full",
+            spectrum_index: index,
+            spectrum_origin: s.spectrum_origin,
+            contour_sign: 1
+        };
+        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+    }
+
+    function refresh_cross_sections_after_phase(index) {
+        if (!main_plot || !main_plot.b_show_cross_section) {
+            return;
+        }
+
+        const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
+        const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+
+        const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
+            && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
+
+        if (single_manual_mode) {
+            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
+            return;
+        }
+
+        main_plot.x_cross_section_plot.clear_data();
+        main_plot.y_cross_section_plot.clear_data();
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            if (hsqc_spectra[i].spectrum_origin > -3) {
+                main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+            }
+        }
+    }
+
 
     /**
      * Run webass worker to apply phase correction.
      * First, pass the spectrum as a file. 
      */
     let index = main_plot.current_spectral_index;
-    let n_size = hsqc_spectra[index].n_direct * hsqc_spectra[index].n_indirect * 4;
-    let data = new Float32Array(512 + n_size);
-    let current_position = 0;
-    data.set(hsqc_spectra[index].header, current_position);
-    current_position += 512;
-    for (let i = 0; i < hsqc_spectra[index].n_indirect; i++) {
-        data.set(hsqc_spectra[index].raw_data.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-        current_position += hsqc_spectra[index].n_direct;
 
-        if (hsqc_spectra[index].datatype_direct === 0) {
-            data.set(hsqc_spectra[index].raw_data_ri.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
-        if (hsqc_spectra[index].datatype_indirect === 0) {
-            data.set(hsqc_spectra[index].raw_data_ir.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
-        if (hsqc_spectra[index].datatype_direct === 0 && hsqc_spectra[index].datatype_indirect === 0) {
-            data.set(hsqc_spectra[index].raw_data_ii.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
+    // Manual phase correction is fast enough to run on main thread.
+    if (flag == 0) {
+        apply_phase_correction_in_place(hsqc_spectra[index], current_ps);
+        refresh_contours_for_spectrum(index);
+        refresh_cross_sections_after_phase(index);
+        document.getElementById("webassembly_message").innerText = "";
+        return;
     }
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
-    webassembly_worker.postMessage({
-        webassembly_job: "apply_phase_correction",
-        spectrum_data: data_uint8,
-        phase_correction: current_ps, //all 0.0 means auto phase correction
-        spectrum_index: main_plot.current_spectral_index,
-        spectrum_name: hsqc_spectra[main_plot.current_spectral_index].filename,
-    });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Apply phase correction, please wait...";
+
+    document.getElementById("webassembly_message").innerText = "Automatic phase correction is not available in worker anymore. Use FID reprocess with auto phase options.";
 }
 
 /**
