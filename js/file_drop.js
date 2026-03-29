@@ -136,17 +136,19 @@ class file_drop_processor {
                 /**
                  * Loop all lines, find line start with "##$FnMODE=", get the value after "="
                  */
-                let fnmode = 0;
+                let fnmode = null;
                 for (let i = 0; i < lines.length; i++) {
-                    if (lines[i].startsWith("##$FnMODE=")) {
-                        fnmode = parseInt(lines[i].split("=")[1]);
+                    const m = lines[i].match(/^\s*##\$FnMODE\s*=\s*(-?\d+)/);
+                    if (m) {
+                        fnmode = parseInt(m[1], 10);
                         break;
                     }
                 }
                 /**
-                 * Only when fnmode > 1 and fnmode !=7, we will attach the file to the file input
+                 * Attach acqu2s unconditionally (2D indirect acquisition file).
+                 * Keep acqu3s guarded by FnMODE when available.
                 */
-                if (fnmode > 1 && fnmode != 7) {
+                if (file.name === "acqu2s" || fnmode === null || (fnmode > 1 && fnmode !== 7)) {
                     document.getElementById(file_id).files = container.files;
                     document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
                 }
@@ -161,14 +163,7 @@ class file_drop_processor {
                  */
                 document.getElementById("auto_indirect").checked = false;
                 document.getElementById("auto_indirect").disabled = true;
-                /**
-                 * At this moment, also disable extract_direct_from and extract_direct_to
-                 * because smile (my implementation) doesn't support NUS processing
-                 */
-                document.getElementById("extract_direct_from").value = 0;
-                document.getElementById("extract_direct_to").value = 100;
-                document.getElementById("extract_direct_from").disabled = true;
-                document.getElementById("extract_direct_to").disabled = true;
+                // Keep extract controls editable for class-based NUS processing.
             }
             else {
                 document.getElementById(file_id).files = container.files;

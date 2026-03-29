@@ -366,8 +366,8 @@ onmessage = async function (e) {
 
             const normalizeExtractFraction = function (value, fallbackValue) {
                 const parsed = toFloat(value, fallbackValue);
-                const normalized = parsed / 100.0;
-                return Math.max(0.0, Math.min(1.0, normalized));
+                // nmrwebview already sends normalized [0,1] extract fractions.
+                return Math.max(0.0, Math.min(1.0, parsed));
             };
 
             const acqusText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[0]));
@@ -468,16 +468,16 @@ onmessage = async function (e) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
 
+                if (!processor.extract_region(
+                    normalizeExtractFraction(e.data.extract_direct_from, 0.0),
+                    normalizeExtractFraction(e.data.extract_direct_to, 1.0)
+                )) {
+                    throw new Error('extract_region failed');
+                }
+
                 postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
                 if (!processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
-                }
-
-                if (!processor.extract_region(
-                    normalizeExtractFraction(e.data.extract_direct_from, 0),
-                    normalizeExtractFraction(e.data.extract_direct_to, 100)
-                )) {
-                    throw new Error('extract_region failed');
                 }
 
                 const outputVec = new ModuleCpp.VectorUChar();

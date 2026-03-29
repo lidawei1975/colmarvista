@@ -64,6 +64,7 @@ var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estima
  */
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
+var nuslist_as_string = "";
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -1365,9 +1366,9 @@ webassembly_worker.onmessage = function (e) {
         webassembly_worker2.postMessage({
             spectrum_data: arrayBuffer,
             nuslist_as_string: nuslist_as_string, //saved as global variable
-            apodization_direct: apodization_direct, //saved as global variable
-            phase_correction_indirect_p0: phase_correction_indirect_p0,
-            phase_correction_indirect_p1: phase_correction_indirect_p1,
+            apodization_direct: fid_process_parameters.apodization_direct,
+            phase_correction_indirect_p0: fid_process_parameters.phase_correction_indirect_p0,
+            phase_correction_indirect_p1: fid_process_parameters.phase_correction_indirect_p1,
             /**
              * Pass the current spectrum index to the worker
              */
