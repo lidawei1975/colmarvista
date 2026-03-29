@@ -212,197 +212,303 @@ onmessage = async function (e) {
     console.log('Message received from main script');
     
     /**
-     * If the message is file_data with only 1 file, this is the 2nd step of normal processing (indirect dimension)
-     * after NUS reconstruction. Save the file to the virtual file system and run fid (-process indirect) function
+     * NUS step2 with class-based bindings.
+     * Input is one FT2 buffer from NUS reconstruction, then run indirect-only processing.
      */
     if (e.data.webassembly_job === "nus_step2") {
         console.log('File data received for indirect processing');
 
-        Module['FS_createDataFile']('/', 'test_smile.ft2', e.data.file_data[0], true, true, true);
-        let content = ' -first-only yes ';
-        content = content.concat(' -zf-indirect ',e.data.zf_indirect);
-        content = content.concat(' -apod-indirect ',e.data.apodization_indirect);
-        content = content.concat(' -in test_smile.ft2 ');
-        content = content.concat(' -process indirect ');
-        content = content.concat(' -phase-in phase-correction.txt -di yes -di-indirect yes');
-        content = content.concat(' -out test.ft2');
+        try {
+            const ModuleCpp = await cppModulePromise;
 
-        /**
-         * Write a file named "arguments_fid_2d.txt" to the virtual file system
-         */
-        Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
+            const toInt = function (value, fallbackValue) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-        /**
-         * Write a file named "phase-correction.txt" to the virtual file system.
-         * first two numbers are for direct dimension, which will be ignored
-         */
-        let phase_correction = '0 0 ';
-        phase_correction=phase_correction.concat(e.data.phase_correction_indirect_p0.toString());
-        phase_correction=phase_correction.concat(' ', e.data.phase_correction_indirect_p1.toString());
-        Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction, true, true, true);
+            const toFloat = function (value, fallbackValue) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-        console.log(content);
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
 
-        postMessage({ stdout: "Running fid function to process indirect dimension of NUS spectrum" });
-        api.fid();
-        console.log('Finished running fid for indirect dimension of NUS spectrum');
+            const convertVectorUCharToUint8Array = function (vector) {
+                const result = new Uint8Array(vector.size());
+                for (let i = 0; i < vector.size(); i++) {
+                    result[i] = vector.get(i);
+                }
+                return result;
+            };
 
-        FS.unlink('test_smile.ft2');
-        FS.unlink('arguments_fid_2d.txt');
-        const phasing_data = FS.readFile('phase-correction.txt', { encoding: 'utf8' });
-        FS.unlink('phase-correction.txt');
-        const file_data = FS.readFile('test.ft2', { encoding: 'binary' });
-        FS.unlink('test.ft2');
-        console.log('File data read from virtual file system, type of file_data:', typeof file_data, ' and length:', file_data.length);
-        postMessage({
-            webassembly_job: e.data.webassembly_job,
-            file_data: file_data,
-            file_type: 'indirect', //direct,indirect,full
-            phasing_data: phasing_data,
-            processing_flag: e.data.processing_flag, //passthrough the processing flag
-            spectrum_index: e.data.spectrum_index //for reprocessing only
-        });
+            const inputBytes = encodeBytes(e.data.file_data[0]);
+            const inputFloats = new Float32Array(inputBytes.buffer, inputBytes.byteOffset, Math.floor(inputBytes.byteLength / 4));
+            if (inputFloats.length <= 512) {
+                throw new Error('Invalid FT2 input for nus_step2');
+            }
+
+            const headerVec = new ModuleCpp.VectorFloat();
+            const dataVec = new ModuleCpp.VectorFloat();
+            const processor = new ModuleCpp.fid_2d();
+
+            let file_data;
+            const phase_correction = '0 0 ' + toFloat(e.data.phase_correction_indirect_p0, 0).toString() + ' ' + toFloat(e.data.phase_correction_indirect_p1, 0).toString();
+
+            try {
+                for (let i = 0; i < 512; i++) {
+                    headerVec.push_back(inputFloats[i]);
+                }
+                for (let i = 512; i < inputFloats.length; i++) {
+                    dataVec.push_back(inputFloats[i]);
+                }
+
+                if (!processor.read_first_spectrum_from_buffer(headerVec, dataVec)) {
+                    throw new Error('read_first_spectrum_from_buffer failed');
+                }
+                processor.set_first_only(true);
+                if (!processor.run_zf(1, toInt(e.data.zf_indirect, 1))) {
+                    throw new Error('run_zf failed');
+                }
+                if (!processor.set_up_apodization_from_string('none', String(e.data.apodization_indirect))) {
+                    throw new Error('set_up_apodization_from_string failed');
+                }
+                if (!processor.read_phase_correction_from_string(phase_correction)) {
+                    throw new Error('read_phase_correction_from_string failed');
+                }
+
+                postMessage({ stdout: "Running indirect_only_process for NUS spectrum" });
+                if (!processor.indirect_only_process(true)) {
+                    throw new Error('indirect_only_process failed');
+                }
+
+                const outputVec = new ModuleCpp.VectorUChar();
+                try {
+                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    }
+                    file_data = convertVectorUCharToUint8Array(outputVec);
+                }
+                finally {
+                    outputVec.delete();
+                }
+            }
+            finally {
+                processor.delete();
+                dataVec.delete();
+                headerVec.delete();
+            }
+
+            postMessage({
+                webassembly_job: e.data.webassembly_job,
+                file_data: file_data,
+                file_type: 'indirect',
+                phasing_data: phase_correction,
+                processing_flag: e.data.processing_flag,
+                spectrum_index: e.data.spectrum_index
+            });
+        }
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ stdout: "Class-based nus_step2 failed: " + errorText });
+        }
     }
 
     /**
-     * If the message is file_data with 4 file, save them to the virtual file system and run direct dimension only processing.
-     * (This is a NUS spectrum with 4 files: acquisition_file, acquisition_file2, fid_file and nuslist)
+     * NUS step1 with class-based bindings.
+     * Input is Bruker files + nus list, then run direct-only processing.
      */
     if (e.data.webassembly_job === "nus_step1") {
         console.log('File data received for NUS processing');
-        /**
-         * Save the file data to the virtual file system
-         */
-        Module['FS_createDataFile']('/', 'acquisition_file', e.data.file_data[0], true, true, true);
-        Module['FS_createDataFile']('/', 'acquisition_file2', e.data.file_data[1], true, true, true);
-        Module['FS_createDataFile']('/', 'fid_file', e.data.file_data[2], true, true, true);
-        Module['FS_createDataFile']('/', 'nuslist', e.data.file_data[3], true, true, true);
 
-        let direct_phase_correction_p0 = e.data.phase_correction_direct_p0;
-        let direct_phase_correction_p1 = e.data.phase_correction_direct_p1;
+        try {
+            const ModuleCpp = await cppModulePromise;
 
-        /**
-         * If e.data.auto_direct is true, we will run automatic phase correction for direct dimension
-         */
-        if(e.data.auto_direct === true)
-        {
-            /**
-             * Portend this is NOT a NUS spectrum, but a normal spectrum.
-             * For phasing purpose, do NOT use ext
-             */
-            let content = ' -first-only yes -aqseq '.concat(e.data.acquisition_seq,' -negative ',e.data.neg_imaginary);
-            content = content.concat(' -zf '.concat(e.data.zf_direct));
-            content = content.concat(' -apod '.concat(e.data.apodization_direct));
-            content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
-            content = content.concat(' -nus nuslist'); //to fill in zeros for not sampled points
-            content = content.concat(' -process full -di no -di-indirect no');
-            content = content.concat(' -out test0.ft2');
-            Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-            console.log(content);
+            const toBool = function (value) {
+                if (typeof value === 'boolean') {
+                    return value;
+                }
+                if (typeof value === 'string') {
+                    const normalized = value.trim().toLowerCase();
+                    return normalized === 'yes' || normalized === 'true' || normalized === '1';
+                }
+                return Boolean(value);
+            };
 
-            /**
-             * Write a file named "phase-correction.txt" to the virtual file system.
-             * leave direct phase correction as 0 0 (for automatic phase correction)
-             * and indirect phase correction from user input (this is required for NUS processing)
-             */
-            let phase_correction = '0 0 ';
-            phase_correction=phase_correction.concat(e.data.phase_correction_indirect_p0.toString());
-            phase_correction=phase_correction.concat(' ', e.data.phase_correction_indirect_p1.toString());
-            Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction, true, true, true);
+            const toInt = function (value, fallbackValue) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-            /**
-             * Call fid function
-             */
-            postMessage({ stdout: "Running fid function to process NUS spectrum as normal for phasing estimation" });
-            api.fid();
-            console.log('Finished running fid for direct dimension of NUS spectrum');
+            const toFloat = function (value, fallbackValue) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-            /**
-             * Remove files from virtual file system. Keep FID, because we will use them in final processing
-             */
-            FS.unlink('arguments_fid_2d.txt');
-            FS.unlink('phase-correction.txt');
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
 
-            /**
-             * Write a file named "arguments_phase_2d.txt" to the virtual file system
-             */
-            content = ' -in test0.ft2 -out none -out-phase phase-correction.txt';
-            content = content.concat(' -user no ');
-            content = content.concat(' -user-indirect yes -user-phase-indirect 0 0'); //because we already applied phase correction for indirect dimension above
-            Module['FS_createDataFile']('/', 'arguments_phase_2d.txt', content, true, true, true);
+            const convertVectorUCharToUint8Array = function (vector) {
+                const result = new Uint8Array(vector.size());
+                for (let i = 0; i < vector.size(); i++) {
+                    result[i] = vector.get(i);
+                }
+                return result;
+            };
 
-            console.log(content);
+            const normalizeExtractFraction = function (value, fallbackValue) {
+                const parsed = toFloat(value, fallbackValue);
+                const normalized = parsed / 100.0;
+                return Math.max(0.0, Math.min(1.0, normalized));
+            };
 
-            /**
-             * Call phasing function
-             */
-            postMessage({ stdout: "Running phasing function to estimate phase correction for direct dimension" });
-            api.phasing();
-            console.log('Finished running phasing for direct dimension of NUS spectrum');
+            const acqusText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[0]));
+            const acqu2sText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[1]));
+            const fidBytes = encodeBytes(e.data.file_data[2]);
+            const nusListText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[3]));
 
-            FS.unlink('arguments_phase_2d.txt');
-            FS.unlink('test0.ft2');
+            const fidBytesVec = new ModuleCpp.VectorUChar();
+            for (let i = 0; i < fidBytes.length; i++) {
+                fidBytesVec.push_back(fidBytes[i]);
+            }
 
-            /**
-             * At this time, first two numbers in phase-correction.txt are estimated phase correction for direct dimension
-             * last two numbers are 0 and 0, because test0.ft2 has already has indirect phase correction applied.
-             * Update direct phase correction values
-             */
-            let phase_correction_values = FS.readFile('phase-correction.txt', { encoding: 'utf8' }).trim().split(/\s+/);
-            direct_phase_correction_p0 = parseFloat(phase_correction_values[0]);
-            direct_phase_correction_p1 = parseFloat(phase_correction_values[1]);
+            const acquisitionSeq = String(e.data.acquisition_seq);
+            const negativeImaginary = toBool(e.data.neg_imaginary);
+            const zfDirect = toInt(e.data.zf_direct, 1);
+            const apodizationDirect = String(e.data.apodization_direct);
 
-            FS.unlink('phase-correction.txt');
+            let direct_phase_correction_p0 = toFloat(e.data.phase_correction_direct_p0, 0);
+            let direct_phase_correction_p1 = toFloat(e.data.phase_correction_direct_p1, 0);
+            const indirect_phase_correction_p0 = toFloat(e.data.phase_correction_indirect_p0, 0);
+            const indirect_phase_correction_p1 = toFloat(e.data.phase_correction_indirect_p1, 0);
+
+            if (e.data.auto_direct === true) {
+                const estimator = new ModuleCpp.spectrum_phasing();
+                try {
+                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                        throw new Error('read_bruker_files_as_strings failed');
+                    }
+                    if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
+                        throw new Error('read_bruker_fid_data_bytes failed');
+                    }
+                    if (!estimator.read_nus_list_from_string(nusListText)) {
+                        throw new Error('read_nus_list_from_string failed');
+                    }
+                    if (!estimator.set_aqseq(acquisitionSeq)) {
+                        throw new Error('set_aqseq failed');
+                    }
+                    estimator.set_negative(negativeImaginary);
+                    estimator.set_first_only(true);
+                    if (!estimator.run_zf(zfDirect, 1)) {
+                        throw new Error('run_zf failed');
+                    }
+                    if (!estimator.set_up_apodization_from_string(apodizationDirect, 'none')) {
+                        throw new Error('set_up_apodization_from_string failed');
+                    }
+
+                    const initialPhase = '0 0 ' + indirect_phase_correction_p0.toString() + ' ' + indirect_phase_correction_p1.toString();
+                    if (!estimator.read_phase_correction_from_string(initialPhase)) {
+                        throw new Error('read_phase_correction_from_string failed');
+                    }
+                    if (!estimator.full_process(false, false)) {
+                        throw new Error('full_process failed');
+                    }
+
+                    estimator.set_user_phase_correction_indirect(0, 0);
+                    postMessage({ stdout: "Running automatic phase correction for NUS direct dimension" });
+                    if (!estimator.auto_phase_correction_v2()) {
+                        throw new Error('auto_phase_correction_v2 failed');
+                    }
+
+                    const phaseValues = estimator.save_phase_correction_result_as_string().trim().split(/\s+/).map(function (item) { return parseFloat(item); });
+                    if (phaseValues.length >= 2 && Number.isFinite(phaseValues[0]) && Number.isFinite(phaseValues[1])) {
+                        direct_phase_correction_p0 = phaseValues[0];
+                        direct_phase_correction_p1 = phaseValues[1];
+                    }
+                }
+                finally {
+                    estimator.delete();
+                }
+            }
+
+            const phase_correction = direct_phase_correction_p0.toString() + ' ' + direct_phase_correction_p1.toString() + ' 0 0';
+
+            const processor = new ModuleCpp.fid_2d();
+            let file_data;
+            try {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    throw new Error('read_bruker_files_as_strings failed');
+                }
+                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                    throw new Error('read_bruker_fid_data_bytes failed');
+                }
+                if (!processor.read_nus_list_from_string(nusListText)) {
+                    throw new Error('read_nus_list_from_string failed');
+                }
+                if (!processor.set_aqseq(acquisitionSeq)) {
+                    throw new Error('set_aqseq failed');
+                }
+                processor.set_negative(negativeImaginary);
+                processor.set_first_only(true);
+                if (!processor.run_zf(zfDirect, 1)) {
+                    throw new Error('run_zf failed');
+                }
+                if (!processor.set_up_apodization_from_string(apodizationDirect, 'none')) {
+                    throw new Error('set_up_apodization_from_string failed');
+                }
+                if (!processor.read_phase_correction_from_string(phase_correction)) {
+                    throw new Error('read_phase_correction_from_string failed');
+                }
+
+                postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
+                if (!processor.direct_only_process(true)) {
+                    throw new Error('direct_only_process failed');
+                }
+
+                if (!processor.extract_region(
+                    normalizeExtractFraction(e.data.extract_direct_from, 0),
+                    normalizeExtractFraction(e.data.extract_direct_to, 100)
+                )) {
+                    throw new Error('extract_region failed');
+                }
+
+                const outputVec = new ModuleCpp.VectorUChar();
+                try {
+                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    }
+                    file_data = convertVectorUCharToUint8Array(outputVec);
+                }
+                finally {
+                    outputVec.delete();
+                }
+            }
+            finally {
+                processor.delete();
+                fidBytesVec.delete();
+            }
+
+            postMessage({
+                webassembly_job: e.data.webassembly_job,
+                file_data: file_data,
+                file_type: 'direct',
+                phasing_data: phase_correction,
+                processing_flag: e.data.processing_flag,
+                spectrum_index: e.data.spectrum_index
+            });
         }
-
-        /**
-         * Write file named 'phase-correction.txt' to the virtual file system, with direct phase correction values
-         * and indirect phase correction values as 0 0, because they are not used in this step.
-         */
-        let phase_correction = direct_phase_correction_p0.toString();
-        phase_correction=phase_correction.concat(' ', direct_phase_correction_p1.toString());
-        phase_correction=phase_correction.concat(' 0 0');
-        Module['FS_createDataFile']('/', 'phase-correction.txt', phase_correction, true, true, true);
-
-
-        /**
-         * Write a file named "arguments_fid_2d.txt" to the virtual file system
-         */
-        let content = ' -first-only yes -aqseq '.concat(e.data.acquisition_seq,' -negative ',e.data.neg_imaginary);
-        content = content.concat(' -zf '.concat(e.data.zf_direct));
-        content = content.concat(' -apod '.concat(e.data.apodization_direct));
-        content = content.concat(' -in fid_file acquisition_file acquisition_file2 none');
-        content = content.concat(' -nus nuslist');
-        content = content.concat(' -ext '.concat(e.data.extract_direct_from, ' ', e.data.extract_direct_to));
-        content = content.concat(' -process direct -di yes -di-indirect no');
-        content = content.concat(' -out test_direct.ft2');
-        Module['FS_createDataFile']('/', 'arguments_fid_2d.txt', content, true, true, true);
-        console.log(content);
-
-        /**
-         * Call fid function
-         */
-        postMessage({ stdout: "Running fid function to process direct dimension of NUS spectrum." });
-        api.fid();
-        console.log('Finished running fid for direct dimension of NUS spectrum');
-
-        FS.unlink('acquisition_file');
-        FS.unlink('acquisition_file2');
-        FS.unlink('fid_file');
-        FS.unlink('nuslist');
-        FS.unlink('arguments_fid_2d.txt');
-        FS.unlink('phase-correction.txt');
-        const file_data = FS.readFile('test_direct.ft2', { encoding: 'binary' });
-        console.log('File data read from virtual file system, type of file_data:', typeof file_data, ' and length:', file_data.length);
-        FS.unlink('test_direct.ft2');
-        postMessage({
-            webassembly_job: e.data.webassembly_job,
-            file_data: file_data,
-            file_type: 'direct', //direct,direct-smile,full
-            phasing_data: phase_correction,
-            processing_flag: e.data.processing_flag, //passthrough the processing flag
-            spectrum_index: e.data.spectrum_index //for reprocessing only
-        });
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ stdout: "Class-based nus_step1 failed: " + errorText });
+        }
     }
 
     /**
