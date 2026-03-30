@@ -364,12 +364,6 @@ onmessage = async function (e) {
                 return result;
             };
 
-            const normalizeExtractFraction = function (value, fallbackValue) {
-                const parsed = toFloat(value, fallbackValue);
-                // nmrwebview already sends normalized [0,1] extract fractions.
-                return Math.max(0.0, Math.min(1.0, parsed));
-            };
-
             const acqusText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[0]));
             const acqu2sText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[1]));
             const fidBytes = encodeBytes(e.data.file_data[2]);
@@ -456,6 +450,14 @@ onmessage = async function (e) {
                 if (!processor.set_aqseq(acquisitionSeq)) {
                     throw new Error('set_aqseq failed');
                 }
+
+                if (!processor.extract_region_ppm(
+                    toFloat(e.data.extract_direct_from, 8.8),
+                    toFloat(e.data.extract_direct_to, 7.0)
+                )) {
+                    throw new Error('extract_region_ppm failed');
+                }
+
                 processor.set_negative(negativeImaginary);
                 processor.set_first_only(true);
                 if (!processor.run_zf(zfDirect, 1)) {
@@ -466,13 +468,6 @@ onmessage = async function (e) {
                 }
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
-                }
-
-                if (!processor.extract_region(
-                    normalizeExtractFraction(e.data.extract_direct_from, 0.0),
-                    normalizeExtractFraction(e.data.extract_direct_to, 1.0)
-                )) {
-                    throw new Error('extract_region failed');
                 }
 
                 postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
@@ -591,6 +586,13 @@ onmessage = async function (e) {
             if (!processor.set_aqseq(options.acquisitionSeq)) {
                 throw new Error('set_aqseq failed');
             }
+
+            if (options.applyExtraction === true) {
+                if (!processor.extract_region_ppm(options.extractFrom, options.extractTo)) {
+                    throw new Error('extract_region_ppm failed');
+                }
+            }
+
             processor.set_negative(options.negativeImaginary);
             processor.set_first_only(options.firstOnly);
 
@@ -616,11 +618,6 @@ onmessage = async function (e) {
                 }
             }
 
-            if (options.applyExtraction === true) {
-                if (!processor.extract_region(options.extractFrom, options.extractTo)) {
-                    throw new Error('extract_region failed');
-                }
-            }
         };
 
         const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(e.data.file_data[0]));
@@ -631,13 +628,6 @@ onmessage = async function (e) {
         for (let i = 0; i < fidBytes.length; i++) {
             fidBytesVec.push_back(fidBytes[i]);
         }
-
-        const normalizeExtractFraction = function (value, fallbackValue) {
-            const parsed = toFloat(value, fallbackValue);
-            // UI provides percentages (0-100), while class API expects normalized [0,1].
-            const normalized = parsed / 100.0;
-            return Math.max(0.0, Math.min(1.0, normalized));
-        };
 
         const acquisitionSeq = String(e.data.acquisition_seq);
         const negativeImaginary = toBool(e.data.neg_imaginary);
@@ -671,9 +661,9 @@ onmessage = async function (e) {
                 deleteDirect: e.data.delete_direct === true,
                 deleteIndirect: e.data.delete_indirect === true,
                 polynomial: e.data.polynomial,
-                applyExtraction: false,
-                extractFrom: 0,
-                extractTo: 1
+                applyExtraction: true,
+                extractFrom: toFloat(e.data.extract_direct_from, 8.8),
+                extractTo: toFloat(e.data.extract_direct_to, 7.0)
             });
 
             // Apply phase correction: automatic (if enabled) or manual (if provided)
@@ -702,14 +692,6 @@ onmessage = async function (e) {
                 // Apply manual phase corrections if no auto phase correction
                 processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
                 processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
-            }
-
-            // Extract region after phase correction
-            if (!processor.extract_region(
-                normalizeExtractFraction(e.data.extract_direct_from, 0),
-                normalizeExtractFraction(e.data.extract_direct_to, 100)
-            )) {
-                throw new Error('extract_region failed');
             }
 
             const outputVec = new ModuleCpp.VectorUChar();
@@ -1080,6 +1062,7 @@ onmessage = async function (e) {
             spin_system: spin_system,//long string with multiple lines
         });
     }
+
 }
 
 

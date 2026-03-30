@@ -507,10 +507,10 @@ $(document).ready(function () {
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
 
             /**
-             * Get HTML text input extract_direct_from and extract_direct_to. Input is in percentage
+             * Get HTML text input extract_direct_from and extract_direct_to in ppm.
              */
-            let extract_direct_from = parseFloat(document.getElementById("extract_direct_from").value) / 100.0;
-            let extract_direct_to = parseFloat(document.getElementById("extract_direct_to").value) / 100.0;
+            let extract_direct_from = parseFloat(document.getElementById("extract_direct_from").value);
+            let extract_direct_to = parseFloat(document.getElementById("extract_direct_to").value);
 
             /**
              * Get HTML text input apodization_indirect
@@ -4996,8 +4996,8 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
-        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from * 100;
-        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to * 100;
+        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
+        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
         document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
         document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
         document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
@@ -5017,8 +5017,8 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("phase_correction_direct_p1").value = 0;
         document.getElementById("auto_direct").checked = true;
         document.getElementById("delete_imaginary").checked = false
-        document.getElementById("extract_direct_from").value = 0;
-        document.getElementById("extract_direct_to").value = 100;
+        document.getElementById("extract_direct_from").value = 8.8;
+        document.getElementById("extract_direct_to").value = 7.0;
         document.getElementById("apodization_indirect").value = " SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_indirect").value = "2";
         document.getElementById("phase_correction_indirect_p0").value = 0;
