@@ -247,29 +247,17 @@ onmessage = async function (e) {
             };
 
             const inputBytes = encodeBytes(e.data.file_data[0]);
-            const inputFloats = new Float32Array(inputBytes.buffer, inputBytes.byteOffset, Math.floor(inputBytes.byteLength / 4));
-            if (inputFloats.length <= 512) {
-                throw new Error('Invalid FT2 input for nus_step2');
+            if (inputBytes.length <= 512 * 4) {
+                throw new Error('Invalid nmrPipe payload for nus_step2');
             }
 
-            const headerVec = new ModuleCpp.VectorFloat();
-            const dataVec = new ModuleCpp.VectorFloat();
+            const nmrpipeBytesVec = new ModuleCpp.VectorUChar();
             const processor = new ModuleCpp.fid_2d();
 
             let file_data;
             const phase_correction = '0 0 ' + toFloat(e.data.phase_correction_indirect_p0, 0).toString() + ' ' + toFloat(e.data.phase_correction_indirect_p1, 0).toString();
 
             try {
-                for (let i = 0; i < 512; i++) {
-                    headerVec.push_back(inputFloats[i]);
-                }
-                for (let i = 512; i < inputFloats.length; i++) {
-                    dataVec.push_back(inputFloats[i]);
-                }
-
-                if (!processor.read_first_spectrum_from_buffer(headerVec, dataVec)) {
-                    throw new Error('read_first_spectrum_from_buffer failed');
-                }
                 processor.set_first_only(true);
                 if (!processor.run_zf(1, toInt(e.data.zf_indirect, 1))) {
                     throw new Error('run_zf failed');
@@ -281,6 +269,15 @@ onmessage = async function (e) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
 
+                for (let i = 0; i < inputBytes.length; i++) {
+                    nmrpipeBytesVec.push_back(inputBytes[i]);
+                }
+
+                if (!processor.read_nmrpipe_file_from_buffer(nmrpipeBytesVec)) {
+                    throw new Error('read_nmrpipe_file_from_buffer failed');
+                }
+
+               
                 postMessage({ stdout: "Running indirect_only_process for NUS spectrum" });
                 if (!processor.indirect_only_process(true)) {
                     throw new Error('indirect_only_process failed');
@@ -299,8 +296,7 @@ onmessage = async function (e) {
             }
             finally {
                 processor.delete();
-                dataVec.delete();
-                headerVec.delete();
+                nmrpipeBytesVec.delete();
             }
 
             postMessage({
@@ -438,12 +434,6 @@ onmessage = async function (e) {
             const processor = new ModuleCpp.fid_2d();
             let file_data;
             try {
-                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
-                    throw new Error('read_bruker_files_as_strings failed');
-                }
-                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
-                    throw new Error('read_bruker_fid_data_bytes failed');
-                }
                 if (!processor.read_nus_list_from_string(nusListText)) {
                     throw new Error('read_nus_list_from_string failed');
                 }
@@ -470,6 +460,13 @@ onmessage = async function (e) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
 
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    throw new Error('read_bruker_files_as_strings failed');
+                }
+                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                    throw new Error('read_bruker_fid_data_bytes failed');
+                }
+
                 postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
                 if (!processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
@@ -477,8 +474,8 @@ onmessage = async function (e) {
 
                 const outputVec = new ModuleCpp.VectorUChar();
                 try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    if (!processor.write_nmrpipe_intermediate_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_intermediate_to_buffer failed');
                     }
                     file_data = convertVectorUCharToUint8Array(outputVec);
                 }

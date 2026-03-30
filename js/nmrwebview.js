@@ -1008,6 +1008,13 @@ webassembly_worker2.onmessage = function (e) {
     else if (e.data.spectrum_data) {
         console.log("Processed smile spectrum data received");
         let spectrum_data = new Uint8Array(e.data.spectrum_data);
+
+        // Always pass primitive values to the worker to avoid cloning DOM objects.
+        const phaseCorrectionIndirectP0 = parseFloat(document.getElementById("phase_correction_indirect_p0").value);
+        const phaseCorrectionIndirectP1 = parseFloat(document.getElementById("phase_correction_indirect_p1").value);
+        const apodizationIndirectValue = document.getElementById("apodization_indirect").value;
+        const zfIndirectValue = document.getElementById("zf_indirect").value;
+
         /**
          * Send e.data.spectrum_data to webassembly_worker to process it
          */
@@ -1015,10 +1022,10 @@ webassembly_worker2.onmessage = function (e) {
             webassembly_job: "nus_step2",
             file_data: [spectrum_data],
             spectrum_index: e.data.spectrum_index,
-            phase_correction_indirect_p0: phase_correction_indirect_p0,
-            phase_correction_indirect_p1: phase_correction_indirect_p1,
-            apodization_indirect: apodization_indirect,
-            zf_indirect: zf_indirect,
+            phase_correction_indirect_p0: phaseCorrectionIndirectP0,
+            phase_correction_indirect_p1: phaseCorrectionIndirectP1,
+            apodization_indirect: apodizationIndirectValue,
+            zf_indirect: zfIndirectValue,
             processing_flag: e.data.processing_flag,
         });
     }
@@ -1355,13 +1362,39 @@ webassembly_worker.onmessage = function (e) {
         document.getElementById("phase_correction_direct_p1").value = current_phase_correction[1];
 
         /**
+         * NUS step1 returns an ft2 buffer in Float32 format.
+         * Log payload and parsed header size information for debugging.
+         */
+        const directBytes = new Uint8Array(e.data.file_data);
+        const directFloats = new Float32Array(directBytes.buffer, directBytes.byteOffset, Math.floor(directBytes.byteLength / 4));
+        const headerFloats = directFloats.subarray(0, Math.min(512, directFloats.length));
+        const nDirectFromHeader = headerFloats.length > 99 ? Math.round(headerFloats[99]) : NaN;
+        const nIndirectFromHeader = headerFloats.length > 219 ? Math.round(headerFloats[219]) : NaN;
+        const payloadFloats = Math.max(0, directFloats.length - 512);
+        const expectedPayloadFloats = Number.isFinite(nDirectFromHeader) && Number.isFinite(nIndirectFromHeader)
+            ? nDirectFromHeader * nIndirectFromHeader
+            : NaN;
+
+        console.log('[NUS step1] Received direct file_data (Float32 ft2):', {
+            byteLength: directBytes.byteLength,
+            float32Count: directFloats.length,
+            headerFloat32Count: headerFloats.length,
+            payloadFloat32Count: payloadFloats,
+            n_direct_header99: nDirectFromHeader,
+            n_indirect_header219: nIndirectFromHeader,
+            expectedPayloadFloat32Count: expectedPayloadFloats,
+            datatype_direct_header55: headerFloats.length > 55 ? headerFloats[55] : NaN,
+            datatype_indirect_header56: headerFloats.length > 56 ? headerFloats[56] : NaN,
+        });
+
+        /**
          * Send e.data.file_data as Unit8Array to webass2 (smile) work to process it.
          * Also need:
          * nuslist file as a string
          * apodization_direct as a string
          * indirect phase correction p0 and p1 as numbers
         */
-        let arrayBuffer = new Uint8Array(e.data.file_data);
+        let arrayBuffer = directBytes;
 
         webassembly_worker2.postMessage({
             spectrum_data: arrayBuffer,
@@ -1435,13 +1468,18 @@ webassembly_worker.onmessage = function (e) {
         /**
          * Process additional ft2 files (send back from webass worker) in case of pseudo 3D processing
          */
-        for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
-            let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
-            let result_spectrum = new spectrum();
-            result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
-            result_spectra.push(result_spectrum);
+        if(typeof e.data.pseudo3d_files !== "undefined" && Array.isArray(e.data.pseudo3d_files))
+        {
+            console.log("Additional pseudo 3D ft2 files received:", e.data.pseudo3d_files.length);
+            for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
+                let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
+                let result_spectrum = new spectrum();
+                result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
+                result_spectra.push(result_spectrum);
+            }
+            draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
         }
-        draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
+        draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
         document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
 
         /**
