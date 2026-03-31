@@ -232,6 +232,11 @@ class SpectrumFitter {
         const peakIndex = [];
         const comments = [];
 
+        const toFiniteOr = (value, fallback) => {
+            const v = Number(value);
+            return Number.isFinite(v) ? v : fallback;
+        };
+
         for (let i = 0; i < xppm.length; i++) {
             const xPoint = (xppm[i] - begin1) / step1;
             const yPoint = (yppm[i] - begin2) / step2;
@@ -247,11 +252,16 @@ class SpectrumFitter {
             p2.push(yPoint);
             p1ppm.push(xppm[i]);
             p2ppm.push(yppm[i]);
-            pIntensity.push(height.length > i ? Number(height[i]) : dataHeight);
-            sigmax.push(sxIn.length > i ? Number(sxIn[i]) : 3.0);
-            sigmay.push(syIn.length > i ? Number(syIn[i]) : 3.0);
-            gammax.push(gxIn.length > i ? Number(gxIn[i]) : 1e-20);
-            gammay.push(gyIn.length > i ? Number(gyIn[i]) : 1e-20);
+            // pIntensity is a height-like seed at the picked coordinate.
+            // After gaussian_fit::init, internal amp meaning depends on peak shape:
+            //   Gaussian:      amp == peak height
+            //   Voigt:         height = amp * voigt(0,sx,gx) * voigt(0,sy,gy)
+            //   Voigt-Lorentz: height = amp * voigt(0,sx,gx)
+            pIntensity.push(height.length > i ? toFiniteOr(height[i], dataHeight) : dataHeight);
+            sigmax.push(sxIn.length > i ? toFiniteOr(sxIn[i], 3.0) : 3.0);
+            sigmay.push(syIn.length > i ? toFiniteOr(syIn[i], 3.0) : 3.0);
+            gammax.push(gxIn.length > i ? toFiniteOr(gxIn[i], 1e-20) : 1e-20);
+            gammay.push(gyIn.length > i ? toFiniteOr(gyIn[i], 1e-20) : 1e-20);
             peakIndex.push(i);
             comments.push(ass.length > i ? String(ass[i]) : `peaks${i + 1}`);
         }
@@ -264,6 +274,8 @@ class SpectrumFitter {
         for (let i = 0; i < p1.length; i++) {
             const n1 = Math.min(nDirect - 1, Math.max(0, Math.round(p1[i]) - 1));
             const n2 = Math.min(nIndirect - 1, Math.max(0, Math.round(p2[i]) - 1));
+            // Per-peak seed over all spectra, row-major by spectra index.
+            // row[0] uses picked HEIGHT/data-derived height from the first spectrum.
             const row = [pIntensity[i]];
             for (let k = 1; k < spects.length; k++) {
                 row.push(Number(spects[k][n2 * nDirect + n1]));
@@ -457,6 +469,7 @@ class SpectrumFitter {
                         gy.push(gammay[pndx]);
                         ori.push(peakIndex[pndx]);
                         move.push(0);
+                        // Flatten one peak row into region.amp in [peak0_s0, peak0_s1, ..., peak1_s0, ...] layout.
                         aas.push(...pIntensityAllSpectra[pndx]);
                     }
                 }
@@ -476,6 +489,11 @@ class SpectrumFitter {
                 surface: spectParts,
                 x: xx,
                 y: yy,
+                // amp is the initial seed vector passed to gaussian_fit::init.
+                // It starts as height-like seeds, then C++ remaps by shape:
+                //   Gaussian:      keep as height
+                //   Voigt:         divide by voigt(0,sx,gx)*voigt(0,sy,gy) so amp becomes volume-like
+                //   Voigt-Lorentz: divide by voigt(0,sx,gx) so amp becomes volume-like
                 amp: aas,
                 sigmax: sx,
                 sigmay: sy,

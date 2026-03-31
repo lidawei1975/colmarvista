@@ -232,6 +232,72 @@ self.onmessage = async function (event) {
         try {
             const obj = new Module.gaussian_fit();
 
+            const erfcApprox = function (x) {
+                const z = Math.abs(x);
+                const t = 1.0 / (1.0 + 0.5 * z);
+                let p = 0.17087277;
+                p = -0.82215223 + t * p;
+                p = 1.48851587 + t * p;
+                p = -1.13520398 + t * p;
+                p = 0.27886807 + t * p;
+                p = -0.18628806 + t * p;
+                p = 0.09678418 + t * p;
+                p = 0.37409196 + t * p;
+                p = 1.00002368 + t * p;
+                const ans = t * Math.exp(-z * z - 1.26551223 + t * p);
+                return x >= 0 ? ans : (2.0 - ans);
+            };
+
+            const voigtAtZero = function (sigma, gamma) {
+                const s = Math.abs(Number(sigma));
+                const g = Math.abs(Number(gamma));
+                if (!Number.isFinite(s) || !Number.isFinite(g)) {
+                    return 0.0;
+                }
+                const tiny = 1e-12;
+                if (s < tiny && g < tiny) {
+                    return 0.0;
+                }
+                if (s < tiny) {
+                    return 1.0 / (Math.PI * Math.max(g, tiny));
+                }
+                if (g < tiny) {
+                    return 1.0 / (s * Math.sqrt(2.0 * Math.PI));
+                }
+                const a = g / (s * Math.sqrt(2.0));
+                return Math.exp(a * a) * erfcApprox(a) / (s * Math.sqrt(2.0 * Math.PI));
+            };
+
+            const convertAmpToHeightVolume = function (amp, sx, sy, gx, gy, peakShape) {
+                const a = Number.isFinite(amp) ? amp : 0.0;
+                const sxv = Number.isFinite(sx) ? Math.abs(sx) : 0.0;
+                const syv = Number.isFinite(sy) ? Math.abs(sy) : 0.0;
+                const gxv = Number.isFinite(gx) ? Math.abs(gx) : 0.0;
+                const gyv = Number.isFinite(gy) ? Math.abs(gy) : 0.0;
+
+                // Internal amp meaning from C++ gaussian_fit depends on peak shape.
+                // v2 mapping: 0=Gaussian, 1=Voigt, 3=Voigt-Lorentz.
+                //   shape 0: amp is already HEIGHT
+                //   shape 1: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)*voigt(0,sy,gy)
+                //   shape 3: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)
+                if (peakShape === 0) {
+                    return {
+                        height: a,
+                        volume: a * 2.0 * Math.PI * sxv * syv
+                    };
+                }
+                if (peakShape === 3) {
+                    return {
+                        height: a * voigtAtZero(sxv, gxv),
+                        volume: a
+                    };
+                }
+                return {
+                    height: a * voigtAtZero(sxv, gxv) * voigtAtZero(syv, gyv),
+                    volume: a
+                };
+            };
+
             obj.set_everything_wasm(event.data.peak_shape, event.data.maxround, event.data.cluster_counter);
 
             const spect_parts = new Module.VectorDouble();
@@ -240,6 +306,8 @@ self.onmessage = async function (event) {
             }
 
             const aas = new Module.VectorDouble();
+            // event.data.aas carries region.amp from main thread.
+            // Layout: [peak0_s0, peak0_s1, ..., peak1_s0, ...].
             for (let i = 0; i < event.data.aas.length; ++i) {
                 aas.push_back(event.data.aas[i]);
             }
@@ -293,6 +361,7 @@ self.onmessage = async function (event) {
             let group = new Int32Array(obj.npeak);
             let nround = new Int32Array(obj.npeak);
             let p_intensity = new Float32Array(obj.npeak);
+            let p_volume = new Float32Array(obj.npeak);
             let sigmax = new Float32Array(obj.sigmax.size());
             let sigmay = new Float32Array(obj.sigmay.size());
             let peak_index = new Int32Array(obj.original_ndx.size());
@@ -306,7 +375,16 @@ self.onmessage = async function (event) {
                 p2[i] = obj.y.get(i) + obj.ystart;
                 group[i] = event.data.cluster_counter;
                 nround[i] = obj.get_nround();
-                p_intensity[i] = obj.amp.get(i * nspect);
+                const sx0 = obj.sigmax.get(i);
+                const sy0 = obj.sigmay.get(i);
+                const gx0 = obj.gammax.get(i);
+                const gy0 = obj.gammay.get(i);
+                const amp0 = obj.amp.get(i * nspect);
+                // obj.amp is C++ internal fitted amp (shape-dependent meaning above).
+                // Convert it into explicit table HEIGHT and VOLUME columns.
+                const hv = convertAmpToHeightVolume(amp0, sx0, sy0, gx0, gy0, event.data.peak_shape);
+                p_intensity[i] = hv.height;
+                p_volume[i] = hv.volume;
                 sigmax[i] = obj.sigmax.get(i);
                 sigmay[i] = obj.sigmay.get(i);
                 peak_index[i] = obj.original_ndx.get(i);
@@ -314,6 +392,8 @@ self.onmessage = async function (event) {
                 gammax[i] = obj.gammax.get(i);
                 gammay[i] = obj.gammay.get(i);
                 for (let j = i * nspect; j < (i + 1) * nspect; j++) {
+                    // Keep raw internal fitted amp for all spectra.
+                    // For non-Gaussian shapes this is volume-like, not direct apex height.
                     p_intensity_all_spectra[j] = obj.amp.get(j);
                 }
             }
@@ -334,6 +414,8 @@ self.onmessage = async function (event) {
                 err: err,
                 gammax: gammax,
                 gammay: gammay,
+                p_volume: p_volume,
+                peak_shape: event.data.peak_shape,
                 p_intensity_all_spectra: p_intensity_all_spectra,
             });
 

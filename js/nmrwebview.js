@@ -1241,7 +1241,8 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
                 spectrum_index: spectrum_index,
                 xdim_local: s.n_direct,
                 ydim_local: s.n_indirect,
-                inten: Float64Array.from(fitted.get_column_by_header("HEIGHT")),
+                // Recon kernels expect fitted internal amp semantics, now stored in VOLUME.
+                inten: Float64Array.from(fitted.get_column_by_header("VOLUME")),
                 sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
                 sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
                 gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),

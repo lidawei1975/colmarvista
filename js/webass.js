@@ -852,6 +852,72 @@ onmessage = async function (e) {
                     return Number.isFinite(parsed) ? parsed : fallback;
                 };
 
+                const erfcApprox = function (x) {
+                    const z = Math.abs(x);
+                    const t = 1.0 / (1.0 + 0.5 * z);
+                    let p = 0.17087277;
+                    p = -0.82215223 + t * p;
+                    p = 1.48851587 + t * p;
+                    p = -1.13520398 + t * p;
+                    p = 0.27886807 + t * p;
+                    p = -0.18628806 + t * p;
+                    p = 0.09678418 + t * p;
+                    p = 0.37409196 + t * p;
+                    p = 1.00002368 + t * p;
+                    const ans = t * Math.exp(-z * z - 1.26551223 + t * p);
+                    return x >= 0 ? ans : (2.0 - ans);
+                };
+
+                const voigtAtZero = function (sigma, gamma) {
+                    const s = Math.abs(Number(sigma));
+                    const g = Math.abs(Number(gamma));
+                    if (!Number.isFinite(s) || !Number.isFinite(g)) {
+                        return 0.0;
+                    }
+                    const tiny = 1e-12;
+                    if (s < tiny && g < tiny) {
+                        return 0.0;
+                    }
+                    if (s < tiny) {
+                        return 1.0 / (Math.PI * Math.max(g, tiny));
+                    }
+                    if (g < tiny) {
+                        return 1.0 / (s * Math.sqrt(2.0 * Math.PI));
+                    }
+                    const a = g / (s * Math.sqrt(2.0));
+                    return Math.exp(a * a) * erfcApprox(a) / (s * Math.sqrt(2.0 * Math.PI));
+                };
+
+                const convertAmpToHeightVolumePseudo = function (amp, sx, sy, gx, gy, peakShape) {
+                    const a = Number.isFinite(amp) ? amp : 0.0;
+                    const sxv = Number.isFinite(sx) ? Math.abs(sx) : 0.0;
+                    const syv = Number.isFinite(sy) ? Math.abs(sy) : 0.0;
+                    const gxv = Number.isFinite(gx) ? Math.abs(gx) : 0.0;
+                    const gyv = Number.isFinite(gy) ? Math.abs(gy) : 0.0;
+
+                    // Internal amp meaning from C++ gaussian_fit depends on peak shape.
+                    // pseudo3D mapping currently uses 1=Gaussian, 2=Voigt (3 supported if provided).
+                    //   shape 1: amp is already HEIGHT
+                    //   shape 2: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)*voigt(0,sy,gy)
+                    //   shape 3: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)
+                    if (peakShape === 1) {
+                        return {
+                            height: a,
+                            volume: a * 2.0 * Math.PI * sxv * syv
+                        };
+                    }
+                    if (peakShape === 3) {
+                        return {
+                            height: a * voigtAtZero(sxv, gxv),
+                            volume: a
+                        };
+                    }
+                    return {
+                        height: a * voigtAtZero(sxv, gxv) * voigtAtZero(syv, gyv),
+                        volume: a
+                    };
+                };
+
                 const regions = Array.isArray(e.data.regions) ? e.data.regions : [];
                 if (regions.length === 0) {
                     throw new Error('No pre-partitioned pseudo3D regions provided from main thread');
@@ -917,6 +983,7 @@ onmessage = async function (e) {
                             yVec.push_back(yy[i]);
                         }
                         for (let i = 0; i < aas.length; i++) {
+                            // region.amp uses peak-major flattening: [peak0_s0, peak0_s1, ..., peak1_s0, ...].
                             aVec.push_back(aas[i]);
                         }
                         for (let i = 0; i < sx.length; i++) {
@@ -981,6 +1048,9 @@ onmessage = async function (e) {
                                 toFloatOr(paras.removalCutoff, 0.1)
                             );
 
+                            // Match the legacy worker order/inputs: set sign before running the fit.
+                            fitter.peak_sign = (parseInt(region.peakSign, 10) === -1) ? -1 : 1;
+
                             if (!fitter.run(1)) {
                                 continue;
                             }
@@ -988,18 +1058,35 @@ onmessage = async function (e) {
                             const nround = fitter.get_nround();
                             for (let i = 0; i < fitter.npeak; i++) {
                                 const originalNdx = fitter.original_ndx.get(i);
+                                const sx0 = fitter.sigmax.get(i);
+                                const sy0 = fitter.sigmay.get(i);
+                                const gx0 = fitter.gammax.get(i);
+                                const gy0 = fitter.gammay.get(i);
+                                const amp0 = fitter.amp.get(i * nspect);
+                                // fitter.amp is internal fitted amp (shape-dependent meaning above).
+                                // Convert to explicit HEIGHT and VOLUME for output table.
+                                const hv = convertAmpToHeightVolumePseudo(amp0, sx0, sy0, gx0, gy0, peakShape);
+                                let allSpectraHeights = [];
+                                for (let k = 0; k < nspect; k++) {
+                                    // Keep raw fitted amp per spectrum.
+                                    // For non-Gaussian shapes this is volume-like, not apex height.
+                                    allSpectraHeights.push(fitter.amp.get(i * nspect + k));
+                                }
+
                                 fittedRows.push({
                                     originalNdx: originalNdx,
                                     xAxis1: fitter.x.get(i) + fitter.xstart + 1.0,
                                     yAxis1: fitter.y.get(i) + fitter.ystart + 1.0,
-                                    height: fitter.amp.get(i * nspect),
+                                    height: hv.height,
+                                    volume: hv.volume,
                                     dheight: fitter.err.get(i),
-                                    sigmax: fitter.sigmax.get(i),
-                                    sigmay: fitter.sigmay.get(i),
-                                    gammax: fitter.gammax.get(i),
-                                    gammay: fitter.gammay.get(i),
+                                    sigmax: sx0,
+                                    sigmay: sy0,
+                                    gammax: gx0,
+                                    gammay: gy0,
                                     nround: nround,
                                     clusterId: Number.isFinite(localClusterId) ? localClusterId : clusterId,
+                                    allSpectraHeights: allSpectraHeights,
                                 });
                             }
                         }
@@ -1032,14 +1119,46 @@ onmessage = async function (e) {
                     return a.originalNdx - b.originalNdx;
                 });
 
-                let peaksTab = 'VARS INDEX X_AXIS Y_AXIS X_PPM Y_PPM HEIGHT DHEIGHT ASS CLUSTID SIGMAX SIGMAY GAMMAX GAMMAY NROUND\n';
-                peaksTab += 'FORMAT %5d %9.3f %9.3f %10.6f %10.6f %+e %+e %s %4d %f %f %f %f %4d\n';
+                let zColumns = '';
+                let zFormats = '';
+                const nspectraForRatio = Array.isArray(e.data.all_spectra_indices) ? e.data.all_spectra_indices.length : 0;
+                for (let i = 0; i < nspectraForRatio; i++) {
+                    zColumns += ' Z_A' + i.toString();
+                    zFormats += ' %7.4f';
+                }
+
+                let peaksTab = 'VARS INDEX X_AXIS Y_AXIS X_PPM Y_PPM HEIGHT VOLUME DHEIGHT ASS CLUSTID SIGMAX SIGMAY GAMMAX GAMMAY NROUND' + zColumns + '\n';
+                peaksTab += 'FORMAT %5d %9.3f %9.3f %10.6f %10.6f %+e %+e %+e %s %4d %f %f %f %f %4d' + zFormats + '\n';
 
                 for (let i = 0; i < fittedRows.length; i++) {
                     const row = fittedRows[i];
                     const comment = String(peakComments[row.originalNdx] || ('peaks' + (row.originalNdx + 1).toString()));
                     const xppm = toFloatOr(peakXppm[row.originalNdx], row.xAxis1);
                     const yppm = toFloatOr(peakYppm[row.originalNdx], row.yAxis1);
+
+                    const relativeHeights = [];
+                    if (nspectraForRatio > 0) {
+                        // Z_A* columns are normalized from per-spectrum fitted amp values.
+                        for (let k = 0; k < nspectraForRatio; k++) {
+                            const h = (row.allSpectraHeights && k < row.allSpectraHeights.length)
+                                ? Number(row.allSpectraHeights[k])
+                                : 0.0;
+                            relativeHeights.push(Number.isFinite(h) ? h : 0.0);
+                        }
+
+                        if (Math.abs(relativeHeights[0]) < Number.EPSILON) {
+                            for (let k = 0; k < relativeHeights.length; k++) {
+                                relativeHeights[k] = 0.0;
+                            }
+                        }
+                        else {
+                            for (let k = 1; k < relativeHeights.length; k++) {
+                                relativeHeights[k] = relativeHeights[k] / relativeHeights[0];
+                            }
+                            relativeHeights[0] = 1.0;
+                        }
+                    }
+
                     peaksTab += [
                         (i + 1).toString(),
                         row.xAxis1.toFixed(3),
@@ -1047,6 +1166,7 @@ onmessage = async function (e) {
                         xppm.toFixed(6),
                         yppm.toFixed(6),
                         Number(row.height).toExponential(6),
+                        Number(row.volume).toExponential(6),
                         Number(row.dheight).toExponential(6),
                         comment,
                         row.clusterId.toString(),
@@ -1055,7 +1175,7 @@ onmessage = async function (e) {
                         Number(row.gammax).toFixed(6),
                         Number(row.gammay).toFixed(6),
                         row.nround.toString()
-                    ].join(' ') + '\n';
+                    ].concat(relativeHeights.map(function (v) { return Number(v).toFixed(4); })).join(' ') + '\n';
                 }
 
                 postMessage({

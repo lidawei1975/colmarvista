@@ -803,12 +803,12 @@ class spectrum {
             this.fitted_peaks_object = new cpeaks();
             this.fitted_peaks_object.column_headers = [
                 "INDEX", "X_AXIS", "Y_AXIS",
-                "X_PPM", "Y_PPM", "XW", "YW", "HEIGHT", "ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
+                "X_PPM", "Y_PPM", "XW", "YW", "HEIGHT", "VOLUME", "ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
                 "GROUP", "NROUND"
             ];
             this.fitted_peaks_object.column_formats = [
                 "%5d", "%9.4f", "9.4f",
-                "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%s", "%f", "%f", "%f", "%f",
+                "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%e", "%s", "%f", "%f", "%f", "%f",
                 "%5d", "%4d"
             ];
             this.fitted_peaks_object.columns = [];
@@ -828,7 +828,14 @@ class spectrum {
             let fwhhy = 1.0692 * result.gammay[i] + Math.sqrt(0.8664 * result.gammay[i] ** 2 + 5.5452 * result.sigmay[i] ** 2);
             row.push(fwhhx);
             row.push(fwhhy);
-            row.push(result.p_intensity[i]);
+            const height = Array.isArray(result.p_intensity) || ArrayBuffer.isView(result.p_intensity)
+                ? Number(result.p_intensity[i])
+                : Number(result.p_intensity);
+            const volume = Number(result.p_volume[i]);
+            // HEIGHT is shape-corrected physical peak height at apex.
+            // VOLUME is fitted amp parameter (equal to area/volume for Voigt-family models).
+            row.push(Number.isFinite(height) ? height : 0.0);
+            row.push(Number.isFinite(volume) ? volume : 0.0);
             let original_peak_index = result.peak_index[i];
             let assignment = "peak";
             if (Array.isArray(this.peak_assignments) && typeof this.peak_assignments[original_peak_index] !== "undefined") {
