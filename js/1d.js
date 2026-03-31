@@ -13,6 +13,14 @@
 */
 
 var webassembly_1d_worker_2;
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
+
+function get_webassembly_job_flag(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
 try {
     webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
 }
@@ -447,7 +455,7 @@ $(document).ready(function () {
                  * It will be saved here, in case we need to re-process the fid file
                  */
                 fid_process_parameters = {
-                    webassembly_job: "fid_processor_1d",
+                    [WEBASSEMBLY_JOB_KEY]: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
@@ -550,8 +558,9 @@ $(document).ready(function () {
 });
 
 webassembly_1d_worker_2.onmessage = function (e) {
+    const webassembly_job = get_webassembly_job_flag(e.data);
 
-    if (e.data.webassembly_job === "fid_processor_1d") {
+    if (webassembly_job === "fid_processor_1d") {
         /**
          * Received fid processing result:
          *  webassembly_job: event.data.webassembly_job,
@@ -629,7 +638,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     }
 
 
-    else if (e.data.webassembly_job === "peak_picker") {
+    else if (webassembly_job === "peak_picker") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
@@ -662,7 +671,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     /**
      * If result is fitted_peaks and recon_spectrum
      */
-    else if (e.data.webassembly_job === "peak_fitter") {
+    else if (webassembly_job === "peak_fitter") {
         console.log("Fitted peaks and recon_spectrum received");
 
         /**
@@ -724,7 +733,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
     }
 
-    else if (e.data.webassembly_job === "generate_voigt_profiles") {
+    else if (webassembly_job === "generate_voigt_profiles") {
 
         /**
          * If peak index == 0, we are receiving the first one from a new batch, remove all existing profiles first
@@ -738,7 +747,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
-    else if (e.data.webassembly_job === "baseline_correction") {
+    else if (webassembly_job === "baseline_correction") {
         let spectrum_index = e.data.spectrum_index;
         if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
             all_spectra[spectrum_index].baseline = e.data.baseline;
@@ -754,6 +763,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
             main_plot.show_baseline(baseline, spectrum_index);
             disable_enable_phase_baseline_buttons(true);
         }
+    }
+
+    else if (e.data.error) {
+        console.error('1D worker error:', e.data.error);
+        document.getElementById("webassembly_message").innerText = e.data.error;
+        document.getElementById("button_fid_process").disabled = false;
     }
 
 
@@ -2140,7 +2155,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: "peak_picker",
+        [WEBASSEMBLY_JOB_KEY]: "peak_picker",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
@@ -2216,7 +2231,7 @@ function run_Voigt_fitter(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: "peak_fitter",
+        [WEBASSEMBLY_JOB_KEY]: "peak_fitter",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
@@ -3680,7 +3695,7 @@ function run_baseline_correction() {
     smooth_parameter = parseFloat(smooth_parameter);
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: 'baseline_correction',
+        [WEBASSEMBLY_JOB_KEY]: 'baseline_correction',
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,

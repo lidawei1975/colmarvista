@@ -391,9 +391,63 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
     else if (webassembly_job === "peak_fitter") {
+        Module.shared_data_1d.n_verbose = 1;
+        const obj = new Module.spectrum_fit_1d();
+
+        obj.init(event.data.scale, event.data.scale2, event.data.noise_level);
+
+        let fit_type = 0;
+        if (event.data.flag === 1) {
+            fit_type = 1; // Gaussian
+        }
+        else if (event.data.flag === 0) {
+            fit_type = 2; // Voigt
+        }
+        else if (event.data.flag === 2) {
+            fit_type = 3; // Lorentzian
+        }
+
+        obj.init_fit(fit_type, event.data.maxround, event.data.peak_combine_cutoff);
+        obj.init_error(2, 0);
+
+        const spectrum_data = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_data.length; ++i) {
+            spectrum_data.push_back(event.data.spectrum_data[i]);
+        }
+
+        const spectrum_header = new Module.VectorFloat();
+        for (let i = 0; i < event.data.spectrum_header.length; ++i) {
+            spectrum_header.push_back(event.data.spectrum_header[i]);
+        }
+
+        const spectrum_data_imaginary = new Module.VectorFloat();
+
+        obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data, spectrum_data_imaginary);
+        obj.prepare_to_read_additional_spectrum_from_buffer(false);
+
+        obj.peak_reading_from_string(event.data.picked_peaks, 0);
+        obj.peak_fitting(event.data.spectrum_begin, event.data.spectrum_end);
+
+        const fitted_peaks_tab = obj.output_as_string(-1);
+        const fitted_peaks_json = obj.output_json_as_string(true);
+
+        const vec = obj.spe_recon;
+        const float32_recon = new Float32Array(vec.size());
+        for (let i = 0; i < vec.size(); ++i) {
+            float32_recon[i] = vec.get(i);
+        }
+
         self.postMessage({
-            error: "peak_fitter: legacy peak_fitter is removed. Please use peak_fitter_v2."
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+            fitted_peaks_tab: fitted_peaks_tab,
+            recon_json: fitted_peaks_json,
+            spectrum_origin: event.data.spectrum_index,
+            scale: event.data.scale,
+            scale2: event.data.scale2,
+            recon_spectrum: float32_recon,
         });
+
+        obj.delete();
     }
 
     else if (webassembly_job === "process_fid") {
