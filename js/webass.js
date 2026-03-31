@@ -844,9 +844,7 @@ onmessage = async function (e) {
     else if (e.data.webassembly_job === "pseudo3d_fitting") {
         console.log('Initial peaks and all files received');
 
-        // Prefer class-based pseudo3D fitting when recon/error outputs are not requested.
-        if (e.data.with_recon !== true && e.data.with_error !== true) {
-            try {
+        try {
                 const ModuleCpp = await cppModulePromise;
 
                 const toFloatOr = function (value, fallback) {
@@ -1048,146 +1046,20 @@ onmessage = async function (e) {
                 postMessage({
                     webassembly_job: e.data.webassembly_job,
                     pseudo3d_fitted_peaks_tab: peaksTab,
-                    fitted_err: [],
-                    recon_files: [],
                     all_spectra_indices: e.data.all_spectra_indices,
                 });
                 return;
             }
             catch (classError) {
-                postMessage({ stdout: 'Class-based pseudo3D fitting failed, falling back to legacy voigt_fit path: ' + (classError && classError.message ? classError.message : String(classError)) });
-            }
-        }
-
-        Module['FS_createDataFile']('/', 'peaks.tab',e.data.initial_peaks, true, true, true);
-
-        /**
-         * Save all files in e.data.all_files to the virtual file system,
-         * name them as test1.ft2, test2.ft2, test3.ft2, ...
-         */
-        for (let i = 0; i < e.data.all_files.length; i++) {
-            Module['FS_createDataFile']('/', 'test'.concat(i + 1, '.ft2'), e.data.all_files[i], true, true, true);
-        }
-
-        /**
-         * Write a file named "arguments_pseudo_3D.txt" to the virtual file system
-         * save -noise_level, -scale and -scale2
-         * "-recon yes -folder . " means save recon files in the current folder
-         */
-        let content = ' -v 0 -peak_in peaks.tab -out fitted.tab -noise_level '.concat(e.data.noise_level,' -scale ',e.data.scale,' -scale2 ',e.data.scale2);
-        content = content.concat(' -maxround ', e.data.maxround);
-
-        /**
-         * If with_recon is true, add -recon yes to the content
-         */
-        if (e.data.with_recon === true) {
-            content = content.concat(' -recon yes -recon yes -folder . ');
-        }
-        else {
-            content = content.concat(' -recon no ');
-        }
-
-        /**
-         * If with_error is true, add -n_err 10 to the content
-         */
-        if (e.data.with_error === true) {
-            content = content.concat(' -n_err 10 ');
-        }
-
-        /**
-         * If flag is 0, add -method voigt to the content
-         * else add -method gaussian
-         */
-        if (e.data.flag === 0) {
-            content = content.concat(' -method voigt ');
-        }
-        else {
-            content = content.concat(' -method gaussian ');
-        }
-        /**
-         * Add "-in test1.ft2 test2.ft2 test3.ft2 ..." to the content
-         */
-        content = content.concat(' -in ');
-        for (let i = 0; i < e.data.all_files.length; i++) {
-            content = content.concat(' test'.concat(i + 1, '.ft2 '));
-        }
-
-        console.log(content);
-
-        Module['FS_createDataFile']('/', 'argument_voigt_fit.txt', content, true, true, true);
-        console.log('Initial peaks and spectral files saved to virtual file system');
-
-
-        /**
-         * Run voigt_fit function
-         */
-        postMessage({ stdout: "Running pseudo-3D fitting" });
-        api.voigt_fit();
-        console.log('Finished running web assembly code');
-        /**
-         * Remove the input file from the virtual file system
-         * Read file peaks.json, parse it and send it back to the main script
-         */
-        FS.unlink('peaks.tab');
-        FS.unlink('argument_voigt_fit.txt');
-        for(let i=0; i<e.data.all_files.length; i++)   {
-            FS.unlink('test'.concat(i+1, '.ft2'));
-        }
-
-        let peaks_tab = FS.readFile('fitted.tab', { encoding: 'utf8' });
-        FS.unlink('fitted.tab');
-
-        /**
-         * If e.data.with_error is true, we also need to read and send back the following files:
-         * fitted_err_0.tab fitted_err_1.tab fitted_err_2.tab ... fitted_err_9.tab (because -n_err 10)
-         */
-        let fitted_err = [];
-        if (e.data.with_error === true) {
-            for (let i = 0; i < 10; i++) {
-                fitted_err.push(FS.readFile('fitted_err_'.concat(i, '.tab'), { encoding: 'utf8' }));
-                FS.unlink('fitted_err_'.concat(i, '.tab'));
-            }
-        }
-
-        /**
-         * Read all recon files and send them back to the main script
-         */
-        let recon_files = [];
-        if (e.data.with_recon === true) 
-        {   
-            /**
-             * Recon file name depends on the flag
-             */
-            let recon_file_name_part;
-            if (e.data.flag === 0) {
-                recon_file_name_part = 'voigt_test';
-            }
-            else {
-                recon_file_name_part = 'gaussian_test';
+                // Class-based pseudo3D fitting failed
+                throw new Error('Class-based pseudo3D fitting failed: ' + (classError && classError.message ? classError.message : String(classError)));
             }
 
-            for (let i = 0; i < e.data.all_files.length; i++) {
-                recon_files.push(FS.readFile('recon_'.concat(recon_file_name_part,i + 1, '.ft2'), { encoding: 'binary' }));
-                FS.unlink('recon_'.concat(recon_file_name_part,i + 1, '.ft2'));
-                FS.unlink('diff_'.concat(recon_file_name_part,i + 1, '.ft2'));
-            }
-        }
-
         /**
-         * Read the file recon_voigt_hsqc.ft2 
+         * assignment and fitted_peaks_tab are received. Run api.peak_match to transfer the assignment to the fitted peaks
          */
-        postMessage({
-            webassembly_job: e.data.webassembly_job,
-            pseudo3d_fitted_peaks_tab: peaks_tab, //peaks_tab is a very long string with multiple lines (in nmrPipe tab format)
-            fitted_err: fitted_err,
-            recon_files: recon_files, //recon_files is a list of binary files. empty if with_recon is false
-            all_spectra_indices: e.data.all_spectra_indices, //pass through the all_spectra_indices
-        });
     }
 
-    /**
-     * assignment and fitted_peaks_tab are received. Run api.peak_match to transfer the assignment to the fitted peaks
-     */
     else if(e.data.webassembly_job === "assignment") {
         console.log('Assignment and fitted peaks tab received');
         /**

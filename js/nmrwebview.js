@@ -922,14 +922,6 @@ function run_pseudo3d(flag) {
      * Get input number "max_round" value (number type)
      */
     let max_round = parseInt(document.getElementById("max_round").value);
-    /**
-     * Get input checkbox "with_error" checked: true or false
-     */
-    let with_error = document.getElementById("with_error").checked;
-    /**
-     * Get input checkbox "with_recon" checked: true or false
-     */
-    let with_recon = document.getElementById("with_recon").checked;
 
     /**
      * Check all spectra, collect the ones that are experimental
@@ -1040,8 +1032,6 @@ function run_pseudo3d(flag) {
         scale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
         flag: flag, //0: voigt, 1: Gaussian
         maxround: max_round,
-        with_error: with_error,
-        with_recon: with_recon,
         regions: pseudo3d_regions,
         peak_comments: peak_comments,
         peak_xppm: peak_xppm,
@@ -1572,16 +1562,6 @@ webassembly_worker.onmessage = function (e) {
         pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.pseudo3d_fitted_peaks_tab);
 
         /**
-         * Process e.data.fitted_err (array of fitted_peaks_tab) and put them into pseudo3d_fitted_peaks_error
-         */
-        pseudo3d_fitted_peaks_error = []; //clear the previous fitted peaks error
-        for (let i = 0; i < e.data.fitted_err.length; i++) {
-            let peaks = new cpeaks();
-            peaks.process_peaks_tab(e.data.fitted_err[i]);
-            pseudo3d_fitted_peaks_error.push(peaks);
-        }
-
-        /**
          * Enable the download fitted peaks button and show the fitted peaks button
          */
         document.getElementById("button_download_fitted_peaks").disabled = false;
@@ -1605,35 +1585,6 @@ webassembly_worker.onmessage = function (e) {
          */
         document.getElementById("show_pseudo3d_peaks").checked = false;
         document.getElementById("show_pseudo3d_peaks").click();
-
-        /**
-         * Process all reconstructed spectra.
-         * e.data.recon_files is empty if no with_recon is selected when running pseudo 3D fitting
-         */
-        for (let i = 0; i < e.data.recon_files.length; i++) {
-            let arrayBuffer = new Uint8Array(e.data.recon_files[i]).buffer;
-            let result_spectrum_name = "pseudo3d-recon-".concat((i).toString(), ".ft2");
-            let result_spectrum = new spectrum();
-            result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, e.data.all_spectra_indices[i]);
-
-            result_spectrum.scale = e.data.scale;
-            result_spectrum.scale2 = e.data.scale2;
-
-            /**
-             * Replace its header with the header of the original spectrum
-             * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
-             */
-            result_spectrum.header = hsqc_spectra[e.data.all_spectra_indices[i]].header;
-            result_spectrum.noise_level = hsqc_spectra[e.data.all_spectra_indices[i]].noise_level;
-            result_spectrum.levels = hsqc_spectra[e.data.all_spectra_indices[i]].levels;
-            result_spectrum.negative_levels = hsqc_spectra[e.data.all_spectra_indices[i]].negative_levels;
-            result_spectrum.spectral_max = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_max;
-            result_spectrum.spectral_min = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_min;
-
-            draw_spectrum([result_spectrum], false/**from fid */, false/**re-process of fid or ft2 */);
-            document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
-        }
-
 
         /**
          * Clear the processing message
