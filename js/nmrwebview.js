@@ -4150,24 +4150,74 @@ function run_DEEP_Picker(spectrum_index, flag) {
     let remove_t1_noise = document.getElementById("remove_t1_noise-" + spectrum_index).checked ? "yes" : "no";
 
     /**
-     * Add title to textarea "log"
+     * Flag: 0 = DEEP Picker (model 2), 1 = Simple local maxima picker
+     * Simple picker runs synchronously on main thread since it's very fast
      */
-    webassembly_1d_worker_2.postMessage({
-        webassembly_job: "peak_picker_2d",
-        spectrum_data: data_uint8,
-        spectrum_index: spectrum_index,
-        scale: scale,
-        scale2: scale2,
-        scale_negative: scale_negative,
-        scale2_negative: scale2_negative,
-        noise_level: noise_level,
-        remove_t1_noise: remove_t1_noise,
-        flag: flag //0: DEEP Picker (model 2), 1: DEEP Picker (model 1)
-    });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
+    if (flag === 1) {
+        // Simple local maxima peak picking - run directly on main thread
+        try {
+            const spectrum_meta = {
+                n_direct: hsqc_spectra[spectrum_index].n_direct,
+                n_indirect: hsqc_spectra[spectrum_index].n_indirect,
+                x_ppm_start: hsqc_spectra[spectrum_index].x_ppm_start,
+                x_ppm_step: hsqc_spectra[spectrum_index].x_ppm_step,
+                y_ppm_start: hsqc_spectra[spectrum_index].y_ppm_start,
+                y_ppm_step: hsqc_spectra[spectrum_index].y_ppm_step
+            };
+            const peaks_tab = simplePeakPickingWorker(data_uint8, noise_level, scale, spectrum_meta);
+            console.log('[run_DEEP_Picker] Simple picker returned tab, length:', peaks_tab.length);
+            
+            // Simulate worker callback to process results
+            let peaks = new cpeaks();
+            peaks.process_peaks_tab(peaks_tab);
+            console.log('[run_DEEP_Picker] Processed peaks. column_headers:', peaks.column_headers);
+            console.log('[run_DEEP_Picker] Peak columns:', peaks.columns.length > 0 ? 'has ' + peaks.columns[0].length + ' peaks' : 'empty');
+            
+            hsqc_spectra[spectrum_index].picked_peaks_object = peaks;
+
+            /**
+             * Reset fitted peaks when new picked peaks are received
+             */
+            hsqc_spectra[spectrum_index].fitted_peaks_object = null;
+            disable_enable_fitted_peak_buttons(spectrum_index, 0);
+
+            /**
+             * Save scale and scale2 used for picking (needed later for peak fitting)
+             */
+            hsqc_spectra[spectrum_index].scale = scale;
+            hsqc_spectra[spectrum_index].scale2 = scale2;
+
+            disable_enable_peak_buttons(spectrum_index, 1);
+
+            // Instead of using checkbox click which may have timing issues, 
+            // call show_hide_peaks directly and update checkbox
+            document.getElementById("show_peaks-".concat(spectrum_index)).checked = true;
+            show_hide_peaks(spectrum_index, 'picked', true);
+
+            document.getElementById("webassembly_message").innerText = "";
+        }
+        catch (error) {
+            console.error('Simple peak picking error:', error);
+            document.getElementById("webassembly_message").innerText = "Simple peak picking failed: " + error.message;
+            disable_enable_peak_buttons(spectrum_index, 1);
+        }
+    }
+    else {
+        // DEEP Picker - use web worker (slower but more sophisticated)
+        webassembly_1d_worker_2.postMessage({
+            webassembly_job: "peak_picker_2d",
+            spectrum_data: data_uint8,
+            spectrum_index: spectrum_index,
+            scale: scale,
+            scale2: scale2,
+            scale_negative: scale_negative,
+            scale2_negative: scale2_negative,
+            noise_level: noise_level,
+            remove_t1_noise: remove_t1_noise,
+            flag: flag
+        });
+        document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
+    }
 
 }
 
@@ -4390,6 +4440,8 @@ function run_Voigt_fitter_v2(spectrum_index, flag) {
  * Show or hide peaks on the plot
  */
 function show_hide_peaks(index, flag, b_show) {
+    console.log('[show_hide_peaks] Called with index:', index, 'flag:', flag, 'b_show:', b_show);
+    
     /**
      * Disable main_plot.allow_brush_to_remove and checkbox:
      * allow_brush_to_remove
@@ -4538,6 +4590,17 @@ function show_hide_peaks(index, flag, b_show) {
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
+        
+        // Remove old peaks first before adding new ones
+        main_plot.remove_picked_peaks();
+        
+        console.log('[show_hide_peaks] Calling main_plot.add_peaks with flag:', flag, 'spectrum_index:', index);
+        console.log('[show_hide_peaks] picked_peaks_object:', hsqc_spectra[index].picked_peaks_object ? 'exists' : 'null');
+        if (hsqc_spectra[index].picked_peaks_object) {
+            console.log('[show_hide_peaks] column_headers:', hsqc_spectra[index].picked_peaks_object.column_headers);
+            console.log('[show_hide_peaks] columns:', hsqc_spectra[index].picked_peaks_object.columns.map(c => c.length + ' items'));
+        }
+        
         main_plot.add_peaks(hsqc_spectra[index], flag, ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
         update_label_select(['INDEX', 'HEIGHT']);
         color_map_list = ['HEIGHT'];
@@ -4618,6 +4681,14 @@ function run_dosy() {
      * Let user know DOSY result is ready
      */
     document.getElementById("dosy_result").textContent = dosy_result.message;
+
+    /**
+     * Redraw the peak table to show the updated DOSY and error columns
+     */
+    if (current_spectrum_index_of_peaks === -2) {
+        // Peak table is currently showing pseudo3D peaks, redraw it
+        show_peak_table();
+    }
 }
 
 /**
