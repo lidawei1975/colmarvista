@@ -3,6 +3,8 @@
  */
 
 
+importScripts('peak_shape_utils.js');
+importScripts('gaussian_fit_worker_bridge.js');
 importScripts('webdp.js');
 importScripts('webdp1d_cpp.js');
 
@@ -851,72 +853,7 @@ onmessage = async function (e) {
                     const parsed = parseFloat(value);
                     return Number.isFinite(parsed) ? parsed : fallback;
                 };
-
-                const erfcApprox = function (x) {
-                    const z = Math.abs(x);
-                    const t = 1.0 / (1.0 + 0.5 * z);
-                    let p = 0.17087277;
-                    p = -0.82215223 + t * p;
-                    p = 1.48851587 + t * p;
-                    p = -1.13520398 + t * p;
-                    p = 0.27886807 + t * p;
-                    p = -0.18628806 + t * p;
-                    p = 0.09678418 + t * p;
-                    p = 0.37409196 + t * p;
-                    p = 1.00002368 + t * p;
-                    const ans = t * Math.exp(-z * z - 1.26551223 + t * p);
-                    return x >= 0 ? ans : (2.0 - ans);
-                };
-
-                const voigtAtZero = function (sigma, gamma) {
-                    const s = Math.abs(Number(sigma));
-                    const g = Math.abs(Number(gamma));
-                    if (!Number.isFinite(s) || !Number.isFinite(g)) {
-                        return 0.0;
-                    }
-                    const tiny = 1e-12;
-                    if (s < tiny && g < tiny) {
-                        return 0.0;
-                    }
-                    if (s < tiny) {
-                        return 1.0 / (Math.PI * Math.max(g, tiny));
-                    }
-                    if (g < tiny) {
-                        return 1.0 / (s * Math.sqrt(2.0 * Math.PI));
-                    }
-                    const a = g / (s * Math.sqrt(2.0));
-                    return Math.exp(a * a) * erfcApprox(a) / (s * Math.sqrt(2.0 * Math.PI));
-                };
-
-                const convertAmpToHeightVolumePseudo = function (amp, sx, sy, gx, gy, peakShape) {
-                    const a = Number.isFinite(amp) ? amp : 0.0;
-                    const sxv = Number.isFinite(sx) ? Math.abs(sx) : 0.0;
-                    const syv = Number.isFinite(sy) ? Math.abs(sy) : 0.0;
-                    const gxv = Number.isFinite(gx) ? Math.abs(gx) : 0.0;
-                    const gyv = Number.isFinite(gy) ? Math.abs(gy) : 0.0;
-
-                    // Internal amp meaning from C++ gaussian_fit depends on peak shape.
-                    // pseudo3D mapping currently uses 1=Gaussian, 2=Voigt (3 supported if provided).
-                    //   shape 1: amp is already HEIGHT
-                    //   shape 2: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)*voigt(0,sy,gy)
-                    //   shape 3: amp is volume-like, HEIGHT = amp*voigt(0,sx,gx)
-                    if (peakShape === 1) {
-                        return {
-                            height: a,
-                            volume: a * 2.0 * Math.PI * sxv * syv
-                        };
-                    }
-                    if (peakShape === 3) {
-                        return {
-                            height: a * voigtAtZero(sxv, gxv),
-                            volume: a
-                        };
-                    }
-                    return {
-                        height: a * voigtAtZero(sxv, gxv) * voigtAtZero(syv, gyv),
-                        volume: a
-                    };
-                };
+                const describeAmpMeaningByShape = PeakShapeUtils.describeAmpMeaningByShape;
 
                 const regions = Array.isArray(e.data.regions) ? e.data.regions : [];
                 if (regions.length === 0) {
@@ -929,7 +866,8 @@ onmessage = async function (e) {
 
                 const defaultNoise = toFloatOr(e.data.noise_level, 1.0);
                 const defaultScale2 = toFloatOr(e.data.scale2, 3.0);
-                const defaultPeakShape = e.data.flag === 0 ? 2 : 1; // 2: voigt, 1: gaussian
+                // Keep enum consistent with v2 path: 0=Gaussian, 1=Voigt, 3=Voigt-Lorentz.
+                const defaultPeakShape = e.data.flag === 0 ? 1 : 0;
                 const defaultMaxround = parseInt(e.data.maxround, 10) || 20;
 
                 const fittedRows = [];
@@ -950,161 +888,90 @@ onmessage = async function (e) {
                         continue;
                     }
 
-                    const surfaceVec = new ModuleCpp.VectorDouble();
-                    const xVec = new ModuleCpp.VectorDouble();
-                    const yVec = new ModuleCpp.VectorDouble();
-                    const aVec = new ModuleCpp.VectorDouble();
-                    const sxVec = new ModuleCpp.VectorDouble();
-                    const syVec = new ModuleCpp.VectorDouble();
-                    const gxVec = new ModuleCpp.VectorDouble();
-                    const gyVec = new ModuleCpp.VectorDouble();
-                    const originalNdxVec = new ModuleCpp.VectorInt();
-                    const cannotMoveVec = new ModuleCpp.VectorInt();
+                    const surface = region.surface || [];
+                    const xx = region.x || [];
+                    const yy = region.y || [];
+                    const aas = region.amp || [];
+                    const sx = region.sigmax || [];
+                    const sy = region.sigmay || [];
+                    const gx = region.gammax || [];
+                    const gy = region.gammay || [];
+                    const ori = region.originalNdx || [];
+                    const cannotMove = region.cannotMove || [];
 
-                    try {
-                        const surface = region.surface || [];
-                        const xx = region.x || [];
-                        const yy = region.y || [];
-                        const aas = region.amp || [];
-                        const sx = region.sigmax || [];
-                        const sy = region.sigmay || [];
-                        const gx = region.gammax || [];
-                        const gy = region.gammay || [];
-                        const ori = region.originalNdx || [];
-                        const cannotMove = region.cannotMove || [];
+                    const peakShape = parseInt(region.peakShape, 10) || defaultPeakShape;
+                    const maxround = parseInt(region.maxround, 10) || defaultMaxround;
+                    const localClusterId = parseInt(region.clusterLocalIndex, 10);
+                    const resolvedClusterId = Number.isFinite(localClusterId) ? localClusterId : clusterId;
 
-                        for (let i = 0; i < surface.length; i++) {
-                            surfaceVec.push_back(surface[i]);
-                        }
-                        for (let i = 0; i < xx.length; i++) {
-                            xVec.push_back(xx[i]);
-                        }
-                        for (let i = 0; i < yy.length; i++) {
-                            yVec.push_back(yy[i]);
-                        }
-                        for (let i = 0; i < aas.length; i++) {
-                            // region.amp uses peak-major flattening: [peak0_s0, peak0_s1, ..., peak1_s0, ...].
-                            aVec.push_back(aas[i]);
-                        }
-                        for (let i = 0; i < sx.length; i++) {
-                            sxVec.push_back(sx[i]);
-                        }
-                        for (let i = 0; i < sy.length; i++) {
-                            syVec.push_back(sy[i]);
-                        }
-                        for (let i = 0; i < gx.length; i++) {
-                            gxVec.push_back(gx[i]);
-                        }
-                        for (let i = 0; i < gy.length; i++) {
-                            gyVec.push_back(gy[i]);
-                        }
-                        for (let i = 0; i < ori.length; i++) {
-                            originalNdxVec.push_back(ori[i]);
-                        }
-                        for (let i = 0; i < cannotMove.length; i++) {
-                            cannotMoveVec.push_back(cannotMove[i]);
-                        }
-
-                        const fitter = new ModuleCpp.gaussian_fit();
-                        try {
-                            const peakShape = parseInt(region.peakShape, 10) || defaultPeakShape;
-                            const maxround = parseInt(region.maxround, 10) || defaultMaxround;
-                            const localClusterId = parseInt(region.clusterLocalIndex, 10);
-                            fitter.set_everything_wasm(peakShape, maxround, Number.isFinite(localClusterId) ? localClusterId : clusterId);
-
-                            const okInit = fitter.init(
-                                parseInt(region.xstart, 10) || 0,
-                                parseInt(region.ystart, 10) || 0,
-                                parseInt(region.xdim, 10) || 0,
-                                parseInt(region.ydim, 10) || 0,
-                                nspect,
-                                surfaceVec,
-                                xVec,
-                                yVec,
-                                aVec,
-                                sxVec,
-                                syVec,
-                                gxVec,
-                                gyVec,
-                                originalNdxVec,
-                                cannotMoveVec,
-                                toFloatOr(region.medianWidthX, 3.0),
-                                toFloatOr(region.medianWidthY, 3.0)
-                            );
-
-                            if (!okInit) {
-                                continue;
-                            }
-
-                            const paras = region.peakParas || {};
-                            fitter.set_peak_paras(
-                                toFloatOr(paras.wx, 6.0),
-                                toFloatOr(paras.wy, 6.0),
-                                toFloatOr(paras.noise, defaultNoise),
-                                toFloatOr(paras.minHeight, defaultNoise * defaultScale2),
-                                toFloatOr(paras.tooNearCutoff, 0.2),
-                                toFloatOr(paras.xppmStep, 1.0),
-                                toFloatOr(paras.yppmStep, 1.0),
-                                toFloatOr(paras.removalCutoff, 0.1)
-                            );
-
-                            // Match the legacy worker order/inputs: set sign before running the fit.
-                            fitter.peak_sign = (parseInt(region.peakSign, 10) === -1) ? -1 : 1;
-
-                            if (!fitter.run(1)) {
-                                continue;
-                            }
-
-                            const nround = fitter.get_nround();
-                            for (let i = 0; i < fitter.npeak; i++) {
-                                const originalNdx = fitter.original_ndx.get(i);
-                                const sx0 = fitter.sigmax.get(i);
-                                const sy0 = fitter.sigmay.get(i);
-                                const gx0 = fitter.gammax.get(i);
-                                const gy0 = fitter.gammay.get(i);
-                                const amp0 = fitter.amp.get(i * nspect);
-                                // fitter.amp is internal fitted amp (shape-dependent meaning above).
-                                // Convert to explicit HEIGHT and VOLUME for output table.
-                                const hv = convertAmpToHeightVolumePseudo(amp0, sx0, sy0, gx0, gy0, peakShape);
-                                let allSpectraHeights = [];
-                                for (let k = 0; k < nspect; k++) {
-                                    // Keep raw fitted amp per spectrum.
-                                    // For non-Gaussian shapes this is volume-like, not apex height.
-                                    allSpectraHeights.push(fitter.amp.get(i * nspect + k));
-                                }
-
-                                fittedRows.push({
-                                    originalNdx: originalNdx,
-                                    xAxis1: fitter.x.get(i) + fitter.xstart + 1.0,
-                                    yAxis1: fitter.y.get(i) + fitter.ystart + 1.0,
-                                    height: hv.height,
-                                    volume: hv.volume,
-                                    dheight: fitter.err.get(i),
-                                    sigmax: sx0,
-                                    sigmay: sy0,
-                                    gammax: gx0,
-                                    gammay: gy0,
-                                    nround: nround,
-                                    clusterId: Number.isFinite(localClusterId) ? localClusterId : clusterId,
-                                    allSpectraHeights: allSpectraHeights,
-                                });
-                            }
-                        }
-                        finally {
-                            fitter.delete();
-                        }
+                    const peakCount = xx.length;
+                    const ampMeaning = describeAmpMeaningByShape(peakShape);
+                    console.log("[pseudo3d][partition " + clusterId + "] peakShape=" + peakShape + ", nspect=" + nspect + ", npeak=" + peakCount + ", xstart=" + (parseInt(region.xstart, 10) || 0) + ", ystart=" + (parseInt(region.ystart, 10) || 0) + ", meaning: " + ampMeaning);
+                    if (peakCount * nspect !== aas.length) {
+                        console.log("[pseudo3d][partition " + clusterId + "] WARNING amp length mismatch: amp.length=" + aas.length + ", expected=" + (peakCount * nspect));
                     }
-                    finally {
-                        surfaceVec.delete();
-                        xVec.delete();
-                        yVec.delete();
-                        aVec.delete();
-                        sxVec.delete();
-                        syVec.delete();
-                        gxVec.delete();
-                        gyVec.delete();
-                        originalNdxVec.delete();
-                        cannotMoveVec.delete();
+                    for (let p = 0; p < peakCount; p++) {
+                        const a0 = p * nspect;
+                        const a1 = a0 + nspect;
+                        const ampRow = aas.slice(a0, a1);
+                        console.log("[pseudo3d][partition " + clusterId + "][peak " + p + "] x=" + xx[p] + ", y=" + yy[p] + ", sigmax=" + sx[p] + ", sigmay=" + sy[p] + ", gammax=" + gx[p] + ", gammay=" + gy[p] + ", originalNdx=" + ori[p] + ", inputAmpRow=" + ampRow.join(",") + " (height-like seeds before C++ init conversion)");
+                    }
+
+                    const fitResult = GaussianFitWorkerBridge.runRegionFit(ModuleCpp, {
+                        clusterId: resolvedClusterId,
+                        maxround: maxround,
+                        peakShape: peakShape,
+                        peakSign: parseInt(region.peakSign, 10),
+                        xstart: parseInt(region.xstart, 10) || 0,
+                        ystart: parseInt(region.ystart, 10) || 0,
+                        xdim: parseInt(region.xdim, 10) || 0,
+                        ydim: parseInt(region.ydim, 10) || 0,
+                        nspectra: nspect,
+                        surface: surface,
+                        x: xx,
+                        y: yy,
+                        amp: aas,
+                        sigmax: sx,
+                        sigmay: sy,
+                        gammax: gx,
+                        gammay: gy,
+                        originalNdx: ori,
+                        cannotMove: cannotMove,
+                        medianWidthX: toFloatOr(region.medianWidthX, 3.0),
+                        medianWidthY: toFloatOr(region.medianWidthY, 3.0),
+                        peakParas: region.peakParas || {
+                            wx: 6.0,
+                            wy: 6.0,
+                            noise: defaultNoise,
+                            minHeight: defaultNoise * defaultScale2,
+                            tooNearCutoff: 0.2,
+                            xppmStep: 1.0,
+                            yppmStep: 1.0,
+                            removalCutoff: 0.1
+                        }
+                    });
+
+                    if (!fitResult.ok) {
+                        continue;
+                    }
+
+                    for (let i = 0; i < fitResult.peaks.length; i++) {
+                        const peak = fitResult.peaks[i];
+                        fittedRows.push({
+                            originalNdx: peak.originalNdx,
+                            xAxis1: peak.xAxis1,
+                            yAxis1: peak.yAxis1,
+                            height: peak.height,
+                            volume: peak.volume,
+                            dheight: peak.dheight,
+                            sigmax: peak.sigmax,
+                            sigmay: peak.sigmay,
+                            gammax: peak.gammax,
+                            gammay: peak.gammay,
+                            nround: peak.nround,
+                            clusterId: resolvedClusterId,
+                            allSpectraHeights: peak.ampRow,
+                        });
                     }
 
                     completedRegions++;

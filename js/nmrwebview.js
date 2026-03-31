@@ -987,7 +987,15 @@ function run_pseudo3d(flag) {
                 noise_level: hsqc_spectra[current_spectrum_index_of_peaks].noise_level,
             };
 
-            let peak_shape = flag === 0 ? 2 : 1;
+            // Keep peak-shape enum consistent with v2 worker path:
+            // 0=Gaussian, 1=Voigt, 3=Voigt-Lorentzian
+            let peak_shape = 1;
+            if (flag === 1) {
+                peak_shape = 0;
+            }
+            else if (flag === 2) {
+                peak_shape = 3;
+            }
             let fitter = new SpectrumFitter(null);
             pseudo3d_regions = fitter.prepareRegionsForWorker(pseudo3d_spectrum, peaks_for_partition, {
                 userScale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
