@@ -391,12 +391,31 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
     else if (webassembly_job === "peak_fitter") {
+
+        // This is for peak fitting job
+        console.log('Peak fitting job received');
         Module.shared_data_1d.n_verbose = 1;
         const obj = new Module.spectrum_fit_1d();
 
+        /**
+         *  Here it is list of functions that can be used
+         *  .function("init", &spectrum_fit_1d::init)
+            .function("init_fit", &spectrum_fit_1d::init_fit)  //int (1: gaussian, 2: voigt, 3: lorentzian), int round, float to_near_cutoff
+            .function("init_error", &spectrum_fit_1d::init_error)
+            .function("read_first_spectrum_from_buffer",&spectrum_fit_1d::read_first_spectrum_from_buffer)
+            .function("peak_reading_from_string", &spectrum_fit_1d::peak_reading_from_string)
+            .function("peak_fitting", &spectrum_fit_1d::peak_fitting)
+            .function("output_as_string", &spectrum_fit_1d::output_as_string)
+            .function("output_json_as_string", &spectrum_fit_1d::output_json_as_string)
+            .function("get_size_of_recon", &spectrum_fit_1d::get_size_of_recon)
+            .function("get_data_of_recon", &spectrum_fit_1d::get_data_of_recon)
+            ;
+         */
+
+        // Initialize the object with scale and scale2
         obj.init(event.data.scale, event.data.scale2, event.data.noise_level);
 
-        let fit_type = 0;
+        let fit_type = 0; // Default fit type
         if (event.data.flag === 1) {
             fit_type = 1; // Gaussian
         }
@@ -408,8 +427,13 @@ self.onmessage = async function (event) {
         }
 
         obj.init_fit(fit_type, event.data.maxround, event.data.peak_combine_cutoff);
-        obj.init_error(2, 0);
 
+        obj.init_error(2/**ZF */, 0/**round in error est, 0 means not run at all*/);
+
+
+        /**
+         * Need to convert event.data.spectrum_data (Float32Array) to webassembly VectorFloat
+         */
         const spectrum_data = new Module.VectorFloat();
         for (let i = 0; i < event.data.spectrum_data.length; ++i) {
             spectrum_data.push_back(event.data.spectrum_data[i]);
@@ -420,18 +444,33 @@ self.onmessage = async function (event) {
             spectrum_header.push_back(event.data.spectrum_header[i]);
         }
 
-        const spectrum_data_imaginary = new Module.VectorFloat();
+        /**
+         * Create a empty Module.VectorFloat() as imaginary part of the spectrum data, which we do not need but c++ need to have 3 parameters
+         */
+        const spectrum_data_imaginary = new Module.VectorFloat(); // Empty imaginary part, we do not need it in 1D spectrum picking
 
+        // Read the first spectrum from buffer
         obj.read_first_spectrum_from_buffer(spectrum_header, spectrum_data, spectrum_data_imaginary);
-        obj.prepare_to_read_additional_spectrum_from_buffer(false);
+        obj.prepare_to_read_additional_spectrum_from_buffer(false); // false means no negative peak picking
 
-        obj.peak_reading_from_string(event.data.picked_peaks, 0);
+
+        // Set the picked peaks from the tab string
+        obj.peak_reading_from_string(event.data.picked_peaks, 0/**type is .tab */);
+
+        // Run the peak fitting algorithm
         obj.peak_fitting(event.data.spectrum_begin, event.data.spectrum_end);
 
-        const fitted_peaks_tab = obj.output_as_string(-1);
-        const fitted_peaks_json = obj.output_json_as_string(true);
+        // Get the fitted peaks as a long string in NMRPipe tab format
+        const fitted_peaks_tab = obj.output_as_string(-1); // -1 means normal run without error estimation
+        const fitted_peaks_json = obj.output_json_as_string(true); // true means with individual peaks
 
-        const vec = obj.spe_recon;
+        // get size of reconstructed spectrum in float32
+        const size = obj.get_size_of_recon();
+        const ptr = obj.get_data_of_recon(0);
+        // const float32_recon = new Float32Array(Module.HEAPF32.buffer, ptr, size);
+
+        const vec = obj.spe_recon; //exposed vector of float32
+
         const float32_recon = new Float32Array(vec.size());
         for (let i = 0; i < vec.size(); ++i) {
             float32_recon[i] = vec.get(i);
@@ -447,7 +486,8 @@ self.onmessage = async function (event) {
             recon_spectrum: float32_recon,
         });
 
-        obj.delete();
+        // Clean up the object to free memory
+        obj.delete(); // Clean up the object to free memory
     }
 
     else if (webassembly_job === "process_fid") {
