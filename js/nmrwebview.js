@@ -1499,7 +1499,10 @@ webassembly_worker.onmessage = function (e) {
             }
             draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
         }
-        draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
+        else
+        {
+            draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
+        }
         document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
 
         /**
