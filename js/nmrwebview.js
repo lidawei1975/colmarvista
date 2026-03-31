@@ -12,13 +12,19 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2, webassembly_1d_worker_2;
+var my_contour_worker, webassembly_worker, webassembly_worker2;
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
+function get_webassembly_job_flag(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
 try {
     my_contour_worker = new Worker('./js/contour.js');
-    webassembly_worker = new Worker('./js/webass.js');
+    webassembly_worker = new Worker('./js/webass1d_2.js');
     webassembly_worker2 = new Worker('./js/webass2.js');
-    webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
 
 function clear_webassembly_message_after_delay(delay_ms = 5000) {
     window.setTimeout(function () {
@@ -33,8 +39,7 @@ catch (err) {
     console.log(err);
     if (typeof (my_contour_worker) === "undefined"
         || typeof (webassembly_worker) === "undefined"
-        || typeof (webassembly_worker2) === "undefined"
-        || typeof (webassembly_1d_worker_2) === "undefined") {
+        || typeof (webassembly_worker2) === "undefined") {
         alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
@@ -99,35 +104,30 @@ var oOutput;
  */
 var current_phase_correction = [0, 0, 0, 0];
 
-
-
-
 var hsqc_spectra = []; //array of hsqc spectra
 
 let draggedItem = null;
-
 
 /**
  * Default color list for the contour plot (15 colors, repeat if more than 15 spectra)
  */
 var color_list = [
-    [0, 0, 1, 1.0], //blue
-    [1, 0, 0, 1.0], //red
-    [0, 1, 0, 1.0], //green
-    [1, 1, 0, 1.0], //yellow
-    [0, 1, 1, 1.0], //cyan
-    [1, 0, 1, 1.0], //magenta
-    [0, 0, 0, 1.0], //black
-    [0.5, 0.5, 0.5, 1.0], //gray
-    [1, 0.5, 0.5, 1.0], //pink
-    [0.5, 1, 0.5, 1.0], //light green
-    [0.5, 0.5, 1, 1.0], //light blue
-    [1, 0.5, 1, 1.0], //light magenta
-    [1, 1, 0.5, 1.0], //light yellow
-    [0.5, 1, 1, 1.0], //light cyan
-    [0.5, 0.5, 0.5, 1.0], //light gray
+    [0, 0, 1, 1.0],
+    [1, 0, 0, 1.0],
+    [0, 1, 0, 1.0],
+    [1, 1, 0, 1.0],
+    [0, 1, 1, 1.0],
+    [1, 0, 1, 1.0],
+    [0, 0, 0, 1.0],
+    [0.5, 0.5, 0.5, 1.0],
+    [1, 0.5, 0.5, 1.0],
+    [0.5, 1, 0.5, 1.0],
+    [0.5, 0.5, 1, 1.0],
+    [1, 0.5, 1, 1.0],
+    [1, 1, 0.5, 1.0],
+    [0.5, 1, 1, 1.0],
+    [0.5, 0.5, 0.5, 1.0],
 ];
-
 
 /**
  * Read a file as array buffer
@@ -136,7 +136,6 @@ var color_list = [
  */
 const read_file = (file) => {
     return new Promise((resolve, reject) => {
-
         var reader = new FileReader();
         reader.onload = function () {
             return resolve(reader.result);
@@ -146,14 +145,13 @@ const read_file = (file) => {
         };
         reader.readAsArrayBuffer(file);
     });
-}
+};
 
 /**
  * Read a file as text
  */
 const read_file_text = (file) => {
     return new Promise((resolve, reject) => {
-
         var reader = new FileReader();
         reader.onload = function () {
             return resolve(reader.result);
@@ -163,7 +161,7 @@ const read_file_text = (file) => {
         };
         reader.readAsText(file);
     });
-}
+};
 
 
 
@@ -331,25 +329,7 @@ $(document).ready(function () {
             return;
         }
 
-        /**
-         * Read the file (text file) then send it to the worker, together with the current spectrum's fitted_peaks_tab
-         */
-        let file = document.getElementById('assignment_file').files[0];
-        if (file) {
-            var reader = new FileReader();
-            reader.onload = function () {
-                var data = reader.result;
-                webassembly_worker.postMessage({
-                    webassembly_job: "assignment",
-                    assignment: data,
-                    fitted_peaks_tab: pseudo3d_fitted_peaks_object.get_peaks_tab(),
-                });
-            };
-            reader.onerror = function (e) {
-                console.log("Error reading file");
-            };
-            reader.readAsText(file);
-        }
+        document.getElementById("webassembly_message").innerText = "Assignment transfer is under development.";
     });
 
 
@@ -553,7 +533,7 @@ $(document).ready(function () {
             }
 
             fid_process_parameters = {
-                webassembly_job: webassembly_job,
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 water_suppression: water_suppression,
                 polynomial: polynomial,
                 file_data: current_fid_files,
@@ -1023,7 +1003,7 @@ function run_pseudo3d(flag) {
      * Send the initial peaks, all_files to the worker
      */
     webassembly_worker.postMessage({
-        webassembly_job: "pseudo3d_fitting",
+        [WEBASSEMBLY_JOB_KEY]: "pseudo3d_fitting",
         initial_peaks: initial_peaks,
         all_files: all_files,
         all_spectra_indices: all_spectra_indices, //indices of the spectra in hsqc_spectra
@@ -1070,7 +1050,7 @@ webassembly_worker2.onmessage = function (e) {
          * Send e.data.spectrum_data to webassembly_worker to process it
          */
         webassembly_worker.postMessage({
-            webassembly_job: "nus_step2",
+            [WEBASSEMBLY_JOB_KEY]: "nus_step2",
             file_data: [spectrum_data],
             spectrum_index: e.data.spectrum_index,
             phase_correction_indirect_p0: phaseCorrectionIndirectP0,
@@ -1082,16 +1062,102 @@ webassembly_worker2.onmessage = function (e) {
     }
 }
 
-webassembly_1d_worker_2.onmessage = function (e) {
+function finalize_peak_fitter_v2_if_done(spectrum_index) {
+    if (!hsqc_spectra[spectrum_index]) {
+        return;
+    }
 
+    const s = hsqc_spectra[spectrum_index];
+    const total = s.total_peak_fitting_jobs || 0;
+    const done = s.completed_peak_fitting_jobs || 0;
+    const failed = s.failed_peak_fitting_jobs || 0;
+
+    if (total <= 0 || done < total) {
+        return;
+    }
+
+    disable_enable_peak_buttons(spectrum_index, 1);
+
+    const has_fitted = s.fitted_peaks_object
+        && s.fitted_peaks_object.columns
+        && s.fitted_peaks_object.columns.length > 0
+        && s.fitted_peaks_object.columns[0].length > 0;
+
+    if (has_fitted) {
+        disable_enable_fitted_peak_buttons(spectrum_index, 1);
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).click();
+
+        if (!s.recon_generation_requested_v2) {
+            s.recon_generation_requested_v2 = true;
+            const fitted = s.fitted_peaks_object;
+
+            webassembly_worker.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: "generate_recon_spectrum_v2",
+                spectrum_index: spectrum_index,
+                xdim_local: s.n_direct,
+                ydim_local: s.n_indirect,
+                // Recon kernels expect fitted internal amp semantics, now stored in VOLUME.
+                inten: Float64Array.from(fitted.get_column_by_header("VOLUME")),
+                sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
+                sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
+                gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),
+                gammay: Float64Array.from(fitted.get_column_by_header("GAMMAY")),
+                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS")),
+                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS"))
+            });
+
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Generating reconstructed spectrum from fitted peaks...";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Generating reconstructed spectrum...";
+            }
+            return;
+        }
+
+        if (s.recon_generated_v2) {
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Fitted peaks and reconstructed spectrum updated.";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
+            }
+            return;
+        }
+    }
+
+    if (failed > 0) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s).";
+    }
+    else if (!has_fitted) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. No fitted peaks found.";
+    }
+}
+
+webassembly_worker.onmessage = function (e) {
+    const webassembly_job = get_webassembly_job_flag(e.data);
+
+    /**
+     * if result is stdout, it is the processing message
+     */
     if (e.data.stdout) {
+
+        /**
+         * Append e.data.stdout to textarea with ID "log"
+         * and add a new line
+         */
         document.getElementById("log").value += e.data.stdout + "\n";
         document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
     }
+    /**
+     * e.data.stdout is defined but empty, it is the end of the processing message
+     */
+    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
+    }
 
     else if (e.data.error) {
-        console.error('webassembly_1d_worker_2 error:', e.data.error);
-        document.getElementById("webassembly_message").innerText = "Worker error: " + e.data.error;
+        document.getElementById("webassembly_message").innerText = e.data.error;
         if (e.data.error.startsWith("peak_fitter_region_v2:")) {
             document.getElementById("webassembly_message").innerText = "Peak fitting v2 error: " + e.data.error;
             if (typeof e.data.spectrum_index !== "undefined" && hsqc_spectra[e.data.spectrum_index]) {
@@ -1113,10 +1179,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         }
     }
 
-    /**
-     * Region-wise 2D peak fitting response from the v2 worker workflow.
-     */
-    else if (e.data.webassembly_job === "peak_fitter_v2") {
+    else if (webassembly_job === "peak_fitter_v2") {
         let spectrum_index = e.data.spectrum_index;
         hsqc_spectra[spectrum_index].process_peak_fitter_v2_result(e.data);
 
@@ -1128,7 +1191,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         finalize_peak_fitter_v2_if_done(spectrum_index);
     }
 
-    else if (e.data.webassembly_job === "generate_recon_spectrum_v2") {
+    else if (webassembly_job === "generate_recon_spectrum_v2") {
         const spectrum_index = e.data.spectrum_index;
         if (!hsqc_spectra[spectrum_index]) {
             return;
@@ -1175,23 +1238,14 @@ webassembly_1d_worker_2.onmessage = function (e) {
         clear_webassembly_message_after_delay(5000);
     }
 
-    /**
-     * peak_picker_2d response: picked_peaks_tab is the NMRPipe tab string of picked peaks
-     */
-    else if (e.data.webassembly_job === "peak_picker_2d") {
+    else if (webassembly_job === "peak_picker_2d") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         hsqc_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
 
-        /**
-         * Reset fitted peaks when new picked peaks are received
-         */
         hsqc_spectra[e.data.spectrum_index].fitted_peaks_object = null;
         disable_enable_fitted_peak_buttons(e.data.spectrum_index, 0);
 
-        /**
-         * Save scale and scale2 used for picking (needed later for peak fitting)
-         */
         hsqc_spectra[e.data.spectrum_index].scale = e.data.scale;
         hsqc_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
 
@@ -1202,102 +1256,8 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
         document.getElementById("webassembly_message").innerText = "";
     }
-};
 
-function finalize_peak_fitter_v2_if_done(spectrum_index) {
-    if (!hsqc_spectra[spectrum_index]) {
-        return;
-    }
-
-    const s = hsqc_spectra[spectrum_index];
-    const total = s.total_peak_fitting_jobs || 0;
-    const done = s.completed_peak_fitting_jobs || 0;
-    const failed = s.failed_peak_fitting_jobs || 0;
-
-    if (total <= 0 || done < total) {
-        return;
-    }
-
-    disable_enable_peak_buttons(spectrum_index, 1);
-
-    const has_fitted = s.fitted_peaks_object
-        && s.fitted_peaks_object.columns
-        && s.fitted_peaks_object.columns.length > 0
-        && s.fitted_peaks_object.columns[0].length > 0;
-
-    if (has_fitted) {
-        disable_enable_fitted_peak_buttons(spectrum_index, 1);
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).click();
-
-        if (!s.recon_generation_requested_v2) {
-            s.recon_generation_requested_v2 = true;
-            const fitted = s.fitted_peaks_object;
-
-            webassembly_1d_worker_2.postMessage({
-                webassembly_job: "generate_recon_spectrum_v2",
-                spectrum_index: spectrum_index,
-                xdim_local: s.n_direct,
-                ydim_local: s.n_indirect,
-                // Recon kernels expect fitted internal amp semantics, now stored in VOLUME.
-                inten: Float64Array.from(fitted.get_column_by_header("VOLUME")),
-                sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
-                sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
-                gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),
-                gammay: Float64Array.from(fitted.get_column_by_header("GAMMAY")),
-                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS")),
-                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS"))
-            });
-
-            if (failed > 0) {
-                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Generating reconstructed spectrum from fitted peaks...";
-            }
-            else {
-                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Generating reconstructed spectrum...";
-            }
-            return;
-        }
-
-        if (s.recon_generated_v2) {
-            if (failed > 0) {
-                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Fitted peaks and reconstructed spectrum updated.";
-            }
-            else {
-                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
-            }
-            return;
-        }
-    }
-
-    if (failed > 0) {
-        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s).";
-    }
-    else if (!has_fitted) {
-        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. No fitted peaks found.";
-    }
-}
-
-webassembly_worker.onmessage = function (e) {
-
-    /**
-     * if result is stdout, it is the processing message
-     */
-    if (e.data.stdout) {
-
-        /**
-         * Append e.data.stdout to textarea with ID "log"
-         * and add a new line
-         */
-        document.getElementById("log").value += e.data.stdout + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
-    /**
-     * e.data.stdout is defined but empty, it is the end of the processing message
-     */
-    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
-    }
-
-    else if (e.data.webassembly_job === "pseudo3d_progress") {
+    else if (webassembly_job === "pseudo3d_progress") {
         const done = Number.isFinite(Number(e.data.done)) ? Number(e.data.done) : 0;
         const total = Number.isFinite(Number(e.data.total)) ? Number(e.data.total) : 0;
         if (total > 0) {
@@ -1609,7 +1569,7 @@ webassembly_worker.onmessage = function (e) {
         pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.matched_peaks_tab);
     }
 
-    else if (e.data.webassembly_job === "spin_optimization") {
+    else if (webassembly_job === "spin_optimization") {
         process_spin_optimization_result(e.data.spin_system);
     }
 
@@ -4204,8 +4164,8 @@ function run_DEEP_Picker(spectrum_index, flag) {
     }
     else {
         // DEEP Picker - use web worker (slower but more sophisticated)
-        webassembly_1d_worker_2.postMessage({
-            webassembly_job: "peak_picker_2d",
+        webassembly_worker.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "peak_picker_2d",
             spectrum_data: data_uint8,
             spectrum_index: spectrum_index,
             scale: scale,
@@ -4226,77 +4186,12 @@ function run_DEEP_Picker(spectrum_index, flag) {
  * @param {int} spectrum_index: index of the spectrum in hsqc_spectra array
  */
 function run_Voigt_fitter(spectrum_index, flag) {
-    /**
-     * Disable the buttons to run deep picker and voigt fitter
-     */
-    disable_enable_peak_buttons(spectrum_index, 2);
-    disable_enable_fitted_peak_buttons(spectrum_index, 0);
-
-    /**
-     * Get maxround input field with ID "maxround-"+spectrum_index
-     */
-    let maxround = parseInt(document.getElementById("maxround-" + spectrum_index).value);
-
-    /**
-     * Get number input field with ID "combine_peak_cutoff-"+spectrum_index
-     */
-    let combine_peak_cutoff = parseFloat(document.getElementById("combine_peak_cutoff-" + spectrum_index).value);
-
-    /**
-     * Get subset of the picked peaks (within visible region)
-     * start < end from the get_visible_region function call
-     */
-    [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
-
-    /**
-     * Get a copy of the picked peaks, so that we can filter it
-     */
-    let picked_peaks_copy = new cpeaks();
-    picked_peaks_copy.copy_data(hsqc_spectra[spectrum_index].picked_peaks_object);
-    picked_peaks_copy.filter_by_column_range("X_PPM", x_ppm_visible_start, x_ppm_visible_end);
-    picked_peaks_copy.filter_by_column_range("Y_PPM", y_ppm_visible_start, y_ppm_visible_end);
-
-    let picked_peaks_copy_tab = picked_peaks_copy.save_peaks_tab();
-
-
-    /**
-     * Combine hsqc_spectra[spectrum_index].raw_data and hsqc_spectra[spectrum_index].header into one Float32Array
-     * Need to copy the header first, modify complex flag (doesn't hurt even when not necessary), then concatenate with raw_data
-     */
-    let header = new Float32Array(hsqc_spectra[spectrum_index].header);
-    header[55] = 1.0;
-    header[56] = 1.0;
-    header[219] = hsqc_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
-    /**
-     * Also set 
-     */
-    let data = Float32Concat(header, hsqc_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
-
-    webassembly_worker.postMessage({
-        webassembly_job: "peak_fitter",
-        spectrum_data: data_uint8,
-        picked_peaks: picked_peaks_copy_tab,
-        spectrum_index: spectrum_index,
-        combine_peak_cutoff: combine_peak_cutoff,
-        maxround: maxround,
-        flag: flag, //0: Voigt, 1: Gaussian, 2: Voigt_Lorentzian
-        scale: hsqc_spectra[spectrum_index].scale,
-        scale2: hsqc_spectra[spectrum_index].scale2,
-        noise_level: hsqc_spectra[spectrum_index].noise_level
-    });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Run Peak fitting, please wait...";
+    document.getElementById("webassembly_message").innerText = "Legacy peak fitter is removed. Please use Peak fitting (v2).";
 
 }
 
 /**
- * v2 peak fitting workflow: partition 2D spectrum into regions and fit region-wise via webassembly_1d_worker_2.
+ * v2 peak fitting workflow: partition 2D spectrum into regions and fit region-wise via webassembly_worker.
  * Keep run_Voigt_fitter() for the legacy full-spectrum fitting path.
  */
 function run_Voigt_fitter_v2(spectrum_index, flag) {
@@ -4391,7 +4286,7 @@ function run_Voigt_fitter_v2(spectrum_index, flag) {
         const region_peak_cannot_move_flag = Int32Array.from(region.cannotMove);
 
         const payload = {
-            webassembly_job: "peak_fitter_region_v2",
+            [WEBASSEMBLY_JOB_KEY]: "peak_fitter_region_v2",
             spectrum_index: spectrum_index,
             cluster_counter: i,
             total_jobs: regions.length,
@@ -4426,7 +4321,7 @@ function run_Voigt_fitter_v2(spectrum_index, flag) {
             removal_cutoff: combine_peak_cutoff,
         };
 
-        webassembly_1d_worker_2.postMessage(payload, [
+        webassembly_worker.postMessage(payload, [
             spectParts.buffer, aas.buffer, xx.buffer, yy.buffer,
             sx.buffer, sy.buffer, gx.buffer, gy.buffer,
             ori_index.buffer, region_peak_cannot_move_flag.buffer

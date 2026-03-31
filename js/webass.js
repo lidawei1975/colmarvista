@@ -37,6 +37,15 @@ Module['print'] = function (text) {
 out = Module['print'];
 err = Module['print'];
 
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
+
+function getWebassemblyJob(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
+
 function runProcessFidLegacy(e) {
     console.log('Falling back to legacy process_fid workflow');
 
@@ -198,7 +207,7 @@ function runProcessFidLegacy(e) {
     }
 
     postMessage({
-        webassembly_job: e.data.webassembly_job,
+        [WEBASSEMBLY_JOB_KEY]: webassembly_job,
         file_data: file_data,
         file_type: 'full',
         pseudo3d_files: pseudo3d_files,
@@ -211,13 +220,14 @@ function runProcessFidLegacy(e) {
 }
 
 onmessage = async function (e) {
+    const webassembly_job = getWebassemblyJob(e.data);
     console.log('Message received from main script');
     
     /**
      * NUS step2 with class-based bindings.
      * Input is one FT2 buffer from NUS reconstruction, then run indirect-only processing.
      */
-    if (e.data.webassembly_job === "nus_step2") {
+    if (webassembly_job === "nus_step2") {
         console.log('File data received for indirect processing');
 
         try {
@@ -302,7 +312,7 @@ onmessage = async function (e) {
             }
 
             postMessage({
-                webassembly_job: e.data.webassembly_job,
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
                 file_type: 'indirect',
                 phasing_data: phase_correction,
@@ -320,7 +330,7 @@ onmessage = async function (e) {
      * NUS step1 with class-based bindings.
      * Input is Bruker files + nus list, then run direct-only processing.
      */
-    if (e.data.webassembly_job === "nus_step1") {
+    if (webassembly_job === "nus_step1") {
         console.log('File data received for NUS processing');
 
         try {
@@ -491,7 +501,7 @@ onmessage = async function (e) {
             }
 
             postMessage({
-                webassembly_job: e.data.webassembly_job,
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
                 file_type: 'direct',
                 phasing_data: phase_correction,
@@ -508,7 +518,7 @@ onmessage = async function (e) {
     /**
      * Class-based full FID processing using webdp1d_cpp bindings.
      */
-    if (e.data.webassembly_job === "process_fid") {
+    if (webassembly_job === "process_fid") {
         console.log('File data received');
 
         try {
@@ -728,7 +738,7 @@ onmessage = async function (e) {
         }
 
         postMessage({
-            webassembly_job: e.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             file_data: file_data,
             file_type: 'full',
             pseudo3d_files: pseudo3d_files,
@@ -749,7 +759,7 @@ onmessage = async function (e) {
     /**
      * If the message contains both spectrum_data and picked_peaks, call voigt_fit function
      */
-    else if (e.data.webassembly_job === "peak_fitter") {
+    else if (webassembly_job === "peak_fitter") {
         console.log('Spectrum data and picked peaks received');
         /**
          * Save the spectrum data and picked peaks to the virtual file system
@@ -826,7 +836,7 @@ onmessage = async function (e) {
         console.log('File data read from virtual file system, type of file_data:', typeof file_data, ' and length:', file_data.length);
         FS.unlink(filename);
         postMessage({
-            webassembly_job: e.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             fitted_peaks: peaks,
             fitted_peaks_tab: peaks_tab, //peaks_tab is a very long string with multiple lines (in nmrPipe tab format)
             spectrum_origin: e.data.spectrum_index, //pass through the spectrum index of the original spectrum (run peak fitting and recon on)
@@ -841,7 +851,7 @@ onmessage = async function (e) {
      * initial_peaks and all_files are received, run pseudo-3D fitting using api.voigt_fit
      * 
      */
-    else if (e.data.webassembly_job === "pseudo3d_fitting") {
+    else if (webassembly_job === "pseudo3d_fitting") {
         console.log('Initial peaks and all files received');
 
         try {
@@ -870,19 +880,19 @@ onmessage = async function (e) {
 
                 const fittedRows = [];
                 let completedRegions = 0;
-                postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
                 for (let clusterId = 0; clusterId < regions.length; clusterId++) {
                     const region = regions[clusterId];
                     if (!region) {
                         completedRegions++;
-                        postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                        postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
                         continue;
                     }
 
                     const nspect = parseInt(region.nspectra, 10) || 0;
                     if (nspect <= 0) {
                         completedRegions++;
-                        postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                        postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
                         continue;
                     }
 
@@ -973,7 +983,7 @@ onmessage = async function (e) {
                     }
 
                     completedRegions++;
-                    postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                    postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
                 }
 
                 if (fittedRows.length === 0) {
@@ -1044,7 +1054,7 @@ onmessage = async function (e) {
                 }
 
                 postMessage({
-                    webassembly_job: e.data.webassembly_job,
+                    [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                     pseudo3d_fitted_peaks_tab: peaksTab,
                     all_spectra_indices: e.data.all_spectra_indices,
                 });
@@ -1060,7 +1070,7 @@ onmessage = async function (e) {
          */
     }
 
-    else if(e.data.webassembly_job === "assignment") {
+    else if(webassembly_job === "assignment") {
         console.log('Assignment and fitted peaks tab received');
         /**
          * Save the assignment to the virtual file system
@@ -1100,14 +1110,14 @@ onmessage = async function (e) {
         postMessage({
             matched_peaks_tab: matched_peaks_tab,
             assignment: assignment,
-            webassembly_job: e.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
         });
     }
 
     /**
      * Run spin optimization
      */
-    else if(e.data.webassembly_job === "spin_optimization")
+    else if(webassembly_job === "spin_optimization")
     {
         console.log('spin optimization data received');
         /**
@@ -1144,12 +1154,13 @@ onmessage = async function (e) {
         let spin_system = FS.readFile('spin_system.txt', { encoding: 'utf8' });
         FS.unlink('spin_system.txt');
         postMessage({
-            webassembly_job: e.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             spin_system: spin_system,//long string with multiple lines
         });
     }
 
 }
+
 
 
 
