@@ -933,12 +933,13 @@ function run_pseudo3d(flag) {
 
     /**
      * Check all spectra, collect the ones that are experimental
-     * Save their header and raw data like this: 
+     * Save their header and raw data like this:
      * Combine hsqc_spectra[index].raw_data and hsqc_spectra[index].header into one Float32Array
      * Convert to Uint8Array to be transferred to the worker: let data_uint8 = new Uint8Array(data.buffer);
      */
     let all_files = [];
     let all_spectra_indices = [];
+    let all_spectra_raw_data = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (hsqc_spectra[i].spectrum_origin === -1 || hsqc_spectra[i].spectrum_origin === -2 || hsqc_spectra[i].spectrum_origin >= 10000) {
             let data = new Float32Array(hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length);
@@ -956,6 +957,49 @@ function run_pseudo3d(flag) {
             let data_uint8 = new Uint8Array(data.buffer);
             all_files.push(data_uint8);
             all_spectra_indices.push(i);
+            all_spectra_raw_data.push(hsqc_spectra[i].raw_data);
+        }
+    }
+
+    let pseudo3d_regions = null;
+    let peak_comments = [];
+    let peak_xppm = [];
+    let peak_yppm = [];
+
+    if (typeof SpectrumFitter !== "undefined") {
+        try {
+            let peaks_for_partition = new cpeaks();
+            peaks_for_partition.process_peaks_tab(initial_peaks);
+
+            peak_comments = peaks_for_partition.get_column_by_header("ASS");
+            peak_xppm = peaks_for_partition.get_column_by_header("X_PPM");
+            peak_yppm = peaks_for_partition.get_column_by_header("Y_PPM");
+
+            let reference_spectrum = hsqc_spectra[all_spectra_indices[0]];
+            let pseudo3d_spectrum = {
+                spectra: all_spectra_raw_data,
+                n_direct: reference_spectrum.n_direct,
+                n_indirect: reference_spectrum.n_indirect,
+                x_ppm_start: reference_spectrum.x_ppm_start,
+                y_ppm_start: reference_spectrum.y_ppm_start,
+                x_ppm_step: reference_spectrum.x_ppm_step,
+                y_ppm_step: reference_spectrum.y_ppm_step,
+                noise_level: hsqc_spectra[current_spectrum_index_of_peaks].noise_level,
+            };
+
+            let peak_shape = flag === 0 ? 2 : 1;
+            let fitter = new SpectrumFitter(null);
+            pseudo3d_regions = fitter.prepareRegionsForWorker(pseudo3d_spectrum, peaks_for_partition, {
+                userScale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
+                maxround: max_round,
+                peakShape: peak_shape,
+            });
+
+            console.log("Pseudo3D partition prepared on main thread. Regions:", pseudo3d_regions ? pseudo3d_regions.length : 0);
+        }
+        catch (partitionError) {
+            console.log("Pseudo3D main-thread partition failed, worker may fall back:", partitionError);
+            pseudo3d_regions = null;
         }
     }
 
@@ -968,7 +1012,12 @@ function run_pseudo3d(flag) {
     /**
      * Show the processing message to let user know the fitting is running
      */
-    document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait...";
+    if (Array.isArray(pseudo3d_regions) && pseudo3d_regions.length > 0) {
+        document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait... 0/" + pseudo3d_regions.length;
+    }
+    else {
+        document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait...";
+    }
 
     /**
      * Send the initial peaks, all_files to the worker
@@ -985,6 +1034,10 @@ function run_pseudo3d(flag) {
         maxround: max_round,
         with_error: with_error,
         with_recon: with_recon,
+        regions: pseudo3d_regions,
+        peak_comments: peak_comments,
+        peak_xppm: peak_xppm,
+        peak_yppm: peak_yppm,
     });
 }
 
@@ -1243,6 +1296,14 @@ webassembly_worker.onmessage = function (e) {
      * e.data.stdout is defined but empty, it is the end of the processing message
      */
     else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
+    }
+
+    else if (e.data.webassembly_job === "pseudo3d_progress") {
+        const done = Number.isFinite(Number(e.data.done)) ? Number(e.data.done) : 0;
+        const total = Number.isFinite(Number(e.data.total)) ? Number(e.data.total) : 0;
+        if (total > 0) {
+            document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait... " + done + "/" + total;
+        }
     }
 
     /**

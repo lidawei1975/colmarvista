@@ -842,6 +842,236 @@ onmessage = async function (e) {
     else if (e.data.webassembly_job === "pseudo3d_fitting") {
         console.log('Initial peaks and all files received');
 
+        // Prefer class-based pseudo3D fitting when recon/error outputs are not requested.
+        if (e.data.with_recon !== true && e.data.with_error !== true) {
+            try {
+                const ModuleCpp = await cppModulePromise;
+
+                const toFloatOr = function (value, fallback) {
+                    const parsed = parseFloat(value);
+                    return Number.isFinite(parsed) ? parsed : fallback;
+                };
+
+                const regions = Array.isArray(e.data.regions) ? e.data.regions : [];
+                if (regions.length === 0) {
+                    throw new Error('No pre-partitioned pseudo3D regions provided from main thread');
+                }
+
+                const peakComments = Array.isArray(e.data.peak_comments) ? e.data.peak_comments : [];
+                const peakXppm = Array.isArray(e.data.peak_xppm) ? e.data.peak_xppm : [];
+                const peakYppm = Array.isArray(e.data.peak_yppm) ? e.data.peak_yppm : [];
+
+                const defaultNoise = toFloatOr(e.data.noise_level, 1.0);
+                const defaultScale2 = toFloatOr(e.data.scale2, 3.0);
+                const defaultPeakShape = e.data.flag === 0 ? 2 : 1; // 2: voigt, 1: gaussian
+                const defaultMaxround = parseInt(e.data.maxround, 10) || 20;
+
+                const fittedRows = [];
+                let completedRegions = 0;
+                postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                for (let clusterId = 0; clusterId < regions.length; clusterId++) {
+                    const region = regions[clusterId];
+                    if (!region) {
+                        completedRegions++;
+                        postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                        continue;
+                    }
+
+                    const nspect = parseInt(region.nspectra, 10) || 0;
+                    if (nspect <= 0) {
+                        completedRegions++;
+                        postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                        continue;
+                    }
+
+                    const surfaceVec = new ModuleCpp.VectorDouble();
+                    const xVec = new ModuleCpp.VectorDouble();
+                    const yVec = new ModuleCpp.VectorDouble();
+                    const aVec = new ModuleCpp.VectorDouble();
+                    const sxVec = new ModuleCpp.VectorDouble();
+                    const syVec = new ModuleCpp.VectorDouble();
+                    const gxVec = new ModuleCpp.VectorDouble();
+                    const gyVec = new ModuleCpp.VectorDouble();
+                    const originalNdxVec = new ModuleCpp.VectorInt();
+                    const cannotMoveVec = new ModuleCpp.VectorInt();
+
+                    try {
+                        const surface = region.surface || [];
+                        const xx = region.x || [];
+                        const yy = region.y || [];
+                        const aas = region.amp || [];
+                        const sx = region.sigmax || [];
+                        const sy = region.sigmay || [];
+                        const gx = region.gammax || [];
+                        const gy = region.gammay || [];
+                        const ori = region.originalNdx || [];
+                        const cannotMove = region.cannotMove || [];
+
+                        for (let i = 0; i < surface.length; i++) {
+                            surfaceVec.push_back(surface[i]);
+                        }
+                        for (let i = 0; i < xx.length; i++) {
+                            xVec.push_back(xx[i]);
+                        }
+                        for (let i = 0; i < yy.length; i++) {
+                            yVec.push_back(yy[i]);
+                        }
+                        for (let i = 0; i < aas.length; i++) {
+                            aVec.push_back(aas[i]);
+                        }
+                        for (let i = 0; i < sx.length; i++) {
+                            sxVec.push_back(sx[i]);
+                        }
+                        for (let i = 0; i < sy.length; i++) {
+                            syVec.push_back(sy[i]);
+                        }
+                        for (let i = 0; i < gx.length; i++) {
+                            gxVec.push_back(gx[i]);
+                        }
+                        for (let i = 0; i < gy.length; i++) {
+                            gyVec.push_back(gy[i]);
+                        }
+                        for (let i = 0; i < ori.length; i++) {
+                            originalNdxVec.push_back(ori[i]);
+                        }
+                        for (let i = 0; i < cannotMove.length; i++) {
+                            cannotMoveVec.push_back(cannotMove[i]);
+                        }
+
+                        const fitter = new ModuleCpp.gaussian_fit();
+                        try {
+                            const peakShape = parseInt(region.peakShape, 10) || defaultPeakShape;
+                            const maxround = parseInt(region.maxround, 10) || defaultMaxround;
+                            const localClusterId = parseInt(region.clusterLocalIndex, 10);
+                            fitter.set_everything_wasm(peakShape, maxround, Number.isFinite(localClusterId) ? localClusterId : clusterId);
+
+                            const okInit = fitter.init(
+                                parseInt(region.xstart, 10) || 0,
+                                parseInt(region.ystart, 10) || 0,
+                                parseInt(region.xdim, 10) || 0,
+                                parseInt(region.ydim, 10) || 0,
+                                nspect,
+                                surfaceVec,
+                                xVec,
+                                yVec,
+                                aVec,
+                                sxVec,
+                                syVec,
+                                gxVec,
+                                gyVec,
+                                originalNdxVec,
+                                cannotMoveVec,
+                                toFloatOr(region.medianWidthX, 3.0),
+                                toFloatOr(region.medianWidthY, 3.0)
+                            );
+
+                            if (!okInit) {
+                                continue;
+                            }
+
+                            const paras = region.peakParas || {};
+                            fitter.set_peak_paras(
+                                toFloatOr(paras.wx, 6.0),
+                                toFloatOr(paras.wy, 6.0),
+                                toFloatOr(paras.noise, defaultNoise),
+                                toFloatOr(paras.minHeight, defaultNoise * defaultScale2),
+                                toFloatOr(paras.tooNearCutoff, 0.2),
+                                toFloatOr(paras.xppmStep, 1.0),
+                                toFloatOr(paras.yppmStep, 1.0),
+                                toFloatOr(paras.removalCutoff, 0.1)
+                            );
+
+                            if (!fitter.run(1)) {
+                                continue;
+                            }
+
+                            const nround = fitter.get_nround();
+                            for (let i = 0; i < fitter.npeak; i++) {
+                                const originalNdx = fitter.original_ndx.get(i);
+                                fittedRows.push({
+                                    originalNdx: originalNdx,
+                                    xAxis1: fitter.x.get(i) + fitter.xstart + 1.0,
+                                    yAxis1: fitter.y.get(i) + fitter.ystart + 1.0,
+                                    height: fitter.amp.get(i * nspect),
+                                    dheight: fitter.err.get(i),
+                                    sigmax: fitter.sigmax.get(i),
+                                    sigmay: fitter.sigmay.get(i),
+                                    gammax: fitter.gammax.get(i),
+                                    gammay: fitter.gammay.get(i),
+                                    nround: nround,
+                                    clusterId: Number.isFinite(localClusterId) ? localClusterId : clusterId,
+                                });
+                            }
+                        }
+                        finally {
+                            fitter.delete();
+                        }
+                    }
+                    finally {
+                        surfaceVec.delete();
+                        xVec.delete();
+                        yVec.delete();
+                        aVec.delete();
+                        sxVec.delete();
+                        syVec.delete();
+                        gxVec.delete();
+                        gyVec.delete();
+                        originalNdxVec.delete();
+                        cannotMoveVec.delete();
+                    }
+
+                    completedRegions++;
+                    postMessage({ webassembly_job: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                }
+
+                if (fittedRows.length === 0) {
+                    throw new Error('No fitted peaks returned from partitioned class fitting');
+                }
+
+                fittedRows.sort(function (a, b) {
+                    return a.originalNdx - b.originalNdx;
+                });
+
+                let peaksTab = 'VARS INDEX X_AXIS Y_AXIS X_PPM Y_PPM HEIGHT DHEIGHT ASS CLUSTID SIGMAX SIGMAY GAMMAX GAMMAY NROUND\n';
+                peaksTab += 'FORMAT %5d %9.3f %9.3f %10.6f %10.6f %+e %+e %s %4d %f %f %f %f %4d\n';
+
+                for (let i = 0; i < fittedRows.length; i++) {
+                    const row = fittedRows[i];
+                    const comment = String(peakComments[row.originalNdx] || ('peaks' + (row.originalNdx + 1).toString()));
+                    const xppm = toFloatOr(peakXppm[row.originalNdx], row.xAxis1);
+                    const yppm = toFloatOr(peakYppm[row.originalNdx], row.yAxis1);
+                    peaksTab += [
+                        (i + 1).toString(),
+                        row.xAxis1.toFixed(3),
+                        row.yAxis1.toFixed(3),
+                        xppm.toFixed(6),
+                        yppm.toFixed(6),
+                        Number(row.height).toExponential(6),
+                        Number(row.dheight).toExponential(6),
+                        comment,
+                        row.clusterId.toString(),
+                        Number(row.sigmax).toFixed(6),
+                        Number(row.sigmay).toFixed(6),
+                        Number(row.gammax).toFixed(6),
+                        Number(row.gammay).toFixed(6),
+                        row.nround.toString()
+                    ].join(' ') + '\n';
+                }
+
+                postMessage({
+                    webassembly_job: e.data.webassembly_job,
+                    pseudo3d_fitted_peaks_tab: peaksTab,
+                    fitted_err: [],
+                    recon_files: [],
+                    all_spectra_indices: e.data.all_spectra_indices,
+                });
+                return;
+            }
+            catch (classError) {
+                postMessage({ stdout: 'Class-based pseudo3D fitting failed, falling back to legacy voigt_fit path: ' + (classError && classError.message ? classError.message : String(classError)) });
+            }
+        }
+
         Module['FS_createDataFile']('/', 'peaks.tab',e.data.initial_peaks, true, true, true);
 
         /**
