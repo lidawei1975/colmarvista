@@ -344,6 +344,11 @@ class spectrum {
 
         this.header = new Float32Array(arrayBuffer, 0, 512);
 
+        this.dimorder1 = this.header[24];
+        this.dimorder2 = this.header[25];
+        this.dimorder3 = this.header[26];
+        this.dimorder4 = this.header[27];
+
         this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (FDSPECNUM)
         this.n_direct = this.header[99]; //size of direct dimension of the input spectrum (FDSIZE)
         this.n_indirect2 = this.header[15]; //size of indirect dimension of the input spectrum (FDF3SIZE)
@@ -355,17 +360,29 @@ class spectrum {
          */
         if (this.tp !== 0) {
             this.error = "Transposed data, please un-transpose the data before loading";
-            return result;
+            return null;
         }
+
+        /** 
+         * We expect dimorder1 = 2, dimorder2 = 1, dimorder3 = 3,
+         * or  expect dimorder1 = 2, dimorder2 = 3, dimorder3 = 1
+         */
+        if ((this.dimorder1 !== 2 || this.dimorder2 !== 1 || this.dimorder3 !== 3) &&
+            (this.dimorder1 !== 2 || this.dimorder2 !== 3 || this.dimorder3 !== 1)) {
+            this.error = "Dimension order is not as expected";
+            return null;
+        }
+
+        this.data_types = [this.header[55], this.header[56], this.header[51], this.header[54]];
 
         /**
          * Datatype of the direct and indirect dimension
          * 0: complex
          * 1: real
          */
-        this.datatype_direct = this.header[56];
-        this.datatype_indirect = this.header[55];
-        this.datatype_indirect2 = this.header[50];
+        this.datatype_direct = this.data_types[this.dimorder1 - 1];
+        this.datatype_indirect = this.data_types[this.dimorder2 - 1];
+        this.datatype_indirect2 = this.data_types[this.dimorder3 - 1];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
@@ -384,39 +401,15 @@ class spectrum {
         else if (this.datatype_direct == 1 && this.datatype_indirect == 1) {
             console.log("Real data along both dimensions.");
         }
-        console.log("datatype_indirect2: ", this.datatype_indirect2);
 
         console.log("n_direct: ", this.n_direct);
         console.log("n_indirect: ", this.n_indirect);
 
-        this.direct_ndx = this.header[24]; //must be 2
-        this.indirect_ndx = this.header[25]; //must be 1 or 3
-        this.indirect_ndx2 = this.header[26]; //must be 1 or 3, not the same as indirect_ndx
-        /**
-         * direct_ndx must be 1, otherwise set error and return
-         */
-        if (this.direct_ndx !== 2) {
-            this.error = "Direct dimension must be the second dimension";
-            return result;
-        }
-        /**
-         * indirect_ndx must be 1 or 3, otherwise set error and return
-         */
-        if (this.indirect_ndx !== 1 && this.indirect_ndx !== 3) {
-            this.error = "Indirect dimension must be the first or third dimension";
-            return result;
-        }
-        /**
-         * indirect_ndx2 must be 1 or 3, not the same as indirect_ndx, otherwise set error and return
-         */
-        if (this.indirect_ndx2 !== 1 && this.indirect_ndx2 !== 3) {
-            this.error = "Indirect dimension must be the first or third dimension";
-            return result;
-        }
-        if (this.indirect_ndx === this.indirect_ndx2) {
-            this.error = "Indirect dimension must be the first or third dimension";
-            return result;
-        }
+        this.direct_ndx = this.dimorder1;
+        this.indirect_ndx = this.dimorder2;
+        this.indirect_ndx2 = this.dimorder3;
+
+
         /**
          * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
          * All are array of length 4
