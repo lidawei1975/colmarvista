@@ -42,7 +42,7 @@ onmessage = function (e) {
          */
         let nuslist_as_string = e.data.nuslist_as_string;
         let nuslist_as_string_values = nuslist_as_string.trim().split(/\s+/);
-        let xT = (parseInt(nuslist_as_string_values[nuslist_as_string_values.length - 1])+1) * 2;
+        let xT = (parseInt(nuslist_as_string_values[nuslist_as_string_values.length - 1])+1);
 
         /**
          * write the command file "arguments_nus_pipe.txt"

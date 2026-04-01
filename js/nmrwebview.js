@@ -12,20 +12,34 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2, webassembly_1d_worker_2;
+var my_contour_worker, webassembly_worker, webassembly_worker2;
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
+function get_webassembly_job_flag(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
 try {
     my_contour_worker = new Worker('./js/contour.js');
-    webassembly_worker = new Worker('./js/webass.js');
+    webassembly_worker = new Worker('./js/webass1d_2.js');
     webassembly_worker2 = new Worker('./js/webass2.js');
-    webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
+
+function clear_webassembly_message_after_delay(delay_ms = 5000) {
+    window.setTimeout(function () {
+        const message_div = document.getElementById("webassembly_message");
+        if (message_div) {
+            message_div.innerText = "";
+        }
+    }, delay_ms);
+}
 }
 catch (err) {
     console.log(err);
     if (typeof (my_contour_worker) === "undefined"
         || typeof (webassembly_worker) === "undefined"
-        || typeof (webassembly_worker2) === "undefined"
-        || typeof (webassembly_1d_worker_2) === "undefined") {
+        || typeof (webassembly_worker2) === "undefined") {
         alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
@@ -55,6 +69,7 @@ var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estima
  */
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
+var nuslist_as_string = "";
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -89,35 +104,30 @@ var oOutput;
  */
 var current_phase_correction = [0, 0, 0, 0];
 
-
-
-
 var hsqc_spectra = []; //array of hsqc spectra
 
 let draggedItem = null;
-
 
 /**
  * Default color list for the contour plot (15 colors, repeat if more than 15 spectra)
  */
 var color_list = [
-    [0, 0, 1, 1.0], //blue
-    [1, 0, 0, 1.0], //red
-    [0, 1, 0, 1.0], //green
-    [1, 1, 0, 1.0], //yellow
-    [0, 1, 1, 1.0], //cyan
-    [1, 0, 1, 1.0], //magenta
-    [0, 0, 0, 1.0], //black
-    [0.5, 0.5, 0.5, 1.0], //gray
-    [1, 0.5, 0.5, 1.0], //pink
-    [0.5, 1, 0.5, 1.0], //light green
-    [0.5, 0.5, 1, 1.0], //light blue
-    [1, 0.5, 1, 1.0], //light magenta
-    [1, 1, 0.5, 1.0], //light yellow
-    [0.5, 1, 1, 1.0], //light cyan
-    [0.5, 0.5, 0.5, 1.0], //light gray
+    [0, 0, 1, 1.0],
+    [1, 0, 0, 1.0],
+    [0, 1, 0, 1.0],
+    [1, 1, 0, 1.0],
+    [0, 1, 1, 1.0],
+    [1, 0, 1, 1.0],
+    [0, 0, 0, 1.0],
+    [0.5, 0.5, 0.5, 1.0],
+    [1, 0.5, 0.5, 1.0],
+    [0.5, 1, 0.5, 1.0],
+    [0.5, 0.5, 1, 1.0],
+    [1, 0.5, 1, 1.0],
+    [1, 1, 0.5, 1.0],
+    [0.5, 1, 1, 1.0],
+    [0.5, 0.5, 0.5, 1.0],
 ];
-
 
 /**
  * Read a file as array buffer
@@ -126,7 +136,6 @@ var color_list = [
  */
 const read_file = (file) => {
     return new Promise((resolve, reject) => {
-
         var reader = new FileReader();
         reader.onload = function () {
             return resolve(reader.result);
@@ -136,14 +145,13 @@ const read_file = (file) => {
         };
         reader.readAsArrayBuffer(file);
     });
-}
+};
 
 /**
  * Read a file as text
  */
 const read_file_text = (file) => {
     return new Promise((resolve, reject) => {
-
         var reader = new FileReader();
         reader.onload = function () {
             return resolve(reader.result);
@@ -153,7 +161,7 @@ const read_file_text = (file) => {
         };
         reader.readAsText(file);
     });
-}
+};
 
 
 
@@ -212,6 +220,7 @@ $(document).ready(function () {
         .files_id(["acquisition_file2", "acquisition_file2", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
+        .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
     // Tutorial Implementation
@@ -320,25 +329,7 @@ $(document).ready(function () {
             return;
         }
 
-        /**
-         * Read the file (text file) then send it to the worker, together with the current spectrum's fitted_peaks_tab
-         */
-        let file = document.getElementById('assignment_file').files[0];
-        if (file) {
-            var reader = new FileReader();
-            reader.onload = function () {
-                var data = reader.result;
-                webassembly_worker.postMessage({
-                    webassembly_job: "assignment",
-                    assignment: data,
-                    fitted_peaks_tab: pseudo3d_fitted_peaks_object.get_peaks_tab(),
-                });
-            };
-            reader.onerror = function (e) {
-                console.log("Error reading file");
-            };
-            reader.readAsText(file);
-        }
+        document.getElementById("webassembly_message").innerText = "Assignment transfer is under development.";
     });
 
 
@@ -496,10 +487,10 @@ $(document).ready(function () {
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
 
             /**
-             * Get HTML text input extract_direct_from and extract_direct_to. Input is in percentage
+             * Get HTML text input extract_direct_from and extract_direct_to in ppm.
              */
-            let extract_direct_from = parseFloat(document.getElementById("extract_direct_from").value) / 100.0;
-            let extract_direct_to = parseFloat(document.getElementById("extract_direct_to").value) / 100.0;
+            let extract_direct_from = parseFloat(document.getElementById("extract_direct_from").value);
+            let extract_direct_to = parseFloat(document.getElementById("extract_direct_to").value);
 
             /**
              * Get HTML text input apodization_indirect
@@ -542,7 +533,7 @@ $(document).ready(function () {
             }
 
             fid_process_parameters = {
-                webassembly_job: webassembly_job,
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 water_suppression: water_suppression,
                 polynomial: polynomial,
                 file_data: current_fid_files,
@@ -911,23 +902,16 @@ function run_pseudo3d(flag) {
      * Get input number "max_round" value (number type)
      */
     let max_round = parseInt(document.getElementById("max_round").value);
-    /**
-     * Get input checkbox "with_error" checked: true or false
-     */
-    let with_error = document.getElementById("with_error").checked;
-    /**
-     * Get input checkbox "with_recon" checked: true or false
-     */
-    let with_recon = document.getElementById("with_recon").checked;
 
     /**
      * Check all spectra, collect the ones that are experimental
-     * Save their header and raw data like this: 
+     * Save their header and raw data like this:
      * Combine hsqc_spectra[index].raw_data and hsqc_spectra[index].header into one Float32Array
      * Convert to Uint8Array to be transferred to the worker: let data_uint8 = new Uint8Array(data.buffer);
      */
     let all_files = [];
     let all_spectra_indices = [];
+    let all_spectra_raw_data = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (hsqc_spectra[i].spectrum_origin === -1 || hsqc_spectra[i].spectrum_origin === -2 || hsqc_spectra[i].spectrum_origin >= 10000) {
             let data = new Float32Array(hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length);
@@ -945,6 +929,57 @@ function run_pseudo3d(flag) {
             let data_uint8 = new Uint8Array(data.buffer);
             all_files.push(data_uint8);
             all_spectra_indices.push(i);
+            all_spectra_raw_data.push(hsqc_spectra[i].raw_data);
+        }
+    }
+
+    let pseudo3d_regions = null;
+    let peak_comments = [];
+    let peak_xppm = [];
+    let peak_yppm = [];
+
+    if (typeof SpectrumFitter !== "undefined") {
+        try {
+            let peaks_for_partition = new cpeaks();
+            peaks_for_partition.process_peaks_tab(initial_peaks);
+
+            peak_comments = peaks_for_partition.get_column_by_header("ASS");
+            peak_xppm = peaks_for_partition.get_column_by_header("X_PPM");
+            peak_yppm = peaks_for_partition.get_column_by_header("Y_PPM");
+
+            let reference_spectrum = hsqc_spectra[all_spectra_indices[0]];
+            let pseudo3d_spectrum = {
+                spectra: all_spectra_raw_data,
+                n_direct: reference_spectrum.n_direct,
+                n_indirect: reference_spectrum.n_indirect,
+                x_ppm_start: reference_spectrum.x_ppm_start,
+                y_ppm_start: reference_spectrum.y_ppm_start,
+                x_ppm_step: reference_spectrum.x_ppm_step,
+                y_ppm_step: reference_spectrum.y_ppm_step,
+                noise_level: hsqc_spectra[current_spectrum_index_of_peaks].noise_level,
+            };
+
+            // Keep peak-shape enum consistent with v2 worker path:
+            // 0=Gaussian, 1=Voigt, 3=Voigt-Lorentzian
+            let peak_shape = 1;
+            if (flag === 1) {
+                peak_shape = 0;
+            }
+            else if (flag === 2) {
+                peak_shape = 3;
+            }
+            let fitter = new SpectrumFitter(null);
+            pseudo3d_regions = fitter.prepareRegionsForWorker(pseudo3d_spectrum, peaks_for_partition, {
+                userScale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
+                maxround: max_round,
+                peakShape: peak_shape,
+            });
+
+            console.log("Pseudo3D partition prepared on main thread. Regions:", pseudo3d_regions ? pseudo3d_regions.length : 0);
+        }
+        catch (partitionError) {
+            console.log("Pseudo3D main-thread partition failed, worker may fall back:", partitionError);
+            pseudo3d_regions = null;
         }
     }
 
@@ -957,13 +992,18 @@ function run_pseudo3d(flag) {
     /**
      * Show the processing message to let user know the fitting is running
      */
-    document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait...";
+    if (Array.isArray(pseudo3d_regions) && pseudo3d_regions.length > 0) {
+        document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait... 0/" + pseudo3d_regions.length;
+    }
+    else {
+        document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait...";
+    }
 
     /**
      * Send the initial peaks, all_files to the worker
      */
     webassembly_worker.postMessage({
-        webassembly_job: "pseudo3d_fitting",
+        [WEBASSEMBLY_JOB_KEY]: "pseudo3d_fitting",
         initial_peaks: initial_peaks,
         all_files: all_files,
         all_spectra_indices: all_spectra_indices, //indices of the spectra in hsqc_spectra
@@ -972,8 +1012,10 @@ function run_pseudo3d(flag) {
         scale2: hsqc_spectra[current_spectrum_index_of_peaks].scale2,
         flag: flag, //0: voigt, 1: Gaussian
         maxround: max_round,
-        with_error: with_error,
-        with_recon: with_recon,
+        regions: pseudo3d_regions,
+        peak_comments: peak_comments,
+        peak_xppm: peak_xppm,
+        peak_yppm: peak_yppm,
     });
 }
 
@@ -997,53 +1039,104 @@ webassembly_worker2.onmessage = function (e) {
     else if (e.data.spectrum_data) {
         console.log("Processed smile spectrum data received");
         let spectrum_data = new Uint8Array(e.data.spectrum_data);
+
+        // Always pass primitive values to the worker to avoid cloning DOM objects.
+        const phaseCorrectionIndirectP0 = parseFloat(document.getElementById("phase_correction_indirect_p0").value);
+        const phaseCorrectionIndirectP1 = parseFloat(document.getElementById("phase_correction_indirect_p1").value);
+        const apodizationIndirectValue = document.getElementById("apodization_indirect").value;
+        const zfIndirectValue = document.getElementById("zf_indirect").value;
+
         /**
          * Send e.data.spectrum_data to webassembly_worker to process it
          */
         webassembly_worker.postMessage({
-            webassembly_job: "nus_step2",
+            [WEBASSEMBLY_JOB_KEY]: "nus_step2",
             file_data: [spectrum_data],
             spectrum_index: e.data.spectrum_index,
-            phase_correction_indirect_p0: phase_correction_indirect_p0,
-            phase_correction_indirect_p1: phase_correction_indirect_p1,
-            apodization_indirect: apodization_indirect,
-            zf_indirect: zf_indirect,
+            phase_correction_indirect_p0: phaseCorrectionIndirectP0,
+            phase_correction_indirect_p1: phaseCorrectionIndirectP1,
+            apodization_indirect: apodizationIndirectValue,
+            zf_indirect: zfIndirectValue,
             processing_flag: e.data.processing_flag,
         });
     }
 }
 
-webassembly_1d_worker_2.onmessage = function (e) {
-    /**
-     * if result is stdout, it is the processing message
-     */
-    if (e.data.stdout) {
-
-        /**
-         * Append e.data.stdout to textarea with ID "log"
-         * and add a new line
-         */
-        document.getElementById("log").value += e.data.stdout + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
-    /**
-     * e.data.stdout is defined but empty, it is the end of the processing message
-     */
-    else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
+function finalize_peak_fitter_v2_if_done(spectrum_index) {
+    if (!hsqc_spectra[spectrum_index]) {
+        return;
     }
 
-    /**
-     * If job is "gaussian_fitting"
-     */
-    else if (e.data.webassembly_job === "gaussian_fitting") {
-        console.log("Fitted peaks received from C++ worker");
-        let spectrum_index = e.data.spectrum_index;
-        hsqc_spectra[spectrum_index].process_gaussian_fitting_result(e.data);
+    const s = hsqc_spectra[spectrum_index];
+    const total = s.total_peak_fitting_jobs || 0;
+    const done = s.completed_peak_fitting_jobs || 0;
+    const failed = s.failed_peak_fitting_jobs || 0;
+
+    if (total <= 0 || done < total) {
+        return;
+    }
+
+    disable_enable_peak_buttons(spectrum_index, 1);
+
+    const has_fitted = s.fitted_peaks_object
+        && s.fitted_peaks_object.columns
+        && s.fitted_peaks_object.columns.length > 0
+        && s.fitted_peaks_object.columns[0].length > 0;
+
+    if (has_fitted) {
+        disable_enable_fitted_peak_buttons(spectrum_index, 1);
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).click();
+
+        if (!s.recon_generation_requested_v2) {
+            s.recon_generation_requested_v2 = true;
+            const fitted = s.fitted_peaks_object;
+
+            webassembly_worker.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: "generate_recon_spectrum_v2",
+                spectrum_index: spectrum_index,
+                xdim_local: s.n_direct,
+                ydim_local: s.n_indirect,
+                // Recon kernels expect fitted internal amp semantics, now stored in VOLUME.
+                inten: Float64Array.from(fitted.get_column_by_header("VOLUME")),
+                sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
+                sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
+                gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),
+                gammay: Float64Array.from(fitted.get_column_by_header("GAMMAY")),
+                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS")),
+                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS"))
+            });
+
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Generating reconstructed spectrum from fitted peaks...";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Generating reconstructed spectrum...";
+            }
+            return;
+        }
+
+        if (s.recon_generated_v2) {
+            if (failed > 0) {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s). Fitted peaks and reconstructed spectrum updated.";
+            }
+            else {
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
+            }
+            return;
+        }
+    }
+
+    if (failed > 0) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished with " + failed + " failed region(s).";
+    }
+    else if (!has_fitted) {
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. No fitted peaks found.";
     }
 }
 
-
 webassembly_worker.onmessage = function (e) {
+    const webassembly_job = get_webassembly_job_flag(e.data);
 
     /**
      * if result is stdout, it is the processing message
@@ -1061,6 +1154,115 @@ webassembly_worker.onmessage = function (e) {
      * e.data.stdout is defined but empty, it is the end of the processing message
      */
     else if (typeof e.data.stdout !== "undefined" && e.data.stdout === "") {
+    }
+
+    else if (e.data.error) {
+        document.getElementById("webassembly_message").innerText = e.data.error;
+        if (e.data.error.startsWith("peak_fitter_region_v2:")) {
+            document.getElementById("webassembly_message").innerText = "Peak fitting v2 error: " + e.data.error;
+            if (typeof e.data.spectrum_index !== "undefined" && hsqc_spectra[e.data.spectrum_index]) {
+                const s = hsqc_spectra[e.data.spectrum_index];
+                s.failed_peak_fitting_jobs = (s.failed_peak_fitting_jobs || 0) + 1;
+                s.completed_peak_fitting_jobs = Math.min(
+                    (s.completed_peak_fitting_jobs || 0) + 1,
+                    s.total_peak_fitting_jobs || 0
+                );
+                finalize_peak_fitter_v2_if_done(e.data.spectrum_index);
+            }
+        }
+        else if (e.data.error.startsWith("generate_recon_spectrum_v2:")) {
+            const idx = e.data.spectrum_index;
+            if (typeof idx !== "undefined" && hsqc_spectra[idx]) {
+                hsqc_spectra[idx].recon_generated_v2 = false;
+                document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks updated, but reconstructed spectrum generation failed.";
+            }
+        }
+    }
+
+    else if (webassembly_job === "peak_fitter_v2") {
+        let spectrum_index = e.data.spectrum_index;
+        hsqc_spectra[spectrum_index].process_peak_fitter_v2_result(e.data);
+
+        let done = hsqc_spectra[spectrum_index].completed_peak_fitting_jobs;
+        let total = hsqc_spectra[spectrum_index].total_peak_fitting_jobs;
+        if (total > 0 && done < total) {
+            document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... " + done + "/" + total;
+        }
+        finalize_peak_fitter_v2_if_done(spectrum_index);
+    }
+
+    else if (webassembly_job === "generate_recon_spectrum_v2") {
+        const spectrum_index = e.data.spectrum_index;
+        if (!hsqc_spectra[spectrum_index]) {
+            return;
+        }
+
+        const recon_raw_data = new Float32Array(e.data.recon_raw_data);
+        const source = hsqc_spectra[spectrum_index];
+        const expected_size = source.n_direct * source.n_indirect;
+
+        if (recon_raw_data.length !== expected_size) {
+            source.recon_generated_v2 = false;
+            document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Reconstructed spectrum size mismatch.";
+            return;
+        }
+
+        const header = new Float32Array(source.header);
+        header[55] = 1.0;
+        header[56] = 1.0;
+        header[99] = source.n_direct;
+        header[219] = source.n_indirect;
+
+        const ft2_data = Float32Concat(header, recon_raw_data);
+        const arrayBuffer = ft2_data.buffer.slice(0);
+
+        let result_spectrum_name = "recon-".concat(spectrum_index.toString(), ".ft2");
+        let result_spectrum = new spectrum();
+        result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, spectrum_index);
+
+        result_spectrum.header = source.header;
+        result_spectrum.noise_level = source.noise_level;
+        result_spectrum.levels = source.levels;
+        result_spectrum.negative_levels = source.negative_levels;
+        result_spectrum.spectral_max = source.spectral_max;
+        result_spectrum.spectral_min = source.spectral_min;
+        result_spectrum.picked_peaks_object = source.picked_peaks_object;
+        result_spectrum.fitted_peaks_object = source.fitted_peaks_object;
+        result_spectrum.scale = source.scale;
+        result_spectrum.scale2 = source.scale2;
+
+        draw_spectrum([result_spectrum], false, false);
+
+        source.recon_generated_v2 = true;
+        document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks and reconstructed spectrum updated.";
+        clear_webassembly_message_after_delay(5000);
+    }
+
+    else if (webassembly_job === "peak_picker_2d") {
+        let peaks = new cpeaks();
+        peaks.process_peaks_tab(e.data.picked_peaks_tab);
+        hsqc_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
+
+        hsqc_spectra[e.data.spectrum_index].fitted_peaks_object = null;
+        disable_enable_fitted_peak_buttons(e.data.spectrum_index, 0);
+
+        hsqc_spectra[e.data.spectrum_index].scale = e.data.scale;
+        hsqc_spectra[e.data.spectrum_index].scale2 = e.data.scale2;
+
+        disable_enable_peak_buttons(e.data.spectrum_index, 1);
+
+        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
+        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+
+        document.getElementById("webassembly_message").innerText = "";
+    }
+
+    else if (webassembly_job === "pseudo3d_progress") {
+        const done = Number.isFinite(Number(e.data.done)) ? Number(e.data.done) : 0;
+        const total = Number.isFinite(Number(e.data.total)) ? Number(e.data.total) : 0;
+        if (total > 0) {
+            document.getElementById("webassembly_message").innerText = "Running pseudo 3D fitting, please wait... " + done + "/" + total;
+        }
     }
 
     /**
@@ -1180,20 +1382,46 @@ webassembly_worker.onmessage = function (e) {
         document.getElementById("phase_correction_direct_p1").value = current_phase_correction[1];
 
         /**
+         * NUS step1 returns an ft2 buffer in Float32 format.
+         * Log payload and parsed header size information for debugging.
+         */
+        const directBytes = new Uint8Array(e.data.file_data);
+        const directFloats = new Float32Array(directBytes.buffer, directBytes.byteOffset, Math.floor(directBytes.byteLength / 4));
+        const headerFloats = directFloats.subarray(0, Math.min(512, directFloats.length));
+        const nDirectFromHeader = headerFloats.length > 99 ? Math.round(headerFloats[99]) : NaN;
+        const nIndirectFromHeader = headerFloats.length > 219 ? Math.round(headerFloats[219]) : NaN;
+        const payloadFloats = Math.max(0, directFloats.length - 512);
+        const expectedPayloadFloats = Number.isFinite(nDirectFromHeader) && Number.isFinite(nIndirectFromHeader)
+            ? nDirectFromHeader * nIndirectFromHeader
+            : NaN;
+
+        console.log('[NUS step1] Received direct file_data (Float32 ft2):', {
+            byteLength: directBytes.byteLength,
+            float32Count: directFloats.length,
+            headerFloat32Count: headerFloats.length,
+            payloadFloat32Count: payloadFloats,
+            n_direct_header99: nDirectFromHeader,
+            n_indirect_header219: nIndirectFromHeader,
+            expectedPayloadFloat32Count: expectedPayloadFloats,
+            datatype_direct_header55: headerFloats.length > 55 ? headerFloats[55] : NaN,
+            datatype_indirect_header56: headerFloats.length > 56 ? headerFloats[56] : NaN,
+        });
+
+        /**
          * Send e.data.file_data as Unit8Array to webass2 (smile) work to process it.
          * Also need:
          * nuslist file as a string
          * apodization_direct as a string
          * indirect phase correction p0 and p1 as numbers
         */
-        let arrayBuffer = new Uint8Array(e.data.file_data);
+        let arrayBuffer = directBytes;
 
         webassembly_worker2.postMessage({
             spectrum_data: arrayBuffer,
             nuslist_as_string: nuslist_as_string, //saved as global variable
-            apodization_direct: apodization_direct, //saved as global variable
-            phase_correction_indirect_p0: phase_correction_indirect_p0,
-            phase_correction_indirect_p1: phase_correction_indirect_p1,
+            apodization_direct: fid_process_parameters.apodization_direct,
+            phase_correction_indirect_p0: fid_process_parameters.phase_correction_indirect_p0,
+            phase_correction_indirect_p1: fid_process_parameters.phase_correction_indirect_p1,
             /**
              * Pass the current spectrum index to the worker
              */
@@ -1260,13 +1488,21 @@ webassembly_worker.onmessage = function (e) {
         /**
          * Process additional ft2 files (send back from webass worker) in case of pseudo 3D processing
          */
-        for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
-            let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
-            let result_spectrum = new spectrum();
-            result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
-            result_spectra.push(result_spectrum);
+        if(typeof e.data.pseudo3d_files !== "undefined" && Array.isArray(e.data.pseudo3d_files))
+        {
+            console.log("Additional pseudo 3D ft2 files received:", e.data.pseudo3d_files.length);
+            for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
+                let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
+                let result_spectrum = new spectrum();
+                result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
+                result_spectra.push(result_spectrum);
+            }
+            draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
         }
-        draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
+        else
+        {
+            draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
+        }
         document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
 
         /**
@@ -1281,43 +1517,12 @@ webassembly_worker.onmessage = function (e) {
     }
 
     /**
-     * Only file_data and phase_correction. it is a phase corrected spectrum
-     */
-    else if (e.data.file_data && e.data.spectrum_name) {
-        console.log("Phase corrected spectrum received");
-        document.getElementById("webassembly_message").innerText = "";
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
-        let result_spectrum = new spectrum();
-        result_spectrum.process_ft_file(arrayBuffer, e.data.spectrum_name, -1);
-        result_spectrum.spectrum_index = e.data.spectrum_index;
-        draw_spectrum([result_spectrum], false/**from fid */, true/**re-process of fid or ft2 */);
-        document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
-        /**
-         * If e.data.b_auto is true. This is an automatic phase correction run. We need to update
-         * html element "pc_info" with the e.data.phase_correction (trim ending newline if it exists)
-         */
-        if (e.data.automatic_pc) {
-            document.getElementById("pc_info").innerText = "Phase correction: " + e.data.phase_correction.trim();
-        }
-    }
-
-    /**
      * If result is pseudo3d_fitted_peaks, it is from the pseudo 3D fitting
      */
     else if (e.data.pseudo3d_fitted_peaks_tab) {
         console.log("Pseudo 3D fitted peaks received");
         pseudo3d_fitted_peaks_object = new cpeaks();
         pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.pseudo3d_fitted_peaks_tab);
-
-        /**
-         * Process e.data.fitted_err (array of fitted_peaks_tab) and put them into pseudo3d_fitted_peaks_error
-         */
-        pseudo3d_fitted_peaks_error = []; //clear the previous fitted peaks error
-        for (let i = 0; i < e.data.fitted_err.length; i++) {
-            let peaks = new cpeaks();
-            peaks.process_peaks_tab(e.data.fitted_err[i]);
-            pseudo3d_fitted_peaks_error.push(peaks);
-        }
 
         /**
          * Enable the download fitted peaks button and show the fitted peaks button
@@ -1345,35 +1550,6 @@ webassembly_worker.onmessage = function (e) {
         document.getElementById("show_pseudo3d_peaks").click();
 
         /**
-         * Process all reconstructed spectra.
-         * e.data.recon_files is empty if no with_recon is selected when running pseudo 3D fitting
-         */
-        for (let i = 0; i < e.data.recon_files.length; i++) {
-            let arrayBuffer = new Uint8Array(e.data.recon_files[i]).buffer;
-            let result_spectrum_name = "pseudo3d-recon-".concat((i).toString(), ".ft2");
-            let result_spectrum = new spectrum();
-            result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, e.data.all_spectra_indices[i]);
-
-            result_spectrum.scale = e.data.scale;
-            result_spectrum.scale2 = e.data.scale2;
-
-            /**
-             * Replace its header with the header of the original spectrum
-             * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
-             */
-            result_spectrum.header = hsqc_spectra[e.data.all_spectra_indices[i]].header;
-            result_spectrum.noise_level = hsqc_spectra[e.data.all_spectra_indices[i]].noise_level;
-            result_spectrum.levels = hsqc_spectra[e.data.all_spectra_indices[i]].levels;
-            result_spectrum.negative_levels = hsqc_spectra[e.data.all_spectra_indices[i]].negative_levels;
-            result_spectrum.spectral_max = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_max;
-            result_spectrum.spectral_min = hsqc_spectra[e.data.all_spectra_indices[i]].spectral_min;
-
-            draw_spectrum([result_spectrum], false/**from fid */, false/**re-process of fid or ft2 */);
-            document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
-        }
-
-
-        /**
          * Clear the processing message
          */
         document.getElementById("webassembly_message").innerText = "";
@@ -1396,7 +1572,7 @@ webassembly_worker.onmessage = function (e) {
         pseudo3d_fitted_peaks_object.process_peaks_tab(e.data.matched_peaks_tab);
     }
 
-    else if (e.data.webassembly_job === "spin_optimization") {
+    else if (webassembly_job === "spin_optimization") {
         process_spin_optimization_result(e.data.spin_system);
     }
 
@@ -2001,7 +2177,7 @@ function add_to_list(index) {
             let index = parseInt(this.id.split("-")[1]);
             let run_voigt_fitter_select = document.getElementById("run_voigt_fitter_select-".concat(index));
             let option = parseInt(run_voigt_fitter_select.value);
-            run_Voigt_fitter(index, option);
+            run_Voigt_fitter_v2(index, option);
         };
         if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
             run_voigt_fitter_button0.disabled = true;
@@ -3937,24 +4113,74 @@ function run_DEEP_Picker(spectrum_index, flag) {
     let remove_t1_noise = document.getElementById("remove_t1_noise-" + spectrum_index).checked ? "yes" : "no";
 
     /**
-     * Add title to textarea "log"
+     * Flag: 0 = DEEP Picker (model 2), 1 = Simple local maxima picker
+     * Simple picker runs synchronously on main thread since it's very fast
      */
-    webassembly_worker.postMessage({
-        webassembly_job: "peak_picker",
-        spectrum_data: data_uint8,
-        spectrum_index: spectrum_index,
-        scale: scale,
-        scale2: scale2,
-        scale_negative: scale_negative,
-        scale2_negative: scale2_negative,
-        noise_level: noise_level,
-        remove_t1_noise: remove_t1_noise,
-        flag: flag //0: DEEP Picker, 1: Simple Picker
-    });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
+    if (flag === 1) {
+        // Simple local maxima peak picking - run directly on main thread
+        try {
+            const spectrum_meta = {
+                n_direct: hsqc_spectra[spectrum_index].n_direct,
+                n_indirect: hsqc_spectra[spectrum_index].n_indirect,
+                x_ppm_start: hsqc_spectra[spectrum_index].x_ppm_start,
+                x_ppm_step: hsqc_spectra[spectrum_index].x_ppm_step,
+                y_ppm_start: hsqc_spectra[spectrum_index].y_ppm_start,
+                y_ppm_step: hsqc_spectra[spectrum_index].y_ppm_step
+            };
+            const peaks_tab = simplePeakPickingWorker(data_uint8, noise_level, scale, spectrum_meta);
+            console.log('[run_DEEP_Picker] Simple picker returned tab, length:', peaks_tab.length);
+            
+            // Simulate worker callback to process results
+            let peaks = new cpeaks();
+            peaks.process_peaks_tab(peaks_tab);
+            console.log('[run_DEEP_Picker] Processed peaks. column_headers:', peaks.column_headers);
+            console.log('[run_DEEP_Picker] Peak columns:', peaks.columns.length > 0 ? 'has ' + peaks.columns[0].length + ' peaks' : 'empty');
+            
+            hsqc_spectra[spectrum_index].picked_peaks_object = peaks;
+
+            /**
+             * Reset fitted peaks when new picked peaks are received
+             */
+            hsqc_spectra[spectrum_index].fitted_peaks_object = null;
+            disable_enable_fitted_peak_buttons(spectrum_index, 0);
+
+            /**
+             * Save scale and scale2 used for picking (needed later for peak fitting)
+             */
+            hsqc_spectra[spectrum_index].scale = scale;
+            hsqc_spectra[spectrum_index].scale2 = scale2;
+
+            disable_enable_peak_buttons(spectrum_index, 1);
+
+            // Instead of using checkbox click which may have timing issues, 
+            // call show_hide_peaks directly and update checkbox
+            document.getElementById("show_peaks-".concat(spectrum_index)).checked = true;
+            show_hide_peaks(spectrum_index, 'picked', true);
+
+            document.getElementById("webassembly_message").innerText = "";
+        }
+        catch (error) {
+            console.error('Simple peak picking error:', error);
+            document.getElementById("webassembly_message").innerText = "Simple peak picking failed: " + error.message;
+            disable_enable_peak_buttons(spectrum_index, 1);
+        }
+    }
+    else {
+        // DEEP Picker - use web worker (slower but more sophisticated)
+        webassembly_worker.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "peak_picker_2d",
+            spectrum_data: data_uint8,
+            spectrum_index: spectrum_index,
+            scale: scale,
+            scale2: scale2,
+            scale_negative: scale_negative,
+            scale2_negative: scale2_negative,
+            noise_level: noise_level,
+            remove_t1_noise: remove_t1_noise,
+            flag: flag
+        });
+        document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
+    }
 
 }
 
@@ -3963,79 +4189,157 @@ function run_DEEP_Picker(spectrum_index, flag) {
  * @param {int} spectrum_index: index of the spectrum in hsqc_spectra array
  */
 function run_Voigt_fitter(spectrum_index, flag) {
-    /**
-     * Disable the buttons to run deep picker and voigt fitter
-     */
+    document.getElementById("webassembly_message").innerText = "Legacy peak fitter is removed. Please use Peak fitting (v2).";
+
+}
+
+/**
+ * v2 peak fitting workflow: partition 2D spectrum into regions and fit region-wise via webassembly_worker.
+ * Keep run_Voigt_fitter() for the legacy full-spectrum fitting path.
+ */
+function run_Voigt_fitter_v2(spectrum_index, flag) {
     disable_enable_peak_buttons(spectrum_index, 2);
     disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
-    /**
-     * Get maxround input field with ID "maxround-"+spectrum_index
-     */
     let maxround = parseInt(document.getElementById("maxround-" + spectrum_index).value);
-
-    /**
-     * Get number input field with ID "combine_peak_cutoff-"+spectrum_index
-     */
     let combine_peak_cutoff = parseFloat(document.getElementById("combine_peak_cutoff-" + spectrum_index).value);
 
-    /**
-     * Get subset of the picked peaks (within visible region)
-     * start < end from the get_visible_region function call
-     */
-    [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+    let selected_spectrum = hsqc_spectra[spectrum_index];
+    if (selected_spectrum === undefined || selected_spectrum.picked_peaks_object === null) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No picked peaks found for fitting.";
+        return;
+    }
 
-    /**
-     * Get a copy of the picked peaks, so that we can filter it
-     */
+    let [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+
     let picked_peaks_copy = new cpeaks();
-    picked_peaks_copy.copy_data(hsqc_spectra[spectrum_index].picked_peaks_object);
+    picked_peaks_copy.copy_data(selected_spectrum.picked_peaks_object);
     picked_peaks_copy.filter_by_column_range("X_PPM", x_ppm_visible_start, x_ppm_visible_end);
     picked_peaks_copy.filter_by_column_range("Y_PPM", y_ppm_visible_start, y_ppm_visible_end);
 
-    let picked_peaks_copy_tab = picked_peaks_copy.save_peaks_tab();
+    if (picked_peaks_copy.columns.length === 0 || picked_peaks_copy.columns[0].length === 0) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No picked peaks in current visible region.";
+        return;
+    }
 
+    // Keep assignment array aligned with filtered peaks for downstream result assembly.
+    selected_spectrum.peak_assignments = picked_peaks_copy.get_column_by_header("ASS");
 
-    /**
-     * Combine hsqc_spectra[spectrum_index].raw_data and hsqc_spectra[spectrum_index].header into one Float32Array
-     * Need to copy the header first, modify complex flag (doesn't hurt even when not necessary), then concatenate with raw_data
-     */
-    let header = new Float32Array(hsqc_spectra[spectrum_index].header);
-    header[55] = 1.0;
-    header[56] = 1.0;
-    header[219] = hsqc_spectra[spectrum_index].n_indirect; //size of indirect dimension of the input spectrum
-    /**
-     * Also set 
-     */
-    let data = Float32Concat(header, hsqc_spectra[spectrum_index].raw_data);
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
+    let peak_shape = 1; // Voigt
+    if (flag === 1) {
+        peak_shape = 0; // Gaussian
+    }
+    else if (flag === 2) {
+        peak_shape = 3; // Voigt_Lorentzian
+    }
 
-    webassembly_worker.postMessage({
-        webassembly_job: "peak_fitter",
-        spectrum_data: data_uint8,
-        picked_peaks: picked_peaks_copy_tab,
-        spectrum_index: spectrum_index,
-        combine_peak_cutoff: combine_peak_cutoff,
+    selected_spectrum.fitted_peaks_object = null;
+    selected_spectrum.total_peak_fitting_jobs = 0;
+    selected_spectrum.completed_peak_fitting_jobs = 0;
+    selected_spectrum.failed_peak_fitting_jobs = 0;
+    selected_spectrum.recon_generation_requested_v2 = false;
+    selected_spectrum.recon_generated_v2 = false;
+
+    if (typeof SpectrumFitter === "undefined") {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "Peak fitting v2 requires js/spectrum_fit.js to be loaded.";
+        return;
+    }
+
+    let xw = picked_peaks_copy.get_column_by_header("XW");
+    let yw = picked_peaks_copy.get_column_by_header("YW");
+    let median_width_x = xw.length > 0 ? mathTool.get_median(xw) : 3.0;
+    let median_width_y = yw.length > 0 ? mathTool.get_median(yw) : 3.0;
+    let wx = median_width_x * 1.6;
+    let wy = median_width_y * 1.6;
+
+    let scale2_for_v2 = Number.isFinite(selected_spectrum.scale2) ? selected_spectrum.scale2 : 3.0;
+    let scale_for_v2 = Number.isFinite(selected_spectrum.scale) ? selected_spectrum.scale : 5.5;
+
+    let fitter = new SpectrumFitter(null);
+    let regions = fitter.prepareRegionsForWorker(selected_spectrum, picked_peaks_copy, {
+        userScale2: scale2_for_v2,
+        tooNearCutoff: combine_peak_cutoff,
+        removalCutoff: combine_peak_cutoff,
         maxround: maxround,
-        flag: flag, //0: Voigt, 1: Gaussian, 2: Voigt_Lorentzian
-        scale: hsqc_spectra[spectrum_index].scale,
-        scale2: hsqc_spectra[spectrum_index].scale2,
-        noise_level: hsqc_spectra[spectrum_index].noise_level
+        peakShape: peak_shape,
     });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Run Peak fitting, please wait...";
 
+    if (!regions || regions.length === 0) {
+        disable_enable_peak_buttons(spectrum_index, 1);
+        document.getElementById("webassembly_message").innerText = "No fitting regions found in current visible area.";
+        return;
+    }
+
+    selected_spectrum.total_peak_fitting_jobs = regions.length;
+
+    for (let i = 0; i < regions.length; i++) {
+        const region = regions[i];
+        const spectParts = Float32Array.from(region.surface);
+        const aas = Float32Array.from(region.amp);
+        const xx = Float32Array.from(region.x);
+        const yy = Float32Array.from(region.y);
+        const sx = Float32Array.from(region.sigmax);
+        const sy = Float32Array.from(region.sigmay);
+        const gx = Float32Array.from(region.gammax);
+        const gy = Float32Array.from(region.gammay);
+        const ori_index = Int32Array.from(region.originalNdx);
+        const region_peak_cannot_move_flag = Int32Array.from(region.cannotMove);
+
+        const payload = {
+            [WEBASSEMBLY_JOB_KEY]: "peak_fitter_region_v2",
+            spectrum_index: spectrum_index,
+            cluster_counter: i,
+            total_jobs: regions.length,
+            peak_shape: peak_shape,
+            maxround: maxround,
+            peak_sign: region.peakSign,
+            min1: region.xstart,
+            min2: region.ystart,
+            size1: region.xdim,
+            size2: region.ydim,
+            nspect: region.nspectra,
+            spect_parts: spectParts,
+            xx: xx,
+            yy: yy,
+            aas: aas,
+            sx: sx,
+            sy: sy,
+            gx: gx,
+            gy: gy,
+            ori_index: ori_index,
+            region_peak_cannot_move_flag: region_peak_cannot_move_flag,
+            median_width_x: region.medianWidthX,
+            median_width_y: region.medianWidthY,
+            wx: wx,
+            wy: wy,
+            noise_level: selected_spectrum.noise_level,
+            user_scale2: scale2_for_v2,
+            scale: scale_for_v2,
+            step1: selected_spectrum.x_ppm_step,
+            step2: selected_spectrum.y_ppm_step,
+            too_near_cutoff: combine_peak_cutoff,
+            removal_cutoff: combine_peak_cutoff,
+        };
+
+        webassembly_worker.postMessage(payload, [
+            spectParts.buffer, aas.buffer, xx.buffer, yy.buffer,
+            sx.buffer, sy.buffer, gx.buffer, gy.buffer,
+            ori_index.buffer, region_peak_cannot_move_flag.buffer
+        ]);
+    }
+
+    document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... 0/" + regions.length;
 }
 
 /**
  * Show or hide peaks on the plot
  */
 function show_hide_peaks(index, flag, b_show) {
+    console.log('[show_hide_peaks] Called with index:', index, 'flag:', flag, 'b_show:', b_show);
+    
     /**
      * Disable main_plot.allow_brush_to_remove and checkbox:
      * allow_brush_to_remove
@@ -4184,6 +4488,17 @@ function show_hide_peaks(index, flag, b_show) {
                 document.getElementById("allow_click_to_add_peak").disabled = false;
             }
         }
+        
+        // Remove old peaks first before adding new ones
+        main_plot.remove_picked_peaks();
+        
+        console.log('[show_hide_peaks] Calling main_plot.add_peaks with flag:', flag, 'spectrum_index:', index);
+        console.log('[show_hide_peaks] picked_peaks_object:', hsqc_spectra[index].picked_peaks_object ? 'exists' : 'null');
+        if (hsqc_spectra[index].picked_peaks_object) {
+            console.log('[show_hide_peaks] column_headers:', hsqc_spectra[index].picked_peaks_object.column_headers);
+            console.log('[show_hide_peaks] columns:', hsqc_spectra[index].picked_peaks_object.columns.map(c => c.length + ' items'));
+        }
+        
         main_plot.add_peaks(hsqc_spectra[index], flag, ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
         update_label_select(['INDEX', 'HEIGHT']);
         color_map_list = ['HEIGHT'];
@@ -4264,6 +4579,14 @@ function run_dosy() {
      * Let user know DOSY result is ready
      */
     document.getElementById("dosy_result").textContent = dosy_result.message;
+
+    /**
+     * Redraw the peak table to show the updated DOSY and error columns
+     */
+    if (current_spectrum_index_of_peaks === -2) {
+        // Peak table is currently showing pseudo3D peaks, redraw it
+        show_peak_table();
+    }
 }
 
 /**
@@ -4458,49 +4781,153 @@ function apply_current_pc_or_auto_pc(flag) {
         document.getElementById("pc_info").innerText = "Phase correction: " + current_ps[0][0].toFixed(1) + " " + current_ps[0][1].toFixed(1) + " " + current_ps[1][0].toFixed(1) + " " + current_ps[1][1].toFixed(1);
     }
 
+    function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
+        const n_direct = spectrum_obj.n_direct;
+        const n_indirect = spectrum_obj.n_indirect;
+        const total_points = n_direct * n_indirect;
+
+        const has_ri = spectrum_obj.datatype_direct === 0 && spectrum_obj.raw_data_ri.length === total_points;
+        const has_ir = spectrum_obj.datatype_indirect === 0 && spectrum_obj.raw_data_ir.length === total_points;
+        const has_ii = has_ri && has_ir && spectrum_obj.raw_data_ii.length === total_points;
+
+        const p0_direct = phase_deg[0][0];
+        const p1_direct = phase_deg[0][1];
+        const p0_indirect = phase_deg[1][0];
+        const p1_indirect = phase_deg[1][1];
+
+        for (let ind = 0; ind < n_indirect; ind++) {
+            const cos_indirect = Math.cos((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+            const sin_indirect = Math.sin((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+
+            for (let f = 0; f < n_direct; f++) {
+                const idx = ind * n_direct + f;
+                const cos_direct = Math.cos((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+                const sin_direct = Math.sin((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+
+                let rr = spectrum_obj.raw_data[idx];
+                let ri = has_ri ? spectrum_obj.raw_data_ri[idx] : 0.0;
+                let ir = has_ir ? spectrum_obj.raw_data_ir[idx] : 0.0;
+                let ii = has_ii ? spectrum_obj.raw_data_ii[idx] : 0.0;
+
+                // Direct phasing: rotate along direct-complex axis.
+                {
+                    const rr_d = rr * cos_direct - ri * sin_direct;
+                    const ri_d = rr * sin_direct + ri * cos_direct;
+                    const ir_d = ir * cos_direct - ii * sin_direct;
+                    const ii_d = ir * sin_direct + ii * cos_direct;
+                    rr = rr_d;
+                    ri = ri_d;
+                    ir = ir_d;
+                    ii = ii_d;
+                }
+
+                // Indirect phasing: rotate along indirect-complex axis.
+                {
+                    const rr_i = rr * cos_indirect - ir * sin_indirect;
+                    const ir_i = rr * sin_indirect + ir * cos_indirect;
+                    const ri_i = ri * cos_indirect - ii * sin_indirect;
+                    const ii_i = ri * sin_indirect + ii * cos_indirect;
+                    rr = rr_i;
+                    ir = ir_i;
+                    ri = ri_i;
+                    ii = ii_i;
+                }
+
+                spectrum_obj.raw_data[idx] = rr;
+                if (has_ri) {
+                    spectrum_obj.raw_data_ri[idx] = ri;
+                }
+                if (has_ir) {
+                    spectrum_obj.raw_data_ir[idx] = ir;
+                }
+                if (has_ii) {
+                    spectrum_obj.raw_data_ii[idx] = ii;
+                }
+            }
+        }
+
+        // Keep min/max in sync for contour and UI scaling.
+        let max_v = spectrum_obj.raw_data[0];
+        let min_v = spectrum_obj.raw_data[0];
+        for (let i = 1; i < spectrum_obj.raw_data.length; i++) {
+            if (spectrum_obj.raw_data[i] > max_v) {
+                max_v = spectrum_obj.raw_data[i];
+            }
+            if (spectrum_obj.raw_data[i] < min_v) {
+                min_v = spectrum_obj.raw_data[i];
+            }
+        }
+        spectrum_obj.spectral_max = max_v;
+        spectrum_obj.spectral_min = min_v;
+    }
+
+    function refresh_contours_for_spectrum(index) {
+        const s = hsqc_spectra[index];
+        let spectrum_information = {
+            n_direct: s.n_direct,
+            n_indirect: s.n_indirect,
+            levels: s.levels,
+            spectrum_type: "full",
+            spectrum_index: index,
+            spectrum_origin: s.spectrum_origin,
+            contour_sign: 0
+        };
+        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+
+        spectrum_information = {
+            n_direct: s.n_direct,
+            n_indirect: s.n_indirect,
+            levels: s.negative_levels,
+            spectrum_type: "full",
+            spectrum_index: index,
+            spectrum_origin: s.spectrum_origin,
+            contour_sign: 1
+        };
+        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+    }
+
+    function refresh_cross_sections_after_phase(index) {
+        if (!main_plot || !main_plot.b_show_cross_section) {
+            return;
+        }
+
+        const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
+        const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+
+        const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
+            && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
+
+        if (single_manual_mode) {
+            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
+            return;
+        }
+
+        main_plot.x_cross_section_plot.clear_data();
+        main_plot.y_cross_section_plot.clear_data();
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            if (hsqc_spectra[i].spectrum_origin > -3) {
+                main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+            }
+        }
+    }
+
 
     /**
      * Run webass worker to apply phase correction.
      * First, pass the spectrum as a file. 
      */
     let index = main_plot.current_spectral_index;
-    let n_size = hsqc_spectra[index].n_direct * hsqc_spectra[index].n_indirect * 4;
-    let data = new Float32Array(512 + n_size);
-    let current_position = 0;
-    data.set(hsqc_spectra[index].header, current_position);
-    current_position += 512;
-    for (let i = 0; i < hsqc_spectra[index].n_indirect; i++) {
-        data.set(hsqc_spectra[index].raw_data.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-        current_position += hsqc_spectra[index].n_direct;
 
-        if (hsqc_spectra[index].datatype_direct === 0) {
-            data.set(hsqc_spectra[index].raw_data_ri.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
-        if (hsqc_spectra[index].datatype_indirect === 0) {
-            data.set(hsqc_spectra[index].raw_data_ir.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
-        if (hsqc_spectra[index].datatype_direct === 0 && hsqc_spectra[index].datatype_indirect === 0) {
-            data.set(hsqc_spectra[index].raw_data_ii.subarray(i * hsqc_spectra[index].n_direct, (i + 1) * hsqc_spectra[index].n_direct), current_position);
-            current_position += hsqc_spectra[index].n_direct;
-        }
+    // Manual phase correction is fast enough to run on main thread.
+    if (flag == 0) {
+        apply_phase_correction_in_place(hsqc_spectra[index], current_ps);
+        refresh_contours_for_spectrum(index);
+        refresh_cross_sections_after_phase(index);
+        document.getElementById("webassembly_message").innerText = "";
+        return;
     }
-    /**
-     * Convert to Uint8Array to be transferred to the worker
-     */
-    let data_uint8 = new Uint8Array(data.buffer);
-    webassembly_worker.postMessage({
-        webassembly_job: "apply_phase_correction",
-        spectrum_data: data_uint8,
-        phase_correction: current_ps, //all 0.0 means auto phase correction
-        spectrum_index: main_plot.current_spectral_index,
-        spectrum_name: hsqc_spectra[main_plot.current_spectral_index].filename,
-    });
-    /**
-     * Let user know the processing is started
-     */
-    document.getElementById("webassembly_message").innerText = "Apply phase correction, please wait...";
+
+    document.getElementById("webassembly_message").innerText = "Automatic phase correction is not available in worker anymore. Use FID reprocess with auto phase options.";
 }
 
 /**
@@ -4597,8 +5024,8 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
-        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from * 100;
-        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to * 100;
+        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
+        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
         document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
         document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
         document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
@@ -4618,8 +5045,8 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("phase_correction_direct_p1").value = 0;
         document.getElementById("auto_direct").checked = true;
         document.getElementById("delete_imaginary").checked = false
-        document.getElementById("extract_direct_from").value = 0;
-        document.getElementById("extract_direct_to").value = 100;
+        document.getElementById("extract_direct_from").value = 8.8;
+        document.getElementById("extract_direct_to").value = 7.0;
         document.getElementById("apodization_indirect").value = " SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_indirect").value = "2";
         document.getElementById("phase_correction_indirect_p0").value = 0;

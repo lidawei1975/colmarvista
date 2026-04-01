@@ -10,6 +10,7 @@ class file_drop_processor {
         this.supportsFileSystemAccessAPI = 'getAsFileSystemHandle' in DataTransferItem.prototype;
         this.supportsWebkitGetAsEntry = 'webkitGetAsEntry' in DataTransferItem.prototype;
         this.container = new DataTransfer();
+        this._click_to_select_folder = false;
     }
 
     drop_area(drop_area_id) {
@@ -34,6 +35,17 @@ class file_drop_processor {
 
     required_files(required_files) {
         this.required_files = required_files;
+        return this;
+    }
+
+    /**
+     * Enable click-to-select-folder on the drop area background.
+     * When enabled, clicking the empty background of the drop zone
+     * opens a native OS folder picker.
+     * Should only be enabled where appropriate (e.g. FID area).
+     */
+    click_to_select_folder() {
+        this._click_to_select_folder = true;
         return this;
     }
 
@@ -63,16 +75,30 @@ class file_drop_processor {
                 this.elem.style.outline = '';
             }
         });
+
         this.elem.addEventListener('drop', this.drop_handler.bind(this));
+
+        if (this._click_to_select_folder) {
+            this.elem.style.cursor = 'pointer';
+            this.elem.title = 'Drag and drop files here, or click the background to select a folder';
+            this.elem.addEventListener('click', this.click_handler.bind(this));
+        }
+
         return this;
     }
 
     async process_file_attachment(entry) {
         let file;
-        if (typeof FileSystemFileHandle !== 'undefined' && entry instanceof FileSystemFileHandle) {
+
+        if (!entry) return;
+
+        if (entry instanceof File) {
+            file = entry;
+        }
+        else if (typeof entry.getFile === 'function') {
             file = await entry.getFile();
         }
-        else if (typeof FileSystemFileEntry !== 'undefined' && entry instanceof FileSystemFileEntry) {
+        else if (typeof entry.file === 'function') {
             file = await new Promise((resolve, reject) => {
                 entry.file(resolve, reject);
             });
@@ -80,6 +106,8 @@ class file_drop_processor {
         else {
             return;
         }
+
+        if (!file) return;
 
         /**
          * Only if the dropped file is in the list
@@ -108,17 +136,19 @@ class file_drop_processor {
                 /**
                  * Loop all lines, find line start with "##$FnMODE=", get the value after "="
                  */
-                let fnmode = 0;
+                let fnmode = null;
                 for (let i = 0; i < lines.length; i++) {
-                    if (lines[i].startsWith("##$FnMODE=")) {
-                        fnmode = parseInt(lines[i].split("=")[1]);
+                    const m = lines[i].match(/^\s*##\$FnMODE\s*=\s*(-?\d+)/);
+                    if (m) {
+                        fnmode = parseInt(m[1], 10);
                         break;
                     }
                 }
                 /**
-                 * Only when fnmode > 1 and fnmode !=7, we will attach the file to the file input
+                 * Attach acqu2s unconditionally (2D indirect acquisition file).
+                 * Keep acqu3s guarded by FnMODE when available.
                 */
-                if (fnmode > 1 && fnmode != 7) {
+                if (file.name === "acqu2s" || fnmode === null || (fnmode > 1 && fnmode !== 7)) {
                     document.getElementById(file_id).files = container.files;
                     document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
                 }
@@ -133,14 +163,7 @@ class file_drop_processor {
                  */
                 document.getElementById("auto_indirect").checked = false;
                 document.getElementById("auto_indirect").disabled = true;
-                /**
-                 * At this moment, also disable extract_direct_from and extract_direct_to
-                 * because smile (my implementation) doesn't support NUS processing
-                 */
-                document.getElementById("extract_direct_from").value = 0;
-                document.getElementById("extract_direct_to").value = 100;
-                document.getElementById("extract_direct_from").disabled = true;
-                document.getElementById("extract_direct_to").disabled = true;
+                // Keep extract controls editable for class-based NUS processing.
             }
             else {
                 document.getElementById(file_id).files = container.files;
@@ -196,19 +219,40 @@ class file_drop_processor {
         // Un-highlight the drop zone.
         this.elem.style.outline = '';
 
-        // Prepare an array of promises…
-        const fileHandlesPromises = [...e.dataTransfer.items]
-            // …by including only files (where file misleadingly means actual file _or_
-            // directory)…
-            .filter((item) => item.kind === 'file')
-            // …and, depending on previous feature detection…
-            .map((item) =>
-                this.supportsFileSystemAccessAPI
-                    // …either get a modern `FileSystemHandle`…
-                    ? item.getAsFileSystemHandle()
-                    // …or a classic `FileSystemFileEntry`.
-                    : item.webkitGetAsEntry(),
-            );
+        // Prepare an array of handles
+        let fileHandlesPromises = [];
+
+        if (e.dataTransfer.items) {
+            for (const item of [...e.dataTransfer.items]) {
+                if (item.kind !== 'file') continue;
+
+                let handle = null;
+                if (this.supportsFileSystemAccessAPI) {
+                    try {
+                        handle = await item.getAsFileSystemHandle();
+                    } catch (err) {
+                        console.warn("Failed to get file handle via FileSystemAccessAPI:", err);
+                    }
+                }
+                if (!handle && this.supportsWebkitGetAsEntry) {
+                    try {
+                        handle = item.webkitGetAsEntry();
+                    } catch (err) {
+                        console.warn("Failed to get file handle via webkitGetAsEntry:", err);
+                    }
+                }
+
+                if (handle) {
+                    fileHandlesPromises.push(handle);
+                } else {
+                    console.warn("Total fallback to standard File API");
+                    const file = item.getAsFile();
+                    if (file) {
+                        this.process_file_attachment(file);
+                    }
+                }
+            }
+        }
 
         // Loop over the array of promises.
         for await (const handle of fileHandlesPromises) {
@@ -219,7 +263,7 @@ class file_drop_processor {
                 /**
                  * Get all files in the directory
                  */
-                if (typeof FileSystemDirectoryHandle !== 'undefined' && handle instanceof FileSystemDirectoryHandle) {
+                if (typeof handle.values === 'function') {
                     for await (const entry of handle.values()) {
                         if (entry.kind === 'file' || entry.isFile) {
                             /**
@@ -229,7 +273,7 @@ class file_drop_processor {
                         }
                     }
                 }
-                else if (typeof FileSystemDirectoryEntry !== 'undefined' && handle instanceof FileSystemDirectoryEntry) {
+                else if (typeof handle.createReader === 'function') {
                     /**
                      * Read all files in the directory
                      */
@@ -254,5 +298,56 @@ class file_drop_processor {
                 this.process_file_attachment(handle);
             }
         }
+    }
+
+    async click_handler(e) {
+        // Prevent clicking if the user actually clicked a child element (like a button, form, or file input)
+        // inside the drop area box. It MUST be the exact drop area DIV background.
+        if (e.target.id !== this.drop_area_id) {
+            return;
+        }
+
+        e.preventDefault();
+
+        // 1. Try modern File System Access API
+        if (typeof window.showDirectoryPicker !== 'undefined') {
+            try {
+                const directoryHandle = await window.showDirectoryPicker();
+                console.log(`Directory selected manually: ${directoryHandle.name}`);
+
+                for await (const entry of directoryHandle.values()) {
+                    if (entry.kind === 'file' || entry.isFile) {
+                        this.process_file_attachment(entry);
+                    }
+                }
+                return; // Success
+            } catch (err) {
+                // User may have cancelled the dialog or the API is restricted, fall through to fallback
+                if (err.name !== 'AbortError') {
+                    console.warn("Failed to showDirectoryPicker, falling back to input trick:", err);
+                } else {
+                    return; // User aborted
+                }
+            }
+        }
+
+        // 2. Legacy fallback for browsers without showDirectoryPicker
+        let dirInput = document.createElement('input');
+        dirInput.type = 'file';
+        dirInput.webkitdirectory = true;
+        dirInput.directory = true; // For Firefox
+        dirInput.multiple = true;
+
+        dirInput.addEventListener('change', (evt) => {
+            const files = evt.target.files;
+            if (!files || files.length === 0) return;
+
+            console.log(`Fallback picked ${files.length} flat files from directory`);
+            for (let i = 0; i < files.length; i++) {
+                this.process_file_attachment(files[i]);
+            }
+        });
+
+        dirInput.click();
     }
 };

@@ -1,8 +1,18 @@
 // worker.js
 
 // Import Emscripten factory function
+importScripts('peak_shape_utils.js');
+importScripts('gaussian_fit_worker_bridge.js');
 importScripts('webdp1d_cpp.js');
 
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
+
+function getWebassemblyJob(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
 
 /**
  * Redirect the stdout and stderr to postMessage
@@ -20,17 +30,18 @@ let ModulePromise = webdp1d_cpp({
 });
 
 self.onmessage = async function (event) {
+    const webassembly_job = getWebassemblyJob(event.data);
     // Wait for the module to be ready
     const Module = await ModulePromise;
 
-    if (event.data.webassembly_job == "test") {
+    if (webassembly_job == "test") {
         const obj = new Module.spectrum_pick_1d();
         const result = obj.say_hello(event.data.name);
         self.postMessage({ stdout: result });
         obj.delete(); // Clean up the object to free memory
     }
 
-    else if (event.data.webassembly_job == "generate_voigt_profiles") {
+    else if (webassembly_job == "generate_voigt_profiles") {
         const obj = new Module.voigt_profile();
 
 
@@ -64,7 +75,7 @@ self.onmessage = async function (event) {
             }
 
             self.postMessage({
-                webassembly_job: event.data.webassembly_job,
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 profile_index: i, // Index of the profile
                 profile_ppm: profile_ppm,
                 profile_data: profile_data,
@@ -73,7 +84,261 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
 
-    else if (event.data.webassembly_job == "peak_picker") {
+    else if (webassembly_job === "nus_step2") {
+        try {
+            const toInt = function (value, fallbackValue) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
+            const toFloat = function (value, fallbackValue) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
+            const convertVectorUCharToUint8Array = function (vector) {
+                const result = new Uint8Array(vector.size());
+                for (let i = 0; i < vector.size(); i++) {
+                    result[i] = vector.get(i);
+                }
+                return result;
+            };
+
+            const inputBytes = encodeBytes(event.data.file_data[0]);
+            if (inputBytes.length <= 512 * 4) {
+                throw new Error('Invalid nmrPipe payload for nus_step2');
+            }
+
+            const nmrpipeBytesVec = new Module.VectorUChar();
+            const processor = new Module.fid_2d();
+
+            let file_data;
+            const phase_correction = '0 0 ' + toFloat(event.data.phase_correction_indirect_p0, 0).toString() + ' ' + toFloat(event.data.phase_correction_indirect_p1, 0).toString();
+
+            try {
+                processor.set_first_only(true);
+                if (!processor.run_zf(1, toInt(event.data.zf_indirect, 1))) {
+                    throw new Error('run_zf failed');
+                }
+                if (!processor.set_up_apodization_from_string('none', String(event.data.apodization_indirect))) {
+                    throw new Error('set_up_apodization_from_string failed');
+                }
+                if (!processor.read_phase_correction_from_string(phase_correction)) {
+                    throw new Error('read_phase_correction_from_string failed');
+                }
+                for (let i = 0; i < inputBytes.length; i++) {
+                    nmrpipeBytesVec.push_back(inputBytes[i]);
+                }
+                if (!processor.read_nmrpipe_file_from_buffer(nmrpipeBytesVec)) {
+                    throw new Error('read_nmrpipe_file_from_buffer failed');
+                }
+                postMessage({ stdout: "Running indirect_only_process for NUS spectrum" });
+                if (!processor.indirect_only_process(true)) {
+                    throw new Error('indirect_only_process failed');
+                }
+
+                const outputVec = new Module.VectorUChar();
+                try {
+                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    }
+                    file_data = convertVectorUCharToUint8Array(outputVec);
+                }
+                finally {
+                    outputVec.delete();
+                }
+            }
+            finally {
+                processor.delete();
+                nmrpipeBytesVec.delete();
+            }
+
+            postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                file_data: file_data,
+                file_type: 'indirect',
+                phasing_data: phase_correction,
+                processing_flag: event.data.processing_flag,
+                spectrum_index: event.data.spectrum_index
+            });
+        }
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ error: "nus_step2: " + errorText });
+        }
+    }
+
+    else if (webassembly_job === "nus_step1") {
+        try {
+            const toBool = function (value) {
+                if (typeof value === 'boolean') {
+                    return value;
+                }
+                if (typeof value === 'string') {
+                    const normalized = value.trim().toLowerCase();
+                    return normalized === 'yes' || normalized === 'true' || normalized === '1';
+                }
+                return Boolean(value);
+            };
+            const toInt = function (value, fallbackValue) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
+            const toFloat = function (value, fallbackValue) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
+            const convertVectorUCharToUint8Array = function (vector) {
+                const result = new Uint8Array(vector.size());
+                for (let i = 0; i < vector.size(); i++) {
+                    result[i] = vector.get(i);
+                }
+                return result;
+            };
+
+            const acqusText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
+            const acqu2sText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const fidBytes = encodeBytes(event.data.file_data[2]);
+            const nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
+
+            const fidBytesVec = new Module.VectorUChar();
+            for (let i = 0; i < fidBytes.length; i++) {
+                fidBytesVec.push_back(fidBytes[i]);
+            }
+
+            const acquisitionSeq = String(event.data.acquisition_seq);
+            const negativeImaginary = toBool(event.data.neg_imaginary);
+            const zfDirect = toInt(event.data.zf_direct, 1);
+            const apodizationDirect = String(event.data.apodization_direct);
+
+            let direct_phase_correction_p0 = toFloat(event.data.phase_correction_direct_p0, 0);
+            let direct_phase_correction_p1 = toFloat(event.data.phase_correction_direct_p1, 0);
+            const indirect_phase_correction_p0 = toFloat(event.data.phase_correction_indirect_p0, 0);
+            const indirect_phase_correction_p1 = toFloat(event.data.phase_correction_indirect_p1, 0);
+
+            if (event.data.auto_direct === true) {
+                const estimator = new Module.spectrum_phasing();
+                try {
+                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                        throw new Error('read_bruker_files_as_strings failed');
+                    }
+                    if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
+                        throw new Error('read_bruker_fid_data_bytes failed');
+                    }
+                    if (!estimator.read_nus_list_from_string(nusListText)) {
+                        throw new Error('read_nus_list_from_string failed');
+                    }
+                    if (!estimator.set_aqseq(acquisitionSeq)) {
+                        throw new Error('set_aqseq failed');
+                    }
+                    estimator.set_negative(negativeImaginary);
+                    estimator.set_first_only(true);
+                    if (!estimator.run_zf(zfDirect, 1)) {
+                        throw new Error('run_zf failed');
+                    }
+                    if (!estimator.set_up_apodization_from_string(apodizationDirect, 'none')) {
+                        throw new Error('set_up_apodization_from_string failed');
+                    }
+                    const initialPhase = '0 0 ' + indirect_phase_correction_p0.toString() + ' ' + indirect_phase_correction_p1.toString();
+                    if (!estimator.read_phase_correction_from_string(initialPhase)) {
+                        throw new Error('read_phase_correction_from_string failed');
+                    }
+                    if (!estimator.full_process(false, false)) {
+                        throw new Error('full_process failed');
+                    }
+                    estimator.set_user_phase_correction_indirect(0, 0);
+                    postMessage({ stdout: "Running automatic phase correction for NUS direct dimension" });
+                    if (!estimator.auto_phase_correction_v2()) {
+                        throw new Error('auto_phase_correction_v2 failed');
+                    }
+                    const phaseValues = estimator.save_phase_correction_result_as_string().trim().split(/\s+/).map(function (item) { return parseFloat(item); });
+                    if (phaseValues.length >= 2 && Number.isFinite(phaseValues[0]) && Number.isFinite(phaseValues[1])) {
+                        direct_phase_correction_p0 = phaseValues[0];
+                        direct_phase_correction_p1 = phaseValues[1];
+                    }
+                }
+                finally {
+                    estimator.delete();
+                }
+            }
+
+            const phase_correction = direct_phase_correction_p0.toString() + ' ' + direct_phase_correction_p1.toString() + ' 0 0';
+            const processor = new Module.fid_2d();
+            let file_data;
+            try {
+                if (!processor.read_nus_list_from_string(nusListText)) {
+                    throw new Error('read_nus_list_from_string failed');
+                }
+                if (!processor.set_aqseq(acquisitionSeq)) {
+                    throw new Error('set_aqseq failed');
+                }
+                if (!processor.extract_region_ppm(toFloat(event.data.extract_direct_from, 8.8), toFloat(event.data.extract_direct_to, 7.0))) {
+                    throw new Error('extract_region_ppm failed');
+                }
+                processor.set_negative(negativeImaginary);
+                processor.set_first_only(true);
+                if (!processor.run_zf(zfDirect, 1)) {
+                    throw new Error('run_zf failed');
+                }
+                if (!processor.set_up_apodization_from_string(apodizationDirect, 'none')) {
+                    throw new Error('set_up_apodization_from_string failed');
+                }
+                if (!processor.read_phase_correction_from_string(phase_correction)) {
+                    throw new Error('read_phase_correction_from_string failed');
+                }
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    throw new Error('read_bruker_files_as_strings failed');
+                }
+                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                    throw new Error('read_bruker_fid_data_bytes failed');
+                }
+                postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
+                if (!processor.direct_only_process(true)) {
+                    throw new Error('direct_only_process failed');
+                }
+
+                const outputVec = new Module.VectorUChar();
+                try {
+                    if (!processor.write_nmrpipe_intermediate_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_intermediate_to_buffer failed');
+                    }
+                    file_data = convertVectorUCharToUint8Array(outputVec);
+                }
+                finally {
+                    outputVec.delete();
+                }
+            }
+            finally {
+                processor.delete();
+                fidBytesVec.delete();
+            }
+
+            postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                file_data: file_data,
+                file_type: 'direct',
+                phasing_data: phase_correction,
+                processing_flag: event.data.processing_flag,
+                spectrum_index: event.data.spectrum_index
+            });
+        }
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ error: "nus_step1: " + errorText });
+        }
+    }
+
+    else if (webassembly_job == "peak_picker") {
 
         /**
          * n_verbose is a global variable (static base class member variable) in Module, which is used to control the verbosity of the output.
@@ -115,7 +380,7 @@ self.onmessage = async function (event) {
         const peaks_tab = obj.print_peaks_as_string();
 
         self.postMessage({
-            webassembly_job: event.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             picked_peaks_tab: peaks_tab,
             spectrum_index: event.data.spectrum_index,
             scale: event.data.scale,
@@ -125,7 +390,8 @@ self.onmessage = async function (event) {
         // Clean up the object to free memory
         obj.delete(); // Clean up the object to free memory
     }
-    else if (event.data.webassembly_job === "peak_fitter") {
+    else if (webassembly_job === "peak_fitter") {
+
         // This is for peak fitting job
         console.log('Peak fitting job received');
         Module.shared_data_1d.n_verbose = 1;
@@ -211,7 +477,7 @@ self.onmessage = async function (event) {
         }
 
         self.postMessage({
-            webassembly_job: event.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             fitted_peaks_tab: fitted_peaks_tab,
             recon_json: fitted_peaks_json,
             spectrum_origin: event.data.spectrum_index,
@@ -223,156 +489,645 @@ self.onmessage = async function (event) {
         // Clean up the object to free memory
         obj.delete(); // Clean up the object to free memory
     }
-    /**
-     * This is part of 2D VF workflow. Fitting of one region (correlated peaks) only, not the full 2D spectrum.
-     */
-    else if (event.data.webassembly_job === "gaussian_fitting") {
 
-        const nspect = 1; // Assuming single spectrum for now
+    else if (webassembly_job === "process_fid") {
+        try {
+            const toBool = function (value) {
+                if (typeof value === 'boolean') {
+                    return value;
+                }
+                if (typeof value === 'string') {
+                    const normalized = value.trim().toLowerCase();
+                    return normalized === 'yes' || normalized === 'true' || normalized === '1';
+                }
+                return Boolean(value);
+            };
 
-        const obj = new Module.gaussian_fit();
+            const toInt = function (value, fallbackValue) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-        /**
-         * List of functions that can be used
-         *  .function("init", &gaussian_fit::init)
-            .function("set_everything", &gaussian_fit::set_everything)
-            .function("set_peak_paras", &gaussian_fit::set_peak_parameters)
-            .function("run", &gaussian_fit::run)
-            .function("run_with_error_estimation", &gaussian_fit::run_with_error_estimation)
-            .function("get_nround", &gaussian_fit::get_nround)
+            const toFloat = function (value, fallbackValue) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallbackValue;
+            };
 
-        * And list of properties that can be used (public variables in C++)
+            const updateIndirectApodizationFromPhase = function (apodization, phaseString) {
+                const phaseValues = phaseString.trim().split(/\s+/);
+                if (phaseValues.length < 4) {
+                    return apodization;
+                }
+                let c = 0.5;
+                if (Math.abs(parseFloat(phaseValues[3])) > 20.0) {
+                    c = 1.0;
+                }
+                const apodizationParts = apodization.trim().split(/\s+/);
+                const cIndex = apodizationParts.indexOf('c');
+                if (cIndex >= 0 && cIndex + 1 < apodizationParts.length) {
+                    apodizationParts[cIndex + 1] = c.toString();
+                    return apodizationParts.join(' ');
+                }
+                return apodization;
+            };
 
-            
-            .property("amp", &gaussian_fit::amp)
-            .property("sigmax", &gaussian_fit::sigmax)
-            .property("sigmay", &gaussian_fit::sigmay)
-            .property("gammax", &gaussian_fit::gammax)
-            .property("gammay", &gaussian_fit::gammay)
-            .property("x", &gaussian_fit::x)
-            .property("y", &gaussian_fit::y)
-            .property("err", &gaussian_fit::err)
-            .property("original_ndx", &gaussian_fit::original_ndx)
-         */
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
 
-        obj.set_everything_wasm(event.data.peak_shape, event.data.maxround, event.data.cluster_counter);
+            const convertVectorUCharToUint8Array = function (vector) {
+                const result = new Uint8Array(vector.size());
+                for (let i = 0; i < vector.size(); i++) {
+                    result[i] = vector.get(i);
+                }
+                return result;
+            };
 
-        /**
-         * Need to convert event.data.spect_parts (JS array) to webassembly VectorFloat
-         * convert event.data.xx (JS array) to webassembly VectorFloat
-         * convert event.data.yy (JS array) to webassembly VectorFloat
-         * convert event.data.aas (JS array) to webassembly VectorFloat
-         * convert event.data.sx (JS array) to webassembly VectorFloat
-         * convert event.data.sy (JS array) to webassembly VectorFloat
-         * convert event.data.gx (JS array) to webassembly VectorFloat
-         * convert event.data.gy (JS array) to webassembly VectorFloat
-         * convert event.data.ori_index (JS array) to webassembly VectorInt
-         */
-        const spect_parts = new Module.VectorDouble();
-        for (let i = 0; i < event.data.spect_parts.length; ++i) {
-            spect_parts.push_back(event.data.spect_parts[i]);
-        }
+            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, fidBytesVec) {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    throw new Error('read_bruker_files_as_strings failed');
+                }
+                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                    throw new Error('read_bruker_fid_data_bytes failed');
+                }
+            };
 
-        const aas = new Module.VectorDouble();
-        for (let i = 0; i < event.data.aas.length; ++i) {
-            aas.push_back(event.data.aas[i]);
-        }
+            const configureCommon = function (processor, options) {
+                if (!processor.set_aqseq(options.acquisitionSeq)) {
+                    throw new Error('set_aqseq failed');
+                }
+                if (options.applyExtraction === true) {
+                    if (!processor.extract_region_ppm(options.extractFrom, options.extractTo)) {
+                        throw new Error('extract_region_ppm failed');
+                    }
+                }
+                processor.set_negative(options.negativeImaginary);
+                processor.set_first_only(options.firstOnly);
+                if (!processor.run_zf(options.zfDirect, options.zfIndirect)) {
+                    throw new Error('run_zf failed');
+                }
+                if (!processor.set_up_apodization_from_string(options.apodizationDirect, options.apodizationIndirect)) {
+                    throw new Error('set_up_apodization_from_string failed');
+                }
+                if (options.waterSuppression === true) {
+                    processor.water_suppression();
+                }
+                if (!processor.full_process(options.deleteDirect, options.deleteIndirect)) {
+                    throw new Error('full_process failed');
+                }
+                const polynomialOrder = toInt(options.polynomial, 0);
+                if (polynomialOrder > 0) {
+                    if (!processor.polynorminal_baseline(polynomialOrder)) {
+                        throw new Error('polynorminal_baseline failed');
+                    }
+                }
+            };
 
-        const xx = new Module.VectorDouble();
-        const yy = new Module.VectorDouble();
-        const sx = new Module.VectorDouble();
-        const sy = new Module.VectorDouble();
-        const gx = new Module.VectorDouble();
-        const gy = new Module.VectorDouble();
-        const ori_index = new Module.VectorInt();
-        const region_peak_cannot_move_flag = new Module.VectorInt();
-        for (let i = 0; i < event.data.xx.length; ++i) {
-            xx.push_back(event.data.xx[i]);
-            yy.push_back(event.data.yy[i]);
-            sx.push_back(event.data.sx[i]);
-            sy.push_back(event.data.sy[i]);
-            gx.push_back(event.data.gx[i]);
-            gy.push_back(event.data.gy[i]);
-            ori_index.push_back(event.data.ori_index[i]);
-            region_peak_cannot_move_flag.push_back(event.data.region_peak_cannot_move_flag[i]);
-        }
+            const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
+            const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const fidBytes = encodeBytes(event.data.file_data[2]);
 
-
-        obj.init(event.data.min1, event.data.min2, event.data.size1, event.data.size2, event.data.nspect,
-            spect_parts, xx, yy, aas, sx, sy, gx, gy, ori_index, region_peak_cannot_move_flag,
-            event.data.median_width_x, event.data.median_width_y);
-        obj.set_peak_paras(
-            event.data.wx * 1.5, event.data.wy * 1.5,
-            event.data.noise_level, event.data.noise_level * event.data.user_scale2,
-            event.data.too_near_cutoff, event.data.step1, event.data.step2, event.data.removal_cutoff
-        );
-        obj.peak_sign = event.data.peak_sign; // 1 means positive peak fitting, -1 means negative peak fitting
-        obj.run(1); //1 means first run without error estimation
-
-        /**
-         * Collect the results from the object
-         */
-        let p1 = new Float32Array(obj.npeak);
-        let p2 = new Float32Array(obj.npeak);
-        let group = new Int32Array(obj.npeak);
-        let nround = new Int32Array(obj.npeak);
-        let p_intensity = new Float32Array(obj.npeak);
-        let sigmax = new Float32Array(obj.sigmax.size());
-        let sigmay = new Float32Array(obj.sigmay.size());
-        let peak_index = new Int32Array(obj.original_ndx.size());
-        let err = new Float32Array(obj.err.size());
-        let gammax = new Float32Array(obj.gammax.size());
-        let gammay = new Float32Array(obj.gammay.size());
-        let p_intensity_all_spectra = new Float32Array(obj.npeak * nspect);
-        for (let i = 0; i < obj.npeak; i++) {
-            p1[i] = obj.x.get(i) + obj.xstart;
-            p2[i] = obj.y.get(i) + obj.ystart;
-            group[i] = event.data.cluster_counter;
-            nround[i] = obj.get_nround();
-            p_intensity[i] = obj.amp.get(i * nspect); // first spectrum intensity
-            // Collecting sigmax and sigmay
-            sigmax[i] = obj.sigmax.get(i);
-            sigmay[i] = obj.sigmay.get(i);
-            peak_index[i] = obj.original_ndx.get(i);
-            err[i] = obj.err.get(i);
-            gammax[i] = obj.gammax.get(i);
-            gammay[i] = obj.gammay.get(i);
-            for (let j = i * nspect; j < (i + 1) * nspect; j++) {
-                p_intensity_all_spectra[j] = obj.amp.get(j)
+            const fidBytesVec = new Module.VectorUChar();
+            for (let i = 0; i < fidBytes.length; i++) {
+                fidBytesVec.push_back(fidBytes[i]);
             }
+
+            const acquisitionSeq = String(event.data.acquisition_seq);
+            const negativeImaginary = toBool(event.data.neg_imaginary);
+            const zfDirect = toInt(event.data.zf_direct, 1);
+            const zfIndirect = toInt(event.data.zf_indirect, 1);
+            const processAllPlanes = event.data.pseudo3d_process === 'all_planes';
+            const useAutoPhase = event.data.auto_direct === true || event.data.auto_indirect === true;
+
+            let apodization_indirect = event.data.apodization_indirect;
+            let phasing_data = [
+                toFloat(event.data.phase_correction_direct_p0, 0),
+                toFloat(event.data.phase_correction_direct_p1, 0),
+                toFloat(event.data.phase_correction_indirect_p0, 0),
+                toFloat(event.data.phase_correction_indirect_p1, 0)
+            ];
+
+            const processor = new Module.spectrum_phasing();
+            let file_data;
+            let pseudo3d_files = [];
+            try {
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, fidBytesVec);
+                configureCommon(processor, {
+                    acquisitionSeq: acquisitionSeq,
+                    negativeImaginary: negativeImaginary,
+                    firstOnly: processAllPlanes === false,
+                    zfDirect: zfDirect,
+                    zfIndirect: zfIndirect,
+                    apodizationDirect: event.data.apodization_direct,
+                    apodizationIndirect: apodization_indirect,
+                    waterSuppression: event.data.water_suppression === true,
+                    deleteDirect: event.data.delete_direct === true,
+                    deleteIndirect: event.data.delete_indirect === true,
+                    polynomial: event.data.polynomial,
+                    applyExtraction: true,
+                    extractFrom: toFloat(event.data.extract_direct_from, 8.8),
+                    extractTo: toFloat(event.data.extract_direct_to, 7.0)
+                });
+
+                if (useAutoPhase) {
+                    if (event.data.auto_direct === false) {
+                        processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+                    }
+                    if (event.data.auto_indirect === false) {
+                        processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+                    }
+                    postMessage({ stdout: "Running automatic phase correction." });
+                    if (!processor.auto_phase_correction_v2()) {
+                        throw new Error('auto_phase_correction_v2 failed');
+                    }
+                    const phaseString = processor.save_phase_correction_result_as_string().trim();
+                    const parsedPhaseValues = phaseString.split(/\s+/).map(function (item) { return parseFloat(item); });
+                    if (parsedPhaseValues.length >= 4 && parsedPhaseValues.every(Number.isFinite)) {
+                        phasing_data = parsedPhaseValues.slice(0, 4);
+                    }
+                    apodization_indirect = updateIndirectApodizationFromPhase(apodization_indirect, phaseString);
+                }
+                else {
+                    processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
+                    processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+                }
+
+                const outputVec = new Module.VectorUChar();
+                try {
+                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    }
+                    file_data = convertVectorUCharToUint8Array(outputVec);
+                }
+                finally {
+                    outputVec.delete();
+                }
+
+                if (processAllPlanes) {
+                    postMessage({ stdout: "Pseudo-3D all-planes export is under development. Returning first plane only." });
+                }
+            }
+            finally {
+                processor.delete();
+                fidBytesVec.delete();
+            }
+
+            postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                file_data: file_data,
+                file_type: 'full',
+                pseudo3d_files: pseudo3d_files,
+                phasing_data: phasing_data.join(' '),
+                apodization_indirect: apodization_indirect,
+                processing_flag: event.data.processing_flag,
+                spectrum_index: event.data.spectrum_index,
+                pseudo3d_children: event.data.pseudo3d_children,
+            });
         }
-        self.postMessage({
-            /**
-             * Passthrough the webassembly job type, spectrum index, and peak assignment
-             */
-            webassembly_job: event.data.webassembly_job,
-            spectrum_index: event.data.spectrum_index,
-            peak_assignment: event.data.peak_assignment,
+        catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            postMessage({ error: "process_fid: " + errorText });
+        }
+    }
 
-            /**
-             * This is the output of the peak fitter
-             */
-            p1: p1,
-            p2: p2,
-            group: group,
-            nround: nround,
-            p_intensity: p_intensity,
-            sigmax: sigmax,
-            sigmay: sigmay,
-            peak_index: peak_index,
-            err: err,
-            gammax: gammax,
-            gammay: gammay,
-            p_intensity_all_spectra: p_intensity_all_spectra,
-        });
+    else if (webassembly_job === "pseudo3d_fitting") {
+        try {
+            const toFloatOr = function (value, fallback) {
+                const parsed = parseFloat(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+            const describeAmpMeaningByShape = PeakShapeUtils.describeAmpMeaningByShape;
 
-        obj.delete(); // Clean up the object to free memory
+            const regions = Array.isArray(event.data.regions) ? event.data.regions : [];
+            if (regions.length === 0) {
+                throw new Error('No pre-partitioned pseudo3D regions provided from main thread');
+            }
+
+            const peakComments = Array.isArray(event.data.peak_comments) ? event.data.peak_comments : [];
+            const peakXppm = Array.isArray(event.data.peak_xppm) ? event.data.peak_xppm : [];
+            const peakYppm = Array.isArray(event.data.peak_yppm) ? event.data.peak_yppm : [];
+
+            const defaultNoise = toFloatOr(event.data.noise_level, 1.0);
+            const defaultScale2 = toFloatOr(event.data.scale2, 3.0);
+            const defaultPeakShape = event.data.flag === 0 ? 1 : 0;
+            const defaultMaxround = parseInt(event.data.maxround, 10) || 20;
+
+            const fittedRows = [];
+            let completedRegions = 0;
+            postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+
+            for (let clusterId = 0; clusterId < regions.length; clusterId++) {
+                const region = regions[clusterId];
+                if (!region) {
+                    completedRegions++;
+                    postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                    continue;
+                }
+
+                const nspect = parseInt(region.nspectra, 10) || 0;
+                if (nspect <= 0) {
+                    completedRegions++;
+                    postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                    continue;
+                }
+
+                const peakShape = parseInt(region.peakShape, 10) || defaultPeakShape;
+                const maxround = parseInt(region.maxround, 10) || defaultMaxround;
+                const localClusterId = parseInt(region.clusterLocalIndex, 10);
+                const resolvedClusterId = Number.isFinite(localClusterId) ? localClusterId : clusterId;
+
+                const xx = region.x || [];
+                const yy = region.y || [];
+                const aas = region.amp || [];
+                const sx = region.sigmax || [];
+                const sy = region.sigmay || [];
+                const gx = region.gammax || [];
+                const gy = region.gammay || [];
+                const ori = region.originalNdx || [];
+                const cannotMove = region.cannotMove || [];
+
+                const peakCount = xx.length;
+                const ampMeaning = describeAmpMeaningByShape(peakShape);
+                console.log("[pseudo3d][partition " + clusterId + "] peakShape=" + peakShape + ", nspect=" + nspect + ", npeak=" + peakCount + ", meaning: " + ampMeaning);
+
+                const fitResult = GaussianFitWorkerBridge.runRegionFit(Module, {
+                    clusterId: resolvedClusterId,
+                    maxround: maxround,
+                    peakShape: peakShape,
+                    peakSign: parseInt(region.peakSign, 10),
+                    xstart: parseInt(region.xstart, 10) || 0,
+                    ystart: parseInt(region.ystart, 10) || 0,
+                    xdim: parseInt(region.xdim, 10) || 0,
+                    ydim: parseInt(region.ydim, 10) || 0,
+                    nspectra: nspect,
+                    surface: region.surface || [],
+                    x: xx,
+                    y: yy,
+                    amp: aas,
+                    sigmax: sx,
+                    sigmay: sy,
+                    gammax: gx,
+                    gammay: gy,
+                    originalNdx: ori,
+                    cannotMove: cannotMove,
+                    medianWidthX: toFloatOr(region.medianWidthX, 3.0),
+                    medianWidthY: toFloatOr(region.medianWidthY, 3.0),
+                    peakParas: region.peakParas || {
+                        wx: 6.0,
+                        wy: 6.0,
+                        noise: defaultNoise,
+                        minHeight: defaultNoise * defaultScale2,
+                        tooNearCutoff: 0.2,
+                        xppmStep: 1.0,
+                        yppmStep: 1.0,
+                        removalCutoff: 0.1
+                    }
+                });
+
+                if (fitResult.ok) {
+                    for (let i = 0; i < fitResult.peaks.length; i++) {
+                        const peak = fitResult.peaks[i];
+                        fittedRows.push({
+                            originalNdx: peak.originalNdx,
+                            xAxis1: peak.xAxis1,
+                            yAxis1: peak.yAxis1,
+                            height: peak.height,
+                            volume: peak.volume,
+                            dheight: peak.dheight,
+                            sigmax: peak.sigmax,
+                            sigmay: peak.sigmay,
+                            gammax: peak.gammax,
+                            gammay: peak.gammay,
+                            nround: peak.nround,
+                            clusterId: resolvedClusterId,
+                            allSpectraHeights: peak.ampRow,
+                        });
+                    }
+                }
+
+                completedRegions++;
+                postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+            }
+
+            if (fittedRows.length === 0) {
+                throw new Error('No fitted peaks returned from partitioned class fitting');
+            }
+
+            fittedRows.sort(function (a, b) {
+                return a.originalNdx - b.originalNdx;
+            });
+
+            let zColumns = '';
+            let zFormats = '';
+            const nspectraForRatio = Array.isArray(event.data.all_spectra_indices) ? event.data.all_spectra_indices.length : 0;
+            for (let i = 0; i < nspectraForRatio; i++) {
+                zColumns += ' Z_A' + i.toString();
+                zFormats += ' %7.4f';
+            }
+
+            let peaksTab = 'VARS INDEX X_AXIS Y_AXIS X_PPM Y_PPM HEIGHT VOLUME DHEIGHT ASS CLUSTID SIGMAX SIGMAY GAMMAX GAMMAY NROUND' + zColumns + '\n';
+            peaksTab += 'FORMAT %5d %9.3f %9.3f %10.6f %10.6f %+e %+e %+e %s %4d %f %f %f %f %4d' + zFormats + '\n';
+
+            for (let i = 0; i < fittedRows.length; i++) {
+                const row = fittedRows[i];
+                const comment = String(peakComments[row.originalNdx] || ('peaks' + (row.originalNdx + 1).toString()));
+                const xppm = toFloatOr(peakXppm[row.originalNdx], row.xAxis1);
+                const yppm = toFloatOr(peakYppm[row.originalNdx], row.yAxis1);
+
+                const relativeHeights = [];
+                if (nspectraForRatio > 0) {
+                    for (let k = 0; k < nspectraForRatio; k++) {
+                        const h = (row.allSpectraHeights && k < row.allSpectraHeights.length) ? Number(row.allSpectraHeights[k]) : 0.0;
+                        relativeHeights.push(Number.isFinite(h) ? h : 0.0);
+                    }
+                    if (Math.abs(relativeHeights[0]) < Number.EPSILON) {
+                        for (let k = 0; k < relativeHeights.length; k++) {
+                            relativeHeights[k] = 0.0;
+                        }
+                    }
+                    else {
+                        for (let k = 1; k < relativeHeights.length; k++) {
+                            relativeHeights[k] = relativeHeights[k] / relativeHeights[0];
+                        }
+                        relativeHeights[0] = 1.0;
+                    }
+                }
+
+                peaksTab += [
+                    (i + 1).toString(),
+                    row.xAxis1.toFixed(3),
+                    row.yAxis1.toFixed(3),
+                    xppm.toFixed(6),
+                    yppm.toFixed(6),
+                    Number(row.height).toExponential(6),
+                    Number(row.volume).toExponential(6),
+                    Number(row.dheight).toExponential(6),
+                    comment,
+                    row.clusterId.toString(),
+                    Number(row.sigmax).toFixed(6),
+                    Number(row.sigmay).toFixed(6),
+                    Number(row.gammax).toFixed(6),
+                    Number(row.gammay).toFixed(6),
+                    row.nround.toString()
+                ].concat(relativeHeights.map(function (v) { return Number(v).toFixed(4); })).join(' ') + '\n';
+            }
+
+            postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                pseudo3d_fitted_peaks_tab: peaksTab,
+                all_spectra_indices: event.data.all_spectra_indices,
+            });
+            return;
+        }
+        catch (err) {
+            self.postMessage({ error: "pseudo3d_fitting: " + (err && err.message ? err.message : String(err)) });
+        }
+    }
+
+    /**
+     * v2 peak fitting region job: wasm only.
+     * Main thread prepares partitioned regions and submits one job per region.
+     */
+    else if (webassembly_job === "peak_fitter_region_v2") {
+        try {
+            const fitResult = GaussianFitWorkerBridge.runRegionFit(Module, {
+                clusterId: event.data.cluster_counter,
+                maxround: event.data.maxround,
+                peakShape: event.data.peak_shape,
+                peakSign: event.data.peak_sign,
+                xstart: event.data.min1,
+                ystart: event.data.min2,
+                xdim: event.data.size1,
+                ydim: event.data.size2,
+                nspectra: event.data.nspect,
+                surface: Array.from(event.data.spect_parts || []),
+                x: Array.from(event.data.xx || []),
+                y: Array.from(event.data.yy || []),
+                amp: Array.from(event.data.aas || []),
+                sigmax: Array.from(event.data.sx || []),
+                sigmay: Array.from(event.data.sy || []),
+                gammax: Array.from(event.data.gx || []),
+                gammay: Array.from(event.data.gy || []),
+                originalNdx: Array.from(event.data.ori_index || []),
+                cannotMove: Array.from(event.data.region_peak_cannot_move_flag || []),
+                medianWidthX: event.data.median_width_x,
+                medianWidthY: event.data.median_width_y,
+                peakParas: {
+                    wx: event.data.wx * 1.5,
+                    wy: event.data.wy * 1.5,
+                    noise: event.data.noise_level,
+                    minHeight: event.data.noise_level * event.data.user_scale2,
+                    tooNearCutoff: event.data.too_near_cutoff,
+                    xppmStep: event.data.step1,
+                    yppmStep: event.data.step2,
+                    removalCutoff: event.data.removal_cutoff
+                }
+            });
+
+            if (!fitResult.ok) {
+                throw new Error("runRegionFit failed: " + fitResult.reason);
+            }
+
+            const nspect = event.data.nspect;
+            const npeak = fitResult.peaks.length;
+            let p1 = new Float32Array(npeak);
+            let p2 = new Float32Array(npeak);
+            let group = new Int32Array(npeak);
+            let nround = new Int32Array(npeak);
+            let p_intensity = new Float32Array(npeak);
+            let p_volume = new Float32Array(npeak);
+            let sigmax = new Float32Array(npeak);
+            let sigmay = new Float32Array(npeak);
+            let peak_index = new Int32Array(npeak);
+            let err = new Float32Array(npeak);
+            let gammax = new Float32Array(npeak);
+            let gammay = new Float32Array(npeak);
+            let p_intensity_all_spectra = new Float32Array(npeak * nspect);
+
+            for (let i = 0; i < npeak; i++) {
+                const peak = fitResult.peaks[i];
+                p1[i] = peak.xAxis0;
+                p2[i] = peak.yAxis0;
+                group[i] = event.data.cluster_counter;
+                nround[i] = peak.nround;
+                p_intensity[i] = peak.height;
+                p_volume[i] = peak.volume;
+                sigmax[i] = peak.sigmax;
+                sigmay[i] = peak.sigmay;
+                peak_index[i] = peak.originalNdx;
+                err[i] = peak.dheight;
+                gammax[i] = peak.gammax;
+                gammay[i] = peak.gammay;
+                for (let k = 0; k < nspect; k++) {
+                    p_intensity_all_spectra[i * nspect + k] = peak.ampRow[k] || 0.0;
+                }
+            }
+
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: "peak_fitter_v2",
+                spectrum_index: event.data.spectrum_index,
+                cluster_counter: event.data.cluster_counter,
+                total_jobs: event.data.total_jobs,
+                p1: p1,
+                p2: p2,
+                group: group,
+                nround: nround,
+                p_intensity: p_intensity,
+                sigmax: sigmax,
+                sigmay: sigmay,
+                peak_index: peak_index,
+                err: err,
+                gammax: gammax,
+                gammay: gammay,
+                p_volume: p_volume,
+                peak_shape: event.data.peak_shape,
+                p_intensity_all_spectra: p_intensity_all_spectra,
+            });
+
+        }
+        catch (err) {
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                spectrum_index: event.data.spectrum_index,
+                cluster_counter: event.data.cluster_counter,
+                total_jobs: event.data.total_jobs,
+                error: "peak_fitter_region_v2: " + err.message
+            });
+        }
+    }
+
+    else if (webassembly_job === "generate_recon_spectrum_v2") {
+        try {
+            const inten = new Module.VectorDouble();
+            const sigmax = new Module.VectorDouble();
+            const sigmay = new Module.VectorDouble();
+            const gammax = new Module.VectorDouble();
+            const gammay = new Module.VectorDouble();
+            const centerx = new Module.VectorDouble();
+            const centery = new Module.VectorDouble();
+
+            for (let i = 0; i < event.data.inten.length; i++) {
+                inten.push_back(event.data.inten[i]);
+                sigmax.push_back(event.data.sigmax[i]);
+                sigmay.push_back(event.data.sigmay[i]);
+                gammax.push_back(event.data.gammax[i]);
+                gammay.push_back(event.data.gammay[i]);
+                centerx.push_back(event.data.centerx[i]);
+                centery.push_back(event.data.centery[i]);
+            }
+
+            const vector2DNames = [
+                "VectorVectorDouble",
+                "VectorDoubleVector",
+                "VectorVectorFloat64"
+            ];
+
+            let Spectrum2DClass = null;
+            for (let i = 0; i < vector2DNames.length; i++) {
+                if (typeof Module[vector2DNames[i]] === "function") {
+                    Spectrum2DClass = Module[vector2DNames[i]];
+                    break;
+                }
+            }
+
+            if (Spectrum2DClass === null) {
+                const moduleKeys = Object.keys(Module);
+                for (let i = 0; i < moduleKeys.length; i++) {
+                    const k = moduleKeys[i];
+                    if (!/vector.*vector.*double/i.test(k)) {
+                        continue;
+                    }
+                    if (typeof Module[k] === "function") {
+                        Spectrum2DClass = Module[k];
+                        break;
+                    }
+                }
+            }
+
+            if (Spectrum2DClass === null) {
+                throw new Error("cannot find registered vector<vector<double>> type in wasm bindings");
+            }
+
+            const spectrum2d = new Spectrum2DClass();
+
+            let ok = false;
+            if (typeof Module.generate_spectrum_voigt === "function") {
+                ok = Module.generate_spectrum_voigt(
+                    inten,
+                    sigmax,
+                    sigmay,
+                    gammax,
+                    gammay,
+                    centerx,
+                    centery,
+                    spectrum2d,
+                    event.data.xdim_local,
+                    event.data.ydim_local
+                );
+            }
+            else if (typeof Module.gaussian_fit === "function") {
+                const obj = new Module.gaussian_fit();
+                if (typeof obj.generate_spectrum_voigt !== "function") {
+                    obj.delete();
+                    throw new Error("generate_spectrum_voigt is not exposed on gaussian_fit");
+                }
+                ok = obj.generate_spectrum_voigt(
+                    inten,
+                    sigmax,
+                    sigmay,
+                    gammax,
+                    gammay,
+                    centerx,
+                    centery,
+                    spectrum2d,
+                    event.data.xdim_local,
+                    event.data.ydim_local
+                );
+                obj.delete();
+            }
+            else {
+                throw new Error("generate_spectrum_voigt binding is not found");
+            }
+
+            if (!ok) {
+                throw new Error("generate_spectrum_voigt returned false");
+            }
+
+            const ydim = event.data.ydim_local;
+            const xdim = event.data.xdim_local;
+            const recon = new Float32Array(xdim * ydim);
+
+            let yLimit = Math.min(ydim, spectrum2d.size());
+            for (let y = 0; y < yLimit; y++) {
+                const row = spectrum2d.get(y);
+                const xLimit = Math.min(xdim, row.size());
+                for (let x = 0; x < xLimit; x++) {
+                    recon[y * xdim + x] = row.get(x);
+                }
+            }
+
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: "generate_recon_spectrum_v2",
+                spectrum_index: event.data.spectrum_index,
+                recon_raw_data: recon,
+            }, [recon.buffer]);
+        }
+        catch (err) {
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                spectrum_index: event.data.spectrum_index,
+                error: "generate_recon_spectrum_v2: " + err.message
+            });
+        }
     }
 
     /**
      * 1D FID processing job
      */
-    else if (event.data.webassembly_job === "fid_processor_1d") {
+    else if (webassembly_job === "fid_processor_1d") {
         const nspect = 1; // Assuming single spectrum for now
 
         Module.shared_data_1d.n_verbose = 1;
@@ -486,7 +1241,7 @@ self.onmessage = async function (event) {
             /**
              * Passthrough the webassembly job type, spectrum index, and peak assignment
              */
-            webassembly_job: event.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             reduced_fid_size: reduced_fid_size, // The reduced FID size after auto reduction or manual reduction
             auto_direct: event.data.auto_direct,
             auto_direct_2: event.data.auto_direct_2, // need to know which auto pc method was used, if _2: need to run tfjs code in main thread.
@@ -503,7 +1258,7 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
 
-    else if (event.data.webassembly_job === "baseline_correction") {
+    else if (webassembly_job === "baseline_correction") {
 
         console.log('Baseline correction job received');
         Module.shared_data_1d.n_verbose = 1;
@@ -546,7 +1301,7 @@ self.onmessage = async function (event) {
         const baseline = new Float32Array(Module.HEAPF32.buffer, baseline_ptr, baseline_size);
 
         self.postMessage({
-            webassembly_job: event.data.webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
             spectrum_index: event.data.spectrum_index,
             baseline: baseline,
         });
@@ -555,6 +1310,108 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
 
+
+    /**
+     * 2D Peak Picking using JS-driven spectrum_pick class (webdp1d_cpp module).
+     * Follows the C++ workflow:
+     *   spectrum_pick x;
+     *   x.set_scale(user_scale, user_scale2);
+     *   x.set_scale_negative(user_scale_negative, user_scale2_negative);
+     *   x.set_model_selection(model_selection);
+     *   if (x.read_first_spectrum_from_buffer(spectrum_vec)) {
+     *       if (noise_level > 1e-20) x.set_noise_level(noise_level);
+     *       if (b_auto_ppp) x.adjust_ppp_of_spectrum(target_width);
+     *       x.ann_peak_picking(debug_flag1, t1_flag, b_negative);
+     *       peaks_tab = x.print_peaks_as_string();
+     *   }
+     */
+    else if (webassembly_job === "peak_picker_2d") {
+
+        const obj = new Module.spectrum_pick();
+
+        /**
+         * Set scale and model selection parameters
+         * flag: 0 = DEEP Picker (model 2, target_width=6), 1 = DEEP Picker (model 1, target_width=12)
+         */
+        obj.set_scale(event.data.scale, event.data.scale2);
+        obj.set_scale_negative(event.data.scale_negative, event.data.scale2_negative);
+        obj.set_model_selection(2); // 2 = DEEP Picker (model 2, target_width=6)
+
+        /**
+         * Convert the Uint8Array ft2 binary into separate header and data VectorFloat objects.
+         * NMRPipe .ft2 format: first 512 float32s are the header, the rest is spectrum data.
+         * C++ signature: read_first_spectrum_from_buffer(vector<float> header, vector<float> data)
+         */
+        const HEADER_SIZE = 512; // NMRPipe header is always 512 float32 words
+        const spectrum_float32 = new Float32Array(event.data.spectrum_data.buffer,
+            event.data.spectrum_data.byteOffset,
+            event.data.spectrum_data.byteLength / 4);
+
+        const header_vec = new Module.VectorFloat();
+        for (let i = 0; i < HEADER_SIZE; i++) {
+            header_vec.push_back(spectrum_float32[i]);
+        }
+
+        const data_vec = new Module.VectorFloat();
+        for (let i = HEADER_SIZE; i < spectrum_float32.length; i++) {
+            data_vec.push_back(spectrum_float32[i]);
+        }
+
+        if (obj.read_first_spectrum_from_buffer(header_vec, data_vec)) {
+
+            /**
+             * Set noise level if provided
+             */
+            if (event.data.noise_level > 1e-20) {
+                obj.set_noise_level(event.data.noise_level);
+            }
+
+            obj.adjust_ppp_of_spectrum(6.0); // 6.0 is the default value for target_width for model 2 (see above)
+
+            /**
+             * The main working function for peak picking
+             * flag: 0: run special case using line angle, 1: not run. 2: inertia based method
+             * flag_t1_noise: 0: not run, 1: run (column by column noise estimation)
+             * b_negative: true: also pick negative peaks (false: not pick negative peaks
+            */
+            const t1_flag = 1 ? 0 : (event.data.remove_t1_noise === "yes");
+            obj.ann_peak_picking(0, t1_flag, true);
+
+            /**
+             * Retrieve picked peaks as NMRPipe tab format string
+             */
+            const peaks_tab = obj.print_peaks_as_string();
+
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                picked_peaks_tab: peaks_tab,
+                spectrum_index: event.data.spectrum_index,
+                scale: event.data.scale,
+                scale2: event.data.scale2
+            });
+        }
+        else {
+            self.postMessage({ error: 'peak_picker_2d: init_from_buffer failed' });
+        }
+
+        header_vec.delete();
+        data_vec.delete();
+        obj.delete();
+    }
+
+    else if (webassembly_job === "assignment") {
+        self.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "assignment",
+            error: "assignment: Assignment transfer is under development."
+        });
+    }
+
+    else if (webassembly_job === "spin_optimization") {
+        self.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "spin_optimization",
+            error: "spin_optimization: Spin optimization is under development."
+        });
+    }
 
     else {
         // Handle other jobs or errors
@@ -578,4 +1435,5 @@ self.onmessage = async function (event) {
  * @param {Float32Array} fid_data - The FID data.
  * @returns {number} The index where the signal ends.
  */
+
 
