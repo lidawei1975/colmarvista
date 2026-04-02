@@ -156,6 +156,14 @@ document.addEventListener('DOMContentLoaded', function () {
         load_files();
     });
 
+    let ft3Form = document.getElementById('ft3_file_form');
+    if (ft3Form) {
+        ft3Form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            load_ft3_file();
+        });
+    }
+
     // Slider Handler
     document.getElementById('slice_slider').addEventListener('input', function (e) {
         let index = parseInt(e.target.value);
@@ -215,7 +223,7 @@ async function load_theoretical_peaks() {
     // Parse file.
     for (let line of lines) {
         line = line.trim();
-        
+
         if (line.startsWith("# Partition Bounds")) {
             let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
             if (match) {
@@ -617,7 +625,7 @@ function draw_slice(index, update_ortho_views = true) {
             let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
             let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
             let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
-            
+
             if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
                 main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
             } else {
@@ -746,8 +754,127 @@ function refresh_ortho_plot(type) {
         // If plotit usage is problematic, we might need a dummy hsqc_spectra for each plot?
         // That's too complex.
 
-        // Assuming plotit allows setting xscale/yscale manually or via zoom().
     }
+}
+
+async function load_ft3_file() {
+    let fileInput = document.getElementById('userfile_ft3');
+    let files = Array.from(fileInput.files);
+
+    if (files.length === 0) {
+        alert("Please select a .ft3 file.");
+        return;
+    }
+
+    let file = files[0];
+    document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
+
+    // Reset state
+    spectra_3d = [];
+    hsqc_spectra = [];
+    current_slice_index = -1;
+    theoretical_peaks_data = [];
+    theoretical_spectra_3d = [];
+
+    let headerBlob = file.slice(0, 2048);
+    let headerBuffer;
+    try {
+        headerBuffer = await read_file_as_buffer(headerBlob);
+    } catch (err) {
+        console.error("Error reading file header " + file.name, err);
+        return;
+    }
+
+    if (headerBuffer.byteLength < 2048) {
+        alert("File is too small to be a valid .ft3 file.");
+        return;
+    }
+
+    // Parse header to understand plane sizes
+    let header = new Float32Array(headerBuffer, 0, 512);
+    let n_direct = header[99];
+    let n_indirect = header[219];
+    let data_types = [header[55], header[56], header[51], header[54]];
+    let dimorder1 = header[24];
+    let dimorder2 = header[25];
+    let datatype_direct = data_types[dimorder1 - 1];
+    let datatype_indirect = data_types[dimorder2 - 1];
+
+    let parts = 1;
+    if (datatype_direct === 0) parts++;
+    if (datatype_indirect === 0) parts++;
+    if (datatype_direct === 0 && datatype_indirect === 0) parts++;
+
+    let n_indirect_loops = n_indirect;
+    if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
+
+    let plane_float_count = n_indirect_loops * n_direct * parts;
+    let plane_byte_size = plane_float_count * 4;
+
+    if (plane_byte_size <= 0) {
+        alert("Could not derive plane size from .ft3 header.");
+        return;
+    }
+
+    let total_data_bytes = file.size - 2048;
+    let num_planes = Math.round(total_data_bytes / plane_byte_size);
+
+    document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
+
+    let headerUint8 = new Uint8Array(headerBuffer);
+
+    for (let i = 0; i < num_planes; i++) {
+        try {
+            let start_offset = 2048 + i * plane_byte_size;
+            let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
+            let planeDataBuffer = await read_file_as_buffer(planeBlob);
+
+            let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+            let dst = new Uint8Array(plane_buffer);
+
+            // Header
+            dst.set(headerUint8, 0);
+
+            // Data
+            dst.set(new Uint8Array(planeDataBuffer), 2048);
+
+            let s = new spectrum();
+            let plane_name = "plane_" + String(i + 1).padStart(3, '0');
+            s.process_ft_file(plane_buffer, plane_name, -1);
+
+            s.spectrum_color = "#ff0000";
+            s.spectrum_color_negative = "#0000ff";
+            s.levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.visible = true;
+
+            spectra_3d.push(s);
+        } catch (err) {
+            console.error("Error creating plane " + i, err);
+        }
+    }
+
+    if (spectra_3d.length > 0) {
+        let slider = document.getElementById('slice_slider');
+        slider.max = spectra_3d.length - 1;
+        slider.value = 0;
+        document.getElementById('slice_control_area').style.display = 'block';
+        document.getElementById('spectra_list').style.display = 'block'; // Or hide if not needed
+        document.getElementById('main_plot_area').style.display = 'flex';
+
+        // Initialize the main plot now that we have data dimensions from the first slice
+        init_main_plot(spectra_3d[0]);
+
+        // Draw first slice
+        draw_slice(0);
+
+        // Auto-render 3D Visualization with full dataset
+        setTimeout(() => {
+            visualize_3d();
+        }, 500);
+    }
+
+    document.getElementById("webassembly_message").innerText = "";
 }
 
 async function load_files() {
@@ -1639,7 +1766,7 @@ function refresh_xz_view() {
                 let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
                 let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
                 let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
-                
+
                 if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
                     // X-axis is X PPM, Y-axis is Z PPM
                     main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
@@ -1802,7 +1929,7 @@ function refresh_yz_view() {
                 let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
                 let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
                 let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
-                
+
                 if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
                     // X-axis is Z PPM, Y-axis is Y PPM
                     main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
@@ -2230,7 +2357,7 @@ function update_3d_view() {
         try {
             meshSolid = MarchingCubes.compute(data.data, data.dims, isoSolid);
             meshWire = MarchingCubes.compute(data.data, data.dims, isoWire);
-            
+
             // Reconstructed processing
             if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
                 let data_recon = new Float32Array(data.dims.x * data.dims.y * data.dims.z);
@@ -2267,7 +2394,7 @@ function update_3d_view() {
         }
         centerMesh(meshSolid, data.dims);
         centerMesh(meshWire, data.dims);
-        
+
         if (meshSolid_recon) centerMesh(meshSolid_recon, data.dims);
         if (meshWire_recon) centerMesh(meshWire_recon, data.dims);
 
@@ -2310,7 +2437,7 @@ function update_3d_view() {
 
             for (let i = 0; i < theoretical_peaks_data.length; i++) {
                 let p = theoretical_peaks_data[i];
-                
+
                 // If ppm values are provided, use them to calculate the exact index for mesh rendering
                 // Otherwise fallback to subtracting 1 from the 1-based index
                 let idx_x = p.x_ppm !== undefined ? (p.x_ppm - s0.x_ppm_start) / s0.x_ppm_step : p.x - 1;
@@ -2348,26 +2475,26 @@ function update_3d_view() {
             let y1 = partition_bounds_data.y[1];
             let z0 = partition_bounds_data.z[0];
             let z1 = partition_bounds_data.z[1];
-            
+
             // Edges of the box
             let edges = [
                 // Bottom Z0
-                [{x:x0, y:y0, z:z0}, {x:x1, y:y0, z:z0}],
-                [{x:x1, y:y0, z:z0}, {x:x1, y:y1, z:z0}],
-                [{x:x1, y:y1, z:z0}, {x:x0, y:y1, z:z0}],
-                [{x:x0, y:y1, z:z0}, {x:x0, y:y0, z:z0}],
+                [{ x: x0, y: y0, z: z0 }, { x: x1, y: y0, z: z0 }],
+                [{ x: x1, y: y0, z: z0 }, { x: x1, y: y1, z: z0 }],
+                [{ x: x1, y: y1, z: z0 }, { x: x0, y: y1, z: z0 }],
+                [{ x: x0, y: y1, z: z0 }, { x: x0, y: y0, z: z0 }],
                 // Top Z1
-                [{x:x0, y:y0, z:z1}, {x:x1, y:y0, z:z1}],
-                [{x:x1, y:y0, z:z1}, {x:x1, y:y1, z:z1}],
-                [{x:x1, y:y1, z:z1}, {x:x0, y:y1, z:z1}],
-                [{x:x0, y:y1, z:z1}, {x:x0, y:y0, z:z1}],
+                [{ x: x0, y: y0, z: z1 }, { x: x1, y: y0, z: z1 }],
+                [{ x: x1, y: y0, z: z1 }, { x: x1, y: y1, z: z1 }],
+                [{ x: x1, y: y1, z: z1 }, { x: x0, y: y1, z: z1 }],
+                [{ x: x0, y: y1, z: z1 }, { x: x0, y: y0, z: z1 }],
                 // Vertical Z edges
-                [{x:x0, y:y0, z:z0}, {x:x0, y:y0, z:z1}],
-                [{x:x1, y:y0, z:z0}, {x:x1, y:y0, z:z1}],
-                [{x:x1, y:y1, z:z0}, {x:x1, y:y1, z:z1}],
-                [{x:x0, y:y1, z:z0}, {x:x0, y:y1, z:z1}]
+                [{ x: x0, y: y0, z: z0 }, { x: x0, y: y0, z: z1 }],
+                [{ x: x1, y: y0, z: z0 }, { x: x1, y: y0, z: z1 }],
+                [{ x: x1, y: y1, z: z0 }, { x: x1, y: y1, z: z1 }],
+                [{ x: x0, y: y1, z: z0 }, { x: x0, y: y1, z: z1 }]
             ];
-            
+
             for (let edge of edges) {
                 // Use a much thinner cylinder for the bounds (e.g., 20% of max cylinder radius)
                 let m = createCylinder(edge[0], edge[1], cylinderRadius * 0.2);
@@ -2407,8 +2534,8 @@ function update_3d_view() {
             if (meshBoundsCylinders.length > 0) {
                 for (let m of meshBoundsCylinders) {
                     meshes.push({
-                        vertices: m.vertices, 
-                        normals: m.normals, 
+                        vertices: m.vertices,
+                        normals: m.normals,
                         color: [1.0, 0.0, 0.0, 1.0], // Red
                         mode: 'TRIANGLES'
                     });
@@ -2449,9 +2576,9 @@ function update_3d_view() {
             if (meshBoundsCylinders.length > 0) {
                 for (let m of meshBoundsCylinders) {
                     meshes_recon.push({
-                        vertices: m.vertices, 
-                        normals: m.normals, 
-                        color: [1.0, 0.0, 0.0, 1.0], 
+                        vertices: m.vertices,
+                        normals: m.normals,
+                        color: [1.0, 0.0, 0.0, 1.0],
                         mode: 'TRIANGLES'
                     });
                 }

@@ -40,14 +40,28 @@
         <div id="section2">
 
             <div id="file_area" class="drop-area" style="width: 1200px;">
-                <h4>Upload 3D Spectrum (Series of 2D Planes):</h4>
-                <form id="ft2_file_form" action="" enctype="multipart/form-data">
-                    <label for="userfile">Select 2D spectral files (.ft2) representing the planes: </label>
-                    <input type="file" multiple id="userfile" accept=".ft2,.ft3,.ucsf"><br>
-                    <span class="information"> Files will be sorted alphabetically and stacked to form the 3D
-                        spectrum.</span><br>
-                    <input type="submit" id="button_ft2_process" value="Upload and Process Spectra"></br>
-                </form>
+                <h4>Upload 3D Spectrum:</h4>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1; border-right: 1px solid #ccc; padding-right: 20px;">
+                        <h5>Option 1: Series of 2D Planes</h5>
+                        <form id="ft2_file_form" action="" enctype="multipart/form-data">
+                            <label for="userfile">Select 2D spectral files (.ft2) representing the planes: </label>
+                            <input type="file" multiple id="userfile" accept=".ft2,.ucsf"><br>
+                            <span class="information"> Files will be sorted alphabetically and stacked to form the 3D
+                                spectrum.</span><br>
+                            <input type="submit" id="button_ft2_process" value="Upload and Process .ft2 Spectra"></br>
+                        </form>
+                    </div>
+                    <div style="flex: 1;">
+                        <h5>Option 2: Single 3D File</h5>
+                        <form id="ft3_file_form" action="" enctype="multipart/form-data">
+                            <label for="userfile_ft3">Select a single 3D spectral file (.ft3): </label>
+                            <input type="file" id="userfile_ft3" accept=".ft3"><br>
+                            <span class="information"> The file must contain a single 2D header followed by concatenated planes.</span><br>
+                            <input type="submit" id="button_ft3_process" value="Upload and Process .ft3 Spectrum"></br>
+                        </form>
+                    </div>
+                </div>
                 <div style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
                     <h4>Overlay Theoretical 3D Peaks:</h4>
                     <label for="theoretical_peaks_file">Select peaks file (.txt): </label>
