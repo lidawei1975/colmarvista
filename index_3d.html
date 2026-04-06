@@ -202,10 +202,12 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>XZ Plane (Direct vs Z)</h4>
 
-                                <div style="width: 80%; margin-bottom: 10px; text-align: center;">
-                                    <label for="slider_xz" class="form-label">Y Slice: <span
-                                            id="val_xz">0</span></label>
-                                    <input type="range" class="form-range" id="slider_xz" style="width: 100%;">
+                                <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
+                                    <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
+                                    <button id="prev_slice_xz">&lt;</button>
+                                    <input type="range" id="slider_xz" style="width: 300px; vertical-align: middle;">
+                                    <button id="next_slice_xz">&gt;</button>
+                                    <span id="val_xz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
 
                                 <div id="vis_parent_xz" class="resizable"
@@ -226,10 +228,12 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>YZ Plane (Indirect vs Z)</h4>
 
-                                <div style="width: 80%; margin-bottom: 10px; text-align: center;">
-                                    <label for="slider_yz" class="form-label">X Slice: <span
-                                            id="val_yz">0</span></label>
-                                    <input type="range" class="form-range" id="slider_yz" style="width: 100%;">
+                                <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
+                                    <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
+                                    <button id="prev_slice_yz">&lt;</button>
+                                    <input type="range" id="slider_yz" style="width: 300px; vertical-align: middle;">
+                                    <button id="next_slice_yz">&gt;</button>
+                                    <span id="val_yz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
 
                                 <div id="vis_parent_yz" class="resizable"

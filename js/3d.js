@@ -191,6 +191,42 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    document.getElementById('prev_slice_xz').addEventListener('click', function () {
+        let slider = document.getElementById('slider_xz');
+        let val = parseInt(slider.value);
+        if (val > 0) {
+            slider.value = val - 1;
+            slider.dispatchEvent(new Event('input'));
+        }
+    });
+
+    document.getElementById('next_slice_xz').addEventListener('click', function () {
+        let slider = document.getElementById('slider_xz');
+        let val = parseInt(slider.value);
+        if (val < parseInt(slider.max)) {
+            slider.value = val + 1;
+            slider.dispatchEvent(new Event('input'));
+        }
+    });
+
+    document.getElementById('prev_slice_yz').addEventListener('click', function () {
+        let slider = document.getElementById('slider_yz');
+        let val = parseInt(slider.value);
+        if (val > 0) {
+            slider.value = val - 1;
+            slider.dispatchEvent(new Event('input'));
+        }
+    });
+
+    document.getElementById('next_slice_yz').addEventListener('click', function () {
+        let slider = document.getElementById('slider_yz');
+        let val = parseInt(slider.value);
+        if (val < parseInt(slider.max)) {
+            slider.value = val + 1;
+            slider.dispatchEvent(new Event('input'));
+        }
+    });
+
     // Load Theoretical Peaks
     document.getElementById('btn_load_theoretical').addEventListener('click', function () {
         load_theoretical_peaks();
@@ -508,7 +544,8 @@ function draw_slice(index, update_ortho_views = true) {
     }
 
     // Update slice info display
-    document.getElementById('slice_info').innerText = `Slice ${index + 1}/${spectra_3d.length} - ${s.filename}`;
+    let ppm_z = s.z_ppm_start + (index * s.z_ppm_step);
+    document.getElementById('slice_info').innerText = `${index + 1}/${spectra_3d.length} (${ppm_z.toFixed(3)} ppm)`;
 
     // Draw contour if we have it
     if (s.cached_contour_pos && s.cached_contour_neg) { // Check for both positive and negative
@@ -1265,12 +1302,12 @@ function sync_sliders_to_center(is_end = true) {
             current_y_index = new_y_index;
             sl_xz.value = current_y_index;
             let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            val_xz.innerText = (current_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
             refresh_xz_view();
         } else {
             sl_xz.value = new_y_index;
             let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
-            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            val_xz.innerText = (new_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
         }
     }
 
@@ -1281,12 +1318,12 @@ function sync_sliders_to_center(is_end = true) {
             current_x_index = new_x_index;
             sl_yz.value = current_x_index;
             let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            val_yz.innerText = (current_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
             refresh_yz_view();
         } else {
             sl_yz.value = new_x_index;
             let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
-            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            val_yz.innerText = (new_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
         }
     }
 
@@ -1384,12 +1421,12 @@ function sync_from_xz_plot(is_end = true) {
         if (is_end) {
             draw_slice(new_z_index, false); // false prevents zoom snapping loop
         } else {
-            let sl_xy = document.getElementById("slider1");
-            let val_xy = document.getElementById("val1");
+            let sl_xy = document.getElementById("slice_slider");
+            let val_xy = document.getElementById("slice_info");
             if (sl_xy) sl_xy.value = new_z_index;
             if (val_xy) {
                 let ppm_z = s.z_ppm_start + (new_z_index * s.z_ppm_step);
-                val_xy.innerText = ppm_z.toFixed(3) + " ppm";
+                val_xy.innerText = (new_z_index + 1) + "/" + spectra_3d.length + " (" + ppm_z.toFixed(3) + " ppm)";
             }
         }
     }
@@ -1406,12 +1443,12 @@ function sync_from_xz_plot(is_end = true) {
             current_x_index = new_x_index;
             sl_yz.value = current_x_index;
             let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            val_yz.innerText = (current_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
             refresh_yz_view();
         } else {
             sl_yz.value = new_x_index;
             let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
-            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            val_yz.innerText = (new_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
         }
     }
     
@@ -1468,12 +1505,12 @@ function sync_from_yz_plot(is_end = true) {
         if (is_end) {
             draw_slice(new_z_index, false); // false prevents zoom snapping loop
         } else {
-            let sl_xy = document.getElementById("slider1");
-            let val_xy = document.getElementById("val1");
+            let sl_xy = document.getElementById("slice_slider");
+            let val_xy = document.getElementById("slice_info");
             if (sl_xy) sl_xy.value = new_z_index;
             if (val_xy) {
                 let ppm_z = s.z_ppm_start + (new_z_index * s.z_ppm_step);
-                val_xy.innerText = ppm_z.toFixed(3) + " ppm";
+                val_xy.innerText = (new_z_index + 1) + "/" + spectra_3d.length + " (" + ppm_z.toFixed(3) + " ppm)";
             }
         }
     }
@@ -1490,12 +1527,12 @@ function sync_from_yz_plot(is_end = true) {
             current_y_index = new_y_index;
             sl_xz.value = current_y_index;
             let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            val_xz.innerText = (current_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
             refresh_xz_view();
         } else {
             sl_xz.value = new_y_index;
             let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
-            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            val_xz.innerText = (new_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
         }
     }
     
@@ -1534,12 +1571,12 @@ function init_ortho_plots(s) {
 
         // Initial Label
         let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-        val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+        val_xz.innerText = (current_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
 
         sl_xz.oninput = function () {
             current_y_index = parseInt(this.value);
             let ppm = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-            val_xz.innerText = ppm.toFixed(3) + " ppm";
+            val_xz.innerText = (current_y_index + 1) + "/" + s.n_indirect + " (" + ppm.toFixed(3) + " ppm)";
             update_3d_crosshairs();
             refresh_xz_view();
 
@@ -1560,12 +1597,12 @@ function init_ortho_plots(s) {
 
         // Initial Label
         let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-        val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+        val_yz.innerText = (current_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
 
         sl_yz.oninput = function () {
             current_x_index = parseInt(this.value);
             let ppm = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-            val_yz.innerText = ppm.toFixed(3) + " ppm";
+            val_yz.innerText = (current_x_index + 1) + "/" + s.n_direct + " (" + ppm.toFixed(3) + " ppm)";
             update_3d_crosshairs();
             refresh_yz_view();
 
