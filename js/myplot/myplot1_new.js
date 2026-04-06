@@ -484,21 +484,21 @@ plotit.prototype.brushend = function (e) {
 /**
  * Synchronize this plot's view with other 3D plots
  */
-plotit.prototype.sync_3d_views = function () {
+plotit.prototype.sync_3d_views = function (is_end = true) {
     if (this.drawto === '#visualization') {
         // Main XY plot - sync sliders and axes to XZ/YZ
         if (typeof sync_sliders_to_center === 'function') {
-            sync_sliders_to_center();
+            sync_sliders_to_center(is_end);
         }
     } else if (this.drawto === '#visualization_xz') {
         // XZ plot - sync to main and YZ
         if (typeof sync_from_xz_plot === 'function') {
-            sync_from_xz_plot();
+            sync_from_xz_plot(is_end);
         }
     } else if (this.drawto === '#visualization_yz') {
         // YZ plot - sync to main and XZ
         if (typeof sync_from_yz_plot === 'function') {
-            sync_from_yz_plot();
+            sync_from_yz_plot(is_end);
         }
     }
 };
@@ -2447,6 +2447,8 @@ plotit.prototype.setup_axis_pan = function () {
                 self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
                 self.contour_plot.drawScene();
                 self.reset_axis();
+                if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
+                self.sync_3d_views(false);
             }
             else if (mode === "y") {
                 let start_ppm = start_scale_y.invert(start_mouse[1]);
@@ -2460,6 +2462,17 @@ plotit.prototype.setup_axis_pan = function () {
                 self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
                 self.contour_plot.drawScene();
                 self.reset_axis();
+                if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
+                self.sync_3d_views(false);
+            }
+        })
+        .on("end", function (event) {
+            if (mode !== "") {
+                self.xscales.push(start_domain_x);
+                self.yscales.push(start_domain_y);
+                self.send_scales_to_other_window();
+                mode = "";
+                self.sync_3d_views(true);
             }
         });
 
@@ -2542,6 +2555,8 @@ plotit.prototype.setup_axis_wheel = function () {
         self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
         self.contour_plot.drawScene();
         self.reset_axis();
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
         self.sync_3d_views();
 
     }, { passive: false });

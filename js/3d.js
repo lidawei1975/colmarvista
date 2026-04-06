@@ -1235,7 +1235,7 @@ function refresh_current_view(spectrum_in) {
 /**
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
-function sync_sliders_to_center() {
+function sync_sliders_to_center(is_end = true) {
     console.log("sync_sliders_to_center called");
     if (!main_plot || !spectra_3d || spectra_3d.length === 0) return;
 
@@ -1261,45 +1261,45 @@ function sync_sliders_to_center() {
     let sl_xz = document.getElementById("slider_xz");
     let val_xz = document.getElementById("val_xz");
     if (sl_xz && new_y_index !== current_y_index) {
-        current_y_index = new_y_index;
-        sl_xz.value = current_y_index;
-        let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-        val_xz.innerText = ppm_y.toFixed(3) + " ppm";
-        refresh_xz_view();
-        update_3d_crosshairs(); // Ensure crosshairs update
+        if (is_end) {
+            current_y_index = new_y_index;
+            sl_xz.value = current_y_index;
+            let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
+            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            refresh_xz_view();
+        } else {
+            sl_xz.value = new_y_index;
+            let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
+            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+        }
     }
 
     let sl_yz = document.getElementById("slider_yz");
     let val_yz = document.getElementById("val_yz");
     if (sl_yz && new_x_index !== current_x_index) {
-        current_x_index = new_x_index;
-        sl_yz.value = current_x_index;
-        let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-        val_yz.innerText = ppm_x.toFixed(3) + " ppm";
-        refresh_yz_view();
-        refresh_yz_view();
+        if (is_end) {
+            current_x_index = new_x_index;
+            sl_yz.value = current_x_index;
+            let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
+            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            refresh_yz_view();
+        } else {
+            sl_yz.value = new_x_index;
+            let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
+            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+        }
     }
-
-    // Always update crosshairs because even if indices (PPM center) didn't change,
-    // the zoom scale might have changed, requiring new pixel coordinates.
-    update_3d_crosshairs();
 
     // Sync axes: XZ plot X-axis matches XY plot X-axis (Direct)
     if (main_plot_xz) {
-        // console.log("Before sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
-        // console.log("Syncing XZ X-axis from XY:", x_domain);
         main_plot_xz.xscale = [x_domain[0], x_domain[1]];
         main_plot_xz.xRange.domain(main_plot_xz.xscale);
-        // console.log("After sync - XZ X-axis domain:", main_plot_xz.xRange.domain());
-        // console.log("Calling reset_axis on XZ plot");
         main_plot_xz.reset_axis();
 
         // Force axis redraw by explicitly calling axis generator
         if (main_plot_xz.$xAxis_svg) {
             main_plot_xz.$xAxis_svg.call(main_plot_xz.xAxis);
-            // console.log("Explicitly updated XZ X-axis SVG");
         }
-        // console.log("reset_axis completed");
 
         // Update WebGL camera if contour plot exists
         if (main_plot_xz.contour_plot) {
@@ -1310,8 +1310,6 @@ function sync_sliders_to_center() {
             );
             main_plot_xz.contour_plot.drawScene();
         }
-    } else {
-        // console.log("main_plot_xz not available for sync");
     }
 
     // Sync axes: YZ plot Y-axis matches XY plot Y-axis (Indirect)
@@ -1330,12 +1328,17 @@ function sync_sliders_to_center() {
             main_plot_yz.contour_plot.drawScene();
         }
     }
+
+    // Always update crosshairs because even if indices (PPM center) didn't change,
+    // the zoom scale might have changed, requiring new pixel coordinates.
+    // Call this at the end to ensure all scales are updated.
+    update_3d_crosshairs();
 }
 
 /**
  * Sync main XY and YZ plots when XZ plot is zoomed/panned
  */
-function sync_from_xz_plot() {
+function sync_from_xz_plot(is_end = true) {
     if (!main_plot_xz || !main_plot || !main_plot_yz || !spectra_3d || spectra_3d.length === 0) return;
 
     let x_domain = main_plot_xz.xRange.domain(); // X-axis (Direct)
@@ -1350,6 +1353,9 @@ function sync_from_xz_plot() {
         let y_dom = main_plot.yRange.domain();
         main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], y_dom[0], y_dom[1]);
         main_plot.contour_plot.drawScene();
+    }
+    if (main_plot.x_cross_section_plot) {
+        main_plot.x_cross_section_plot.zoom_x(main_plot.xscale);
     }
 
     // Sync YZ plot X-axis (Z) - Matches XZ plot Y-axis (Z)
@@ -1367,22 +1373,55 @@ function sync_from_xz_plot() {
         main_plot_yz.contour_plot.drawScene();
     }
 
-    // Update Z slider based on center of Z range (which is Y-axis of XZ plot)
     let s = spectra_3d[0];
+
+    // Update Z slider based on center of Z range (which is Y-axis of XZ plot)
     let center_z_ppm = (y_domain[0] + y_domain[1]) / 2;
     let new_z_index = Math.round((center_z_ppm - s.z_ppm_start) / s.z_ppm_step);
-
     new_z_index = Math.max(0, Math.min(spectra_3d.length - 1, new_z_index));
 
     if (new_z_index !== current_slice_index) {
-        draw_slice(new_z_index);
+        if (is_end) {
+            draw_slice(new_z_index, false); // false prevents zoom snapping loop
+        } else {
+            let sl_xy = document.getElementById("slider1");
+            let val_xy = document.getElementById("val1");
+            if (sl_xy) sl_xy.value = new_z_index;
+            if (val_xy) {
+                let ppm_z = s.z_ppm_start + (new_z_index * s.z_ppm_step);
+                val_xy.innerText = ppm_z.toFixed(3) + " ppm";
+            }
+        }
     }
+
+    // Update X slider (which syncs to Main Plot's X)
+    let center_x_ppm = (x_domain[0] + x_domain[1]) / 2;
+    let new_x_index = Math.round((center_x_ppm - s.x_ppm_start) / s.x_ppm_step);
+    new_x_index = Math.max(0, Math.min(s.n_direct - 1, new_x_index));
+
+    let sl_yz = document.getElementById("slider_yz");
+    let val_yz = document.getElementById("val_yz");
+    if (sl_yz && new_x_index !== current_x_index) {
+        if (is_end) {
+            current_x_index = new_x_index;
+            sl_yz.value = current_x_index;
+            let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
+            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+            refresh_yz_view();
+        } else {
+            sl_yz.value = new_x_index;
+            let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
+            val_yz.innerText = ppm_x.toFixed(3) + " ppm";
+        }
+    }
+    
+    update_3d_crosshairs();
 }
 
 /**
  * Sync main XY and XZ plots when YZ plot is zoomed/panned
  */
-function sync_from_yz_plot() {
+function sync_from_yz_plot(is_end = true) {
     if (!main_plot_yz || !main_plot || !main_plot_xz || !spectra_3d || spectra_3d.length === 0) return;
 
     let x_domain = main_plot_yz.xRange.domain(); // X-axis (Z)
@@ -1397,6 +1436,9 @@ function sync_from_yz_plot() {
         let x_dom = main_plot.xRange.domain();
         main_plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], main_plot.yscale[0], main_plot.yscale[1]);
         main_plot.contour_plot.drawScene();
+    }
+    if (main_plot.y_cross_section_plot) {
+        main_plot.y_cross_section_plot.zoom_y(main_plot.yscale);
     }
 
     // Sync XZ plot Y-axis (Z) - Matches YZ plot X-axis (Z)
@@ -1415,16 +1457,49 @@ function sync_from_yz_plot() {
         main_plot_xz.contour_plot.drawScene();
     }
 
-    // Update Z slider based on center of Z range (which is X-axis of YZ plot)
     let s = spectra_3d[0];
+
+    // Update Z slider based on center of Z range (which is X-axis of YZ plot)
     let center_z_ppm = (x_domain[0] + x_domain[1]) / 2;
     let new_z_index = Math.round((center_z_ppm - s.z_ppm_start) / s.z_ppm_step);
-
     new_z_index = Math.max(0, Math.min(spectra_3d.length - 1, new_z_index));
 
     if (new_z_index !== current_slice_index) {
-        draw_slice(new_z_index);
+        if (is_end) {
+            draw_slice(new_z_index, false); // false prevents zoom snapping loop
+        } else {
+            let sl_xy = document.getElementById("slider1");
+            let val_xy = document.getElementById("val1");
+            if (sl_xy) sl_xy.value = new_z_index;
+            if (val_xy) {
+                let ppm_z = s.z_ppm_start + (new_z_index * s.z_ppm_step);
+                val_xy.innerText = ppm_z.toFixed(3) + " ppm";
+            }
+        }
     }
+
+    // Update Y slider (which syncs to Main Plot's Y)
+    let center_y_ppm = (y_domain[0] + y_domain[1]) / 2;
+    let new_y_index = Math.round((center_y_ppm - s.y_ppm_start) / s.y_ppm_step);
+    new_y_index = Math.max(0, Math.min(s.n_indirect - 1, new_y_index));
+
+    let sl_xz = document.getElementById("slider_xz");
+    let val_xz = document.getElementById("val_xz");
+    if (sl_xz && new_y_index !== current_y_index) {
+        if (is_end) {
+            current_y_index = new_y_index;
+            sl_xz.value = current_y_index;
+            let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
+            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+            refresh_xz_view();
+        } else {
+            sl_xz.value = new_y_index;
+            let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
+            val_xz.innerText = ppm_y.toFixed(3) + " ppm";
+        }
+    }
+    
+    update_3d_crosshairs();
 }
 
 /**
@@ -2087,37 +2162,54 @@ function update_3d_crosshairs() {
 
     let s = spectra_3d[0]; // Reference for PPM calculation
 
-    // Calculate PPM values for current center indices
-    let ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
-    let ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
-    let ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
+    let ppm_x, ppm_y, ppm_z;
+
+    // Use view centers to keep cyan lines visually centered on screen during zoom/pan
+    if (main_plot && main_plot.xRange && main_plot.yRange) {
+        let x_domain = main_plot.xRange.domain();
+        let y_domain = main_plot.yRange.domain();
+        ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        ppm_y = (y_domain[0] + y_domain[1]) / 2;
+    } else {
+        ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
+        ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
+    }
+
+    if (main_plot_xz && main_plot_xz.yRange) {
+        let z_domain = main_plot_xz.yRange.domain();
+        ppm_z = (z_domain[0] + z_domain[1]) / 2;
+    } else if (main_plot_yz && main_plot_yz.xRange) {
+        let z_domain = main_plot_yz.xRange.domain();
+        ppm_z = (z_domain[0] + z_domain[1]) / 2;
+    } else {
+        ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
+    }
 
     // Update Main Plot (XY)
     if (main_plot && typeof main_plot.draw_center_lines === 'function') {
         main_plot.draw_center_lines(ppm_x, ppm_y);
     }
 
-    // Update XZ Plot (Direct vs Z)
+    // Update XZ Plot (Direct vs Z) - arguments: (X_PPM, Z_PPM)
     if (main_plot_xz && typeof main_plot_xz.draw_center_lines === 'function') {
         main_plot_xz.draw_center_lines(ppm_x, ppm_z);
     }
 
-    // Update YZ Plot (Z vs Indirect)
-    // YZ Plot has Z on X-axis (width) and Indirect on Y-axis (height)?
-    // Let's check init_ortho_plots:
-    // YZ: x_ppm_start: 1 (Z), y_ppm_start: s.y_ppm_start (Indirect).
-    // So X=Z, Y=Indirect.
+    // Update YZ Plot (Z vs Indirect) - arguments: (Z_PPM, Y_PPM)
     if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') {
-        main_plot_yz.draw_center_lines(ppm_z, ppm_y); // Arguments: x_ppm, y_ppm
+        main_plot_yz.draw_center_lines(ppm_z, ppm_y);
     }
 
-    // Update Info Div
+    // Update Info Div using precise matching index strings based on view
     let info_div = document.getElementById("center_info");
     if (info_div) {
+        let dx = Math.round((ppm_x - s.x_ppm_start) / s.x_ppm_step);
+        let dy = Math.round((ppm_y - s.y_ppm_start) / s.y_ppm_step);
+        let dz = Math.round((ppm_z - s.z_ppm_start) / s.z_ppm_step);
         info_div.innerHTML = `
-            X: ${ppm_x.toFixed(3)} ppm (${current_x_index})<br>
-            Y: ${ppm_y.toFixed(3)} ppm (${current_y_index})<br>
-            Z: ${ppm_z.toFixed(3)} ppm (${current_slice_index})
+            X: ${ppm_x.toFixed(3)} ppm (${dx})<br>
+            Y: ${ppm_y.toFixed(3)} ppm (${dy})<br>
+            Z: ${ppm_z.toFixed(3)} ppm (${dz})
         `;
     }
 }
