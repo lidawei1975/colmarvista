@@ -3071,3 +3071,205 @@ function createPyramid(size) {
         normals: new Float32Array(normals)
     };
 }
+
+// Appended 3D Processing logic
+
+var web_worker_3d = null;
+var fid_drop_process_3d = null;
+
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.Worker) {
+        web_worker_3d = new Worker('./js/webass_3d.js');
+        web_worker_3d.onmessage = handle_webass_3d_message;
+    }
+
+    if (typeof file_drop_processor !== 'undefined') {
+        fid_drop_process_3d = new file_drop_processor()
+            .drop_area('input_files')
+            .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist"])
+            .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file"])
+            .file_extension([])
+            .required_files([0, 2, 3])
+            .click_to_select_folder()
+            .init();
+    }
+
+    let fid3dForm = document.getElementById('fid_file_form');
+    if (fid3dForm) {
+        fid3dForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            load_fid_3d_file();
+        });
+    }
+});
+
+const read_file_as_array_buffer = (file) => {
+    return new Promise((resolve, reject) => {
+        var reader = new FileReader();
+        reader.onload = function () {
+            resolve(reader.result);
+        };
+        reader.onerror = function (e) {
+            reject("Error reading file");
+        };
+        reader.readAsArrayBuffer(file);
+    });
+};
+
+async function load_fid_3d_file() {
+    let acquisition_file = document.getElementById('acquisition_file').files[0];
+    let acquisition_file2 = document.getElementById('acquisition_file2').files[0];
+    let acquisition_file3 = document.getElementById('acquisition_file3').files[0];
+    let fid_file = document.getElementById('fid_file').files[0];
+    let nuslist_file = document.getElementById('nuslist_file').files[0];
+
+    if (!fid_file || !acquisition_file || !acquisition_file2 || !acquisition_file3) {
+        alert('Please provide fid/ser, acqus, acqu2s, and acqu3s files.');
+        return;
+    }
+
+    document.getElementById("webassembly_message").innerText = "Reading files...";
+
+    let promises = [
+        read_file_as_array_buffer(fid_file),
+        read_file_as_array_buffer(acquisition_file),
+        read_file_as_array_buffer(acquisition_file2),
+        read_file_as_array_buffer(acquisition_file3),
+        nuslist_file ? read_file_as_array_buffer(nuslist_file) : Promise.resolve(null)
+    ];
+
+    try {
+        let buffers = await Promise.all(promises);
+        const fidBytes = buffers[0];
+        const cfg = {
+            zfDirect: parseInt(document.getElementById('zf_direct').value) || 1,
+            zfIndirect1: parseInt(document.getElementById('zf_indirect1').value) || 1,
+            zfIndirect2: parseInt(document.getElementById('zf_indirect2').value) || 1,
+            apodDirect: document.getElementById('apodization_direct').value,
+            apodIndirect1: document.getElementById('apodization_indirect1').value,
+            apodIndirect2: document.getElementById('apodization_indirect2').value,
+            phaseText: document.getElementById('phase_correction_direct_p0').value + " " +
+                       document.getElementById('phase_correction_direct_p1').value + " " +
+                       document.getElementById('phase_correction_indirect1_p0').value + " " +
+                       document.getElementById('phase_correction_indirect1_p1').value + " " +
+                       document.getElementById('phase_correction_indirect2_p0').value + " " +
+                       document.getElementById('phase_correction_indirect2_p1').value,
+            tdPolyOrder: [
+                parseInt(document.getElementById('polynomial_f2').value) || -1,
+                parseInt(document.getElementById('polynomial_f1').value) || -1,
+                parseInt(document.getElementById('polynomial_f3').value) || -1
+            ],
+            frqPolyOrder: [-1, -1, -1], // not configured in UI
+            inverse: [0, 0, 0], // default
+            deleteImage: [0, 0, 0], // default
+            nusSerInflated: false,
+            extPpm: [
+                parseFloat(document.getElementById('extract_direct_from').value),
+                parseFloat(document.getElementById('extract_direct_to').value)
+            ]
+        };
+
+        const textInputs = {
+            pulse: "",
+            acqus: buffers[1] ? new TextDecoder().decode(buffers[1]) : "",
+            acqu2s: buffers[2] ? new TextDecoder().decode(buffers[2]) : "",
+            acqu3s: buffers[3] ? new TextDecoder().decode(buffers[3]) : "",
+            nuslist: buffers[4] ? new TextDecoder().decode(buffers[4]) : ""
+        };
+        
+        let mode = "full";
+        let modeInputs = document.getElementsByName('Process_Mode');
+        for (let rad of modeInputs) {
+            if (rad.checked) mode = rad.value;
+        }
+
+        document.getElementById("webassembly_message").innerText = "Processing 3D FID using WebAssembly...";
+        web_worker_3d.postMessage({
+            "#sym:webassembly_job ": "process_fid_3d",
+            cfg: cfg,
+            textInputs: textInputs,
+            fidBytes: fidBytes,
+            mode: mode
+        });
+    } catch (err) {
+        document.getElementById("webassembly_message").innerText = "Error reading files: " + err.toString();
+    }
+}
+
+function handle_webass_3d_message(e) {
+    if (e.data.error) {
+        document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
+        return;
+    }
+    if (e.data.stdout) {
+        return;
+    }
+    if (e.data["#sym:webassembly_job "] === "process_fid_3d") {
+        document.getElementById("webassembly_message").innerText = "3D processing complete. Rendering planes...";
+        const dims = e.data.dims;
+        const header = e.data.headerF32; // Float32Array 512 elements
+        const rrr = e.data.rrrF32; // Float32Array
+
+        const nx = dims.nx;
+        const ny = dims.ny;
+        const nz = dims.nz;
+
+        spectra_3d = [];
+        hsqc_spectra = [];
+        current_slice_index = -1;
+        theoretical_peaks_data = [];
+        theoretical_spectra_3d = [];
+
+        let plane_float_count = nx * ny;
+        let plane_byte_size = plane_float_count * 4;
+        let headerUint8 = new Uint8Array(header.buffer, header.byteOffset, header.byteLength);
+
+        for (let i = 0; i < nz; i++) {
+            try {
+                let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+                let dst = new Uint8Array(plane_buffer);
+
+                // Copy header (2048 bytes)
+                dst.set(headerUint8, 0);
+
+                // Copy data slice
+                let plane_data_f32 = rrr.subarray(i * plane_float_count, (i + 1) * plane_float_count);
+                let plane_data_u8 = new Uint8Array(plane_data_f32.buffer, plane_data_f32.byteOffset, plane_data_f32.byteLength);
+                dst.set(plane_data_u8, 2048);
+
+                let s = new spectrum();
+                let plane_name = "plane_" + String(i + 1).padStart(3, '0');
+                s.process_ft_file(plane_buffer, plane_name, -1);
+
+                s.spectrum_color = "#ff0000";
+                s.spectrum_color_negative = "#0000ff";
+                s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+                s.visible = true;
+
+                spectra_3d.push(s);
+            } catch (err) {
+                console.error("Error creating plane " + i, err);
+            }
+        }
+
+        if (spectra_3d.length > 0) {
+            let slider = document.getElementById('slice_slider');
+            slider.max = spectra_3d.length - 1;
+            slider.value = 0;
+            document.getElementById('slice_control_area').style.display = 'block';
+            document.getElementById('spectra_list').style.display = 'block';
+            document.getElementById('main_plot_area').style.display = 'flex';
+
+            draw_slice(0);
+
+            let s0 = spectra_3d[0];
+            init_xz_yz_plots(spectra_3d);
+
+            visualize_3d();
+            document.getElementById("webassembly_message").innerText = "3D FID processing and rendering finished successfully.";
+        } else {
+            document.getElementById("webassembly_message").innerText = "No planes were generated.";
+        }
+    }
+}

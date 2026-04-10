@@ -39,6 +39,101 @@
 
         <div id="section2">
 
+            <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: auto;">
+                <span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time domain data for processing (3D)</p>
+                </span>
+                <form id="fid_file_form" action="" enctype="multipart/form-data">
+                    <div class="drop-area input-section" id="input_files">
+                        <label for="fid_file">fid file (required, usually called ser): </label><input type="file" name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called acqus):</label>
+                        <input type="file" name="acquisition_file" id="acquisition_file"><br>
+                        <label for="acquisition_file2">Indirect dimension 1 acquisition file (required, usually called acqu2s): </label>
+                        <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
+                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (required, usually called acqu3s): </label>
+                        <input type="file" name="acquisition_file3" id="acquisition_file3"><br>
+                        <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist): </label>
+                        <input type="file" name="nuslist_file" id="nuslist_file"><br>
+                        <span class="information"> You can also drag and drop Bruker folder.</span><br>
+                    </div>
+
+                    <div class="input-section" id="input_options" style="display:none;">
+                        <!-- Options for Direct -->
+                        <div><strong>Direct Dimension:</strong></div>
+                        <span>
+                            <label for="apodization_direct">Apodization </label>
+                            <input type="text" name="apodization_direct" id="apodization_direct" value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="40">
+                            <label for="zf_direct">Zero filling </label>
+                            <select name="zf_direct" id="zf_direct">
+                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                            </select>
+                            <label for="phase_correction_direct_p0">P0: </label>
+                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0" value="0" step="any" style="width: 60px;">
+                            <label for="phase_correction_direct_p1">P1: </label>
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1" value="0" step="any" style="width: 60px;">
+                            <label for="extract_direct_from">Extract(ppm): from </label>
+                            <input type="number" name="extract_direct_from" id="extract_direct_from" value="12.0" step="any" style="width: 50px;">
+                            <label for="extract_direct_to">to</label>
+                            <input type="number" name="extract_direct_to" id="extract_direct_to" value="-2.0" step="any" style="width: 50px;">
+                        </span><br>
+                        <!-- Options for Indirect 1 -->
+                        <div><strong>Indirect Dimension 1 (F1):</strong></div>
+                        <span>
+                            <label for="apodization_indirect1">Apodization </label>
+                            <input type="text" name="apodization_indirect1" id="apodization_indirect1" value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="40">
+                            <label for="zf_indirect1">Zero filling </label>
+                            <select name="zf_indirect1" id="zf_indirect1">
+                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                            </select>
+                            <label for="phase_correction_indirect1_p0">P0: </label>
+                            <input type="number" name="phase_correction_indirect1_p0" id="phase_correction_indirect1_p0" value="0" step="any" style="width: 60px;">
+                            <label for="phase_correction_indirect1_p1">P1: </label>
+                            <input type="number" name="phase_correction_indirect1_p1" id="phase_correction_indirect1_p1" value="0" step="any" style="width: 60px;">
+                        </span><br>
+                        <!-- Options for Indirect 2 -->
+                        <div><strong>Indirect Dimension 2 (F3):</strong></div>
+                        <span>
+                            <label for="apodization_indirect2">Apodization </label>
+                            <input type="text" name="apodization_indirect2" id="apodization_indirect2" value="SP off 0.5 end 0.98 pow 2 elb 0 c 0.5" size="40">
+                            <label for="zf_indirect2">Zero filling </label>
+                            <select name="zf_indirect2" id="zf_indirect2">
+                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                            </select>
+                            <label for="phase_correction_indirect2_p0">P0: </label>
+                            <input type="number" name="phase_correction_indirect2_p0" id="phase_correction_indirect2_p0" value="0" step="any" style="width: 60px;">
+                            <label for="phase_correction_indirect2_p1">P1: </label>
+                            <input type="number" name="phase_correction_indirect2_p1" id="phase_correction_indirect2_p1" value="0" step="any" style="width: 60px;">
+                        </span><br>
+                        <!-- Polynomial / Process Radio -->
+                        <span>
+                            <label for="polynomial_f2">Poly f2: </label>
+                            <select name="polynomial_f2" id="polynomial_f2">
+                                <option value="-1">none</option><option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            </select>
+                            <label for="polynomial_f1">f1: </label>
+                            <select name="polynomial_f1" id="polynomial_f1">
+                                <option value="-1">none</option><option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            </select>
+                            <label for="polynomial_f3">f3: </label>
+                            <select name="polynomial_f3" id="polynomial_f3">
+                                <option value="-1">none</option><option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            </select>
+                            &nbsp;&nbsp;
+                            <input type="radio" name="Process_Mode" id="full_process" value="full" checked>
+                            <label for="full_process">Full process</label>
+                            <input type="radio" name="Process_Mode" id="direct_only" value="direct-only">
+                            <label for="direct_only">Direct only</label>
+                            <input type="radio" name="Process_Mode" id="indirect_only" value="indirect-only">
+                            <label for="indirect_only">Indirect only</label>
+                        </span>
+                    </div>
+                    <button type="button" id="button_toggle_options" onclick="const e=document.getElementById('input_options'); e.style.display=e.style.display==='none'?'block':'none';">Options...</button>
+
+                    <input type="submit" id="button_fid_process_3d" name="button_fid_process_3d" value="Upload and Process 3D FID">
+                    <br>
+                </form>
+            </div>
+
             <div id="file_area" class="drop-area" style="width: 1200px;">
                 <h4>Upload 3D Spectrum:</h4>
                 <div style="display: flex; gap: 20px;">
