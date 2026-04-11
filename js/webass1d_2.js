@@ -678,6 +678,142 @@ self.onmessage = async function (event) {
         }
     }
 
+    /**
+     * 2D peak fitting job using the high-level spectrum_fit C++ class.
+     *
+     * Mirrors the workflow of spectrum_fit.cpp main():
+     *   1. initflags_fit(maxround, removal_cutoff, too_near_cutoff, i_method)
+     *   2. init_all_spectra_from_buffers(VectorVectorUChar) — one VectorUChar per spectrum file
+     *   3. set_scale / set_noise_level / set_peak_width (optional)
+     *   4. peak_reading_from_string(tab_string, 0) — type 0 = .tab format
+     *   5. peak_fitting()
+     *   6. print_peaks_as_string() → returned to main thread
+     *
+     * Input (event.data):
+     *   spectrum_buffers   : Array of Uint8Array  — one ft2 per spectrum (at least one)
+     *   picked_peaks_tab   : string               — NMRPipe .tab formatted peak list
+     *   maxround           : int                  — max fitting iterations (default 50)
+     *   removal_cutoff     : float                — combine/remove cutoff (default 0.0)
+     *   too_near_cutoff    : float                — too-near cutoff (default 0.1)
+     *   i_method           : int                  — 1=Gaussian, 2=Voigt, 3=Voigt-Lorentz
+     *   scale              : float                — noise scale factor (default 5.5)
+     *   scale2             : float                — noise floor scale (default 3.0)
+     *   noise_level        : float                — 0 → auto-estimate from spectrum
+     *   wx                 : float                — max FWHH direct dim ppm (0 = auto)
+     *   wy                 : float                — max FWHH indirect dim ppm (0 = auto)
+     *   spectrum_index     : int                  — passthrough for main thread bookkeeping
+     */
+    else if (webassembly_job === "peak_fitter_v2_spectrum_fit") {
+        try {
+            const toFloatOr = function (v, fallback) {
+                const p = parseFloat(v);
+                return Number.isFinite(p) ? p : fallback;
+            };
+            const toIntOr = function (v, fallback) {
+                const p = parseInt(v, 10);
+                return Number.isFinite(p) ? p : fallback;
+            };
+
+            const maxround = toIntOr(event.data.maxround, 50);
+            const removalCutoff = toFloatOr(event.data.removal_cutoff, 0.0);
+            const tooNearCutoff = toFloatOr(event.data.too_near_cutoff, 0.1);
+            const iMethod = toIntOr(event.data.i_method, 2); // 2 = Voigt
+            const scale = toFloatOr(event.data.scale, 5.5);
+            const scale2 = toFloatOr(event.data.scale2, 3.0);
+            const noiseLevel = toFloatOr(event.data.noise_level, 0.0);
+            const wx = toFloatOr(event.data.wx, 0.0);
+            const wy = toFloatOr(event.data.wy, 0.0);
+            const pickedPeaksTab = String(event.data.picked_peaks_tab || '');
+
+            const buffers = Array.isArray(event.data.spectrum_buffers) ? event.data.spectrum_buffers : [];
+            if (buffers.length === 0) {
+                throw new Error('peak_fitter_v2_spectrum_fit: no spectrum_buffers provided');
+            }
+            if (!pickedPeaksTab) {
+                throw new Error('peak_fitter_v2_spectrum_fit: picked_peaks_tab is empty');
+            }
+
+            const obj = new Module.spectrum_fit();
+            try {
+                /**
+                 * Step 1: Set fitting flags — matches x.initflags_fit(maxround, removal_cutoff, too_near_cutoff, i_method)
+                 */
+                obj.initflags_fit(maxround, removalCutoff, tooNearCutoff, iMethod);
+
+                /**
+                 * Step 2: Set scale — matches x.set_scale(user, user2)
+                 */
+                obj.set_scale(scale, scale2);
+
+                /**
+                 * Step 3: Load spectra from buffers.
+                 * C++ signature: init_all_spectra_from_buffers(const std::vector<unsigned char> &nmrpipe_bytes, int nspectra_in)
+                 * Takes a single flat byte buffer containing all spectra data concatenated.
+                 */
+                const buffersVec = new Module.VectorUChar();
+                try {
+                    for (let b = 0; b < buffers.length; b++) {
+                        const uint8 = new Uint8Array(
+                            buffers[b].buffer !== undefined ? buffers[b].buffer : buffers[b],
+                            buffers[b].byteOffset || 0,
+                            buffers[b].byteLength
+                        );
+                        for (let i = 0; i < uint8.length; i++) {
+                            buffersVec.push_back(uint8[i]);
+                        }
+                    }
+
+                    if (!obj.init_all_spectra_from_buffers(buffersVec, buffers.length)) {
+                        throw new Error('peak_fitter_v2_spectrum_fit: init_all_spectra_from_buffers failed');
+                    }
+                } finally {
+                    buffersVec.delete();
+                }
+
+                /**
+                 * Step 4: Optional per-spectrum overrides — matches if (noise_level > 1e-20) / if (wx > 0 || wy > 0)
+                 */
+                if (noiseLevel > 1e-20) {
+                    obj.set_noise_level(noiseLevel);
+                }
+                if (wx > 0.0 || wy > 0.0) {
+                    obj.set_peak_width(wx, wy);
+                }
+
+                /**
+                 * Step 5: Load input peaks — matches x.peak_reading(peak_file) but from string
+                 */
+                if (!obj.peak_reading_pipe_string(pickedPeaksTab)) {
+                    throw new Error('peak_fitter_v2_spectrum_fit: peak_reading_pipe_string failed (no valid peaks?)');
+                }
+
+                /**
+                 * Step 6: Run fitting — matches x.peak_fitting()
+                 */
+                obj.peak_fitting();
+
+                /**
+                 * Step 7: Retrieve results as NMRPipe .tab string — matches x.print_peaks(outfname, ...)
+                 */
+                const fittedPeaksTab = obj.print_peaks("", false, "", true);
+
+                self.postMessage({
+                    [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                    fitted_peaks_tab: fittedPeaksTab,
+                    spectrum_index: event.data.spectrum_index,
+                });
+            } finally {
+                obj.delete();
+            }
+        }
+        catch (err) {
+            self.postMessage({
+                error: 'peak_fitter_v2_spectrum_fit: ' + (err && err.message ? err.message : String(err)),
+                spectrum_index: event.data.spectrum_index,
+            });
+        }
+    }
+
     else if (webassembly_job === "pseudo3d_fitting") {
         try {
             const toFloatOr = function (value, fallback) {
@@ -1038,47 +1174,46 @@ self.onmessage = async function (event) {
 
             const spectrum2d = new Spectrum2DClass();
 
+            const peakShape = event.data.peak_shape || "voigt";
             let ok = false;
-            if (typeof Module.generate_spectrum_voigt === "function") {
-                ok = Module.generate_spectrum_voigt(
-                    inten,
-                    sigmax,
-                    sigmay,
-                    gammax,
-                    gammay,
-                    centerx,
-                    centery,
-                    spectrum2d,
-                    event.data.xdim_local,
-                    event.data.ydim_local
-                );
-            }
-            else if (typeof Module.gaussian_fit === "function") {
-                const obj = new Module.gaussian_fit();
-                if (typeof obj.generate_spectrum_voigt !== "function") {
+
+            if (peakShape === "gaussian") {
+                if (typeof Module.generate_spectrum_gaussian === "function") {
+                    ok = Module.generate_spectrum_gaussian(
+                        inten, sigmax, sigmay, centerx, centery,
+                        spectrum2d, event.data.xdim_local, event.data.ydim_local
+                    );
+                } else if (typeof Module.gaussian_fit === "function") {
+                    const obj = new Module.gaussian_fit();
+                    if (typeof obj.generate_spectrum_gaussian === "function") {
+                        ok = obj.generate_spectrum_gaussian(
+                            inten, sigmax, sigmay, centerx, centery,
+                            spectrum2d, event.data.xdim_local, event.data.ydim_local
+                        );
+                    }
                     obj.delete();
-                    throw new Error("generate_spectrum_voigt is not exposed on gaussian_fit");
                 }
-                ok = obj.generate_spectrum_voigt(
-                    inten,
-                    sigmax,
-                    sigmay,
-                    gammax,
-                    gammay,
-                    centerx,
-                    centery,
-                    spectrum2d,
-                    event.data.xdim_local,
-                    event.data.ydim_local
-                );
-                obj.delete();
-            }
-            else {
-                throw new Error("generate_spectrum_voigt binding is not found");
+            } else {
+                // Default to Voigt
+                if (typeof Module.generate_spectrum_voigt === "function") {
+                    ok = Module.generate_spectrum_voigt(
+                        inten, sigmax, sigmay, gammax, gammay, centerx, centery,
+                        spectrum2d, event.data.xdim_local, event.data.ydim_local
+                    );
+                } else if (typeof Module.gaussian_fit === "function") {
+                    const obj = new Module.gaussian_fit();
+                    if (typeof obj.generate_spectrum_voigt === "function") {
+                        ok = obj.generate_spectrum_voigt(
+                            inten, sigmax, sigmay, gammax, gammay, centerx, centery,
+                            spectrum2d, event.data.xdim_local, event.data.ydim_local
+                        );
+                    }
+                    obj.delete();
+                }
             }
 
             if (!ok) {
-                throw new Error("generate_spectrum_voigt returned false");
+                throw new Error(`generate_spectrum_${peakShape} failed or binding not found`);
             }
 
             const ydim = event.data.ydim_local;
