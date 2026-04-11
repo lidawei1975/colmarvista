@@ -397,21 +397,6 @@ self.onmessage = async function (event) {
         Module.shared_data_1d.n_verbose = 1;
         const obj = new Module.spectrum_fit_1d();
 
-        /**
-         *  Here it is list of functions that can be used
-         *  .function("init", &spectrum_fit_1d::init)
-            .function("init_fit", &spectrum_fit_1d::init_fit)  //int (1: gaussian, 2: voigt, 3: lorentzian), int round, float to_near_cutoff
-            .function("init_error", &spectrum_fit_1d::init_error)
-            .function("read_first_spectrum_from_buffer",&spectrum_fit_1d::read_first_spectrum_from_buffer)
-            .function("peak_reading_from_string", &spectrum_fit_1d::peak_reading_from_string)
-            .function("peak_fitting", &spectrum_fit_1d::peak_fitting)
-            .function("output_as_string", &spectrum_fit_1d::output_as_string)
-            .function("output_json_as_string", &spectrum_fit_1d::output_json_as_string)
-            .function("get_size_of_recon", &spectrum_fit_1d::get_size_of_recon)
-            .function("get_data_of_recon", &spectrum_fit_1d::get_data_of_recon)
-            ;
-         */
-
         // Initialize the object with scale and scale2
         obj.init(event.data.scale, event.data.scale2, event.data.noise_level);
 
@@ -1310,21 +1295,6 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
 
-
-    /**
-     * 2D Peak Picking using JS-driven spectrum_pick class (webdp1d_cpp module).
-     * Follows the C++ workflow:
-     *   spectrum_pick x;
-     *   x.set_scale(user_scale, user_scale2);
-     *   x.set_scale_negative(user_scale_negative, user_scale2_negative);
-     *   x.set_model_selection(model_selection);
-     *   if (x.read_first_spectrum_from_buffer(spectrum_vec)) {
-     *       if (noise_level > 1e-20) x.set_noise_level(noise_level);
-     *       if (b_auto_ppp) x.adjust_ppp_of_spectrum(target_width);
-     *       x.ann_peak_picking(debug_flag1, t1_flag, b_negative);
-     *       peaks_tab = x.print_peaks_as_string();
-     *   }
-     */
     else if (webassembly_job === "peak_picker_2d") {
 
         const obj = new Module.spectrum_pick();
@@ -1338,26 +1308,19 @@ self.onmessage = async function (event) {
         obj.set_model_selection(2); // 2 = DEEP Picker (model 2, target_width=6)
 
         /**
-         * Convert the Uint8Array ft2 binary into separate header and data VectorFloat objects.
-         * NMRPipe .ft2 format: first 512 float32s are the header, the rest is spectrum data.
-         * C++ signature: read_first_spectrum_from_buffer(vector<float> header, vector<float> data)
+         * Convert the buffer into a VectorUChar object.
+         * C++ signature: read_nmrpipe_file_from_buffer(vector<unsigned char> nmrpipe_bytes)
          */
-        const HEADER_SIZE = 512; // NMRPipe header is always 512 float32 words
-        const spectrum_float32 = new Float32Array(event.data.spectrum_data.buffer,
+        const spectrum_uint8 = new Uint8Array(event.data.spectrum_data.buffer,
             event.data.spectrum_data.byteOffset,
-            event.data.spectrum_data.byteLength / 4);
+            event.data.spectrum_data.byteLength);
 
-        const header_vec = new Module.VectorFloat();
-        for (let i = 0; i < HEADER_SIZE; i++) {
-            header_vec.push_back(spectrum_float32[i]);
+        const nmrpipe_bytes = new Module.VectorUChar();
+        for (let i = 0; i < spectrum_uint8.length; i++) {
+            nmrpipe_bytes.push_back(spectrum_uint8[i]);
         }
 
-        const data_vec = new Module.VectorFloat();
-        for (let i = HEADER_SIZE; i < spectrum_float32.length; i++) {
-            data_vec.push_back(spectrum_float32[i]);
-        }
-
-        if (obj.read_first_spectrum_from_buffer(header_vec, data_vec)) {
+        if (obj.read_nmrpipe_file_from_buffer(nmrpipe_bytes)) {
 
             /**
              * Set noise level if provided
@@ -1394,8 +1357,7 @@ self.onmessage = async function (event) {
             self.postMessage({ error: 'peak_picker_2d: init_from_buffer failed' });
         }
 
-        header_vec.delete();
-        data_vec.delete();
+        nmrpipe_bytes.delete();
         obj.delete();
     }
 
