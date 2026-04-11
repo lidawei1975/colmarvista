@@ -1092,20 +1092,27 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
             s.recon_generation_requested_v2 = true;
             const fitted = s.fitted_peaks_object;
 
+            const is_gaussian = (fitted.column_headers.indexOf("GAMMAX") === -1);
+            const inten_col = is_gaussian ? "HEIGHT" : "VOL";
+            const sigma_conversion = 2.354822; // FWHH = 2 * sqrt(2 * ln(2)) * sigma
+
             webassembly_worker.postMessage({
                 [WEBASSEMBLY_JOB_KEY]: "generate_recon_spectrum_v2",
                 spectrum_index: spectrum_index,
                 xdim_local: s.n_direct,
                 ydim_local: s.n_indirect,
-                // Recon kernels expect fitted amplitude (HEIGHT) and point positions (X_AXIS, Y_AXIS)
-                inten: Float64Array.from(fitted.get_column_by_header("HEIGHT")),
-                sigmax: Float64Array.from(fitted.get_column_by_header("SIGMAX")),
-                sigmay: Float64Array.from(fitted.get_column_by_header("SIGMAY")),
-                gammax: Float64Array.from(fitted.get_column_by_header("GAMMAX")),
-                gammay: Float64Array.from(fitted.get_column_by_header("GAMMAY")),
-                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS")),
-                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS")),
-                peak_shape: s.i_method_v2 === 1 ? "gaussian" : "voigt"
+                inten: Float64Array.from(fitted.get_column_by_header(inten_col)),
+                sigmax: Float64Array.from(is_gaussian
+                    ? fitted.get_column_by_header("XW").map(v => v / sigma_conversion)
+                    : fitted.get_column_by_header("SIGMAX")),
+                sigmay: Float64Array.from(is_gaussian
+                    ? fitted.get_column_by_header("YW").map(v => v / sigma_conversion)
+                    : fitted.get_column_by_header("SIGMAY")),
+                gammax: Float64Array.from(is_gaussian ? new Float64Array(fitted.columns[0].length).fill(0) : fitted.get_column_by_header("GAMMAX")),
+                gammay: Float64Array.from(is_gaussian ? new Float64Array(fitted.columns[0].length).fill(0) : fitted.get_column_by_header("GAMMAY")),
+                centerx: Float64Array.from(fitted.get_column_by_header("X_AXIS").map(v => v - 1)),
+                centery: Float64Array.from(fitted.get_column_by_header("Y_AXIS").map(v => v - 1)),
+                peak_shape: is_gaussian ? "gaussian" : "voigt"
             });
 
             if (failed > 0) {
