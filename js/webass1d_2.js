@@ -1,8 +1,6 @@
 // worker.js
 
 // Import Emscripten factory function
-importScripts('peak_shape_utils.js');
-importScripts('gaussian_fit_worker_bridge.js');
 importScripts('webdp1d_cpp.js');
 
 const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
@@ -820,303 +818,120 @@ self.onmessage = async function (event) {
                 const parsed = parseFloat(value);
                 return Number.isFinite(parsed) ? parsed : fallback;
             };
-            const describeAmpMeaningByShape = PeakShapeUtils.describeAmpMeaningByShape;
+            const toIntOr = function (value, fallback) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
 
-            const regions = Array.isArray(event.data.regions) ? event.data.regions : [];
-            if (regions.length === 0) {
-                throw new Error('No pre-partitioned pseudo3D regions provided from main thread');
+            const allFiles = Array.isArray(event.data.all_files) ? event.data.all_files : [];
+            const initialPeaksTab = String(event.data.initial_peaks || '');
+            if (allFiles.length === 0) {
+                throw new Error('pseudo3d_fitting: no all_files provided');
+            }
+            if (!initialPeaksTab) {
+                throw new Error('pseudo3d_fitting: initial_peaks is empty');
             }
 
-            const peakComments = Array.isArray(event.data.peak_comments) ? event.data.peak_comments : [];
-            const peakXppm = Array.isArray(event.data.peak_xppm) ? event.data.peak_xppm : [];
-            const peakYppm = Array.isArray(event.data.peak_yppm) ? event.data.peak_yppm : [];
+            const maxround = toIntOr(event.data.maxround, 50);
+            const removalCutoff = toFloatOr(event.data.removal_cutoff, 0.0);
+            const tooNearCutoff = toFloatOr(event.data.too_near_cutoff, 0.1);
+            const scale = toFloatOr(event.data.scale, 5.5);
+            const scale2 = toFloatOr(event.data.scale2, 3.0);
+            const noiseLevel = toFloatOr(event.data.noise_level, 0.0);
+            const wx = toFloatOr(event.data.wx, 0.0);
+            const wy = toFloatOr(event.data.wy, 0.0);
 
-            const defaultNoise = toFloatOr(event.data.noise_level, 1.0);
-            const defaultScale2 = toFloatOr(event.data.scale2, 3.0);
-            const defaultPeakShape = event.data.flag === 0 ? 1 : 0;
-            const defaultMaxround = parseInt(event.data.maxround, 10) || 20;
+            // Keep method mapping aligned with UI flags and peak_fitter_v2_spectrum_fit.
+            let iMethod = toIntOr(event.data.i_method, 2); // 1=Gaussian, 2=Voigt, 3=Voigt-Lorentz
+            if (event.data.flag === 1) {
+                iMethod = 1;
+            }
+            else if (event.data.flag === 0) {
+                iMethod = 2;
+            }
+            else if (event.data.flag === 2) {
+                iMethod = 3;
+            }
 
-            const fittedRows = [];
-            let completedRegions = 0;
-            postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+            const total = allFiles.length + 3;
+            let done = 0;
+            postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
 
-            for (let clusterId = 0; clusterId < regions.length; clusterId++) {
-                const region = regions[clusterId];
-                if (!region) {
-                    completedRegions++;
-                    postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
-                    continue;
-                }
+            const obj = new Module.spectrum_fit();
+            try {
+                obj.initflags_fit(maxround, removalCutoff, tooNearCutoff, iMethod);
+                obj.set_scale(scale, scale2);
 
-                const nspect = parseInt(region.nspectra, 10) || 0;
-                if (nspect <= 0) {
-                    completedRegions++;
-                    postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
-                    continue;
-                }
+                const buffersVec = new Module.VectorUChar();
+                try {
+                    for (let b = 0; b < allFiles.length; b++) {
+                        let uint8;
+                        const source = allFiles[b];
+                        if (source instanceof Uint8Array) {
+                            uint8 = source;
+                        }
+                        else if (source instanceof ArrayBuffer) {
+                            uint8 = new Uint8Array(source);
+                        }
+                        else if (source && source.buffer !== undefined && source.byteLength !== undefined) {
+                            uint8 = new Uint8Array(source.buffer, source.byteOffset || 0, source.byteLength);
+                        }
+                        else {
+                            throw new Error('pseudo3d_fitting: invalid spectrum buffer at index ' + b.toString());
+                        }
 
-                const peakShape = parseInt(region.peakShape, 10) || defaultPeakShape;
-                const maxround = parseInt(region.maxround, 10) || defaultMaxround;
-                const localClusterId = parseInt(region.clusterLocalIndex, 10);
-                const resolvedClusterId = Number.isFinite(localClusterId) ? localClusterId : clusterId;
+                        for (let i = 0; i < uint8.length; i++) {
+                            buffersVec.push_back(uint8[i]);
+                        }
 
-                const xx = region.x || [];
-                const yy = region.y || [];
-                const aas = region.amp || [];
-                const sx = region.sigmax || [];
-                const sy = region.sigmay || [];
-                const gx = region.gammax || [];
-                const gy = region.gammay || [];
-                const ori = region.originalNdx || [];
-                const cannotMove = region.cannotMove || [];
-
-                const peakCount = xx.length;
-                const ampMeaning = describeAmpMeaningByShape(peakShape);
-                console.log("[pseudo3d][partition " + clusterId + "] peakShape=" + peakShape + ", nspect=" + nspect + ", npeak=" + peakCount + ", meaning: " + ampMeaning);
-
-                const fitResult = GaussianFitWorkerBridge.runRegionFit(Module, {
-                    clusterId: resolvedClusterId,
-                    maxround: maxround,
-                    peakShape: peakShape,
-                    peakSign: parseInt(region.peakSign, 10),
-                    xstart: parseInt(region.xstart, 10) || 0,
-                    ystart: parseInt(region.ystart, 10) || 0,
-                    xdim: parseInt(region.xdim, 10) || 0,
-                    ydim: parseInt(region.ydim, 10) || 0,
-                    nspectra: nspect,
-                    surface: region.surface || [],
-                    x: xx,
-                    y: yy,
-                    amp: aas,
-                    sigmax: sx,
-                    sigmay: sy,
-                    gammax: gx,
-                    gammay: gy,
-                    originalNdx: ori,
-                    cannotMove: cannotMove,
-                    medianWidthX: toFloatOr(region.medianWidthX, 3.0),
-                    medianWidthY: toFloatOr(region.medianWidthY, 3.0),
-                    peakParas: region.peakParas || {
-                        wx: 6.0,
-                        wy: 6.0,
-                        noise: defaultNoise,
-                        minHeight: defaultNoise * defaultScale2,
-                        tooNearCutoff: 0.2,
-                        xppmStep: 1.0,
-                        yppmStep: 1.0,
-                        removalCutoff: 0.1
+                        done++;
+                        postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
                     }
+
+                    if (!obj.init_all_spectra_from_buffers(buffersVec, allFiles.length)) {
+                        throw new Error('pseudo3d_fitting: init_all_spectra_from_buffers failed');
+                    }
+                }
+                finally {
+                    buffersVec.delete();
+                }
+
+                if (noiseLevel > 1e-20) {
+                    obj.set_noise_level(noiseLevel);
+                }
+                if (wx > 0.0 || wy > 0.0) {
+                    obj.set_peak_width(wx, wy);
+                }
+
+                if (!obj.peak_reading_pipe_string(initialPeaksTab)) {
+                    throw new Error('pseudo3d_fitting: peak_reading_pipe_string failed');
+                }
+
+                done++;
+                postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
+
+                obj.peak_fitting();
+                const fittedPeaksTab = obj.print_peaks("", false, "", true);
+                if (!fittedPeaksTab) {
+                    throw new Error('pseudo3d_fitting: print_peaks returned empty result');
+                }
+
+                done++;
+                postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
+
+                postMessage({
+                    [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                    pseudo3d_fitted_peaks_tab: fittedPeaksTab,
+                    all_spectra_indices: event.data.all_spectra_indices,
                 });
-
-                if (fitResult.ok) {
-                    for (let i = 0; i < fitResult.peaks.length; i++) {
-                        const peak = fitResult.peaks[i];
-                        fittedRows.push({
-                            originalNdx: peak.originalNdx,
-                            xAxis1: peak.xAxis1,
-                            yAxis1: peak.yAxis1,
-                            height: peak.height,
-                            volume: peak.volume,
-                            dheight: peak.dheight,
-                            sigmax: peak.sigmax,
-                            sigmay: peak.sigmay,
-                            gammax: peak.gammax,
-                            gammay: peak.gammay,
-                            nround: peak.nround,
-                            clusterId: resolvedClusterId,
-                            allSpectraHeights: peak.ampRow,
-                        });
-                    }
-                }
-
-                completedRegions++;
-                postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: completedRegions, total: regions.length });
+                return;
             }
-
-            if (fittedRows.length === 0) {
-                throw new Error('No fitted peaks returned from partitioned class fitting');
+            finally {
+                obj.delete();
             }
-
-            fittedRows.sort(function (a, b) {
-                return a.originalNdx - b.originalNdx;
-            });
-
-            let zColumns = '';
-            let zFormats = '';
-            const nspectraForRatio = Array.isArray(event.data.all_spectra_indices) ? event.data.all_spectra_indices.length : 0;
-            for (let i = 0; i < nspectraForRatio; i++) {
-                zColumns += ' Z_A' + i.toString();
-                zFormats += ' %7.4f';
-            }
-
-            let peaksTab = 'VARS INDEX X_AXIS Y_AXIS X_PPM Y_PPM HEIGHT VOLUME DHEIGHT ASS CLUSTID SIGMAX SIGMAY GAMMAX GAMMAY NROUND' + zColumns + '\n';
-            peaksTab += 'FORMAT %5d %9.3f %9.3f %10.6f %10.6f %+e %+e %+e %s %4d %f %f %f %f %4d' + zFormats + '\n';
-
-            for (let i = 0; i < fittedRows.length; i++) {
-                const row = fittedRows[i];
-                const comment = String(peakComments[row.originalNdx] || ('peaks' + (row.originalNdx + 1).toString()));
-                const xppm = toFloatOr(peakXppm[row.originalNdx], row.xAxis1);
-                const yppm = toFloatOr(peakYppm[row.originalNdx], row.yAxis1);
-
-                const relativeHeights = [];
-                if (nspectraForRatio > 0) {
-                    for (let k = 0; k < nspectraForRatio; k++) {
-                        const h = (row.allSpectraHeights && k < row.allSpectraHeights.length) ? Number(row.allSpectraHeights[k]) : 0.0;
-                        relativeHeights.push(Number.isFinite(h) ? h : 0.0);
-                    }
-                    if (Math.abs(relativeHeights[0]) < Number.EPSILON) {
-                        for (let k = 0; k < relativeHeights.length; k++) {
-                            relativeHeights[k] = 0.0;
-                        }
-                    }
-                    else {
-                        for (let k = 1; k < relativeHeights.length; k++) {
-                            relativeHeights[k] = relativeHeights[k] / relativeHeights[0];
-                        }
-                        relativeHeights[0] = 1.0;
-                    }
-                }
-
-                peaksTab += [
-                    (i + 1).toString(),
-                    row.xAxis1.toFixed(3),
-                    row.yAxis1.toFixed(3),
-                    xppm.toFixed(6),
-                    yppm.toFixed(6),
-                    Number(row.height).toExponential(6),
-                    Number(row.volume).toExponential(6),
-                    Number(row.dheight).toExponential(6),
-                    comment,
-                    row.clusterId.toString(),
-                    Number(row.sigmax).toFixed(6),
-                    Number(row.sigmay).toFixed(6),
-                    Number(row.gammax).toFixed(6),
-                    Number(row.gammay).toFixed(6),
-                    row.nround.toString()
-                ].concat(relativeHeights.map(function (v) { return Number(v).toFixed(4); })).join(' ') + '\n';
-            }
-
-            postMessage({
-                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
-                pseudo3d_fitted_peaks_tab: peaksTab,
-                all_spectra_indices: event.data.all_spectra_indices,
-            });
-            return;
         }
         catch (err) {
             self.postMessage({ error: "pseudo3d_fitting: " + (err && err.message ? err.message : String(err)) });
-        }
-    }
-
-    /**
-     * v2 peak fitting region job: wasm only.
-     * Main thread prepares partitioned regions and submits one job per region.
-     */
-    else if (webassembly_job === "peak_fitter_region_v2") {
-        try {
-            const fitResult = GaussianFitWorkerBridge.runRegionFit(Module, {
-                clusterId: event.data.cluster_counter,
-                maxround: event.data.maxround,
-                peakShape: event.data.peak_shape,
-                peakSign: event.data.peak_sign,
-                xstart: event.data.min1,
-                ystart: event.data.min2,
-                xdim: event.data.size1,
-                ydim: event.data.size2,
-                nspectra: event.data.nspect,
-                surface: Array.from(event.data.spect_parts || []),
-                x: Array.from(event.data.xx || []),
-                y: Array.from(event.data.yy || []),
-                amp: Array.from(event.data.aas || []),
-                sigmax: Array.from(event.data.sx || []),
-                sigmay: Array.from(event.data.sy || []),
-                gammax: Array.from(event.data.gx || []),
-                gammay: Array.from(event.data.gy || []),
-                originalNdx: Array.from(event.data.ori_index || []),
-                cannotMove: Array.from(event.data.region_peak_cannot_move_flag || []),
-                medianWidthX: event.data.median_width_x,
-                medianWidthY: event.data.median_width_y,
-                peakParas: {
-                    wx: event.data.wx * 1.5,
-                    wy: event.data.wy * 1.5,
-                    noise: event.data.noise_level,
-                    minHeight: event.data.noise_level * event.data.user_scale2,
-                    tooNearCutoff: event.data.too_near_cutoff,
-                    xppmStep: event.data.step1,
-                    yppmStep: event.data.step2,
-                    removalCutoff: event.data.removal_cutoff
-                }
-            });
-
-            if (!fitResult.ok) {
-                throw new Error("runRegionFit failed: " + fitResult.reason);
-            }
-
-            const nspect = event.data.nspect;
-            const npeak = fitResult.peaks.length;
-            let p1 = new Float32Array(npeak);
-            let p2 = new Float32Array(npeak);
-            let group = new Int32Array(npeak);
-            let nround = new Int32Array(npeak);
-            let p_intensity = new Float32Array(npeak);
-            let p_volume = new Float32Array(npeak);
-            let sigmax = new Float32Array(npeak);
-            let sigmay = new Float32Array(npeak);
-            let peak_index = new Int32Array(npeak);
-            let err = new Float32Array(npeak);
-            let gammax = new Float32Array(npeak);
-            let gammay = new Float32Array(npeak);
-            let p_intensity_all_spectra = new Float32Array(npeak * nspect);
-
-            for (let i = 0; i < npeak; i++) {
-                const peak = fitResult.peaks[i];
-                p1[i] = peak.xAxis0;
-                p2[i] = peak.yAxis0;
-                group[i] = event.data.cluster_counter;
-                nround[i] = peak.nround;
-                p_intensity[i] = peak.height;
-                p_volume[i] = peak.volume;
-                sigmax[i] = peak.sigmax;
-                sigmay[i] = peak.sigmay;
-                peak_index[i] = peak.originalNdx;
-                err[i] = peak.dheight;
-                gammax[i] = peak.gammax;
-                gammay[i] = peak.gammay;
-                for (let k = 0; k < nspect; k++) {
-                    p_intensity_all_spectra[i * nspect + k] = peak.ampRow[k] || 0.0;
-                }
-            }
-
-            self.postMessage({
-                [WEBASSEMBLY_JOB_KEY]: "peak_fitter_v2",
-                spectrum_index: event.data.spectrum_index,
-                cluster_counter: event.data.cluster_counter,
-                total_jobs: event.data.total_jobs,
-                p1: p1,
-                p2: p2,
-                group: group,
-                nround: nround,
-                p_intensity: p_intensity,
-                sigmax: sigmax,
-                sigmay: sigmay,
-                peak_index: peak_index,
-                err: err,
-                gammax: gammax,
-                gammay: gammay,
-                p_volume: p_volume,
-                peak_shape: event.data.peak_shape,
-                p_intensity_all_spectra: p_intensity_all_spectra,
-            });
-
-        }
-        catch (err) {
-            self.postMessage({
-                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
-                spectrum_index: event.data.spectrum_index,
-                cluster_counter: event.data.cluster_counter,
-                total_jobs: event.data.total_jobs,
-                error: "peak_fitter_region_v2: " + err.message
-            });
         }
     }
 

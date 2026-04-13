@@ -1166,19 +1166,7 @@ webassembly_worker.onmessage = function (e) {
 
     else if (e.data.error) {
         document.getElementById("webassembly_message").innerText = e.data.error;
-        if (e.data.error.startsWith("peak_fitter_region_v2:")) {
-            document.getElementById("webassembly_message").innerText = "Peak fitting v2 error: " + e.data.error;
-            if (typeof e.data.spectrum_index !== "undefined" && hsqc_spectra[e.data.spectrum_index]) {
-                const s = hsqc_spectra[e.data.spectrum_index];
-                s.failed_peak_fitting_jobs = (s.failed_peak_fitting_jobs || 0) + 1;
-                s.completed_peak_fitting_jobs = Math.min(
-                    (s.completed_peak_fitting_jobs || 0) + 1,
-                    s.total_peak_fitting_jobs || 0
-                );
-                finalize_peak_fitter_v2_if_done(e.data.spectrum_index);
-            }
-        }
-        else if (e.data.error.startsWith("peak_fitter_v2_spectrum_fit:")) {
+        if (e.data.error.startsWith("peak_fitter_v2_spectrum_fit:")) {
             document.getElementById("webassembly_message").innerText = "Peak fitting error: " + e.data.error;
             if (typeof e.data.spectrum_index !== "undefined" && hsqc_spectra[e.data.spectrum_index]) {
                 const s = hsqc_spectra[e.data.spectrum_index];
@@ -1194,18 +1182,6 @@ webassembly_worker.onmessage = function (e) {
                 document.getElementById("webassembly_message").innerText = "Peak fitting (v2) finished. Fitted peaks updated, but reconstructed spectrum generation failed.";
             }
         }
-    }
-
-    else if (webassembly_job === "peak_fitter_v2") {
-        let spectrum_index = e.data.spectrum_index;
-        hsqc_spectra[spectrum_index].process_peak_fitter_v2_result(e.data);
-
-        let done = hsqc_spectra[spectrum_index].completed_peak_fitting_jobs;
-        let total = hsqc_spectra[spectrum_index].total_peak_fitting_jobs;
-        if (total > 0 && done < total) {
-            document.getElementById("webassembly_message").innerText = "Run Peak fitting (v2), please wait... " + done + "/" + total;
-        }
-        finalize_peak_fitter_v2_if_done(spectrum_index);
     }
 
     /**
