@@ -638,7 +638,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     }
 
 
-    else if (webassembly_job === "peak_picker") {
+    else if (webassembly_job === "peak_picker_1d") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
@@ -671,7 +671,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     /**
      * If result is fitted_peaks and recon_spectrum
      */
-    else if (webassembly_job === "peak_fitter") {
+    else if (webassembly_job === "peak_fitter_1d") {
         console.log("Fitted peaks and recon_spectrum received");
 
         /**
@@ -733,7 +733,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
     }
 
-    else if (webassembly_job === "generate_voigt_profiles") {
+    else if (webassembly_job === "generate_voigt_profiles_1d") {
 
         /**
          * If peak index == 0, we are receiving the first one from a new batch, remove all existing profiles first
@@ -747,7 +747,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
-    else if (webassembly_job === "baseline_correction") {
+    else if (webassembly_job === "baseline_correction_1d") {
         let spectrum_index = e.data.spectrum_index;
         if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
             all_spectra[spectrum_index].baseline = e.data.baseline;
@@ -2155,7 +2155,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        [WEBASSEMBLY_JOB_KEY]: "peak_picker",
+        [WEBASSEMBLY_JOB_KEY]: "peak_picker_1d",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
@@ -2231,7 +2231,7 @@ function run_Voigt_fitter(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        [WEBASSEMBLY_JOB_KEY]: "peak_fitter",
+        [WEBASSEMBLY_JOB_KEY]: "peak_fitter_1d",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
