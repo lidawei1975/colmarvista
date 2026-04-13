@@ -87,6 +87,23 @@ class file_drop_processor {
         return this;
     }
 
+    async read_file_text_safe(file) {
+        if (!file) {
+            return '';
+        }
+        if (typeof file.text === 'function') {
+            return await file.text();
+        }
+        return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function () {
+                resolve(reader.result || '');
+            };
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
+    }
+
     async process_file_attachment(entry) {
         let file;
 
@@ -128,7 +145,7 @@ class file_drop_processor {
                 /**
                  * Read the file as text
                  */
-                let file_data = await read_file_text(file);
+                let file_data = await this.read_file_text_safe(file);
                 /**
                  * Split the file_data by line (line break)
                  */

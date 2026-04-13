@@ -29,6 +29,13 @@
 
         <span id="contour_message"></span>
         <span id="webassembly_message"></span>
+        <div id="log_area_3d" class="drop-area-neighbor" style="width: 1200px; padding: 8px; margin-top: 8px;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+                <strong>3D Processing Log</strong>
+                <button type="button" id="button_clear_log_3d">Clear Log</button>
+            </div>
+            <textarea id="log" style="width:100%; height:140px; margin-top:6px; font-family: Consolas, 'Courier New', monospace;"></textarea>
+        </div>
 
         <div id="section1" style=" Padding: 10px; width: 100%">
             <div>
@@ -106,6 +113,9 @@
                         </span><br>
                         <!-- Polynomial / Process Radio -->
                         <span>
+                            <label for="td_polynomial_order_3d">TD Poly (f2 f1 f3): </label>
+                            <input type="text" id="td_polynomial_order_3d" value="4 -1 -1" size="14">
+                            &nbsp;&nbsp;
                             <label for="polynomial_f2">Poly f2: </label>
                             <select name="polynomial_f2" id="polynomial_f2">
                                 <option value="-1">none</option><option value="0">0</option><option value="1">1</option><option value="2">2</option>
@@ -409,7 +419,6 @@
                         <!-- dummy elements to prevent JS errors if referenced by shared code -->
                         <div style="display:none;">
                             <input type="file" id="load_file">
-                            <textarea id="log"></textarea>
                             <input type="file" id="pseudo3d_file">
                             <button id="button_download_fitted_peaks"></button>
                             <input type="file" id="assignment_file">

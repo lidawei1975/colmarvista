@@ -103,6 +103,23 @@ function download_region() {
 var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
 var current_slice_index = -1;
 
+function append_3d_log(message) {
+    const logElem = document.getElementById("log");
+    if (!logElem) {
+        return;
+    }
+    logElem.value += String(message) + "\n";
+    logElem.scrollTop = logElem.scrollHeight;
+}
+
+function clear_3d_log() {
+    const logElem = document.getElementById("log");
+    if (!logElem) {
+        return;
+    }
+    logElem.value = "";
+}
+
 // Helper to convert hex color to normalized RGB array
 function hexToRgb(hex) {
     var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -3081,6 +3098,17 @@ document.addEventListener('DOMContentLoaded', function () {
     if (window.Worker) {
         web_worker_3d = new Worker('./js/webass_3d.js');
         web_worker_3d.onmessage = handle_webass_3d_message;
+        web_worker_3d.onerror = function (err) {
+            console.error('[3D][worker] error', err);
+            append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
+        };
+    }
+
+    const clearLogBtn = document.getElementById('button_clear_log_3d');
+    if (clearLogBtn) {
+        clearLogBtn.addEventListener('click', function () {
+            clear_3d_log();
+        });
     }
 
     if (typeof file_drop_processor !== 'undefined') {
@@ -3128,6 +3156,10 @@ async function load_fid_3d_file() {
         return;
     }
 
+    console.log('[3D][fid] Starting 3D FID processing request');
+    append_3d_log('[main] Starting 3D FID processing request');
+    append_3d_log('[main] Files: fid=' + fid_file.name + ', acqus=' + acquisition_file.name + ', acqu2s=' + acquisition_file2.name + ', acqu3s=' + acquisition_file3.name + ', nuslist=' + (nuslist_file ? nuslist_file.name : 'none'));
+
     document.getElementById("webassembly_message").innerText = "Reading files...";
 
     let promises = [
@@ -3139,8 +3171,23 @@ async function load_fid_3d_file() {
     ];
 
     try {
+        console.log('[3D][fid] Reading input files');
         let buffers = await Promise.all(promises);
         const fidBytes = buffers[0];
+        append_3d_log('[main] Input buffers loaded. fidBytes=' + (fidBytes ? fidBytes.byteLength : 0) + ' bytes');
+
+        const parseTdPolynomialOrder = function () {
+            const raw = document.getElementById('td_polynomial_order_3d').value || '';
+            const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
+                const n = parseInt(v, 10);
+                return Number.isFinite(n) ? n : NaN;
+            });
+            if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
+                return [parts[0], parts[1], parts[2]];
+            }
+            return [4, -1, -1];
+        };
+
         const cfg = {
             zfDirect: parseInt(document.getElementById('zf_direct').value) || 1,
             zfIndirect1: parseInt(document.getElementById('zf_indirect1').value) || 1,
@@ -3154,20 +3201,19 @@ async function load_fid_3d_file() {
                        document.getElementById('phase_correction_indirect1_p1').value + " " +
                        document.getElementById('phase_correction_indirect2_p0').value + " " +
                        document.getElementById('phase_correction_indirect2_p1').value,
-            tdPolyOrder: [
-                parseInt(document.getElementById('polynomial_f2').value) || -1,
-                parseInt(document.getElementById('polynomial_f1').value) || -1,
-                parseInt(document.getElementById('polynomial_f3').value) || -1
-            ],
+            tdPolyOrder: parseTdPolynomialOrder(),
             frqPolyOrder: [-1, -1, -1], // not configured in UI
             inverse: [0, 0, 0], // default
-            deleteImage: [0, 0, 0], // default
+            deleteImage: [1, 1, 1], // always delete imaginary in 3D processing
             nusSerInflated: false,
             extPpm: [
                 parseFloat(document.getElementById('extract_direct_from').value),
                 parseFloat(document.getElementById('extract_direct_to').value)
             ]
         };
+
+        console.log('[3D][fid] cfg prepared', cfg);
+        append_3d_log('[main] cfg: zf=(' + cfg.zfDirect + ',' + cfg.zfIndirect1 + ',' + cfg.zfIndirect2 + '), mode UI ready');
 
         const textInputs = {
             pulse: "",
@@ -3176,12 +3222,16 @@ async function load_fid_3d_file() {
             acqu3s: buffers[3] ? new TextDecoder().decode(buffers[3]) : "",
             nuslist: buffers[4] ? new TextDecoder().decode(buffers[4]) : ""
         };
+        append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
         
         let mode = "full";
         let modeInputs = document.getElementsByName('Process_Mode');
         for (let rad of modeInputs) {
             if (rad.checked) mode = rad.value;
         }
+
+        console.log('[3D][fid] Sending worker message, mode=', mode);
+        append_3d_log('[main] Posting process_fid_3d to worker (mode=' + mode + ')');
 
         document.getElementById("webassembly_message").innerText = "Processing 3D FID using WebAssembly...";
         web_worker_3d.postMessage({
@@ -3192,19 +3242,25 @@ async function load_fid_3d_file() {
             mode: mode
         });
     } catch (err) {
+        console.error('[3D][fid] Error while reading/posting input', err);
+        append_3d_log('[main-error] ' + (err && err.toString ? err.toString() : String(err)));
         document.getElementById("webassembly_message").innerText = "Error reading files: " + err.toString();
     }
 }
 
 function handle_webass_3d_message(e) {
+    console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
+        append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
         return;
     }
     if (e.data.stdout) {
+        append_3d_log('[worker] ' + e.data.stdout);
         return;
     }
     if (e.data["#sym:webassembly_job "] === "process_fid_3d") {
+        append_3d_log('[main] Received process_fid_3d result');
         document.getElementById("webassembly_message").innerText = "3D processing complete. Rendering planes...";
         const dims = e.data.dims;
         const header = e.data.headerF32; // Float32Array 512 elements
@@ -3213,6 +3269,8 @@ function handle_webass_3d_message(e) {
         const nx = dims.nx;
         const ny = dims.ny;
         const nz = dims.nz;
+        append_3d_log('[main] dims: nx=' + nx + ', ny=' + ny + ', nz=' + nz + ', header=' + (header ? header.length : 0) + ', rrr=' + (rrr ? rrr.length : 0));
+        console.log('[3D][fid] Received dims', dims);
 
         spectra_3d = [];
         hsqc_spectra = [];
@@ -3250,8 +3308,11 @@ function handle_webass_3d_message(e) {
                 spectra_3d.push(s);
             } catch (err) {
                 console.error("Error creating plane " + i, err);
+                append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
             }
         }
+
+        append_3d_log('[main] planes created: ' + spectra_3d.length);
 
         if (spectra_3d.length > 0) {
             let slider = document.getElementById('slice_slider');
@@ -3264,11 +3325,13 @@ function handle_webass_3d_message(e) {
             draw_slice(0);
 
             let s0 = spectra_3d[0];
-            init_xz_yz_plots(spectra_3d);
+            init_ortho_plots(s0);
 
             visualize_3d();
+            append_3d_log('[main] 3D render initialized successfully');
             document.getElementById("webassembly_message").innerText = "3D FID processing and rendering finished successfully.";
         } else {
+            append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
         }
     }
