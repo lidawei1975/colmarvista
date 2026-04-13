@@ -360,8 +360,8 @@ self.onmessage = async function (event) {
 
                 const outputVec = new Module.VectorUChar();
                 try {
-                    if (!processor.write_nmrpipe_intermediate_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_intermediate_to_buffer failed');
+                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
                     }
                     file_data = convertVectorUCharToUint8Array(outputVec);
                 }
