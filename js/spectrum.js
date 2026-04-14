@@ -663,6 +663,7 @@ class spectrum {
             data_size_per_point = 4;
         }
 
+        console.log("data_size: ", data_size, "n_direct: ", this.n_direct, "n_indirect: ", this.n_indirect, "data_size_per_point: ", data_size_per_point);
         if (data_size !== this.n_direct * this.n_indirect * data_size_per_point) {
             this.error = "Data size does not match the size of the spectrum";
         }

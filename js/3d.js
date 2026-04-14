@@ -112,6 +112,20 @@ function append_3d_log(message) {
     logElem.scrollTop = logElem.scrollHeight;
 }
 
+function append_3d_worker_stdout(stdoutText) {
+    const logElem = document.getElementById("log");
+    if (!logElem) {
+        return;
+    }
+
+    const text = stdoutText == null ? "" : String(stdoutText);
+    logElem.value += "[worker] " + text;
+    if (!text.endsWith("\n")) {
+        logElem.value += "\n";
+    }
+    logElem.scrollTop = logElem.scrollHeight;
+}
+
 function clear_3d_log() {
     const logElem = document.getElementById("log");
     if (!logElem) {
@@ -3188,6 +3202,18 @@ async function load_fid_3d_file() {
             return [4, -1, -1];
         };
 
+        const parseFrqPolynomialOrder = function () {
+            const raw = document.getElementById('frq_polynomial_order_3d').value || '';
+            const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
+                const n = parseInt(v, 10);
+                return Number.isFinite(n) ? n : NaN;
+            });
+            if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
+                return [parts[0], parts[1], parts[2]];
+            }
+            return [-1, -1, -1];
+        };
+
         const cfg = {
             zfDirect: parseInt(document.getElementById('zf_direct').value) || 1,
             zfIndirect1: parseInt(document.getElementById('zf_indirect1').value) || 1,
@@ -3202,7 +3228,7 @@ async function load_fid_3d_file() {
                        document.getElementById('phase_correction_indirect2_p0').value + " " +
                        document.getElementById('phase_correction_indirect2_p1').value,
             tdPolyOrder: parseTdPolynomialOrder(),
-            frqPolyOrder: [-1, -1, -1], // not configured in UI
+            frqPolyOrder: parseFrqPolynomialOrder(),
             inverse: [0, 0, 0], // default
             deleteImage: [1, 1, 1], // always delete imaginary in 3D processing
             nusSerInflated: false,
@@ -3255,8 +3281,8 @@ function handle_webass_3d_message(e) {
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
         return;
     }
-    if (e.data.stdout) {
-        append_3d_log('[worker] ' + e.data.stdout);
+    if (Object.prototype.hasOwnProperty.call(e.data, 'stdout')) {
+        append_3d_worker_stdout(e.data.stdout);
         return;
     }
     if (e.data["#sym:webassembly_job "] === "process_fid_3d") {

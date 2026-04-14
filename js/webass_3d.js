@@ -135,8 +135,8 @@ self.onmessage = async function(event) {
                 fid.prepare_header_for_nmrpipe();
 
                 const nx = fid.get_ndata_frq();
-                const ny = fid.get_ndata_frq_indirect1();
-                const nz = fid.get_ndata_frq_indirect2();
+                const nz = fid.get_ndata_frq_indirect1();
+                const ny = fid.get_ndata_frq_indirect2();
                 const n = nx * ny * nz;
                 console.log('[webass_3d] output dims:', { nx, ny, nz, n });
                 postMessage({ stdout: '[webass_3d] output dims nx=' + nx + ', ny=' + ny + ', nz=' + nz });
