@@ -885,7 +885,26 @@ async function load_ft3_file() {
     }
 
     let total_data_bytes = file.size - 2048;
-    let num_planes = Math.round(total_data_bytes / plane_byte_size);
+
+    // Prefer header-declared plane count when valid; fall back to payload-derived count.
+    let header_plane_count = Math.round(header[15]); // FDF3SIZE
+    let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
+        ? header_plane_count
+        : Math.floor(total_data_bytes / plane_byte_size);
+
+    if (!Number.isFinite(num_planes) || num_planes <= 0) {
+        alert("Could not determine the number of planes from .ft3 file.");
+        return;
+    }
+
+    // Some generated .ft3 files include an extra 2048-byte block before the first plane payload.
+    // If detected, shift the data start so plane 0 maps to the real first XY slice.
+    let data_start_offset = 2048;
+    let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
+    if (residual_bytes === 2048) {
+        data_start_offset += 2048;
+        console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
+    }
 
     document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
 
@@ -893,9 +912,14 @@ async function load_ft3_file() {
 
     for (let i = 0; i < num_planes; i++) {
         try {
-            let start_offset = 2048 + i * plane_byte_size;
+            let start_offset = data_start_offset + i * plane_byte_size;
             let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
             let planeDataBuffer = await read_file_as_buffer(planeBlob);
+
+            if (planeDataBuffer.byteLength < plane_byte_size) {
+                console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
+                continue;
+            }
 
             let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
             let dst = new Uint8Array(plane_buffer);
@@ -3347,6 +3371,9 @@ function handle_webass_3d_message(e) {
             document.getElementById('slice_control_area').style.display = 'block';
             document.getElementById('spectra_list').style.display = 'block';
             document.getElementById('main_plot_area').style.display = 'flex';
+
+            // Keep initialization behavior consistent with .ft2/.ft3 file loaders.
+            init_main_plot(spectra_3d[0]);
 
             draw_slice(0);
 
