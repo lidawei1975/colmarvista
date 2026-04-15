@@ -13,6 +13,33 @@ var tooldiv = document.getElementById("information_bar");
 var zoom_on_call_function = null;
 var iso_renderer = null;
 var iso_renderer_recon = null;
+var ui_status_timers = {};
+
+function set_status_message(element_id, text, auto_clear_ms = 0) {
+    let elem = document.getElementById(element_id);
+    if (!elem) return;
+
+    if (ui_status_timers[element_id]) {
+        clearTimeout(ui_status_timers[element_id]);
+        ui_status_timers[element_id] = null;
+    }
+
+    elem.innerText = text || "";
+
+    if (auto_clear_ms > 0) {
+        ui_status_timers[element_id] = setTimeout(() => {
+            let target = document.getElementById(element_id);
+            if (target && target.innerText === text) {
+                target.innerText = "";
+            }
+            ui_status_timers[element_id] = null;
+        }, auto_clear_ms);
+    }
+}
+
+function clear_status_message(element_id) {
+    set_status_message(element_id, "", 0);
+}
 
 // Function to download 3D region as text
 function download_region() {
@@ -495,7 +522,14 @@ function generate_theoretical_volume(peaks) {
  */
 function handle_worker_message(e) {
     if (e.data.message) {
-        document.getElementById("contour_message").innerText = e.data.message;
+        let statusType = e.data.spectrum_type || "full";
+        // Ignore transient worker status from orthogonal/XZ/YZ recalculations triggered by zoom/pan.
+        if (statusType === "xz" || statusType === "yz" || statusType === "xz_theo" || statusType === "yz_theo") {
+            return;
+        }
+
+        // Guard against stale worker status text that may otherwise remain indefinitely.
+        set_status_message("contour_message", e.data.message, 10000);
         return;
     }
 
@@ -557,7 +591,7 @@ function handle_worker_message(e) {
             refresh_current_view(spectra_3d[current_slice_index]);
         }
 
-        document.getElementById("contour_message").innerText = "";
+        clear_status_message("contour_message");
     }
 }
 
@@ -582,9 +616,10 @@ function draw_slice(index, update_ortho_views = true) {
     if (s.cached_contour_pos && s.cached_contour_neg) { // Check for both positive and negative
         refresh_current_view(s);
         update_3d_crosshairs();
+        clear_status_message("contour_message");
     } else {
         // Request it
-        document.getElementById("contour_message").innerText = "Loading contour...";
+        set_status_message("contour_message", "Loading contour...", 10000);
         request_contour_calculation(s, index, 0); // Positive levels
         request_contour_calculation(s, index, 1); // Negative levels
 
@@ -3382,7 +3417,7 @@ function handle_webass_3d_message(e) {
 
             visualize_3d();
             append_3d_log('[main] 3D render initialized successfully');
-            document.getElementById("webassembly_message").innerText = "3D FID processing and rendering finished successfully.";
+            set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
         } else {
             append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";

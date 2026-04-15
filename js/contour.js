@@ -24,7 +24,12 @@
         }
         else
         {
-            postMessage({ message: "Calculating contour" });
+            postMessage({
+                message: "Calculating contour",
+                spectrum_type: e.data.spectrum.spectrum_type,
+                spectrum_index: e.data.spectrum.spectrum_index,
+                contour_sign: e.data.spectrum.contour_sign
+            });
             let workerResult = {};
             process_spectrum_data(e.data.response_value, e.data.spectrum, workerResult);
             postMessage(workerResult);
