@@ -15,6 +15,22 @@ var iso_renderer = null;
 var iso_renderer_recon = null;
 var ui_status_timers = {};
 
+function reset_3d_dataset_state() {
+    spectra_3d = [];
+    hsqc_spectra = [];
+    current_slice_index = -1;
+    theoretical_peaks_data = [];
+    theoretical_spectra_3d = [];
+
+    spectrum_xz = null;
+    spectrum_yz = null;
+    theoretical_spectrum_xz = null;
+    theoretical_spectrum_yz = null;
+
+    // Release large contiguous visualization buffers from previous dataset.
+    current_volume_data = null;
+}
+
 function set_status_message(element_id, text, auto_clear_ms = 0) {
     let elem = document.getElementById(element_id);
     if (!elem) return;
@@ -427,6 +443,10 @@ async function load_theoretical_peaks() {
 
 function generate_theoretical_volume(peaks) {
     if (!spectra_3d || spectra_3d.length === 0) return;
+
+    if (current_volume_data) {
+        current_volume_data.recon_data = null;
+    }
 
     let s0 = spectra_3d[0];
     let nz = spectra_3d.length;
@@ -873,11 +893,7 @@ async function load_ft3_file() {
     document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
 
     // Reset state
-    spectra_3d = [];
-    hsqc_spectra = [];
-    current_slice_index = -1;
-    theoretical_peaks_data = [];
-    theoretical_spectra_3d = [];
+    reset_3d_dataset_state();
 
     let headerBlob = file.slice(0, 2048);
     let headerBuffer;
@@ -1016,11 +1032,7 @@ async function load_files() {
     document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
 
     // Reset state
-    spectra_3d = [];
-    hsqc_spectra = [];
-    current_slice_index = -1;
-    theoretical_peaks_data = []; // Clear loaded peaks
-    theoretical_spectra_3d = []; // Clear generated volume
+    reset_3d_dataset_state();
 
     // Sort files alphabetically by name to ensure correct Z ordering
     files.sort((a, b) => a.name.localeCompare(b.name));
@@ -1835,8 +1847,8 @@ function refresh_xz_view() {
 
     let base_spec = spectra_3d[0]; // Assume all have same params for X
 
-    // Create a synthetic spectrum object
-    let spec = new spectrum();
+    // Create/reuse a synthetic spectrum object to reduce allocation churn.
+    let spec = spectrum_xz || new spectrum();
     spec.n_direct = base_spec.n_direct;
     spec.n_indirect = spectra_3d.length;
     spec.x_ppm_start = base_spec.x_ppm_start;
@@ -1855,7 +1867,9 @@ function refresh_xz_view() {
     // We need row 'current_y_index' from each slice
     let sz = spectra_3d.length;
     let nx = base_spec.n_direct;
-    let raw = new Float32Array(sz * nx);
+    let raw = (spec.raw_data && spec.raw_data.length === (sz * nx))
+        ? spec.raw_data
+        : new Float32Array(sz * nx);
 
     for (let z = 0; z < sz; z++) {
         let slice = spectra_3d[z];
@@ -1877,7 +1891,7 @@ function refresh_xz_view() {
     // Handle Theoretical
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         let base_spec_theo = theoretical_spectra_3d[0];
-        let spec_theo = new spectrum();
+        let spec_theo = theoretical_spectrum_xz || new spectrum();
         spec_theo.n_direct = base_spec_theo.n_direct;
         spec_theo.n_indirect = theoretical_spectra_3d.length;
         spec_theo.x_ppm_start = base_spec_theo.x_ppm_start;
@@ -1893,7 +1907,9 @@ function refresh_xz_view() {
 
         let sz = theoretical_spectra_3d.length;
         let nx = base_spec_theo.n_direct;
-        let raw_theo = new Float32Array(sz * nx);
+        let raw_theo = (spec_theo.raw_data && spec_theo.raw_data.length === (sz * nx))
+            ? spec_theo.raw_data
+            : new Float32Array(sz * nx);
 
         for (let z = 0; z < sz; z++) {
             let slice = theoretical_spectra_3d[z];
@@ -1991,7 +2007,8 @@ function refresh_yz_view() {
 
     let base_spec = spectra_3d[0];
 
-    let spec = new spectrum();
+    // Create/reuse a synthetic spectrum object to reduce allocation churn.
+    let spec = spectrum_yz || new spectrum();
     spec.n_direct = spectra_3d.length; // Z is X axis
     spec.n_indirect = base_spec.n_indirect;
 
@@ -2011,7 +2028,9 @@ function refresh_yz_view() {
     let nx = base_spec.n_direct; // Original X dim size
     let ny = base_spec.n_indirect;
 
-    let raw = new Float32Array(sz * ny); // Width=sz, Height=ny
+    let raw = (spec.raw_data && spec.raw_data.length === (sz * ny))
+        ? spec.raw_data
+        : new Float32Array(sz * ny); // Width=sz, Height=ny
 
     // For each row Y (0..ny)
     //   For each col Z (0..sz)
@@ -2024,7 +2043,7 @@ function refresh_yz_view() {
             if (slice.raw_data && slice.raw_data.length > 0) {
                 val = slice.raw_data[y * nx + current_x_index];
             }
-            raw.set([val], y * sz + z);
+            raw[y * sz + z] = val;
         }
     }
     spec.raw_data = raw;
@@ -2038,7 +2057,7 @@ function refresh_yz_view() {
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         let base_spec_theo = theoretical_spectra_3d[0];
 
-        let spec_theo = new spectrum();
+        let spec_theo = theoretical_spectrum_yz || new spectrum();
         spec_theo.n_direct = theoretical_spectra_3d.length;
         spec_theo.n_indirect = base_spec_theo.n_indirect;
         spec_theo.x_ppm_start = base_spec_theo.z_ppm_start;
@@ -2055,7 +2074,9 @@ function refresh_yz_view() {
         let nx = base_spec_theo.n_direct;
         let ny = base_spec_theo.n_indirect;
 
-        let raw_theo = new Float32Array(sz * ny);
+        let raw_theo = (spec_theo.raw_data && spec_theo.raw_data.length === (sz * ny))
+            ? spec_theo.raw_data
+            : new Float32Array(sz * ny);
 
         for (let y = 0; y < ny; y++) {
             for (let z = 0; z < sz; z++) {
@@ -2064,7 +2085,7 @@ function refresh_yz_view() {
                 if (slice.raw_data && slice.raw_data.length > 0) {
                     val = slice.raw_data[y * nx + current_x_index];
                 }
-                raw_theo.set([val], y * sz + z);
+                raw_theo[y * sz + z] = val;
             }
         }
         spec_theo.raw_data = raw_theo;
@@ -2369,6 +2390,27 @@ var iso_renderer = null;
 
 var current_volume_data = null; // Stores { data, dims, min, max, noise }
 
+function build_reconstructed_volume_data(dims) {
+    if (!theoretical_spectra_3d || theoretical_spectra_3d.length === 0) {
+        return null;
+    }
+
+    const totalSize = dims.x * dims.y * dims.z;
+    const recon = new Float32Array(totalSize);
+
+    for (let z = 0; z < dims.z; z++) {
+        const slice = theoretical_spectra_3d[z];
+        if (!slice || !slice.raw_data) {
+            continue;
+        }
+        const offset = z * dims.x * dims.y;
+        const count = Math.min(slice.raw_data.length, dims.x * dims.y);
+        recon.set(slice.raw_data.subarray(0, count), offset);
+    }
+
+    return recon;
+}
+
 function visualize_3d() {
     // Wrapper to start the process
     extract_3d_data();
@@ -2462,7 +2504,8 @@ function extract_3d_data() {
             dims: { x: dx, y: dy, z: dz },
             min: minVal,
             max: maxVal,
-            noise: noise
+            noise: noise,
+            recon_data: build_reconstructed_volume_data({ x: dx, y: dy, z: dz })
         };
 
         setup_sliders();
@@ -2579,17 +2622,13 @@ function update_3d_view() {
 
             // Reconstructed processing
             if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
-                let data_recon = new Float32Array(data.dims.x * data.dims.y * data.dims.z);
-                let idx = 0;
-                for (let z = 0; z < data.dims.z; z++) {
-                    let s_theo = theoretical_spectra_3d[z];
-                    if (s_theo && s_theo.raw_data) {
-                        data_recon.set(s_theo.raw_data, idx);
-                    }
-                    idx += data.dims.x * data.dims.y;
+                if (!data.recon_data || data.recon_data.length !== (data.dims.x * data.dims.y * data.dims.z)) {
+                    data.recon_data = build_reconstructed_volume_data(data.dims);
                 }
-                meshSolid_recon = MarchingCubes.compute(data_recon, data.dims, isoSolid);
-                meshWire_recon = MarchingCubes.compute(data_recon, data.dims, isoWire);
+                if (data.recon_data) {
+                    meshSolid_recon = MarchingCubes.compute(data.recon_data, data.dims, isoSolid);
+                    meshWire_recon = MarchingCubes.compute(data.recon_data, data.dims, isoWire);
+                }
             }
         } catch (err) {
             console.error(err);
@@ -3535,7 +3574,7 @@ async function load_fid_3d_file() {
             cfg: cfg,
             textInputs: textInputs,
             fidBytes: fidBytes
-        });
+        }, [fidBytes]);
     } catch (err) {
         console.error('[3D][fid] Error while reading/posting input', err);
         append_3d_log('[main-error] ' + (err && err.toString ? err.toString() : String(err)));
@@ -3596,11 +3635,7 @@ function handle_webass_3d_message(e) {
         append_3d_log('[main] dims: nx=' + nx + ', ny=' + ny + ', nz=' + nz + ', header=' + (header ? header.length : 0) + ', rrr=' + (rrr ? rrr.length : 0));
         console.log('[3D][fid] Received dims', dims);
 
-        spectra_3d = [];
-        hsqc_spectra = [];
-        current_slice_index = -1;
-        theoretical_peaks_data = [];
-        theoretical_spectra_3d = [];
+        reset_3d_dataset_state();
 
         let plane_float_count = nx * ny;
         let plane_byte_size = plane_float_count * 4;

@@ -67,7 +67,7 @@ function finalizeAndPostResult(Module, fidInstance, job) {
         dims: { nx, ny, nz },
         headerF32: headerF32,
         rrrF32: rrrF32
-    });
+    }, [headerF32.buffer, rrrF32.buffer]);
     console.log('[webass_3d] process_fid_3d finished successfully');
 }
 
