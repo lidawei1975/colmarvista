@@ -40,9 +40,9 @@ Output access:
 - `prepare_header_for_nmrpipe()`
 - `get_nmrpipe_header_data()`
 - `get_data_of_rrr()` ... `get_data_of_iii()`
-- `get_ndata_frq()`
-- `get_ndata_frq_indirect1()`
-- `get_ndata_frq_indirect2()`
+- `get_ndata_direct()`
+- `get_ndata_indirect1()`
+- `get_ndata_indirect2()`
 
 ## Required call order
 
@@ -136,9 +136,9 @@ export function runFid3dWasm(Module, cfg, textInputs, fidBytes, mode) {
 
     fid.prepare_header_for_nmrpipe();
 
-    const nx = fid.get_ndata_frq();
-    const ny = fid.get_ndata_frq_indirect1();
-    const nz = fid.get_ndata_frq_indirect2();
+    const nx = fid.get_ndata_direct();
+    const ny = fid.get_ndata_indirect1();
+    const nz = fid.get_ndata_indirect2();
     const n = nx * ny * nz;
 
     const headerPtr = fid.get_nmrpipe_header_data();

@@ -3165,7 +3165,24 @@ function createPyramid(size) {
 // Appended 3D Processing logic
 
 var web_worker_3d = null;
+var web_worker_smile_3d = null;
 var fid_drop_process_3d = null;
+var pending_nus_cfg_3d = null;
+// Debug-only mode flag kept for future use.
+var debug2_smile_only_3d = false;
+
+function download_binary_file(dataBytes, filename) {
+    const bytes = dataBytes instanceof Uint8Array ? dataBytes : new Uint8Array(dataBytes);
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
 
 document.addEventListener('DOMContentLoaded', function () {
     if (window.Worker) {
@@ -3174,6 +3191,14 @@ document.addEventListener('DOMContentLoaded', function () {
         web_worker_3d.onerror = function (err) {
             console.error('[3D][worker] error', err);
             append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
+        };
+
+        web_worker_smile_3d = new Worker('./js/webass2.js');
+        web_worker_smile_3d.onmessage = handle_webass_smile_3d_message;
+        web_worker_smile_3d.onerror = function (err) {
+            console.error('[3D][smile-worker] error', err);
+            append_3d_log('[smile-worker-error] ' + (err && err.message ? err.message : String(err)));
+            document.getElementById("webassembly_message").innerText = 'SMILE worker error: ' + (err && err.message ? err.message : String(err));
         };
     }
 
@@ -3217,12 +3242,248 @@ const read_file_as_array_buffer = (file) => {
     });
 };
 
+function build_3d_worker_cfg_from_ui() {
+    const parseTdPolynomialOrder = function () {
+        const raw = document.getElementById('td_polynomial_order_3d').value || '';
+        const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? n : NaN;
+        });
+        if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
+            return [parts[0], parts[1], parts[2]];
+        }
+        return [4, -1, -1];
+    };
+
+    const parseFrqPolynomialOrder = function () {
+        const raw = document.getElementById('frq_polynomial_order_3d').value || '';
+        const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? n : NaN;
+        });
+        if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
+            return [parts[0], parts[1], parts[2]];
+        }
+        return [-1, -1, -1];
+    };
+
+    return {
+        zfDirect: parseInt(document.getElementById('zf_direct').value) || 1,
+        zfIndirect1: parseInt(document.getElementById('zf_indirect1').value) || 1,
+        zfIndirect2: parseInt(document.getElementById('zf_indirect2').value) || 1,
+        apodDirect: document.getElementById('apodization_direct').value,
+        apodIndirect1: document.getElementById('apodization_indirect1').value,
+        apodIndirect2: document.getElementById('apodization_indirect2').value,
+        phaseText: document.getElementById('phase_correction_direct_p0').value + " " +
+                   document.getElementById('phase_correction_direct_p1').value + " " +
+                   document.getElementById('phase_correction_indirect1_p0').value + " " +
+                   document.getElementById('phase_correction_indirect1_p1').value + " " +
+                   document.getElementById('phase_correction_indirect2_p0').value + " " +
+                   document.getElementById('phase_correction_indirect2_p1').value,
+        tdPolyOrder: parseTdPolynomialOrder(),
+        frqPolyOrder: parseFrqPolynomialOrder(),
+        inverse: [0, 0, 0],
+        deleteImage: [1, 1, 1],
+        nusSerInflated: false,
+        extPpm: [
+            parseFloat(document.getElementById('extract_direct_from').value),
+            parseFloat(document.getElementById('extract_direct_to').value)
+        ]
+    };
+}
+
+function parse_indirect_phase_from_cfg(cfg) {
+    const parts = String((cfg && cfg.phaseText) || '').trim().split(/\s+/).map(function (v) {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0.0;
+    });
+    return {
+        i1p0: parts.length > 2 ? parts[2] : 0.0,
+        i1p1: parts.length > 3 ? parts[3] : 0.0,
+        i2p0: parts.length > 4 ? parts[4] : 0.0,
+        i2p1: parts.length > 5 ? parts[5] : 0.0
+    };
+}
+
+function parse_apod_string_to_smile_axis_args(apodText, axisPrefix) {
+    const tokens = String(apodText || '').trim().split(/\s+/).filter(Boolean);
+    const fallback = {
+        apod: 'SP',
+        q1: '0.50',
+        q2: '0.896',
+        q3: '3.684',
+        elb: '0.0',
+        glb: '0.0'
+    };
+
+    if (tokens.length === 0 || tokens[0].toLowerCase() === 'none') {
+        return '-' + axisPrefix + 'Apod ' + fallback.apod +
+            ' -' + axisPrefix + 'Q1 ' + fallback.q1 +
+            ' -' + axisPrefix + 'Q2 ' + fallback.q2 +
+            ' -' + axisPrefix + 'Q3 ' + fallback.q3 +
+            ' -' + axisPrefix + 'ELB ' + fallback.elb +
+            ' -' + axisPrefix + 'GLB ' + fallback.glb;
+    }
+
+    const apodType = (tokens[0] || fallback.apod).toUpperCase();
+    let q1 = fallback.q1;
+    let q2 = fallback.q2;
+    let q3 = fallback.q3;
+    let elb = fallback.elb;
+    let glb = fallback.glb;
+
+    for (let i = 1; i < tokens.length - 1; i++) {
+        const key = tokens[i].toLowerCase();
+        const val = tokens[i + 1];
+        if (key === 'off' || key === 'begin' || key === 'q1') {
+            q1 = val;
+        } else if (key === 'end' || key === 'q2') {
+            q2 = val;
+        } else if (key === 'pow' || key === 'q3') {
+            q3 = val;
+        } else if (key === 'elb') {
+            elb = val;
+        } else if (key === 'glb') {
+            glb = val;
+        }
+    }
+
+    return '-' + axisPrefix + 'Apod ' + apodType +
+        ' -' + axisPrefix + 'Q1 ' + q1 +
+        ' -' + axisPrefix + 'Q2 ' + q2 +
+        ' -' + axisPrefix + 'Q3 ' + q3 +
+        ' -' + axisPrefix + 'ELB ' + elb +
+        ' -' + axisPrefix + 'GLB ' + glb;
+}
+
+function read_ft3_fnmodes_from_header(ft3Bytes) {
+    try {
+        const bytes = ft3Bytes instanceof Uint8Array ? ft3Bytes : new Uint8Array(ft3Bytes || []);
+        if (bytes.byteLength < 2048) {
+            return { indirect1Fnmode: null, indirect2Fnmode: null };
+        }
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, 2048);
+        const f1 = Math.round(dv.getFloat32(70 * 4, true));
+        const f2 = Math.round(dv.getFloat32(71 * 4, true));
+        return { indirect1Fnmode: f1, indirect2Fnmode: f2 };
+    } catch (e) {
+        return { indirect1Fnmode: null, indirect2Fnmode: null };
+    }
+}
+
+function build_nus_3d_smile_command(cfg, options) {
+    const opt = options || {};
+    const xT = Number.isFinite(opt.ndataIndirect1) ? opt.ndataIndirect1 : 100;
+    const yT = Number.isFinite(opt.ndataIndirect2) ? opt.ndataIndirect2 : 90;
+    const fn = read_ft3_fnmodes_from_header(opt.ft3Bytes);
+    const phases = parse_indirect_phase_from_cfg(cfg || {});
+    const xApodArgs = parse_apod_string_to_smile_axis_args((cfg && cfg.apodIndirect1) || 'none', 'x');
+    const yApodArgs = parse_apod_string_to_smile_axis_args((cfg && cfg.apodIndirect2) || 'none', 'y');
+    const altParts = [];
+
+    if (fn.indirect1Fnmode === 5) {
+        altParts.push('-xAlt');
+    }
+    if (fn.indirect2Fnmode === 5) {
+        altParts.push('-yAlt');
+    }
+
+    return [
+        '-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread 1 -maxMem 2.0',
+        xApodArgs,
+        yApodArgs,
+        '-xT ' + xT,
+        '-xP0 ' + phases.i1p0,
+        '-xP1 ' + phases.i1p1,
+        '-yT ' + yT,
+        '-yP0 ' + phases.i2p0,
+        '-yP1 ' + phases.i2p1,
+        altParts.join(' '),
+        '-out smile.ft3 -ov'
+    ].filter(Boolean).join(' ');
+}
+
 async function load_fid_3d_file() {
+    // Debug UI is removed; keep debug code path commented for future use.
+    // const debug2Only = !!(document.getElementById('debug_load_intermediate_webass2_3d') && document.getElementById('debug_load_intermediate_webass2_3d').checked);
+    // const debugStep3Direct = !!(document.getElementById('debug_run_step3_direct_3d') && document.getElementById('debug_run_step3_direct_3d').checked);
+    const debug2Only = false;
+    const debugStep3Direct = false;
     let acquisition_file = document.getElementById('acquisition_file').files[0];
     let acquisition_file2 = document.getElementById('acquisition_file2').files[0];
     let acquisition_file3 = document.getElementById('acquisition_file3').files[0];
     let fid_file = document.getElementById('fid_file').files[0];
     let nuslist_file = document.getElementById('nuslist_file').files[0];
+    // let debug_intermediate_file = document.getElementById('debug_intermediate_file_3d').files[0];
+    // let debug_smile_processed_file = document.getElementById('debug_smile_processed_file_3d').files[0];
+
+    // if (debug2Only && debugStep3Direct) {
+    //     alert('Please enable only one debug mode at a time (Debug 2 or Debug 3).');
+    //     return;
+    // }
+
+    // if (debug2Only) {
+    //     if (!debug_intermediate_file) {
+    //         alert('Debug 2 is enabled. Please provide an intermediate .ft3 file.');
+    //         return;
+    //     }
+    //     if (!nuslist_file) {
+    //         alert('Debug 2 is enabled. Please provide nuslist file.');
+    //         return;
+    //     }
+    //     try {
+    //         document.getElementById("webassembly_message").innerText = "Debug 2: reading intermediate file and running SMILE...";
+    //         const debugBuffers = await Promise.all([
+    //             read_file_as_array_buffer(debug_intermediate_file),
+    //             read_file_as_array_buffer(nuslist_file)
+    //         ]);
+    //         const intermediateBytes = new Uint8Array(debugBuffers[0]);
+    //         const nuslistText = new TextDecoder().decode(debugBuffers[1]);
+    //         const cfg = build_3d_worker_cfg_from_ui();
+    //         const smileCommand = build_nus_3d_smile_command(cfg, { ft3Bytes: intermediateBytes });
+
+    //         append_3d_log('[main][debug2] Sending uploaded intermediate .ft3 to SMILE worker, bytes=' + intermediateBytes.length);
+    //         append_3d_log('[main][debug2] SMILE command: ' + smileCommand);
+    //         debug2_smile_only_3d = true;
+    //         web_worker_smile_3d.postMessage({
+    //             smile_mode: 'nus_3d',
+    //             spectrum_data: intermediateBytes,
+    //             nuslist_as_string: nuslistText,
+    //             smile_command: smileCommand
+    //         }, [intermediateBytes.buffer]);
+    //     } catch (err) {
+    //         debug2_smile_only_3d = false;
+    //         append_3d_log('[main-error][debug2] ' + (err && err.toString ? err.toString() : String(err)));
+    //         document.getElementById("webassembly_message").innerText = 'Debug 2 failed: ' + err.toString();
+    //     }
+    //     return;
+    // }
+
+    // if (debugStep3Direct) {
+    //     if (!debug_smile_processed_file) {
+    //         alert('Debug 3 is enabled. Please provide a smile-processed .ft3 file.');
+    //         return;
+    //     }
+
+    //     try {
+    //         document.getElementById("webassembly_message").innerText = 'Debug 3: reading smile-processed spectrum...';
+    //         const smileBuffer = await read_file_as_array_buffer(debug_smile_processed_file);
+    //         const smileBytes = new Uint8Array(smileBuffer);
+    //         const cfg = build_3d_worker_cfg_from_ui();
+
+    //         append_3d_log('[main][debug3] Running step3 directly from uploaded smile .ft3, bytes=' + smileBytes.length);
+    //         document.getElementById("webassembly_message").innerText = 'Debug 3: running indirect-only processing from uploaded smile.ft3...';
+    //         web_worker_3d.postMessage({
+    //             "#sym:webassembly_job ": 'process_fid_3d_nus_step3',
+    //             cfg: cfg,
+    //             smileFt3Bytes: smileBytes
+    //         }, [smileBytes.buffer]);
+    //     } catch (err) {
+    //         append_3d_log('[main-error][debug3] ' + (err && err.toString ? err.toString() : String(err)));
+    //         document.getElementById("webassembly_message").innerText = 'Debug 3 failed: ' + err.toString();
+    //     }
+    //     return;
+    // }
 
     if (!fid_file || !acquisition_file || !acquisition_file2 || !acquisition_file3) {
         alert('Please provide fid/ser, acqus, acqu2s, and acqu3s files.');
@@ -3248,57 +3509,10 @@ async function load_fid_3d_file() {
         let buffers = await Promise.all(promises);
         const fidBytes = buffers[0];
         append_3d_log('[main] Input buffers loaded. fidBytes=' + (fidBytes ? fidBytes.byteLength : 0) + ' bytes');
-
-        const parseTdPolynomialOrder = function () {
-            const raw = document.getElementById('td_polynomial_order_3d').value || '';
-            const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
-                const n = parseInt(v, 10);
-                return Number.isFinite(n) ? n : NaN;
-            });
-            if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
-                return [parts[0], parts[1], parts[2]];
-            }
-            return [4, -1, -1];
-        };
-
-        const parseFrqPolynomialOrder = function () {
-            const raw = document.getElementById('frq_polynomial_order_3d').value || '';
-            const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(function (v) {
-                const n = parseInt(v, 10);
-                return Number.isFinite(n) ? n : NaN;
-            });
-            if (parts.length >= 3 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && Number.isFinite(parts[2])) {
-                return [parts[0], parts[1], parts[2]];
-            }
-            return [-1, -1, -1];
-        };
-
-        const cfg = {
-            zfDirect: parseInt(document.getElementById('zf_direct').value) || 1,
-            zfIndirect1: parseInt(document.getElementById('zf_indirect1').value) || 1,
-            zfIndirect2: parseInt(document.getElementById('zf_indirect2').value) || 1,
-            apodDirect: document.getElementById('apodization_direct').value,
-            apodIndirect1: document.getElementById('apodization_indirect1').value,
-            apodIndirect2: document.getElementById('apodization_indirect2').value,
-            phaseText: document.getElementById('phase_correction_direct_p0').value + " " +
-                       document.getElementById('phase_correction_direct_p1').value + " " +
-                       document.getElementById('phase_correction_indirect1_p0').value + " " +
-                       document.getElementById('phase_correction_indirect1_p1').value + " " +
-                       document.getElementById('phase_correction_indirect2_p0').value + " " +
-                       document.getElementById('phase_correction_indirect2_p1').value,
-            tdPolyOrder: parseTdPolynomialOrder(),
-            frqPolyOrder: parseFrqPolynomialOrder(),
-            inverse: [0, 0, 0], // default
-            deleteImage: [1, 1, 1], // always delete imaginary in 3D processing
-            nusSerInflated: false,
-            extPpm: [
-                parseFloat(document.getElementById('extract_direct_from').value),
-                parseFloat(document.getElementById('extract_direct_to').value)
-            ]
-        };
+        const cfg = build_3d_worker_cfg_from_ui();
 
         console.log('[3D][fid] cfg prepared', cfg);
-        append_3d_log('[main] cfg: zf=(' + cfg.zfDirect + ',' + cfg.zfIndirect1 + ',' + cfg.zfIndirect2 + '), mode UI ready');
+        append_3d_log('[main] cfg: zf=(' + cfg.zfDirect + ',' + cfg.zfIndirect1 + ',' + cfg.zfIndirect2 + ')');
 
         const textInputs = {
             pulse: "",
@@ -3309,22 +3523,18 @@ async function load_fid_3d_file() {
         };
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
         
-        let mode = "full";
-        let modeInputs = document.getElementsByName('Process_Mode');
-        for (let rad of modeInputs) {
-            if (rad.checked) mode = rad.value;
-        }
+        const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
+        console.log('[3D][fid] Sending worker message. NUS mode=', isNus);
+        append_3d_log('[main] Posting process_fid_3d to worker (NUS=' + isNus + ')');
 
-        console.log('[3D][fid] Sending worker message, mode=', mode);
-        append_3d_log('[main] Posting process_fid_3d to worker (mode=' + mode + ')');
-
-        document.getElementById("webassembly_message").innerText = "Processing 3D FID using WebAssembly...";
+        document.getElementById("webassembly_message").innerText = isNus
+            ? "Processing 3D NUS: direct-only -> SMILE -> indirect-only..."
+            : "Processing 3D FID using WebAssembly...";
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "process_fid_3d",
             cfg: cfg,
             textInputs: textInputs,
-            fidBytes: fidBytes,
-            mode: mode
+            fidBytes: fidBytes
         });
     } catch (err) {
         console.error('[3D][fid] Error while reading/posting input', err);
@@ -3342,6 +3552,35 @@ function handle_webass_3d_message(e) {
     }
     if (Object.prototype.hasOwnProperty.call(e.data, 'stdout')) {
         append_3d_worker_stdout(e.data.stdout);
+        return;
+    }
+    if (e.data["#sym:webassembly_job "] === 'process_fid_3d_nus_half_ready') {
+        const halfBytes = e.data.halfFt3Bytes instanceof Uint8Array
+            ? e.data.halfFt3Bytes
+            : new Uint8Array(e.data.halfFt3Bytes);
+        pending_nus_cfg_3d = e.data.cfg || null;
+
+        append_3d_log('[main] Received half.ft3 from direct-only step, bytes=' + halfBytes.length);
+        // Debug 1 disabled in UI (kept for future use).
+        // if (document.getElementById('debug_save_direct_only_file_3d') && document.getElementById('debug_save_direct_only_file_3d').checked) {
+        //     download_binary_file(halfBytes, 'half_debug.ft3');
+        // }
+
+        const smileCommand = build_nus_3d_smile_command(pending_nus_cfg_3d || {}, {
+            ft3Bytes: halfBytes,
+            ndataIndirect1: Number(e.data.ndataIndirect1),
+            ndataIndirect2: Number(e.data.ndataIndirect2)
+        });
+
+        append_3d_log('[main] Sending half.ft3 to SMILE worker');
+        append_3d_log('[main] SMILE command: ' + smileCommand);
+        document.getElementById("webassembly_message").innerText = 'Running SMILE on half.ft3...';
+        web_worker_smile_3d.postMessage({
+            smile_mode: 'nus_3d',
+            spectrum_data: halfBytes,
+            nuslist_as_string: e.data.nuslistText || '',
+            smile_command: smileCommand
+        }, [halfBytes.buffer]);
         return;
     }
     if (e.data["#sym:webassembly_job "] === "process_fid_3d") {
@@ -3422,5 +3661,42 @@ function handle_webass_3d_message(e) {
             append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
         }
+    }
+}
+
+function handle_webass_smile_3d_message(e) {
+    if (e.data && e.data.stdout) {
+        append_3d_worker_stdout('[smile] ' + e.data.stdout);
+        return;
+    }
+
+    if (e.data && e.data.spectrum_data && e.data.file_type === 'smile_3d') {
+        const smileBytes = e.data.spectrum_data instanceof Uint8Array
+            ? e.data.spectrum_data
+            : new Uint8Array(e.data.spectrum_data);
+        append_3d_log('[main] Received smile.ft3 from SMILE worker, bytes=' + smileBytes.length);
+
+        // Debug 2 disabled in UI (kept for future use).
+        // if (debug2_smile_only_3d) {
+        //     debug2_smile_only_3d = false;
+        //     download_binary_file(smileBytes, 'smile_debug.ft3');
+        //     document.getElementById("webassembly_message").innerText = 'Debug 2 finished. SMILE output saved as smile_debug.ft3.';
+        //     return;
+        // }
+
+        document.getElementById("webassembly_message").innerText = 'Running indirect-only processing from smile.ft3...';
+        web_worker_3d.postMessage({
+            "#sym:webassembly_job ": 'process_fid_3d_nus_step3',
+            cfg: pending_nus_cfg_3d,
+            smileFt3Bytes: smileBytes
+        }, [smileBytes.buffer]);
+        return;
+    }
+
+    if (e.data && e.data.error) {
+        // Debug 2 disabled in UI (kept for future use).
+        // debug2_smile_only_3d = false;
+        append_3d_log('[smile-worker-error] ' + e.data.error);
+        document.getElementById("webassembly_message").innerText = 'SMILE error: ' + e.data.error;
     }
 }

@@ -13,6 +13,64 @@ let ModulePromise = webdp1d_cpp({
     }
 });
 
+function vectorUCharToUint8Array(vector) {
+    const result = new Uint8Array(vector.size());
+    for (let i = 0; i < vector.size(); i++) {
+        result[i] = vector.get(i);
+    }
+    return result;
+}
+
+function bytesToVectorUChar(Module, bytes) {
+    const v = new Module.VectorUChar();
+    for (let i = 0; i < bytes.length; i++) {
+        v.push_back(bytes[i]);
+    }
+    return v;
+}
+
+function parseIndirectPhaseText(fullPhaseText) {
+    const parts = String(fullPhaseText || '').trim().split(/\s+/).map(function (v) {
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0.0;
+    });
+    const i1p0 = parts.length > 2 ? parts[2] : 0.0;
+    const i1p1 = parts.length > 3 ? parts[3] : 0.0;
+    const i2p0 = parts.length > 4 ? parts[4] : 0.0;
+    const i2p1 = parts.length > 5 ? parts[5] : 0.0;
+    return '0 0 ' + i1p0 + ' ' + i1p1 + ' ' + i2p0 + ' ' + i2p1;
+}
+
+function finalizeAndPostResult(Module, fidInstance, job) {
+    console.log('[webass_3d] prepare_header_for_nmrpipe');
+    fidInstance.prepare_header_for_nmrpipe();
+
+    const nx = fidInstance.get_ndata_direct();
+    const nz = fidInstance.get_ndata_indirect1();
+    const ny = fidInstance.get_ndata_indirect2();
+    const n = nx * ny * nz;
+    console.log('[webass_3d] output dims:', { nx, ny, nz, n });
+    postMessage({ stdout: '[webass_3d] output dims nx=' + nx + ', ny=' + ny + ', nz=' + nz });
+
+    const headerPtr = fidInstance.get_nmrpipe_header_data();
+    const rrrPtr = fidInstance.get_data_of_rrr();
+    console.log('[webass_3d] heap ptrs', { headerPtr, rrrPtr });
+
+    const headerF32 = new Float32Array(Module.HEAPF32.subarray(headerPtr >> 2, (headerPtr >> 2) + 512));
+    const rrrF32 = new Float32Array(Module.HEAPF32.subarray(rrrPtr >> 2, (rrrPtr >> 2) + n));
+
+    postMessage({ stdout: '[webass_3d] posting result payload header=' + headerF32.length + ', rrr=' + rrrF32.length });
+
+    postMessage({
+        [WEBASSEMBLY_JOB_KEY]: job,
+        success: true,
+        dims: { nx, ny, nz },
+        headerF32: headerF32,
+        rrrF32: rrrF32
+    });
+    console.log('[webass_3d] process_fid_3d finished successfully');
+}
+
 self.onmessage = async function(event) {
     const job = event.data[WEBASSEMBLY_JOB_KEY] || event.data.webassembly_job;
     const Module = await ModulePromise;
@@ -25,7 +83,7 @@ self.onmessage = async function(event) {
             const cfg = event.data.cfg;
             const textInputs = event.data.textInputs;
             const fidBytes = new Uint8Array(event.data.fidBytes);
-            const mode = event.data.mode;
+            const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
 
             console.log('[webass_3d] process_fid_3d config:', cfg);
             console.log('[webass_3d] textInputs lengths:', {
@@ -35,20 +93,19 @@ self.onmessage = async function(event) {
                 acqu3s: textInputs && textInputs.acqu3s ? textInputs.acqu3s.length : 0,
                 nuslist: textInputs && textInputs.nuslist ? textInputs.nuslist.length : 0,
                 fidBytes: fidBytes.length,
-                mode: mode
+                isNus: isNus
             });
-            postMessage({ stdout: '[webass_3d] Starting fid_3d. fidBytes=' + fidBytes.length + ', mode=' + mode });
+            postMessage({ stdout: '[webass_3d] Starting fid_3d. fidBytes=' + fidBytes.length + ', isNus=' + isNus });
 
-            const fid = new Module.fid_3d();
-            try {
-                console.log('[webass_3d] run_zf', cfg.zfDirect, cfg.zfIndirect1, cfg.zfIndirect2);
-                postMessage({ stdout: '[webass_3d] run_zf(' + cfg.zfDirect + ', ' + cfg.zfIndirect1 + ', ' + cfg.zfIndirect2 + ')' });
-                fid.run_zf(cfg.zfDirect, cfg.zfIndirect1, cfg.zfIndirect2);
+            const applyCommonConfig = function (fidInstance, useDirectApodization, phaseTextToUse, zfDirectToUse, deleteImageFlags) {
+                console.log('[webass_3d] run_zf', zfDirectToUse, cfg.zfIndirect1, cfg.zfIndirect2);
+                postMessage({ stdout: '[webass_3d] run_zf(' + zfDirectToUse + ', ' + cfg.zfIndirect1 + ', ' + cfg.zfIndirect2 + ')' });
+                fidInstance.run_zf(zfDirectToUse, cfg.zfIndirect1, cfg.zfIndirect2);
 
                 console.log('[webass_3d] set_up_apodization_from_string');
                 postMessage({ stdout: '[webass_3d] set_up_apodization_from_string(...)' });
-                fid.set_up_apodization_from_string(
-                    cfg.apodDirect || 'none',
+                fidInstance.set_up_apodization_from_string(
+                    useDirectApodization ? (cfg.apodDirect || 'none') : 'none',
                     cfg.apodIndirect1 || 'none',
                     cfg.apodIndirect2 || 'none'
                 );
@@ -56,22 +113,22 @@ self.onmessage = async function(event) {
                 if (cfg.extPpm && cfg.extPpm.length >= 2) {
                     console.log('[webass_3d] extract_region_ppm', cfg.extPpm);
                     postMessage({ stdout: '[webass_3d] extract_region_ppm(' + cfg.extPpm[0] + ', ' + cfg.extPpm[1] + ')' });
-                    fid.extract_region_ppm(cfg.extPpm[0], cfg.extPpm[1]);
+                    fidInstance.extract_region_ppm(cfg.extPpm[0], cfg.extPpm[1]);
                 } else if (cfg.extNorm && cfg.extNorm.length >= 2) {
                     console.log('[webass_3d] extract_region', cfg.extNorm);
                     postMessage({ stdout: '[webass_3d] extract_region(' + cfg.extNorm[0] + ', ' + cfg.extNorm[1] + ')' });
-                    fid.extract_region(cfg.extNorm[0], cfg.extNorm[1]);
+                    fidInstance.extract_region(cfg.extNorm[0], cfg.extNorm[1]);
                 }
 
-                if (cfg.phaseText) {
+                if (phaseTextToUse) {
                     console.log('[webass_3d] read_phase_correction_from_string');
                     postMessage({ stdout: '[webass_3d] read_phase_correction_from_string(...)' });
-                    fid.read_phase_correction_from_string(cfg.phaseText);
+                    fidInstance.read_phase_correction_from_string(phaseTextToUse);
                 }
 
                 if (cfg.tdPolyOrder && cfg.tdPolyOrder.length === 3) {
                     console.log('[webass_3d] set_time_domain_polynorminal_order', cfg.tdPolyOrder);
-                    fid.set_time_domain_polynorminal_order(
+                    fidInstance.set_time_domain_polynorminal_order(
                         cfg.tdPolyOrder[0],
                         cfg.tdPolyOrder[1],
                         cfg.tdPolyOrder[2]
@@ -80,7 +137,7 @@ self.onmessage = async function(event) {
 
                 if (cfg.frqPolyOrder && cfg.frqPolyOrder.length === 3) {
                     console.log('[webass_3d] set_frq_domain_polynorminal_order', cfg.frqPolyOrder);
-                    fid.set_frq_domain_polynorminal_order(
+                    fidInstance.set_frq_domain_polynorminal_order(
                         cfg.frqPolyOrder[0],
                         cfg.frqPolyOrder[1],
                         cfg.frqPolyOrder[2]
@@ -89,13 +146,20 @@ self.onmessage = async function(event) {
 
                 if (cfg.inverse && cfg.inverse.length === 3) {
                     console.log('[webass_3d] set_inverse', cfg.inverse);
-                    fid.set_inverse(cfg.inverse[0], cfg.inverse[1], cfg.inverse[2]);
+                    fidInstance.set_inverse(cfg.inverse[0], cfg.inverse[1], cfg.inverse[2]);
                 }
 
-                // Always delete imaginary components in 3D processing.
-                console.log('[webass_3d] set_delete_image (forced)', [1, 1, 1]);
-                postMessage({ stdout: '[webass_3d] set_delete_image(1, 1, 1) [forced]' });
-                fid.set_delete_image(1, 1, 1);
+                const deleteImage = (deleteImageFlags && deleteImageFlags.length === 3)
+                    ? deleteImageFlags
+                    : [1, 1, 1];
+                console.log('[webass_3d] set_delete_image', deleteImage);
+                postMessage({ stdout: '[webass_3d] set_delete_image(' + deleteImage[0] + ', ' + deleteImage[1] + ', ' + deleteImage[2] + ')' });
+                fidInstance.set_delete_image(deleteImage[0], deleteImage[1], deleteImage[2]);
+            };
+
+            const fid = new Module.fid_3d();
+            try {
+                applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, isNus ? [1, 0, 0] : [1, 1, 1]);
 
                 console.log('[webass_3d] read_bruker_files_as_strings');
                 postMessage({ stdout: '[webass_3d] read_bruker_files_as_strings(...)' });
@@ -108,62 +172,157 @@ self.onmessage = async function(event) {
                     !!cfg.nusSerInflated
                 );
 
-                const v = new Module.VectorUChar();
-                for (let i = 0; i < fidBytes.length; i++) v.push_back(fidBytes[i]);
-                console.log('[webass_3d] read_bruker_fid_data_bytes with bytes:', fidBytes.length);
-                postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes(' + fidBytes.length + ' bytes)' });
-                fid.read_bruker_fid_data_bytes(v);
-                v.delete();
+                const v = bytesToVectorUChar(Module, fidBytes);
+                try {
+                    console.log('[webass_3d] read_bruker_fid_data_bytes with bytes:', fidBytes.length);
+                    postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes(' + fidBytes.length + ' bytes)' });
+                    fid.read_bruker_fid_data_bytes(v);
+                } finally {
+                    v.delete();
+                }
 
-                if (mode === "full") {
+                if (!isNus) {
                     console.log('[webass_3d] full_process');
                     postMessage({ stdout: '[webass_3d] full_process()' });
                     fid.full_process();
-                } else if (mode === "direct-only") {
-                    console.log('[webass_3d] direct_only_process');
-                    postMessage({ stdout: '[webass_3d] direct_only_process()' });
-                    fid.direct_only_process();
-                } else if (mode === "indirect-only") {
-                    console.log('[webass_3d] indirect_only_process');
-                    postMessage({ stdout: '[webass_3d] indirect_only_process()' });
-                    fid.indirect_only_process();
+                    finalizeAndPostResult(Module, fid, job);
                 } else {
-                    throw new Error("Unsupported mode: " + mode);
+                    console.log('[webass_3d] direct_only_process for NUS step1');
+                    postMessage({ stdout: '[webass_3d] NUS step1: direct_only_process()' });
+                    fid.direct_only_process();
+                    const nIndirect1 = fid.get_ndata_indirect1();
+                    const nIndirect2 = fid.get_ndata_indirect2();
+                    postMessage({ stdout: '[webass_3d] NUS step1 dims indirect1=' + nIndirect1 + ', indirect2=' + nIndirect2 });
+
+                    const halfVec = new Module.VectorUChar();
+                    let halfFt3Bytes;
+
+                    try {
+                        const ok = fid.write_ft3_to_buffer(halfVec);
+                        if (!ok) {
+                            throw new Error("write_ft3_to_buffer failed");
+                        }
+                        halfFt3Bytes = vectorUCharToUint8Array(halfVec);
+                    } finally {
+                        halfVec.delete();
+                    }
+
+                    postMessage({ stdout: '[webass_3d] NUS step1 output half.ft3 bytes=' + halfFt3Bytes.length });
+                    postMessage({
+                        [WEBASSEMBLY_JOB_KEY]: 'process_fid_3d_nus_half_ready',
+                        halfFt3Bytes: halfFt3Bytes,
+                        ndataIndirect1: nIndirect1,
+                        ndataIndirect2: nIndirect2,
+                        cfg: cfg,
+                        nuslistText: textInputs.nuslist || ''
+                    }, [halfFt3Bytes.buffer]);
                 }
-
-                console.log('[webass_3d] prepare_header_for_nmrpipe');
-                fid.prepare_header_for_nmrpipe();
-
-                const nx = fid.get_ndata_frq();
-                const nz = fid.get_ndata_frq_indirect1();
-                const ny = fid.get_ndata_frq_indirect2();
-                const n = nx * ny * nz;
-                console.log('[webass_3d] output dims:', { nx, ny, nz, n });
-                postMessage({ stdout: '[webass_3d] output dims nx=' + nx + ', ny=' + ny + ', nz=' + nz });
-
-                const headerPtr = fid.get_nmrpipe_header_data();
-                const rrrPtr = fid.get_data_of_rrr();
-                console.log('[webass_3d] heap ptrs', { headerPtr, rrrPtr });
-
-                const headerF32 = new Float32Array(Module.HEAPF32.subarray(headerPtr >> 2, (headerPtr >> 2) + 512));
-                const rrrF32 = new Float32Array(Module.HEAPF32.subarray(rrrPtr >> 2, (rrrPtr >> 2) + n));
-
-                postMessage({ stdout: '[webass_3d] posting result payload header=' + headerF32.length + ', rrr=' + rrrF32.length });
-
-                postMessage({
-                    [WEBASSEMBLY_JOB_KEY]: job,
-                    success: true,
-                    dims: { nx, ny, nz },
-                    headerF32: headerF32,
-                    rrrF32: rrrF32
-                });
-                console.log('[webass_3d] process_fid_3d finished successfully');
             } finally {
                 fid.delete();
                 console.log('[webass_3d] fid_3d instance deleted');
             }
         } catch (err) {
             console.error('[webass_3d] process_fid_3d failed', err);
+            postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
+        }
+    }
+    else if (job === 'process_fid_3d_nus_step3') {
+        try {
+            const cfg = event.data.cfg || {};
+            const smileFt3Bytes = new Uint8Array(event.data.smileFt3Bytes || []);
+
+            const applyCommonConfig = function (fidInstance, phaseTextToUse) {
+                fidInstance.run_zf(1, cfg.zfIndirect1, cfg.zfIndirect2);
+                fidInstance.set_up_apodization_from_string(
+                    'none',
+                    cfg.apodIndirect1 || 'none',
+                    cfg.apodIndirect2 || 'none'
+                );
+                if (cfg.extPpm && cfg.extPpm.length >= 2) {
+                    fidInstance.extract_region_ppm(cfg.extPpm[0], cfg.extPpm[1]);
+                } else if (cfg.extNorm && cfg.extNorm.length >= 2) {
+                    fidInstance.extract_region(cfg.extNorm[0], cfg.extNorm[1]);
+                }
+                if (phaseTextToUse) {
+                    fidInstance.read_phase_correction_from_string(phaseTextToUse);
+                }
+                if (cfg.tdPolyOrder && cfg.tdPolyOrder.length === 3) {
+                    fidInstance.set_time_domain_polynorminal_order(
+                        cfg.tdPolyOrder[0],
+                        cfg.tdPolyOrder[1],
+                        cfg.tdPolyOrder[2]
+                    );
+                }
+                if (cfg.frqPolyOrder && cfg.frqPolyOrder.length === 3) {
+                    fidInstance.set_frq_domain_polynorminal_order(
+                        cfg.frqPolyOrder[0],
+                        cfg.frqPolyOrder[1],
+                        cfg.frqPolyOrder[2]
+                    );
+                }
+                if (cfg.inverse && cfg.inverse.length === 3) {
+                    fidInstance.set_inverse(cfg.inverse[0], cfg.inverse[1], cfg.inverse[2]);
+                }
+                fidInstance.set_delete_image(1, 1, 1);
+            };
+
+            const fidIndirect = new Module.fid_3d();
+            let finalFt3Bytes;
+            try {
+                const indirectPhaseText = parseIndirectPhaseText(cfg.phaseText);
+                applyCommonConfig(fidIndirect, indirectPhaseText);
+
+                if (typeof fidIndirect.read_ft3_from_buffer !== 'function') {
+                    throw new Error('fid_3d.read_ft3_from_buffer is not available in this WebAssembly build');
+                }
+                if (typeof fidIndirect.write_ft3_to_buffer !== 'function') {
+                    throw new Error('fid_3d.write_ft3_to_buffer is not available in this WebAssembly build');
+                }
+
+                const inVec = bytesToVectorUChar(Module, smileFt3Bytes);
+                try {
+                    if (!fidIndirect.read_ft3_from_buffer(inVec)) {
+                        throw new Error('read_ft3_from_buffer failed');
+                    }
+
+                    console.log('[webass_3d] indirect_only_process for NUS step3');
+                    postMessage({ stdout: '[webass_3d] NUS step3: indirect_only_process()' });
+                    if (!fidIndirect.indirect_only_process()) {
+                        throw new Error('indirect_only_process failed');
+                    }
+
+                    const outVec = new Module.VectorUChar();
+                    try {
+                        if (!fidIndirect.write_ft3_to_buffer(outVec)) {
+                            throw new Error('write_ft3_to_buffer failed');
+                        }
+                        finalFt3Bytes = vectorUCharToUint8Array(outVec);
+                    } finally {
+                        outVec.delete();
+                    }
+                } finally {
+                    inVec.delete();
+                }
+            } finally {
+                fidIndirect.delete();
+            }
+
+            const fidFinal = new Module.fid_3d();
+            try {
+                const finalVec = bytesToVectorUChar(Module, finalFt3Bytes || new Uint8Array());
+                try {
+                    if (!fidFinal.read_ft3_from_buffer(finalVec)) {
+                        throw new Error('read_ft3_from_buffer failed for final output');
+                    }
+                } finally {
+                    finalVec.delete();
+                }
+                finalizeAndPostResult(Module, fidFinal, 'process_fid_3d');
+            } finally {
+                fidFinal.delete();
+            }
+        } catch (err) {
+            console.error('[webass_3d] process_fid_3d_nus_step3 failed', err);
             postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
         }
     }
