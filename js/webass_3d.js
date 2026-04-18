@@ -84,6 +84,8 @@ self.onmessage = async function(event) {
             const textInputs = event.data.textInputs;
             const fidBytes = new Uint8Array(event.data.fidBytes);
             const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
+            const forceNusFullProcess = !!(cfg && cfg.debugNusRunFullProcess);
+            const useNusStepPipeline = isNus && !forceNusFullProcess;
 
             console.log('[webass_3d] process_fid_3d config:', cfg);
             console.log('[webass_3d] textInputs lengths:', {
@@ -93,9 +95,11 @@ self.onmessage = async function(event) {
                 acqu3s: textInputs && textInputs.acqu3s ? textInputs.acqu3s.length : 0,
                 nuslist: textInputs && textInputs.nuslist ? textInputs.nuslist.length : 0,
                 fidBytes: fidBytes.length,
-                isNus: isNus
+                isNus: isNus,
+                forceNusFullProcess: forceNusFullProcess,
+                useNusStepPipeline: useNusStepPipeline
             });
-            postMessage({ stdout: '[webass_3d] Starting fid_3d. fidBytes=' + fidBytes.length + ', isNus=' + isNus });
+            postMessage({ stdout: '[webass_3d] Starting fid_3d. fidBytes=' + fidBytes.length + ', isNus=' + isNus + ', forceNusFullProcess=' + forceNusFullProcess });
 
             const applyCommonConfig = function (fidInstance, useDirectApodization, phaseTextToUse, zfDirectToUse, deleteImageFlags) {
                 console.log('[webass_3d] run_zf', zfDirectToUse, cfg.zfIndirect1, cfg.zfIndirect2);
@@ -159,7 +163,7 @@ self.onmessage = async function(event) {
 
             const fid = new Module.fid_3d();
             try {
-                applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, isNus ? [1, 0, 0] : [1, 1, 1]);
+                applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [1, 0, 0] : [1, 1, 1]);
 
                 console.log('[webass_3d] read_bruker_files_as_strings');
                 postMessage({ stdout: '[webass_3d] read_bruker_files_as_strings(...)' });
@@ -181,9 +185,9 @@ self.onmessage = async function(event) {
                     v.delete();
                 }
 
-                if (!isNus) {
+                if (!useNusStepPipeline) {
                     console.log('[webass_3d] full_process');
-                    postMessage({ stdout: '[webass_3d] full_process()' });
+                    postMessage({ stdout: isNus ? '[webass_3d] full_process() [NUS debug mode]' : '[webass_3d] full_process()' });
                     fid.full_process();
                     finalizeAndPostResult(Module, fid, job);
                 } else {

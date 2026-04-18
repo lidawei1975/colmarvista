@@ -3324,6 +3324,7 @@ function build_3d_worker_cfg_from_ui() {
         inverse: [0, 0, 0],
         deleteImage: [1, 1, 1],
         nusSerInflated: false,
+        debugNusRunFullProcess: !!(document.getElementById('debug_nus_process_like_normal_3d') && document.getElementById('debug_nus_process_like_normal_3d').checked),
         extPpm: [
             parseFloat(document.getElementById('extract_direct_from').value),
             parseFloat(document.getElementById('extract_direct_to').value)
@@ -3563,11 +3564,14 @@ async function load_fid_3d_file() {
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
         
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
+        const debugNusRunFullProcess = !!cfg.debugNusRunFullProcess;
         console.log('[3D][fid] Sending worker message. NUS mode=', isNus);
-        append_3d_log('[main] Posting process_fid_3d to worker (NUS=' + isNus + ')');
+        append_3d_log('[main] Posting process_fid_3d to worker (NUS=' + isNus + ', debugNusRunFullProcess=' + debugNusRunFullProcess + ')');
 
         document.getElementById("webassembly_message").innerText = isNus
-            ? "Processing 3D NUS: direct-only -> SMILE -> indirect-only..."
+            ? (debugNusRunFullProcess
+                ? "Processing 3D NUS using full_process debug mode (SMILE pipeline skipped)..."
+                : "Processing 3D NUS: direct-only -> SMILE -> indirect-only...")
             : "Processing 3D FID using WebAssembly...";
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "process_fid_3d",
