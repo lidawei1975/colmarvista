@@ -14,6 +14,7 @@ var zoom_on_call_function = null;
 var iso_renderer = null;
 var iso_renderer_recon = null;
 var ui_status_timers = {};
+var trace_plot_margins_3d = { left: 52, right: 12, top: 8, bottom: 22 };
 
 function reset_3d_dataset_state() {
     spectra_3d = [];
@@ -29,6 +30,7 @@ function reset_3d_dataset_state() {
 
     // Release large contiguous visualization buffers from previous dataset.
     current_volume_data = null;
+    clear_all_1d_traces();
 }
 
 function set_status_message(element_id, text, auto_clear_ms = 0) {
@@ -2305,6 +2307,259 @@ function refresh_ortho_plot(type) {
     plot.contour_plot.drawScene();
 }
 
+function clamp_index_3d(value, maxExclusive) {
+    if (!Number.isFinite(value) || maxExclusive <= 0) {
+        return 0;
+    }
+    return Math.max(0, Math.min(maxExclusive - 1, Math.round(value)));
+}
+
+function get_crosshair_center_ppm_3d() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        return null;
+    }
+
+    let s = spectra_3d[0];
+    let ppm_x;
+    let ppm_y;
+    let ppm_z;
+
+    if (main_plot && main_plot.xRange && main_plot.yRange) {
+        let x_domain = main_plot.xRange.domain();
+        let y_domain = main_plot.yRange.domain();
+        ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        ppm_y = (y_domain[0] + y_domain[1]) / 2;
+    } else {
+        ppm_x = s.x_ppm_start + (current_x_index * s.x_ppm_step);
+        ppm_y = s.y_ppm_start + (current_y_index * s.y_ppm_step);
+    }
+
+    if (main_plot_xz && main_plot_xz.yRange) {
+        let z_domain = main_plot_xz.yRange.domain();
+        ppm_z = (z_domain[0] + z_domain[1]) / 2;
+    } else if (main_plot_yz && main_plot_yz.xRange) {
+        let z_domain = main_plot_yz.xRange.domain();
+        ppm_z = (z_domain[0] + z_domain[1]) / 2;
+    } else {
+        ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
+    }
+
+    return {
+        ppm_x: ppm_x,
+        ppm_y: ppm_y,
+        ppm_z: ppm_z
+    };
+}
+
+function get_trace_domain_3d(dim, s0) {
+    if (!s0) {
+        return [0, 1];
+    }
+
+    if (dim === 'x' && main_plot && main_plot.xRange) {
+        return main_plot.xRange.domain();
+    }
+    if (dim === 'y') {
+        if (main_plot_yz && main_plot_yz.yRange) {
+            return main_plot_yz.yRange.domain();
+        }
+        if (main_plot && main_plot.yRange) {
+            return main_plot.yRange.domain();
+        }
+    }
+    if (dim === 'z') {
+        if (main_plot_yz && main_plot_yz.xRange) {
+            return main_plot_yz.xRange.domain();
+        }
+        if (main_plot_xz && main_plot_xz.yRange) {
+            return main_plot_xz.yRange.domain();
+        }
+    }
+
+    if (dim === 'x') {
+        return [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+    }
+    if (dim === 'y') {
+        return [s0.y_ppm_start, s0.y_ppm_start + (s0.n_indirect - 1) * s0.y_ppm_step];
+    }
+    return [s0.z_ppm_start, s0.z_ppm_start + (spectra_3d.length - 1) * s0.z_ppm_step];
+}
+
+function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
+    let points = [];
+    if (!s0 || !spectra_3d || spectra_3d.length === 0) {
+        return points;
+    }
+
+    const nx = s0.n_direct;
+    const ny = s0.n_indirect;
+    const nz = spectra_3d.length;
+
+    if (dim === 'z') {
+        for (let z = 0; z < nz; z++) {
+            let slice = spectra_3d[z];
+            let val = 0;
+            if (slice && slice.raw_data) {
+                val = slice.raw_data[yIndex * nx + xIndex] || 0;
+            }
+            points.push({ ppm: s0.z_ppm_start + z * s0.z_ppm_step, value: val });
+        }
+        return points;
+    }
+
+    let slice = spectra_3d[zIndex];
+    if (!slice || !slice.raw_data) {
+        return points;
+    }
+
+    if (dim === 'y') {
+        for (let y = 0; y < ny; y++) {
+            points.push({
+                ppm: s0.y_ppm_start + y * s0.y_ppm_step,
+                value: slice.raw_data[y * nx + xIndex] || 0
+            });
+        }
+        return points;
+    }
+
+    for (let x = 0; x < nx; x++) {
+        points.push({
+            ppm: s0.x_ppm_start + x * s0.x_ppm_step,
+            value: slice.raw_data[yIndex * nx + x] || 0
+        });
+    }
+    return points;
+}
+
+function clear_1d_trace_svg(svgId) {
+    const svgEl = document.getElementById(svgId);
+    if (!svgEl) {
+        return;
+    }
+    d3.select(svgEl).selectAll('*').remove();
+}
+
+function clear_all_1d_traces() {
+    clear_1d_trace_svg('trace_z_svg');
+    clear_1d_trace_svg('trace_y_svg');
+    clear_1d_trace_svg('trace_x_svg');
+}
+
+function render_trace_3d(svgId, points, xDomain, lineColor) {
+    const svgEl = document.getElementById(svgId);
+    if (!svgEl) {
+        return;
+    }
+
+    const svg = d3.select(svgEl);
+    svg.selectAll('*').remove();
+
+    if (!points || points.length === 0) {
+        return;
+    }
+
+    const width = parseFloat(svg.attr('width')) || svgEl.clientWidth || 600;
+    const height = parseFloat(svg.attr('height')) || svgEl.clientHeight || 120;
+    const m = trace_plot_margins_3d;
+    const plotWidth = Math.max(10, width - m.left - m.right);
+    const plotHeight = Math.max(10, height - m.top - m.bottom);
+
+    const xScale = d3.scaleLinear()
+        .domain(xDomain)
+        .range([m.left, m.left + plotWidth]);
+
+    const xMin = Math.min(xDomain[0], xDomain[1]);
+    const xMax = Math.max(xDomain[0], xDomain[1]);
+    const visiblePoints = points.filter(function (p) {
+        return p.ppm >= xMin && p.ppm <= xMax;
+    });
+    const ySource = visiblePoints.length > 0 ? visiblePoints : points;
+
+    let yMin = d3.min(ySource, function (d) { return d.value; });
+    let yMax = d3.max(ySource, function (d) { return d.value; });
+
+    if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+        yMin = -1;
+        yMax = 1;
+    }
+    if (yMin === yMax) {
+        const padEq = Math.max(Math.abs(yMin) * 0.2, 1e-6);
+        yMin -= padEq;
+        yMax += padEq;
+    }
+    const pad = (yMax - yMin) * 0.08;
+    yMin -= pad;
+    yMax += pad;
+
+    const yScale = d3.scaleLinear()
+        .domain([yMin, yMax])
+        .range([m.top + plotHeight, m.top]);
+
+    const line = d3.line()
+        .x(function (d) { return xScale(d.ppm); })
+        .y(function (d) { return yScale(d.value); })
+        .defined(function (d) {
+            return Number.isFinite(d.ppm) && Number.isFinite(d.value);
+        });
+
+    svg.append('g')
+        .attr('transform', 'translate(0,' + (m.top + plotHeight) + ')')
+        .call(d3.axisBottom(xScale).ticks(6));
+
+    svg.append('g')
+        .attr('transform', 'translate(' + m.left + ',0)')
+        .call(d3.axisLeft(yScale).ticks(4));
+
+    if (yMin < 0 && yMax > 0) {
+        svg.append('line')
+            .attr('x1', m.left)
+            .attr('x2', m.left + plotWidth)
+            .attr('y1', yScale(0))
+            .attr('y2', yScale(0))
+            .attr('stroke', '#b0b0b0')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,2');
+    }
+
+    svg.append('path')
+        .datum(points)
+        .attr('fill', 'none')
+        .attr('stroke', lineColor || '#1f77b4')
+        .attr('stroke-width', 1.5)
+        .attr('d', line);
+}
+
+function update_1d_traces_from_center() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        clear_all_1d_traces();
+        return;
+    }
+
+    const s0 = spectra_3d[0];
+    if (!s0) {
+        clear_all_1d_traces();
+        return;
+    }
+
+    const center = get_crosshair_center_ppm_3d();
+    if (!center) {
+        clear_all_1d_traces();
+        return;
+    }
+
+    const xIndex = clamp_index_3d((center.ppm_x - s0.x_ppm_start) / s0.x_ppm_step, s0.n_direct);
+    const yIndex = clamp_index_3d((center.ppm_y - s0.y_ppm_start) / s0.y_ppm_step, s0.n_indirect);
+    const zIndex = clamp_index_3d((center.ppm_z - s0.z_ppm_start) / s0.z_ppm_step, spectra_3d.length);
+
+    const traceZ = extract_trace_3d('z', xIndex, yIndex, zIndex, s0);
+    const traceY = extract_trace_3d('y', xIndex, yIndex, zIndex, s0);
+    const traceX = extract_trace_3d('x', xIndex, yIndex, zIndex, s0);
+
+    render_trace_3d('trace_z_svg', traceZ, get_trace_domain_3d('z', s0), '#1f77b4');
+    render_trace_3d('trace_y_svg', traceY, get_trace_domain_3d('y', s0), '#2ca02c');
+    render_trace_3d('trace_x_svg', traceX, get_trace_domain_3d('x', s0), '#d62728');
+}
+
 function update_3d_crosshairs() {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -2360,6 +2615,8 @@ function update_3d_crosshairs() {
             Z: ${ppm_z.toFixed(3)} ppm (${dz})
         `;
     }
+
+    update_1d_traces_from_center();
 }
 
 function request_orthogonal_contour(spectrum, sign, type) {

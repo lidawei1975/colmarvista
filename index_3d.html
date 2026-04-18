@@ -264,6 +264,12 @@
                             <!-- This is the main 2D plot (XY) -->
                             <div
                                 style="float:left; margin: 10px; display:flex; flex-direction:column; align-items: center;">
+                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
+                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                                        1D Trace Along Z (at XY center)
+                                    </div>
+                                    <svg id="trace_z_svg" width="600" height="120"></svg>
+                                </div>
                                 <!-- Slice Control -->
                                 <div id="slice_control_area" class="drop-area-neighbor"
                                     style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
@@ -297,6 +303,13 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>XZ Plane (Direct vs Z)</h4>
 
+                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
+                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                                        1D Trace Along Y (at XZ center)
+                                    </div>
+                                    <svg id="trace_y_svg" width="600" height="120"></svg>
+                                </div>
+
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
                                     <button id="prev_slice_xz">&lt;</button>
@@ -322,6 +335,13 @@
                             <div id="main_plot_area_yz"
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>YZ Plane (Indirect vs Z)</h4>
+
+                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
+                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                                        1D Trace Along X (at YZ center)
+                                    </div>
+                                    <svg id="trace_x_svg" width="600" height="120"></svg>
+                                </div>
 
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
