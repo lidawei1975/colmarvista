@@ -397,18 +397,18 @@
                                     Center</button>
 
                                 <div id="iso_controls"
-                                    style="width: 80%; margin-bottom: 10px; border: 1px solid #ddd; padding: 5px; background: #fff;">
-                                    <div>
-                                        <label for="iso_solid_slider">Solid (Red): <span
-                                                id="iso_solid_val">0.0</span></label><br>
-                                        <input type="range" id="iso_solid_slider" style="width:100%">
+                                    style="width: 220px; margin-bottom: 10px; border: 1px solid #ddd; padding: 10px; background: #fff; border-radius: 4px;">
+                                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                        <label for="iso_solid_level" style="font-weight: bold; font-size: 13px;">Solid (Red): </label>
+                                        <input type="number" id="iso_solid_level" style="width: 80px; padding: 2px;">
                                     </div>
-                                    <div>
-                                        <label for="iso_wire_slider">Mesh (Blue): <span
-                                                id="iso_wire_val">0.0</span></label><br>
-                                        <input type="range" id="iso_wire_slider" style="width:100%">
+                                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                        <label for="iso_wire_level" style="font-weight: bold; font-size: 13px;">Mesh (Blue): </label>
+                                        <input type="number" id="iso_wire_level" style="width: 80px; padding: 2px;">
                                     </div>
-                                    <div style="display: flex; flex-direction: column;">
+                                    <button onclick="update_3d_view()" style="width: 100%; padding: 5px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; font-weight: bold;">Update Isosurface</button>
+                                </div>
+                                <div style="display: flex; flex-direction: column;">
                                         <label for="iso_peak_slider" style="margin-bottom: 2px;">Peak Size:</label>
                                         <div style="display: flex; align-items: center;">
                                             <input type="range" id="iso_peak_slider"

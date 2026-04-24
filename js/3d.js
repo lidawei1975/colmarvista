@@ -993,10 +993,10 @@ async function load_ft3_file() {
             let plane_name = "plane_" + String(i + 1).padStart(3, '0');
             s.process_ft_file(plane_buffer, plane_name, -1);
 
-            s.spectrum_color = "#ff0000";
-            s.spectrum_color_negative = "#0000ff";
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.negative_levels = [];
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1057,10 +1057,10 @@ async function load_files() {
             s.process_ft_file(buffer, file.name, -1);
 
             // Set some defaults
-            s.spectrum_color = "#ff0000"; // Red for positive
-            s.spectrum_color_negative = "#0000ff"; // Blue for negative
-            s.levels = calculate_levels(s.noise_level, 1.5, 30); // Default levels
-            s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = null;
+            s.levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.negative_levels = [];
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1153,8 +1153,9 @@ function update_contour_levels() {
 
     // Update all slices
     for (let s of spectra_3d) {
+        s.spectrum_color = "#0000ff";
         s.levels = calculate_levels(s.noise_level, scale, 30);
-        s.negative_levels = calculate_levels(-s.noise_level, scale, 30);
+        s.negative_levels = [];
         // Invalidate cache to force recalculation
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
@@ -1162,8 +1163,9 @@ function update_contour_levels() {
 
     if (theoretical_spectra_3d) {
         for (let s of theoretical_spectra_3d) {
+            s.spectrum_color = "#d62728"; // Keep theoretical distinct but one color
             s.levels = calculate_levels(s.noise_level, scale, 30);
-            s.negative_levels = calculate_levels(-s.noise_level, scale, 30);
+            s.negative_levels = [];
             s.cached_contour_pos = null;
             s.cached_contour_neg = null;
         }
@@ -1171,14 +1173,16 @@ function update_contour_levels() {
 
     // Also update orthogonal spectra
     if (spectrum_xz) {
+        spectrum_xz.spectrum_color = "#0000ff";
         spectrum_xz.levels = calculate_levels(spectrum_xz.noise_level, scale, 30);
-        spectrum_xz.negative_levels = calculate_levels(-spectrum_xz.noise_level, scale, 30);
+        spectrum_xz.negative_levels = [];
         spectrum_xz.cached_contour_pos = null;
         spectrum_xz.cached_contour_neg = null;
     }
     if (spectrum_yz) {
+        spectrum_yz.spectrum_color = "#0000ff";
         spectrum_yz.levels = calculate_levels(spectrum_yz.noise_level, scale, 30);
-        spectrum_yz.negative_levels = calculate_levels(-spectrum_yz.noise_level, scale, 30);
+        spectrum_yz.negative_levels = [];
         spectrum_yz.cached_contour_pos = null;
         spectrum_yz.cached_contour_neg = null;
     }
@@ -1384,8 +1388,7 @@ function refresh_current_view(spectrum_in) {
         let p_pos = spec.cached_contour_pos ? spec.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
-        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
+        let p_neg = new Float32Array([]); // Skip negative
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -1393,11 +1396,11 @@ function refresh_current_view(spectrum_in) {
         len_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.levels_length : []);
         poly_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.levels_length : []);
-        poly_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.polygon_length : []);
+        len_neg_list.push([]);
+        poly_neg_list.push([]);
 
         color_pos_list.push(hexToRgb(spec.spectrum_color));
-        color_neg_list.push(hexToRgb(spec.spectrum_color_negative));
+        color_neg_list.push([0, 0, 0]); // Not used
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
@@ -2324,8 +2327,7 @@ function refresh_ortho_plot(type) {
         let p_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
-        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
+        let p_neg = new Float32Array([]); // Skip negative
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -2333,11 +2335,11 @@ function refresh_ortho_plot(type) {
         len_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.levels_length : []);
         poly_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.levels_length : []);
-        poly_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.polygon_length : []);
+        len_neg_list.push([]);
+        poly_neg_list.push([]);
 
         color_pos_list.push(hexToRgb(s.spectrum_color));
-        color_neg_list.push(hexToRgb(s.spectrum_color_negative));
+        color_neg_list.push([0, 0, 0]); // Not used
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
@@ -2886,48 +2888,41 @@ function setup_sliders() {
     const noise = data.noise;
     const maxVal = data.max;
 
-    // Range: 5.5 * noise to 0.75 * max
-    const minRange = 5.5 * noise;
-    const maxRange = 0.75 * maxVal;
+    // Range: 3.0 * noise to 20.0 * noise
+    const minRange = 3.0 * noise;
+    const maxRange = 20.0 * noise;
 
     // Step size
     const step = (maxRange - minRange) / 100;
 
-    const sliderSolid = document.getElementById("iso_solid_slider");
-    const sliderWire = document.getElementById("iso_wire_slider");
+    const inputSolid = document.getElementById("iso_solid_level");
+    const inputWire = document.getElementById("iso_wire_level");
 
-    if (sliderSolid && sliderWire) {
-        sliderSolid.min = minRange;
-        sliderSolid.max = maxRange;
-        sliderSolid.step = step;
-        sliderSolid.value = Math.max(minRange, Math.min(maxRange, 40 * noise)); // Default 40*noise
+    if (inputSolid && inputWire) {
+        inputSolid.min = minRange;
+        inputSolid.max = maxRange;
+        inputSolid.step = step;
+        inputSolid.value = Math.max(minRange, Math.min(maxRange, 12.0 * noise)).toFixed(1);
 
-        sliderWire.min = minRange;
-        sliderWire.max = maxRange;
-        sliderWire.step = step;
-        sliderWire.value = Math.max(minRange, Math.min(maxRange, 10 * noise)); // Default 10*noise
+        inputWire.min = minRange;
+        inputWire.max = maxRange;
+        inputWire.step = step;
+        inputWire.value = Math.max(minRange, Math.min(maxRange, 6.0 * noise)).toFixed(1);
 
-        // Attach Events (using 'change' to avoid lag during drag, or 'input' with debounce)
-        // User requested constraints: Mesh < Solid.
-
-        sliderSolid.onchange = function () {
-            // Enforce constraints?
+        inputSolid.onchange = function () {
             let val = parseFloat(this.value);
-            let wireVal = parseFloat(sliderWire.value);
+            let wireVal = parseFloat(inputWire.value);
             if (val <= wireVal) {
-                // If Solid dragged below Mesh, move Mesh down? 
-                // "mesh should be always smaller than solid red"
-                sliderWire.value = val - step;
+                inputWire.value = (val - step).toFixed(1);
             }
             update_3d_view();
         };
 
-        sliderWire.onchange = function () {
+        inputWire.onchange = function () {
             let val = parseFloat(this.value);
-            let solidVal = parseFloat(sliderSolid.value);
+            let solidVal = parseFloat(inputSolid.value);
             if (val >= solidVal) {
-                // If Mesh dragged above Solid, clamp it
-                this.value = solidVal - step;
+                this.value = (solidVal - step).toFixed(1);
             }
             update_3d_view();
         }
@@ -2965,16 +2960,12 @@ function update_3d_view() {
     setTimeout(() => {
         const data = current_volume_data;
 
-        const sliderSolid = document.getElementById("iso_solid_slider");
-        const sliderWire = document.getElementById("iso_wire_slider");
+        const inputSolid = document.getElementById("iso_solid_level");
+        const inputWire = document.getElementById("iso_wire_level");
         const sliderPeak = document.getElementById("iso_peak_slider");
 
-        // Update labels
-        if (document.getElementById("iso_solid_val")) document.getElementById("iso_solid_val").innerText = parseFloat(sliderSolid.value).toFixed(1);
-        if (document.getElementById("iso_wire_val")) document.getElementById("iso_wire_val").innerText = parseFloat(sliderWire.value).toFixed(1);
-
-        const isoSolid = parseFloat(sliderSolid.value);
-        const isoWire = parseFloat(sliderWire.value);
+        const isoSolid = parseFloat(inputSolid.value);
+        const isoWire = parseFloat(inputWire.value);
 
         console.log(`Generating Meshes. Solid: ${isoSolid}, Wire: ${isoWire}`);
 
