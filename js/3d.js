@@ -15,6 +15,12 @@ var iso_renderer = null;
 var iso_renderer_recon = null;
 var ui_status_timers = {};
 var trace_plot_margins_3d = { left: 52, right: 12, top: 8, bottom: 22 };
+var trace_zoom_domains = {
+    'trace_x_svg': null,
+    'trace_y_svg': null,
+    'trace_z_svg': null
+};
+
 
 function reset_3d_dataset_state() {
     spectra_3d = [];
@@ -2356,26 +2362,6 @@ function get_trace_domain_3d(dim, s0) {
         return [0, 1];
     }
 
-    if (dim === 'x' && main_plot && main_plot.xRange) {
-        return main_plot.xRange.domain();
-    }
-    if (dim === 'y') {
-        if (main_plot_yz && main_plot_yz.yRange) {
-            return main_plot_yz.yRange.domain();
-        }
-        if (main_plot && main_plot.yRange) {
-            return main_plot.yRange.domain();
-        }
-    }
-    if (dim === 'z') {
-        if (main_plot_yz && main_plot_yz.xRange) {
-            return main_plot_yz.xRange.domain();
-        }
-        if (main_plot_xz && main_plot_xz.yRange) {
-            return main_plot_xz.yRange.domain();
-        }
-    }
-
     if (dim === 'x') {
         return [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
     }
@@ -2384,6 +2370,7 @@ function get_trace_domain_3d(dim, s0) {
     }
     return [s0.z_ppm_start, s0.z_ppm_start + (spectra_3d.length - 1) * s0.z_ppm_step];
 }
+
 
 function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
     let points = [];
@@ -2502,6 +2489,17 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
             return Number.isFinite(d.ppm) && Number.isFinite(d.value);
         });
 
+    // Clipping Path
+    const clipId = 'clip-' + svgId;
+    svg.append('defs').append('clipPath')
+        .attr('id', clipId)
+        .append('rect')
+        .attr('x', m.left)
+        .attr('y', m.top)
+        .attr('width', plotWidth)
+        .attr('height', plotHeight);
+
+    // Axes
     svg.append('g')
         .attr('transform', 'translate(0,' + (m.top + plotHeight) + ')')
         .call(d3.axisBottom(xScale).ticks(6));
@@ -2510,8 +2508,12 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         .attr('transform', 'translate(' + m.left + ',0)')
         .call(d3.axisLeft(yScale).ticks(4));
 
+    // Plot Content Group (clipped)
+    const plotGroup = svg.append('g')
+        .attr('clip-path', 'url(#' + clipId + ')');
+
     if (yMin < 0 && yMax > 0) {
-        svg.append('line')
+        plotGroup.append('line')
             .attr('x1', m.left)
             .attr('x2', m.left + plotWidth)
             .attr('y1', yScale(0))
@@ -2521,13 +2523,34 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
             .attr('stroke-dasharray', '3,2');
     }
 
-    svg.append('path')
+    plotGroup.append('path')
         .datum(points)
         .attr('fill', 'none')
         .attr('stroke', lineColor || '#1f77b4')
         .attr('stroke-width', 1.5)
         .attr('d', line);
+
+    // Brush for Zooming
+    const brush = d3.brushX()
+        .extent([[m.left, m.top], [m.left + plotWidth, m.top + plotHeight]])
+        .on('end', function (event) {
+            if (!event.selection) return;
+            const [x0, x1] = event.selection.map(xScale.invert);
+            trace_zoom_domains[svgId] = [x0, x1];
+            update_1d_traces_from_center();
+        });
+
+    svg.append('g')
+        .attr('class', 'brush')
+        .call(brush);
+
+    // Double click to reset zoom
+    svg.on('dblclick', function () {
+        trace_zoom_domains[svgId] = null;
+        update_1d_traces_from_center();
+    });
 }
+
 
 function update_1d_traces_from_center() {
     if (!spectra_3d || spectra_3d.length === 0) {
@@ -2555,10 +2578,15 @@ function update_1d_traces_from_center() {
     const traceY = extract_trace_3d('y', xIndex, yIndex, zIndex, s0);
     const traceX = extract_trace_3d('x', xIndex, yIndex, zIndex, s0);
 
-    render_trace_3d('trace_z_svg', traceZ, get_trace_domain_3d('z', s0), '#1f77b4');
-    render_trace_3d('trace_y_svg', traceY, get_trace_domain_3d('y', s0), '#2ca02c');
-    render_trace_3d('trace_x_svg', traceX, get_trace_domain_3d('x', s0), '#d62728');
+    const domainZ = trace_zoom_domains['trace_z_svg'] || get_trace_domain_3d('z', s0);
+    const domainY = trace_zoom_domains['trace_y_svg'] || get_trace_domain_3d('y', s0);
+    const domainX = trace_zoom_domains['trace_x_svg'] || get_trace_domain_3d('x', s0);
+
+    render_trace_3d('trace_z_svg', traceZ, domainZ, '#1f77b4');
+    render_trace_3d('trace_y_svg', traceY, domainY, '#2ca02c');
+    render_trace_3d('trace_x_svg', traceX, domainX, '#d62728');
 }
+
 
 function update_3d_crosshairs() {
     if (!spectra_3d || spectra_3d.length === 0) return;

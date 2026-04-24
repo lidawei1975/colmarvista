@@ -174,6 +174,30 @@
             <!-- Slice Control Moved to Main Plot Area -->
 
             <div class="flex-container" id="main_plot_area" style="display:none;">
+                <div id="trace_plots_area" style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center; width: 100%; margin-top: 10px; margin-bottom: 20px;">
+                    <!-- Trace Z -->
+                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                            1D Trace Along Z (at XY center)
+                        </div>
+                        <svg id="trace_z_svg" width="600" height="120"></svg>
+                    </div>
+                    <!-- Trace Y -->
+                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                            1D Trace Along Y (at XZ center)
+                        </div>
+                        <svg id="trace_y_svg" width="600" height="120"></svg>
+                    </div>
+                    <!-- Trace X -->
+                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                            1D Trace Along X (at YZ center)
+                        </div>
+                        <svg id="trace_x_svg" width="600" height="120"></svg>
+                    </div>
+                </div>
+
 
                 <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
 
@@ -264,14 +288,10 @@
                             <!-- This is the main 2D plot (XY) -->
                             <div
                                 style="float:left; margin: 10px; display:flex; flex-direction:column; align-items: center;">
-                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
-                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
-                                        1D Trace Along Z (at XY center)
-                                    </div>
-                                    <svg id="trace_z_svg" width="600" height="120"></svg>
-                                </div>
+                                <h4>XY Plane (Direct vs Indirect)</h4>
+
                                 <!-- Slice Control -->
-                                <div id="slice_control_area" class="drop-area-neighbor"
+                                <div id="slice_control_area"
                                     style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
                                     <label for="slice_slider" style="font-weight: bold;">Z-Plane (Slice): </label>
                                     <button id="prev_slice">&lt;</button>
@@ -281,7 +301,7 @@
                                     <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent" class="resizable"
-                                    style="position: relative; width: 600px; height: 600px;">
+                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
                                     <div id="information_bar" class="tooltip"
                                         style="position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
                                         <span id="infor">Information</span>
@@ -303,12 +323,7 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>XZ Plane (Direct vs Z)</h4>
 
-                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
-                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
-                                        1D Trace Along Y (at XZ center)
-                                    </div>
-                                    <svg id="trace_y_svg" width="600" height="120"></svg>
-                                </div>
+
 
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
@@ -336,12 +351,7 @@
                                 style="display:flex; flex-direction:column; align-items: center; float:left; margin: 10px;">
                                 <h4>YZ Plane (Indirect vs Z)</h4>
 
-                                <div style="width: 600px; margin-bottom: 8px; border: 1px solid #ccc; background: #fafafa;">
-                                    <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
-                                        1D Trace Along X (at YZ center)
-                                    </div>
-                                    <svg id="trace_x_svg" width="600" height="120"></svg>
-                                </div>
+
 
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
