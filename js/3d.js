@@ -1018,6 +1018,7 @@ async function load_ft3_file() {
 
         // Draw first slice
         draw_slice(0);
+        update_global_noise_level();
 
         // Auto-render 3D Visualization with full dataset
         setTimeout(() => {
@@ -1082,6 +1083,7 @@ async function load_files() {
 
         // Draw first slice
         draw_slice(0);
+        update_global_noise_level();
 
         // Auto-render 3D Visualization with full dataset
         setTimeout(() => {
@@ -1103,12 +1105,90 @@ function read_file_as_buffer(file) {
 
 function calculate_levels(noise, scale, count) {
     let levels = [];
-    let current = noise * 5.0; // Start at 5*noise
+    let multiplier = 10.0;
+    let multiplier_input = document.getElementById('contour_start_multiplier');
+    if (multiplier_input) {
+        multiplier = parseFloat(multiplier_input.value);
+    }
+    let user_scale = scale;
+    let scale_input = document.getElementById('contour_scale_factor');
+    if (scale_input) {
+        user_scale = parseFloat(scale_input.value);
+    }
+
+    let current = noise * multiplier;
     for (let i = 0; i < count; i++) {
         levels.push(current);
-        current *= scale;
+        current *= user_scale;
     }
     return levels;
+}
+
+function update_global_noise_level() {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+    let sum = 0;
+    let count = 0;
+    for (let s of spectra_3d) {
+        if (s.noise_level) {
+            sum += s.noise_level;
+            count++;
+        }
+    }
+    if (count === 0) return;
+    let global_noise = sum / count;
+    let display = document.getElementById('global_noise_level_display');
+    if (display) {
+        display.innerText = "Estimated 3D Noise: " + global_noise.toExponential(3);
+    }
+}
+
+function update_contour_levels() {
+    let multiplier = parseFloat(document.getElementById('contour_start_multiplier').value);
+    let scale = parseFloat(document.getElementById('contour_scale_factor').value);
+
+    if (isNaN(multiplier) || isNaN(scale)) {
+        alert("Please enter valid numbers for contour levels.");
+        return;
+    }
+
+    // Update all slices
+    for (let s of spectra_3d) {
+        s.levels = calculate_levels(s.noise_level, scale, 30);
+        s.negative_levels = calculate_levels(-s.noise_level, scale, 30);
+        // Invalidate cache to force recalculation
+        s.cached_contour_pos = null;
+        s.cached_contour_neg = null;
+    }
+
+    if (theoretical_spectra_3d) {
+        for (let s of theoretical_spectra_3d) {
+            s.levels = calculate_levels(s.noise_level, scale, 30);
+            s.negative_levels = calculate_levels(-s.noise_level, scale, 30);
+            s.cached_contour_pos = null;
+            s.cached_contour_neg = null;
+        }
+    }
+
+    // Also update orthogonal spectra
+    if (spectrum_xz) {
+        spectrum_xz.levels = calculate_levels(spectrum_xz.noise_level, scale, 30);
+        spectrum_xz.negative_levels = calculate_levels(-spectrum_xz.noise_level, scale, 30);
+        spectrum_xz.cached_contour_pos = null;
+        spectrum_xz.cached_contour_neg = null;
+    }
+    if (spectrum_yz) {
+        spectrum_yz.levels = calculate_levels(spectrum_yz.noise_level, scale, 30);
+        spectrum_yz.negative_levels = calculate_levels(-spectrum_yz.noise_level, scale, 30);
+        spectrum_yz.cached_contour_pos = null;
+        spectrum_yz.cached_contour_neg = null;
+    }
+
+    // Refresh views
+    if (current_slice_index >= 0) {
+        draw_slice(current_slice_index);
+    }
+    refresh_xz_view();
+    refresh_yz_view();
 }
 
 

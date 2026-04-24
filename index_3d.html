@@ -213,6 +213,15 @@
                         <button onclick="download_region()">Download Region</button>
                         <button onclick="visualize_3d()">Visualize 3D</button>
                         <br>
+                        <div style="display:inline-block; margin: 5px; padding: 4px 10px; border: 1px solid #ccc; background: #fdfdfd; border-radius: 4px; font-size: 14px;">
+                            <span id="global_noise_level_display" style="font-weight: bold; color: #555;">Noise: -</span>
+                        </div>
+                        <label for="contour_start_multiplier" style="font-weight: bold; margin-left: 10px;">Lowest level (x noise): </label>
+                        <input type="number" id="contour_start_multiplier" value="10.0" step="0.5" style="width: 60px;">
+                        <label for="contour_scale_factor" style="font-weight: bold; margin-left: 10px;">Scale factor: </label>
+                        <input type="number" id="contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
+                        <button onclick="update_contour_levels()">Update Contours</button>
+                        <br>
 
                         <label for="peak_size">Peak size: </label>
                         <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
