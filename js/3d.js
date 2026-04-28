@@ -21,6 +21,11 @@ var trace_zoom_domains = {
     'trace_z_svg': null
 };
 
+// Phase correction variables for Trace X
+var trace_x_ph0 = 0.0;
+var trace_x_ph1 = 0.0;
+var trace_x_pivot = null;
+
 
 function reset_3d_dataset_state() {
     spectra_3d = [];
@@ -243,6 +248,14 @@ document.addEventListener('DOMContentLoaded', function () {
         ft3Form.addEventListener('submit', function (e) {
             e.preventDefault();
             load_ft3_file();
+        });
+    }
+
+    let rawForm = document.getElementById('raw_file_form');
+    if (rawForm) {
+        rawForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            load_raw_3d_file();
         });
     }
 
@@ -476,8 +489,8 @@ function generate_theoretical_volume(peaks) {
         s.z_ppm_step = s0.z_ppm_step;
 
         s.raw_data = new Float32Array(nx * ny);
-        s.spectrum_color = "#00FF00"; // Green for theoretical
-        s.spectrum_color_negative = "#FF00FF";
+        s.spectrum_color = "#ff0000"; // Red for theoretical
+        s.spectrum_color_negative = null; // Negative eliminated
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
         s.negative_levels = [];
 
@@ -1029,6 +1042,142 @@ async function load_ft3_file() {
     document.getElementById("webassembly_message").innerText = "";
 }
 
+async function load_raw_3d_file() {
+    let fileInput = document.getElementById('userfile_raw');
+    if (fileInput.files.length === 0) {
+        alert("Please select a raw binary 3D file.");
+        return;
+    }
+
+    let file = fileInput.files[0];
+    document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
+
+    // Reset state
+    reset_3d_dataset_state();
+
+    let buffer = await read_file_as_buffer(file);
+    let floatData = new Float32Array(buffer);
+
+    if (floatData.length < 3) {
+        alert("File is too small to be a valid raw 3D file.");
+        return;
+    }
+
+    // Parse header
+    let n_direct = Math.round(floatData[0]);
+    let n_indirect1 = Math.round(floatData[1]);
+    let n_indirect2 = Math.round(floatData[2]);
+
+    console.log(`Raw 3D dimensions: ${n_direct} x ${n_indirect1} x ${n_indirect2}`);
+
+    // Payload starts after the 3-value header
+    let payload = floatData.subarray(3);
+    
+    // Figure out if we have imaginary data (along direct dimension) by checking file size
+    let n_total_real = n_indirect2 * n_indirect1 * n_direct;
+    let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
+    
+    let has_imaginary = (payload.length >= n_total_real_imag);
+    let stride = has_imaginary ? 2 * n_direct : n_direct;
+
+    console.log(`Payload length: ${payload.length}. Has imaginary: ${has_imaginary}`);
+
+    for (let p = 0; p < n_indirect2; p++) {
+        try {
+            let s = new spectrum();
+            s.n_direct = n_direct;
+            s.n_indirect = n_indirect1;
+            s.filename = `plane_${String(p).padStart(3, '0')}`;
+
+            // Extract data for this plane
+            // Payload layout: Plane-major, then Trace-major. 
+            // Each trace: n_direct real values, followed by n_direct imaginary values (if present).
+            let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
+            let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
+            let plane_offset = p * n_indirect1 * stride;
+            
+            for (let t = 0; t < n_indirect1; t++) {
+                let trace_offset = plane_offset + t * stride;
+                if (trace_offset + n_direct <= payload.length) {
+                    let real_block = payload.subarray(trace_offset, trace_offset + n_direct);
+                    plane_raw_data.set(real_block, t * n_direct);
+                }
+                if (has_imaginary && (trace_offset + 2 * n_direct <= payload.length)) {
+                    let imag_block = payload.subarray(trace_offset + n_direct, trace_offset + 2 * n_direct);
+                    plane_raw_data_ri.set(imag_block, t * n_direct);
+                }
+            }
+
+            s.raw_data = plane_raw_data;
+            if (has_imaginary) {
+                s.raw_data_ri = plane_raw_data_ri;
+            }
+
+            // Use indices as PPM values
+            s.x_ppm_start = 0;
+            s.x_ppm_step = 1;
+            s.y_ppm_start = 0;
+            s.y_ppm_step = 1;
+            s.z_ppm_start = 0;
+            s.z_ppm_step = 1;
+
+            // Fill placeholder header values
+            s.header = new Float32Array(512);
+            s.header[99] = n_direct;   // FDSIZE
+            s.header[219] = n_indirect1; // FDSPECNUM
+            s.header[15] = n_indirect2; // FDF3SIZE
+            
+            // Set data type: 0 for complex, 1 for real
+            // header[56] is FDF2QUADFLAG (direct dimension)
+            // header[55] is FDF1QUADFLAG (indirect dimension)
+            s.header[56] = has_imaginary ? 0 : 1;
+            s.header[55] = 1; // Assume real for indirect for now in raw format
+            
+            // Dimension orders
+            s.header[24] = 2; // direct
+            s.header[25] = 1; // indirect 1
+            s.header[26] = 3; // indirect 2
+
+            // Common spectrum processing (noise estimation, max/min, projections)
+            s.process_spectrum_common_task();
+
+            // Set visual defaults
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = null;
+            s.levels = calculate_levels(s.noise_level, 1.4, 30);
+            s.negative_levels = [];
+            s.visible = true;
+
+            spectra_3d.push(s);
+        } catch (err) {
+            console.error("Error processing raw plane " + p, err);
+        }
+    }
+
+    if (spectra_3d.length > 0) {
+        let slider = document.getElementById('slice_slider');
+        slider.max = spectra_3d.length - 1;
+        slider.value = 0;
+        document.getElementById('slice_control_area').style.display = 'block';
+        document.getElementById('spectra_list').style.display = 'block';
+        document.getElementById('main_plot_area').style.display = 'flex';
+
+        // Initialize the main plot with dimensions from the first slice
+        init_main_plot(spectra_3d[0]);
+
+        // Draw first slice
+        draw_slice(0);
+        update_global_noise_level();
+
+        // Auto-render 3D Visualization
+        setTimeout(() => {
+            visualize_3d();
+        }, 500);
+    }
+
+    document.getElementById("webassembly_message").innerText = "";
+}
+
 async function load_files() {
     let fileInput = document.getElementById('userfile');
     let files = Array.from(fileInput.files);
@@ -1163,7 +1312,7 @@ function update_contour_levels() {
 
     if (theoretical_spectra_3d) {
         for (let s of theoretical_spectra_3d) {
-            s.spectrum_color = "#d62728"; // Keep theoretical distinct but one color
+            s.spectrum_color = "#ff0000"; // Red for theoretical
             s.levels = calculate_levels(s.noise_level, scale, 30);
             s.negative_levels = [];
             s.cached_contour_pos = null;
@@ -2491,11 +2640,32 @@ function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
         return points;
     }
 
-    for (let x = 0; x < nx; x++) {
-        points.push({
-            ppm: s0.x_ppm_start + x * s0.x_ppm_step,
-            value: slice.raw_data[yIndex * nx + x] || 0
-        });
+    if (dim === 'x') {
+        let has_ri = spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0);
+        let p0_rad = trace_x_ph0 * Math.PI / 180.0;
+        let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+        let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s0.x_ppm_start) / s0.x_ppm_step) : 0;
+
+        for (let x = 0; x < nx; x++) {
+            let re = slice.raw_data[yIndex * nx + x] || 0;
+            let val = re;
+
+            if (has_ri) {
+                let im = slice.raw_data_ri[yIndex * nx + x] || 0;
+                let phase_rad;
+                if (trace_x_pivot === null) {
+                    phase_rad = p0_rad;
+                } else {
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                }
+                val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
+            }
+
+            points.push({
+                ppm: s0.x_ppm_start + x * s0.x_ppm_step,
+                value: val
+            });
+        }
     }
     return points;
 }
@@ -2631,6 +2801,51 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         trace_zoom_domains[svgId] = null;
         update_1d_traces_from_center();
     });
+
+    if (svgId === 'trace_x_svg') {
+        svg.on('contextmenu', function (event) {
+            event.preventDefault();
+            if (!spectra_3d || spectra_3d.length === 0) return;
+            if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
+            
+            if (trace_x_pivot === null) {
+                let rect = svgEl.getBoundingClientRect();
+                let mouseX = event.clientX - rect.left;
+                mouseX = Math.max(m.left, Math.min(m.left + plotWidth, mouseX));
+                trace_x_pivot = xScale.invert(mouseX);
+            } else {
+                trace_x_pivot = null;
+            }
+            let pivotSpan = document.getElementById('trace_x_pivot_val');
+            if (pivotSpan) {
+                pivotSpan.innerText = trace_x_pivot !== null ? trace_x_pivot.toFixed(2) + ' ppm' : 'not set';
+            }
+            update_1d_traces_from_center();
+        });
+
+        svg.on('wheel', function (event) {
+            if (!spectra_3d || spectra_3d.length === 0) return;
+            if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
+            
+            event.preventDefault();
+            let delta = event.deltaY;
+            let step = 1.0;
+            if (event.shiftKey) step = 1.0;
+            else if (event.ctrlKey) step = 0.1;
+            
+            let direction = delta > 0 ? -1 : 1;
+            if (trace_x_pivot === null) {
+                trace_x_ph0 += direction * step;
+                let valSpan = document.getElementById('trace_x_ph0_val');
+                if (valSpan) valSpan.innerText = trace_x_ph0.toFixed(1);
+            } else {
+                trace_x_ph1 += direction * step;
+                let valSpan = document.getElementById('trace_x_ph1_val');
+                if (valSpan) valSpan.innerText = trace_x_ph1.toFixed(1);
+            }
+            update_1d_traces_from_center();
+        });
+    }
 }
 
 
@@ -2889,11 +3104,12 @@ function setup_sliders() {
     const maxVal = data.max;
 
     // Range: 3.0 * noise to 20.0 * noise
-    const minRange = 3.0 * noise;
-    const maxRange = 20.0 * noise;
+    // Expand range to accommodate literal values if needed
+    const minRange = Math.min(1.0, 3.0 * noise);
+    const maxRange = Math.max(100.0, 20.0 * noise);
 
     // Step size
-    const step = (maxRange - minRange) / 100;
+    const step = (maxRange - minRange) / 200;
 
     const inputSolid = document.getElementById("iso_solid_level");
     const inputWire = document.getElementById("iso_wire_level");
@@ -2902,12 +3118,12 @@ function setup_sliders() {
         inputSolid.min = minRange;
         inputSolid.max = maxRange;
         inputSolid.step = step;
-        inputSolid.value = Math.max(minRange, Math.min(maxRange, 12.0 * noise)).toFixed(1);
-
+        inputSolid.value = (10.0).toFixed(1);
+        
         inputWire.min = minRange;
         inputWire.max = maxRange;
         inputWire.step = step;
-        inputWire.value = Math.max(minRange, Math.min(maxRange, 6.0 * noise)).toFixed(1);
+        inputWire.value = (5.0).toFixed(1);
 
         inputSolid.onchange = function () {
             let val = parseFloat(this.value);
@@ -3678,7 +3894,11 @@ function build_3d_worker_cfg_from_ui() {
         tdPolyOrder: parseTdPolynomialOrder(),
         frqPolyOrder: parseFrqPolynomialOrder(),
         inverse: [0, 0, 0],
-        deleteImage: [1, 1, 1],
+        deleteImage: [
+            (document.getElementById('keep_direct_imag_data_3d') && document.getElementById('keep_direct_imag_data_3d').checked) ? 0 : 1,
+            1,
+            1
+        ],
         nusSerInflated: false,
         debugNusRunFullProcess: !!(document.getElementById('debug_nus_process_like_normal_3d') && document.getElementById('debug_nus_process_like_normal_3d').checked),
         extPpm: [
@@ -3989,46 +4209,95 @@ function handle_webass_3d_message(e) {
         const header = e.data.headerF32; // Float32Array 512 elements
         const rrr = e.data.rrrF32; // Float32Array
 
+        if (e.data.ft3Bytes) {
+            let btn = document.getElementById('button_download_ft3_processed');
+            if (btn) {
+                btn.style.display = 'inline-block';
+                btn.onclick = function() {
+                    download_binary_file(e.data.ft3Bytes, 'processed.ft3');
+                };
+            }
+        }
+
         const nx = dims.nx;
         const ny = dims.ny;
         const nz = dims.nz;
-        append_3d_log('[main] dims: nx=' + nx + ', ny=' + ny + ', nz=' + nz + ', header=' + (header ? header.length : 0) + ', rrr=' + (rrr ? rrr.length : 0));
+        append_3d_log('[main] dims: nx=' + nx + ', ny=' + ny + ', nz=' + nz);
         console.log('[3D][fid] Received dims', dims);
 
         reset_3d_dataset_state();
 
-        let plane_float_count = nx * ny;
-        let plane_byte_size = plane_float_count * 4;
-        let headerUint8 = new Uint8Array(header.buffer, header.byteOffset, header.byteLength);
+        if (e.data.ft3Bytes) {
+            let ft3Data = e.data.ft3Bytes;
+            let headerBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
+            let header = new Float32Array(headerBuffer, 0, 512);
 
-        for (let i = 0; i < nz; i++) {
-            try {
-                let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
-                let dst = new Uint8Array(plane_buffer);
+            let n_direct = header[99];
+            let n_indirect = header[219];
+            let data_types = [header[55], header[56], header[51], header[54]];
+            let dimorder1 = header[24];
+            let dimorder2 = header[25];
+            let datatype_direct = data_types[dimorder1 - 1];
+            let datatype_indirect = data_types[dimorder2 - 1];
 
-                // Copy header (2048 bytes)
-                dst.set(headerUint8, 0);
+            let parts = 1;
+            if (datatype_direct === 0) parts++;
+            if (datatype_indirect === 0) parts++;
+            if (datatype_direct === 0 && datatype_indirect === 0) parts++;
 
-                // Copy data slice
-                let plane_data_f32 = rrr.subarray(i * plane_float_count, (i + 1) * plane_float_count);
-                let plane_data_u8 = new Uint8Array(plane_data_f32.buffer, plane_data_f32.byteOffset, plane_data_f32.byteLength);
-                dst.set(plane_data_u8, 2048);
+            let n_indirect_loops = n_indirect;
+            if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
 
-                let s = new spectrum();
-                let plane_name = "plane_" + String(i + 1).padStart(3, '0');
-                s.process_ft_file(plane_buffer, plane_name, -1);
+            let plane_float_count = n_indirect_loops * n_direct * parts;
+            let plane_byte_size = plane_float_count * 4;
 
-                s.spectrum_color = "#ff0000";
-                s.spectrum_color_negative = "#0000ff";
-                s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
-                s.visible = true;
+            let total_data_bytes = ft3Data.byteLength - 2048;
 
-                spectra_3d.push(s);
-            } catch (err) {
-                console.error("Error creating plane " + i, err);
-                append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
+            let header_plane_count = Math.round(header[15]); // FDF3SIZE
+            let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
+                ? header_plane_count
+                : Math.floor(total_data_bytes / plane_byte_size);
+
+            let data_start_offset = 2048;
+            let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
+            if (residual_bytes === 2048) {
+                data_start_offset += 2048;
             }
+
+            let headerUint8 = new Uint8Array(headerBuffer);
+
+            for (let i = 0; i < num_planes; i++) {
+                try {
+                    let start_offset = data_start_offset + i * plane_byte_size;
+                    let planeDataArray = ft3Data.subarray(start_offset, start_offset + plane_byte_size);
+
+                    let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+                    let dst = new Uint8Array(plane_buffer);
+
+                    // Copy header
+                    dst.set(headerUint8, 0);
+
+                    // Copy data
+                    dst.set(planeDataArray, 2048);
+
+                    let s = new spectrum();
+                    let plane_name = "plane_" + String(i + 1).padStart(3, '0');
+                    s.process_ft_file(plane_buffer, plane_name, -1);
+
+                    s.spectrum_color = "#0000ff"; // Standardized to blue for positive
+                    s.spectrum_color_negative = null; // Negative eliminated
+                    s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                    s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+                    s.visible = true;
+
+                    spectra_3d.push(s);
+                } catch (err) {
+                    console.error("Error creating plane " + i, err);
+                    append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
+                }
+            }
+        } else {
+            console.error("Missing ft3Bytes in process_fid_3d result.");
         }
 
         append_3d_log('[main] planes created: ' + spectra_3d.length);
@@ -4095,3 +4364,86 @@ function handle_webass_smile_3d_message(e) {
         document.getElementById("webassembly_message").innerText = 'SMILE error: ' + e.data.error;
     }
 }
+
+function apply_trace_x_phase() {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+    if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
+        alert("Imaginary data (raw_data_ri) not available for phase correction.");
+        return;
+    }
+
+    let p0_rad = trace_x_ph0 * Math.PI / 180.0;
+    let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+    
+    for (let z = 0; z < spectra_3d.length; z++) {
+        let s = spectra_3d[z];
+        let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s.x_ppm_start) / s.x_ppm_step) : 0;
+        let nx = s.n_direct;
+        let ny = s.n_indirect;
+        
+        let new_raw_data = new Float32Array(s.raw_data.length);
+        let has_ri = s.raw_data_ri && s.raw_data_ri.length > 0;
+        let new_raw_data_ri = has_ri ? new Float32Array(s.raw_data_ri.length) : null;
+        
+        for (let y = 0; y < ny; y++) {
+            for (let x = 0; x < nx; x++) {
+                let re = s.raw_data[y * nx + x];
+                let im = has_ri ? s.raw_data_ri[y * nx + x] : 0;
+                
+                let phase_rad;
+                if (trace_x_pivot === null) {
+                    phase_rad = p0_rad;
+                } else {
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                }
+                
+                new_raw_data[y * nx + x] = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
+                if (has_ri) {
+                    new_raw_data_ri[y * nx + x] = re * Math.sin(phase_rad) + im * Math.cos(phase_rad);
+                }
+            }
+        }
+        
+        s.raw_data = new_raw_data;
+        if (has_ri) {
+            s.raw_data_ri = new_raw_data_ri;
+        }
+
+        s.cached_contour_pos = null;
+        s.cached_contour_neg = null;
+    }
+    
+    trace_x_ph0 = 0.0;
+    trace_x_ph1 = 0.0;
+    trace_x_pivot = null;
+    let p0_val = document.getElementById('trace_x_ph0_val');
+    if (p0_val) p0_val.innerText = '0.0';
+    let p1_val = document.getElementById('trace_x_ph1_val');
+    if (p1_val) p1_val.innerText = '0.0';
+    let pivot_val = document.getElementById('trace_x_pivot_val');
+    if (pivot_val) pivot_val.innerText = 'not set';
+
+    update_contour_levels();
+    visualize_3d();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    let btn = document.getElementById('btn_apply_trace_x_phase');
+    if (btn) {
+        btn.addEventListener('click', apply_trace_x_phase);
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => {
+            if (spectra_3d && spectra_3d.length > 0) {
+                update_1d_traces_from_center();
+            }
+        });
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.parentElement) {
+                ro.observe(el.parentElement);
+            }
+        });
+    }
+});

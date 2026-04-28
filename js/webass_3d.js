@@ -48,26 +48,60 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     const nx = fidInstance.get_ndata_direct();
     const nz = fidInstance.get_ndata_indirect1();
     const ny = fidInstance.get_ndata_indirect2();
-    const n = nx * ny * nz;
-    console.log('[webass_3d] output dims:', { nx, ny, nz, n });
-    postMessage({ stdout: '[webass_3d] output dims nx=' + nx + ', ny=' + ny + ', nz=' + nz });
 
     const headerPtr = fidInstance.get_nmrpipe_header_data();
     const rrrPtr = fidInstance.get_data_of_rrr();
-    console.log('[webass_3d] heap ptrs', { headerPtr, rrrPtr });
 
     const headerF32 = new Float32Array(Module.HEAPF32.subarray(headerPtr >> 2, (headerPtr >> 2) + 512));
+
+    const dimorder1 = headerF32[24] || 2;
+    const dimorder2 = headerF32[25] || 1;
+    const data_types = [headerF32[55], headerF32[51], headerF32[52], headerF32[53]];
+    const datatype_direct = data_types[dimorder1 - 1];
+    const datatype_indirect = data_types[dimorder2 - 1];
+
+    let data_size_per_point = 1;
+    if (datatype_direct === 0 && datatype_indirect === 1) {
+        data_size_per_point = 2;
+    } else if (datatype_direct === 1 && datatype_indirect === 0) {
+        data_size_per_point = 2;
+    } else if (datatype_direct === 0 && datatype_indirect === 0) {
+        data_size_per_point = 4;
+    }
+
+    const n = nx * ny * nz * data_size_per_point;
     const rrrF32 = new Float32Array(Module.HEAPF32.subarray(rrrPtr >> 2, (rrrPtr >> 2) + n));
 
+    postMessage({ stdout: '[webass_3d] extracting ft3 file...' });
+    const outVec = new Module.VectorUChar();
+    let ft3Bytes = null;
+    try {
+        if (fidInstance.write_ft3_to_buffer && fidInstance.write_ft3_to_buffer(outVec)) {
+            ft3Bytes = vectorUCharToUint8Array(outVec);
+            postMessage({ stdout: '[webass_3d] extracted ft3 file of ' + ft3Bytes.length + ' bytes.' });
+        }
+    } catch (e) {
+        console.error(e);
+        postMessage({ stdout: '[webass_3d] error extracting ft3: ' + e.message });
+    } finally {
+        outVec.delete();
+    }
+
     postMessage({ stdout: '[webass_3d] posting result payload header=' + headerF32.length + ', rrr=' + rrrF32.length });
+
+    const transferables = [headerF32.buffer, rrrF32.buffer];
+    if (ft3Bytes) {
+        transferables.push(ft3Bytes.buffer);
+    }
 
     postMessage({
         [WEBASSEMBLY_JOB_KEY]: job,
         success: true,
         dims: { nx, ny, nz },
         headerF32: headerF32,
-        rrrF32: rrrF32
-    }, [headerF32.buffer, rrrF32.buffer]);
+        rrrF32: rrrF32,
+        ft3Bytes: ft3Bytes
+    }, transferables);
     console.log('[webass_3d] process_fid_3d finished successfully');
 }
 
@@ -163,7 +197,8 @@ self.onmessage = async function(event) {
 
             const fid = new Module.fid_3d();
             try {
-                applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [1, 0, 0] : [1, 1, 1]);
+                const delImg = cfg.deleteImage || [1, 1, 1];
+                applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [delImg[0], 0, 0] : delImg);
 
                 console.log('[webass_3d] read_bruker_files_as_strings');
                 postMessage({ stdout: '[webass_3d] read_bruker_files_as_strings(...)' });
@@ -267,7 +302,8 @@ self.onmessage = async function(event) {
                 if (cfg.inverse && cfg.inverse.length === 3) {
                     fidInstance.set_inverse(cfg.inverse[0], cfg.inverse[1], cfg.inverse[2]);
                 }
-                fidInstance.set_delete_image(1, 1, 1);
+                const delImg = cfg.deleteImage || [1, 1, 1];
+                fidInstance.set_delete_image(delImg[0], delImg[1], delImg[2]);
             };
 
             const fidIndirect = new Module.fid_3d();

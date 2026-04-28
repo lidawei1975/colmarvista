@@ -126,10 +126,16 @@
                             <input type="checkbox" id="debug_nus_process_like_normal_3d">
                             <label for="debug_nus_process_like_normal_3d">Debug: for NUS, run full_process like normal 3D (skip step1/SMILE/step2)</label>
                         </span>
+                        <br>
+                        <span>
+                            <input type="checkbox" id="keep_direct_imag_data_3d">
+                            <label for="keep_direct_imag_data_3d">Keep direct dimension imaginary data</label>
+                        </span>
                     </div>
                     <button type="button" id="button_toggle_options" onclick="const e=document.getElementById('input_options'); e.style.display=e.style.display==='none'?'block':'none';">Options...</button>
 
                     <input type="submit" id="button_fid_process_3d" name="button_fid_process_3d" value="Upload and Process 3D FID">
+                    <button type="button" id="button_download_ft3_processed" style="display: none; margin-left: 10px;">Download Processed .ft3</button>
                     <br>
                 </form>
             </div>
@@ -147,13 +153,22 @@
                             <input type="submit" id="button_ft2_process" value="Upload and Process .ft2 Spectra"></br>
                         </form>
                     </div>
-                    <div style="flex: 1;">
+                    <div style="flex: 1; border-right: 1px solid #ccc; padding-right: 20px;">
                         <h5>Option 2: Single 3D File</h5>
                         <form id="ft3_file_form" action="" enctype="multipart/form-data">
                             <label for="userfile_ft3">Select a single 3D spectral file (.ft3): </label>
                             <input type="file" id="userfile_ft3" accept=".ft3"><br>
                             <span class="information"> The file must contain a single 2D header followed by concatenated planes.</span><br>
                             <input type="submit" id="button_ft3_process" value="Upload and Process .ft3 Spectrum"></br>
+                        </form>
+                    </div>
+                    <div style="flex: 1;">
+                        <h5>Option 3: Raw Binary File</h5>
+                        <form id="raw_file_form" action="" enctype="multipart/form-data">
+                            <label for="userfile_raw">Select a raw binary 3D file: </label>
+                            <input type="file" id="userfile_raw"><br>
+                            <span class="information"> Header: [ndirect, nindirect1, nindirect2] as float32.</span><br>
+                            <input type="submit" id="button_raw_process" value="Upload and Process Raw Spectrum"></br>
                         </form>
                     </div>
                 </div>
@@ -176,25 +191,30 @@
             <div class="flex-container" id="main_plot_area" style="display:none;">
                 <div id="trace_plots_area" style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center; width: 100%; margin-top: 10px; margin-bottom: 20px;">
                     <!-- Trace Z -->
-                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
-                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                    <div style="width: 600px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
                             1D Trace Along Z (at XY center)
                         </div>
-                        <svg id="trace_z_svg" width="600" height="120"></svg>
+                        <svg id="trace_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                     </div>
                     <!-- Trace Y -->
-                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
-                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
+                    <div style="width: 600px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
                             1D Trace Along Y (at XZ center)
                         </div>
-                        <svg id="trace_y_svg" width="600" height="120"></svg>
+                        <svg id="trace_y_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                     </div>
                     <!-- Trace X -->
-                    <div style="width: 600px; border: 1px solid #ccc; background: #fafafa;">
-                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0;">
-                            1D Trace Along X (at YZ center)
+                    <div style="width: 600px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                        <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                            <span>1D Trace Along X (at YZ center)</span>
+                            <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">
+                                Pivot: <span id="trace_x_pivot_val">not set</span> | 
+                                PH0: <span id="trace_x_ph0_val">0</span>&deg;, PH1: <span id="trace_x_ph1_val">0</span>&deg;
+                                <button id="btn_apply_trace_x_phase" style="margin-left: 5px; font-size: 11px; padding: 2px 5px;">Apply Phase Correction</button>
+                            </span>
                         </div>
-                        <svg id="trace_x_svg" width="600" height="120"></svg>
+                        <svg id="trace_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                     </div>
                 </div>
 
