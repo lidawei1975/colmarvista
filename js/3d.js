@@ -70,92 +70,127 @@ function clear_status_message(element_id) {
     set_status_message(element_id, "", 0);
 }
 
-// Function to download 3D region as text
-function download_region() {
+
+
+/**
+ * Function to save the current 3D spectrum as a .ft3 file.
+ * This combines all planes in spectra_3d into a single NMRPipe-compatible buffer.
+ */
+function download_ft3() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectra loaded.");
         return;
     }
 
-    let s0 = spectra_3d[0];
+    const s0 = spectra_3d[0];
+    const nz = spectra_3d.length;
+    const ny = s0.n_indirect;
+    const nx = s0.n_direct;
 
-    // Get Ranges from plots
-    // XY Plot (Direct vs Indirect)
-    if (!main_plot) return;
-    let x_dom = main_plot.xRange.domain(); // Direct
-    let y_dom = main_plot.yRange.domain(); // Indirect
+    // Determine complexity from first plane
+    // datatype_direct: 0 means complex, 1 means real
+    const has_ri = s0.raw_data_ri && s0.raw_data_ri.length > 0;
+    const has_ir = s0.raw_data_ir && s0.raw_data_ir.length > 0;
+    const has_ii = s0.raw_data_ii && s0.raw_data_ii.length > 0;
 
-    // XZ Plot (defines Z range)
-    if (!main_plot_xz) {
-        alert("XZ plot not initialized.");
-        return;
+    let parts_per_trace = 1;
+    if (has_ri) parts_per_trace++;
+    if (has_ir) parts_per_trace++;
+    if (has_ii) parts_per_trace++;
+
+    const header_byte_size = 2048;
+    const plane_data_byte_size = ny * nx * parts_per_trace * 4;
+    const total_byte_size = header_byte_size + nz * plane_data_byte_size;
+
+    const buffer = new ArrayBuffer(total_byte_size);
+    const floatView = new Float32Array(buffer);
+
+    // Header Template
+    if (s0.header && s0.header.length >= 512) {
+        floatView.set(s0.header.subarray(0, 512));
+    } else {
+        // Fallback minimal header if missing
+        floatView.fill(0, 0, 512);
+        floatView[0] = 0;   // FDMAGIC
+        floatView[1] = 1.0; // FDFLTFORMAT
+        floatView[2] = 2.0; // FDFLTORDER (Little Endian)
     }
-    let z_dom = main_plot_xz.yRange.domain(); // Z axis is Y-axis of XZ plot
 
-    // Calculate Indices
-    function get_indices(val_min, val_max, start, step, max_idx) {
-        let idx1 = Math.round((val_min - start) / step);
-        let idx2 = Math.round((val_max - start) / step);
-        let i_min = Math.min(idx1, idx2);
-        let i_max = Math.max(idx1, idx2);
-        i_min = Math.max(0, i_min);
-        i_max = Math.min(max_idx - 1, i_max);
-        return [i_min, i_max];
-    }
+    // Update 3D Metadata in header
+    floatView[15] = nz;  // FDF3SIZE (Number of planes)
+    floatView[99] = nx;  // FDSIZE (Size of direct dimension)
+    floatView[219] = ny; // FDSPECNUM (Size of indirect dimension 1)
+    
+    // Quad flags: 0=Complex, 1=Real
+    floatView[56] = has_ri ? 0 : 1; // FDF2QUADFLAG (Direct)
+    floatView[55] = has_ir ? 0 : 1; // FDF1QUADFLAG (Indirect 1)
+    floatView[51] = (has_ir && has_ii) ? 0 : 1; // FDF3QUADFLAG (Z / Indirect 2) - Approximate logic
 
-    let [ix_min, ix_max] = get_indices(x_dom[0], x_dom[1], s0.x_ppm_start, s0.x_ppm_step, s0.n_direct);
-    let [iy_min, iy_max] = get_indices(y_dom[0], y_dom[1], s0.y_ppm_start, s0.y_ppm_step, s0.n_indirect);
+    // Calculate Global Max/Min
+    let gMax = -Infinity;
+    let gMin = Infinity;
 
-    // For Z index, we use Z params from spectrum
-    let [iz_min, iz_max] = get_indices(z_dom[0], z_dom[1], s0.z_ppm_start, s0.z_ppm_step, spectra_3d.length);
+    // Data concatenation loop
+    let floatOffset = 512; // Start after 2048-byte header
+    for (let z = 0; z < nz; z++) {
+        const s = spectra_3d[z];
+        const re = s.raw_data;
+        const ri = s.raw_data_ri;
+        const ir = s.raw_data_ir;
+        const ii = s.raw_data_ii;
 
-    // console.log("Download Region:", 
-    //     "X:", ix_min, ix_max, 
-    //     "Y:", iy_min, iy_max, 
-    //     "Z:", iz_min, iz_max);
+        for (let y = 0; y < ny; y++) {
+            const row_start = y * nx;
+            const row_end = (y + 1) * nx;
 
-    let content = [];
-    content.push(`# 3D Region Export`);
-    content.push(`# Z-Slices: ${iz_min} to ${iz_max} (Indices)`);
-    content.push(`# Y-Range: ${iy_min} to ${iy_max} (Indices)`);
-    content.push(`# X-Range: ${ix_min} to ${ix_max} (Indices)`);
-    content.push(`# Format: Matrix of size (Z_count * Y_count) rows x (X_count) columns`);
-    content.push(`# Loop order: Outer Loop Z, Inner Loop Y`);
-
-    // Header row with PPMs? Or just data?
-    // User requested "human readable text file". Matrix format.
-
-    for (let z = iz_min; z <= iz_max; z++) {
-        let s = spectra_3d[z];
-        if (!s || !s.raw_data) continue;
-
-        // s.raw_data is Float32Array. 
-        // Assuming row-major: index = y * n_direct + x
-
-        for (let y = iy_min; y <= iy_max; y++) {
-            let row_vals = [];
-            for (let x = ix_min; x <= ix_max; x++) {
-                let idx = y * s.n_direct + x;
-                if (idx < s.raw_data.length) {
-                    row_vals.push(s.raw_data[idx].toExponential(6));
-                } else {
-                    row_vals.push("0");
-                }
+            // Real Part (RR)
+            floatView.set(re.subarray(row_start, row_end), floatOffset);
+            for (let i = row_start; i < row_end; i++) {
+                if (re[i] > gMax) gMax = re[i];
+                if (re[i] < gMin) gMin = re[i];
             }
-            content.push(row_vals.join(" "));
+            floatOffset += nx;
+
+            // Imaginary Part (RI) - Complex along Direct
+            if (has_ri) {
+                if (ri && ri.length >= row_end) {
+                    floatView.set(ri.subarray(row_start, row_end), floatOffset);
+                } else {
+                    floatView.fill(0, floatOffset, floatOffset + nx);
+                }
+                floatOffset += nx;
+            }
+
+            // Imaginary Part (IR) - Complex along Indirect 1
+            if (has_ir) {
+                if (ir && ir.length >= row_end) {
+                    floatView.set(ir.subarray(row_start, row_end), floatOffset);
+                } else {
+                    floatView.fill(0, floatOffset, floatOffset + nx);
+                }
+                floatOffset += nx;
+            }
+
+            // Imaginary Part (II) - Complex along both
+            if (has_ii) {
+                if (ii && ii.length >= row_end) {
+                    floatView.set(ii.subarray(row_start, row_end), floatOffset);
+                } else {
+                    floatView.fill(0, floatOffset, floatOffset + nx);
+                }
+                floatOffset += nx;
+            }
         }
     }
 
-    let blob = new Blob([content.join("\n")], { type: "text/plain" });
-    let url = URL.createObjectURL(blob);
-    let a = document.createElement("a");
-    a.href = url;
-    a.download = "region_3d.txt";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Final Header Updates
+    floatView[247] = gMax; // FDMAX
+    floatView[248] = gMin; // FDMIN
+
+    const outName = (s0.filename || "spectrum").replace(/\.[^/.]+$/, "") + "_processed.ft3";
+    download_binary_file(buffer, outName);
 }
+
 var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
 var current_slice_index = -1;
 
@@ -3118,12 +3153,12 @@ function setup_sliders() {
         inputSolid.min = minRange;
         inputSolid.max = maxRange;
         inputSolid.step = step;
-        inputSolid.value = (10.0).toFixed(1);
+        inputSolid.value = (20.0 * noise).toExponential(4);
         
         inputWire.min = minRange;
         inputWire.max = maxRange;
         inputWire.step = step;
-        inputWire.value = (5.0).toFixed(1);
+        inputWire.value = (10.0 * noise).toExponential(4);
 
         inputSolid.onchange = function () {
             let val = parseFloat(this.value);
@@ -4407,6 +4442,12 @@ function apply_trace_x_phase() {
         s.raw_data = new_raw_data;
         if (has_ri) {
             s.raw_data_ri = new_raw_data_ri;
+        }
+
+        // Update header to reflect that data is now phased
+        if (s.header && s.header.length >= 512) {
+            s.header[109] = 0.0; // FDF2P0
+            s.header[110] = 0.0; // FDF2P1
         }
 
         s.cached_contour_pos = null;
