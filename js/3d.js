@@ -2579,7 +2579,8 @@ function refresh_ortho_plot(type) {
         let p_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = new Float32Array([]); // Skip negative
+        let p_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -2587,11 +2588,11 @@ function refresh_ortho_plot(type) {
         len_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.levels_length : []);
         poly_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push([]);
-        poly_neg_list.push([]);
+        len_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.polygon_length : []);
 
         color_pos_list.push(hexToRgb(s.spectrum_color));
-        color_neg_list.push([0, 0, 0]); // Not used
+        color_neg_list.push(s.spectrum_color_negative ? hexToRgb(s.spectrum_color_negative) : [0, 0, 0, 1]);
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
@@ -4830,10 +4831,10 @@ function generate_projection_spectrum() {
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
 
-    spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier);
-    spec.negative_levels = [];
+    spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier, scale);
+    spec.negative_levels = calculate_negative_levels(spec.noise_level, scale, 30, multiplier, scale);
     spec.spectrum_color = "#0000ff";
-    spec.spectrum_color_negative = null;
+    spec.spectrum_color_negative = "#ff0000";
 
     spectrum_proj = spec;
     request_contour_calculation(spec, 0, 0, "proj");
@@ -4895,6 +4896,7 @@ function update_proj_contour_levels() {
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
     
     spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.cached_contour_pos = null;
     spectrum_proj.cached_contour_neg = null;
     
@@ -4903,6 +4905,7 @@ function update_proj_contour_levels() {
     
     if (theoretical_spectrum_proj) {
         theoretical_spectrum_proj.levels = spectrum_proj.levels;
+        theoretical_spectrum_proj.negative_levels = spectrum_proj.negative_levels;
         theoretical_spectrum_proj.cached_contour_pos = null;
         theoretical_spectrum_proj.cached_contour_neg = null;
         request_contour_calculation(theoretical_spectrum_proj, 0, 0, "proj_theo");
