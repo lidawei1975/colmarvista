@@ -4517,10 +4517,10 @@ function handle_webass_3d_message(e) {
                     let plane_name = "plane_" + String(i + 1).padStart(3, '0');
                     s.process_ft_file(plane_buffer, plane_name, -1);
 
-                    s.spectrum_color = "#0000ff"; // Standardized to blue for positive
-                    s.spectrum_color_negative = null; // Negative eliminated
+                    s.spectrum_color = "#0000ff"; 
+                    s.spectrum_color_negative = "#ff0000"; 
                     s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                    s.negative_levels = calculate_levels(s.noise_level, 1.5, 30);
+                    s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
                     s.visible = true;
 
                     spectra_3d.push(s);
@@ -4550,7 +4550,8 @@ function handle_webass_3d_message(e) {
 
             let s0 = spectra_3d[0];
             init_ortho_plots(s0);
-
+            update_global_noise_level();
+            generate_projection_spectrum();
             visualize_3d();
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
