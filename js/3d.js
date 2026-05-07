@@ -2887,6 +2887,49 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         .attr('stroke-width', 1.5)
         .attr('d', line);
 
+    // Pivot Line and Phase Labels Overlay
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
+        // Pivot Line
+        if (trace_x_pivot !== null) {
+            plotGroup.append('line')
+                .attr('x1', xScale(trace_x_pivot))
+                .attr('x2', xScale(trace_x_pivot))
+                .attr('y1', m.top)
+                .attr('y2', m.top + plotHeight)
+                .attr('stroke', 'magenta')
+                .attr('stroke-width', 1.5)
+                .attr('stroke-dasharray', '4,2');
+            
+            plotGroup.append('text')
+                .attr('x', xScale(trace_x_pivot) + 4)
+                .attr('y', m.top + 12)
+                .attr('fill', 'magenta')
+                .attr('font-size', '10px')
+                .attr('font-weight', 'bold')
+                .text('Pivot');
+        }
+
+        // Phase Labels Overlay
+        const infoGroup = svg.append('g')
+            .attr('transform', `translate(${m.left + plotWidth - 10}, ${m.top + 10})`)
+            .attr('text-anchor', 'end')
+            .style('pointer-events', 'none');
+        
+        infoGroup.append('text')
+            .attr('y', 10)
+            .attr('font-size', '12px')
+            .attr('font-weight', 'bold')
+            .attr('fill', '#333')
+            .text(`P0: ${trace_x_ph0.toFixed(1)}°`);
+        
+        infoGroup.append('text')
+            .attr('y', 25)
+            .attr('font-size', '12px')
+            .attr('font-weight', 'bold')
+            .attr('fill', '#333')
+            .text(`P1: ${trace_x_ph1.toFixed(1)}°`);
+    }
+
     // Brush for Zooming
     const brush = d3.brushX()
         .extent([[m.left, m.top], [m.left + plotWidth, m.top + plotHeight]])
@@ -2907,25 +2950,46 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         update_1d_traces_from_center();
     });
 
-    if (svgId === 'trace_x_svg') {
-        svg.on('contextmenu', function (event) {
-            event.preventDefault();
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
+        const set_pivot = function (event) {
             if (!spectra_3d || spectra_3d.length === 0) return;
             if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
 
-            if (trace_x_pivot === null) {
-                let rect = svgEl.getBoundingClientRect();
-                let mouseX = event.clientX - rect.left;
-                mouseX = Math.max(m.left, Math.min(m.left + plotWidth, mouseX));
+            let rect = svgEl.getBoundingClientRect();
+            let mouseX = event.clientX - rect.left;
+            // Only set pivot if clicked within plot area
+            if (mouseX >= m.left && mouseX <= m.left + plotWidth) {
                 trace_x_pivot = xScale.invert(mouseX);
             } else {
                 trace_x_pivot = null;
             }
-            let pivotSpan = document.getElementById('trace_x_pivot_val');
-            if (pivotSpan) {
-                pivotSpan.innerText = trace_x_pivot !== null ? trace_x_pivot.toFixed(2) + ' ppm' : 'not set';
-            }
+
+            let IDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val'];
+            IDs.forEach(id => {
+                let el = document.getElementById(id);
+                if (el) el.innerText = trace_x_pivot !== null ? trace_x_pivot.toFixed(2) + ' ppm' : 'not set';
+            });
             update_1d_traces_from_center();
+        };
+
+        svg.on('contextmenu', function (event) {
+            event.preventDefault();
+            set_pivot(event);
+        });
+
+        // Also allow regular click to set pivot, but check if it was a drag
+        let mouseDownPos = null;
+        svg.on('mousedown', function (event) {
+            mouseDownPos = [event.clientX, event.clientY];
+        });
+        svg.on('mouseup', function (event) {
+            if (!mouseDownPos) return;
+            let dist = Math.sqrt(Math.pow(event.clientX - mouseDownPos[0], 2) + Math.pow(event.clientY - mouseDownPos[1], 2));
+            if (dist < 3) {
+                // It's a click
+                set_pivot(event);
+            }
+            mouseDownPos = null;
         });
 
         svg.on('wheel', function (event) {
@@ -2943,10 +3007,14 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
                 trace_x_ph0 += direction * step;
                 let valSpan = document.getElementById('trace_x_ph0_val');
                 if (valSpan) valSpan.innerText = trace_x_ph0.toFixed(1);
+                let valProjSpan = document.getElementById('trace_proj_x_ph0_val');
+                if (valProjSpan) valProjSpan.innerText = trace_x_ph0.toFixed(1);
             } else {
                 trace_x_ph1 += direction * step;
                 let valSpan = document.getElementById('trace_x_ph1_val');
                 if (valSpan) valSpan.innerText = trace_x_ph1.toFixed(1);
+                let valProjSpan = document.getElementById('trace_proj_x_ph1_val');
+                if (valProjSpan) valProjSpan.innerText = trace_x_ph1.toFixed(1);
             }
             update_1d_traces_from_center();
         });
@@ -3005,10 +3073,27 @@ function update_1d_traces_from_center() {
         
         const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
         
+        let p0_rad = trace_x_ph0 * Math.PI / 180.0;
+        let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+        let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj.x_ppm_start) / spectrum_proj.x_ppm_step) : 0;
+        let has_ri = spectrum_proj.raw_data_ri && spectrum_proj.raw_data_ri.length > 0;
+
         for (let x = 0; x < nx; x++) {
+            let re = spectrum_proj.raw_data[pyIndex * nx + x] || 0;
+            let val = re;
+            if (has_ri) {
+                let im = spectrum_proj.raw_data_ri[pyIndex * nx + x] || 0;
+                let phase_rad;
+                if (trace_x_pivot === null) {
+                    phase_rad = p0_rad;
+                } else {
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                }
+                val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
+            }
             traceProjX.push({
                 ppm: spectrum_proj.x_ppm_start + x * spectrum_proj.x_ppm_step,
-                value: spectrum_proj.raw_data[pyIndex * nx + x] || 0
+                value: val
             });
         }
         // Always show independent range for 1D trace (can be zoomed by its own brush)
@@ -4887,18 +4972,30 @@ function generate_projection_spectrum() {
     spec.y_ppm_step = s0.y_ppm_step;
 
     let raw = new Float32Array(nx * ny);
+    let has_ri = spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0);
+    let raw_ri = has_ri ? new Float32Array(nx * ny) : null;
+
     for (let z = 0; z < nz; z++) {
-        let slice_data = spectra_3d[z].raw_data;
+        let slice = spectra_3d[z];
+        let slice_data = slice.raw_data;
         if (slice_data && slice_data.length === nx * ny) {
             for (let i = 0; i < nx * ny; i++) {
                 raw[i] += slice_data[i];
             }
         }
+        if (has_ri) {
+            let slice_ri = slice.raw_data_ri;
+            for (let i = 0; i < nx * ny; i++) {
+                raw_ri[i] += slice_ri[i];
+            }
+        }
     }
     for (let i = 0; i < nx * ny; i++) {
         raw[i] /= nz;
+        if (has_ri) raw_ri[i] /= nz;
     }
     spec.raw_data = raw;
+    if (has_ri) spec.raw_data_ri = raw_ri;
     
     // Estimate noise level for the projected 2D spectrum separately
     spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
@@ -5018,4 +5115,76 @@ function sync_3d_views(plot_instance, is_end) {
     } else if (plot_instance === main_plot_yz) {
         sync_from_yz_plot(is_end);
     }
+}
+function apply_trace_phase() {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+    if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
+        alert("RI data not available for all slices. Phase correction cannot be applied.");
+        return;
+    }
+
+    let p0_rad = trace_x_ph0 * Math.PI / 180.0;
+    let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+    let s0 = spectra_3d[0];
+    let nx = s0.n_direct;
+    let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s0.x_ppm_start) / s0.x_ppm_step) : 0;
+
+    console.log("Applying phase correction to 3D dataset...");
+    for (let z = 0; z < spectra_3d.length; z++) {
+        let slice = spectra_3d[z];
+        let re_data = slice.raw_data;
+        let im_data = slice.raw_data_ri;
+        for (let i = 0; i < re_data.length; i++) {
+            let x = i % nx;
+            let phase_rad;
+            if (trace_x_pivot === null) {
+                phase_rad = p0_rad;
+            } else {
+                phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+            }
+            let re = re_data[i];
+            let im = im_data[i];
+            re_data[i] = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
+            im_data[i] = re * Math.sin(phase_rad) + im * Math.cos(phase_rad);
+        }
+    }
+
+    // Reset phase parameters
+    trace_x_ph0 = 0.0;
+    trace_x_ph1 = 0.0;
+    trace_x_pivot = null;
+
+    // Update UI labels
+    let IDs = ['trace_x_ph0_val', 'trace_proj_x_ph0_val', 'trace_x_ph1_val', 'trace_proj_x_ph1_val'];
+    IDs.forEach(id => {
+        let el = document.getElementById(id);
+        if (el) el.innerText = "0.0";
+    });
+    let pivotIDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val'];
+    pivotIDs.forEach(id => {
+        let el = document.getElementById(id);
+        if (el) el.innerText = "not set";
+    });
+
+    // Recalculate everything
+    generate_projection_spectrum();
+    
+    // Recalculate 2D contours for all slices
+    for (let z = 0; z < spectra_3d.length; z++) {
+        spectra_3d[z].cached_contour_pos = null;
+        spectra_3d[z].cached_contour_neg = null;
+    }
+    
+    // Refresh current views
+    if (main_plot) draw_slice(current_slice_index);
+    if (main_plot_xz) refresh_xz_view();
+    if (main_plot_yz) refresh_yz_view();
+    
+    // Update 3D visualization if it's active
+    if (current_volume_data) {
+        visualize_3d();
+    }
+    
+    update_1d_traces_from_center();
+    console.log("Phase correction applied.");
 }

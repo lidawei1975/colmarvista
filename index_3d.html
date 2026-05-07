@@ -220,6 +220,12 @@
                         <div style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
                             <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
                                 <span>1D Trace Along X (at YZ center)</span>
+                                <span style="font-weight: normal; font-size: 11px;">
+                                    P0: <span id="trace_x_ph0_val">0.0</span>, 
+                                    P1: <span id="trace_x_ph1_val">0.0</span>, 
+                                    Pivot: <span id="trace_x_pivot_val">not set</span>
+                                    <button onclick="apply_trace_phase()" style="margin-left: 5px; font-size: 10px; padding: 0 4px;">Apply</button>
+                                </span>
                             </div>
                             <svg id="trace_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
@@ -313,8 +319,14 @@
                         <!-- Trace for Projection -->
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                              <div style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
-                                <div id="trace_proj_x_label" style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee;">
-                                    1D Trace Along X (at Projection center)
+                                <div id="trace_proj_x_label" style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>1D Trace Along X (at Projection center)</span>
+                                    <span style="font-weight: normal; font-size: 12px;">
+                                        P0: <span id="trace_proj_x_ph0_val">0.0</span>, 
+                                        P1: <span id="trace_proj_x_ph1_val">0.0</span>, 
+                                        Pivot: <span id="trace_proj_x_pivot_val">not set</span>
+                                        <button onclick="apply_trace_phase()" style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply Phase</button>
+                                    </span>
                                 </div>
                                 <svg id="trace_proj_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                             </div>
@@ -330,6 +342,7 @@
                                     <label>Start (x noise): </label><input type="number" id="proj_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
                                     <label>Scale: </label><input type="number" id="proj_contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
                                     <button onclick="update_proj_contour_levels()">Update</button>
+                                    <button onclick="apply_trace_phase()" style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply Phase</button>
                                     <button onclick="reset_proj_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
                                 <div id="vis_parent_proj" class="resizable" style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
