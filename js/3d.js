@@ -2982,7 +2982,17 @@ function update_1d_traces_from_center() {
         const traceProjX = [];
         const nx = spectrum_proj.n_direct;
         const ny = spectrum_proj.n_indirect;
-        const pyIndex = clamp_index_3d((center.ppm_y - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
+        
+        // Use projection view center for the projection 1D trace
+        let target_y_ppm;
+        if (main_plot_proj && main_plot_proj.yRange) {
+            let y_domain = main_plot_proj.yRange.domain();
+            target_y_ppm = (y_domain[0] + y_domain[1]) / 2;
+        } else {
+            target_y_ppm = center.ppm_y;
+        }
+        
+        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
         
         for (let x = 0; x < nx; x++) {
             traceProjX.push({
@@ -2990,8 +3000,16 @@ function update_1d_traces_from_center() {
                 value: spectrum_proj.raw_data[pyIndex * nx + x] || 0
             });
         }
+        // Always show independent range for 1D trace (can be zoomed by its own brush)
         const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx - 1) * spectrum_proj.x_ppm_step];
         render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#2a9d8f');
+        
+        // Update label to indicate if it's a cross-section or center
+        const label = document.getElementById('trace_proj_x_label');
+        if (label) {
+            const ppm_str = target_y_ppm.toFixed(3);
+            label.innerText = `1D Trace Along X (at Y=${ppm_str} ppm)`;
+        }
     }
 }
 
@@ -3023,7 +3041,6 @@ function update_3d_crosshairs() {
     } else {
         ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
     }
-
     // Update Main Plot (XY)
     if (main_plot && typeof main_plot.draw_center_lines === 'function') {
         main_plot.draw_center_lines(ppm_x, ppm_y);
@@ -3037,6 +3054,15 @@ function update_3d_crosshairs() {
     // Update YZ Plot (Z vs Indirect) - arguments: (Z_PPM, Y_PPM)
     if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') {
         main_plot_yz.draw_center_lines(ppm_z, ppm_y);
+    }
+
+    // Update Projection Plot (XY Projection) - center crosshair
+    if (main_plot_proj && main_plot_proj.xRange && main_plot_proj.yRange && typeof main_plot_proj.draw_center_lines === 'function') {
+        let x_domain = main_plot_proj.xRange.domain();
+        let y_domain = main_plot_proj.yRange.domain();
+        let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        let proj_ppm_y = (y_domain[0] + y_domain[1]) / 2;
+        main_plot_proj.draw_center_lines(proj_ppm_x, proj_ppm_y);
     }
 
     // Update Info Div using precise matching index strings based on view
@@ -4568,9 +4594,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (pause_el) {
         pause_el.addEventListener('change', () => {
             const val = pause_el.checked;
-            if (typeof main_plot !== 'undefined' && main_plot) main_plot.cross_line_pause_flag = val;
-            if (typeof main_plot_xz !== 'undefined' && main_plot_xz) main_plot_xz.cross_line_pause_flag = val;
-            if (typeof main_plot_yz !== 'undefined' && main_plot_yz) main_plot_yz.cross_line_pause_flag = val;
+            // Only projection plot responds to cross-section pause
             if (typeof main_plot_proj !== 'undefined' && main_plot_proj) main_plot_proj.cross_line_pause_flag = val;
         });
     }
@@ -4579,10 +4603,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (rc_el) {
         rc_el.addEventListener('change', () => {
             const val = rc_el.checked;
-            if (typeof main_plot !== 'undefined' && main_plot) main_plot.allow_right_click(val);
-            if (typeof main_plot_xz !== 'undefined' && main_plot_xz) main_plot_xz.allow_right_click(val);
-            if (typeof main_plot_yz !== 'undefined' && main_plot_yz) main_plot_yz.allow_right_click(val);
-            if (typeof main_plot_proj !== 'undefined' && main_plot_proj) main_plot_proj.allow_right_click(val);
+            // Interactive right-click is disabled for all 3D view plots (XY, XZ, YZ, Proj)
+            // as they now use fixed center crosshairs to define 1D traces.
+            // Note: In the 2D viewer (index.html), plotit instances still handle this internally.
         });
     }
 });
@@ -4883,4 +4906,26 @@ function reset_proj_zoom() {
     let x_dom = [s.x_ppm_start, s.x_ppm_start + s.x_ppm_step * s.n_direct];
     let y_dom = [s.y_ppm_start, s.y_ppm_start + s.y_ppm_step * s.n_indirect];
     main_plot_proj.resetzoom(x_dom, y_dom);
+}
+
+function sync_from_proj_plot(is_end = true) {
+    update_1d_traces_from_center();
+    update_3d_crosshairs();
+}
+
+/**
+ * Global synchronization function called by plotit instances
+ * @param {object} plot_instance The plot instance that triggered the sync
+ * @param {boolean} is_end True if the interaction (drag/zoom) has ended
+ */
+function sync_3d_views(plot_instance, is_end) {
+    if (plot_instance === main_plot_proj) {
+        sync_from_proj_plot(is_end);
+    } else if (plot_instance === main_plot) {
+        sync_sliders_to_center(is_end);
+    } else if (plot_instance === main_plot_xz) {
+        sync_from_xz_plot(is_end);
+    } else if (plot_instance === main_plot_yz) {
+        sync_from_yz_plot(is_end);
+    }
 }

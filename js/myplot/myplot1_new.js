@@ -71,6 +71,10 @@ function plotit(input) {
     this.x_ppm_step = input.x_ppm_step;
     this.y_ppm_start = input.y_ppm_start;
     this.y_ppm_step = input.y_ppm_step;
+    this.x_ppm_ref = input.x_ppm_ref || 0;
+    this.y_ppm_ref = input.y_ppm_ref || 0;
+    this.n_direct = input.n_direct;
+    this.n_indirect = input.n_indirect;
 
     /**
      * Flag to draw horizontal and vertical cross section. IF not set in input, default is off
@@ -502,6 +506,10 @@ plotit.prototype.sync_3d_views = function (is_end = true) {
         if (typeof sync_from_yz_plot === 'function') {
             sync_from_yz_plot(is_end);
         }
+    } else if (this.drawto === '#visualization_proj') {
+        if (typeof sync_from_proj_plot === 'function') {
+            sync_from_proj_plot(is_end);
+        }
     }
 };
 
@@ -780,8 +788,9 @@ plotit.prototype.draw = function () {
         });
 
 
+    this.clipId = "clip_" + this.drawto.replace(/[^a-zA-Z0-9]/g, "");
     this.$rect = this.$vis.append("defs").append("clipPath")
-        .attr("id", "clip")
+        .attr("id", this.clipId)
         .append("rect")
         .attr("x", this.MARGINS.left)
         .attr("y", this.MARGINS.top)
@@ -931,14 +940,10 @@ plotit.prototype.setup_cross_line = function (event) {
     }
 
     let spectra_source = self.local_spectra || hsqc_spectra;
-    let main_spec = spectra_source[0]; // Assuming index 0 for basic props
-
-    if (!main_spec) return;
-
-    let x_ppm_start = main_spec.x_ppm_start + main_spec.x_ppm_ref;
-    let x_ppm_end = x_ppm_start + main_spec.x_ppm_step * main_spec.n_direct;
-    let y_ppm_start = main_spec.y_ppm_start + main_spec.y_ppm_ref;
-    let y_ppm_end = y_ppm_start + main_spec.y_ppm_step * main_spec.n_indirect;
+    let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
+    let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
+    let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
+    let y_ppm_end = y_ppm_start + self.y_ppm_step * self.n_indirect;
 
     /**
      * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
@@ -948,7 +953,7 @@ plotit.prototype.setup_cross_line = function (event) {
     self.$vis.selectAll(".hline").remove();
     self.$vis.append("path")
         .attr("class", "hline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr("d", self.lineFunc(self.hline_data))
         .attr("stroke-width", 1)
         .attr("stroke", "green");
@@ -961,7 +966,7 @@ plotit.prototype.setup_cross_line = function (event) {
     self.$vis.selectAll(".vline").remove();
     self.$vis.append("path")
         .attr("class", "vline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr("d", self.lineFunc(self.vline_data))
         .attr("stroke-width", 1)
         .attr("stroke", "green");
@@ -997,6 +1002,7 @@ plotit.prototype.setup_cross_line = function (event) {
         }
     }
 
+    self.sync_3d_views(true);
 };
 
 
@@ -1597,7 +1603,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         .attr('y', function (d) {
             return self.yRange(d.Y_PPM);
         })
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     /**
      * Update pos using dx,dy and save text length (width) to visible_peaks as well
@@ -1643,7 +1649,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         .attr('y2', function (d) {
             return self.yRange(d.Y_PPM);
         })
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     self.$peaks_text_svg.call(peak_text_drag);
 
@@ -1750,7 +1756,7 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
 
     hline.enter().append("line")
         .attr("class", "center-hline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .merge(hline)
         .attr("x1", x_range[0])
         .attr("x2", x_range[1])
@@ -1767,7 +1773,7 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
 
     vline.enter().append("line")
         .attr("class", "center-vline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .merge(vline)
         .attr("x1", x_center)
         .attr("x2", x_center)
@@ -1832,7 +1838,7 @@ plotit.prototype.draw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr('r', self.peak_size)
         .attr('stroke', function () {
             return self.peak_color;
@@ -1878,7 +1884,7 @@ plotit.prototype.draw_extra_peaks = function () {
     // Add new
     let enter = selection.enter().append('path')
         .attr('class', 'extra-peak')
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     // Update all
     enter.merge(selection)
@@ -1948,7 +1954,7 @@ plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
 
     let enter = selection.enter().append('rect')
         .attr('class', 'bounding-box-rect')
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr('fill', 'none')
         .attr('stroke-width', 2);
 
