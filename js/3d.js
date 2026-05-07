@@ -4619,7 +4619,84 @@ window.addEventListener('DOMContentLoaded', () => {
             // Note: In the 2D viewer (index.html), plotit instances still handle this internally.
         });
     }
+
+    setup_2d_plot_resizing();
 });
+
+function setup_2d_plot_resizing() {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const plots = [
+        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
+        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
+        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
+        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null }
+    ];
+
+    const ro = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+            let el = entry.target;
+            let plot_info = plots.find(p => p.parent === el.id);
+            if (!plot_info) continue;
+
+            let plot_instance = plot_info.get_plot();
+            if (!plot_instance) continue;
+
+            let cr = get_content_size(plot_info.parent);
+            if (!cr || cr.width <= 0 || cr.height <= 0) continue;
+
+            let svg_el = document.getElementById(plot_info.svg);
+            if (svg_el) {
+                svg_el.setAttribute("width", cr.width);
+                svg_el.setAttribute("height", cr.height);
+            }
+
+            let plot_font_size = 24;
+            let plot_margin_left = 30 + plot_font_size * 5;
+            let plot_margin_bottom = 30 + plot_font_size * 3;
+            let plot_margin_top = 30;
+            let plot_margin_right = 30;
+
+            let plot_width = cr.width - plot_margin_left - plot_margin_right;
+            let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
+            if (plot_width > 0 && plot_height > 0) {
+                let canvas_el = document.getElementById(plot_info.canvas);
+                if (canvas_el) {
+                    canvas_el.style.left = plot_margin_left + "px";
+                    canvas_el.style.top = plot_margin_top + "px";
+                    canvas_el.setAttribute("width", plot_width);
+                    canvas_el.setAttribute("height", plot_height);
+                }
+            }
+
+            // Important: update the plot scales and visuals
+            plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
+            
+            // Draw center lines specifically
+            if (typeof plot_instance.draw_center_lines === 'function') {
+                plot_instance.draw_center_lines();
+            }
+        }
+    });
+
+    plots.forEach(p => {
+        let el = document.getElementById(p.parent);
+        if (el) ro.observe(el);
+    });
+
+    const ro_1d = new ResizeObserver(() => {
+        if (spectra_3d && spectra_3d.length > 0) {
+            update_1d_traces_from_center();
+        }
+    });
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.parentElement) {
+            ro_1d.observe(el.parentElement);
+        }
+    });
+}
 
 
 /**
