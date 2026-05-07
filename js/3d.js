@@ -1059,10 +1059,10 @@ async function load_ft3_file() {
             let plane_name = "plane_" + String(i + 1).padStart(3, '0');
             s.process_ft_file(plane_buffer, plane_name, -1);
 
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1197,10 +1197,10 @@ async function load_raw_3d_file() {
             s.process_spectrum_common_task();
 
             // Set visual defaults
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.4, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1262,10 +1262,10 @@ async function load_files() {
             s.process_ft_file(buffer, file.name, -1);
 
             // Set some defaults
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1338,6 +1338,14 @@ function calculate_levels(noise, scale, count, multiplier_val = null, scale_val 
     return levels;
 }
 
+function calculate_negative_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
+    let levels = calculate_levels(noise, scale, count, multiplier_val, scale_val);
+    for (let i = 0; i < levels.length; i++) {
+        levels[i] = -levels[i];
+    }
+    return levels;
+}
+
 function update_global_noise_level() {
     if (!spectra_3d || spectra_3d.length === 0) return;
     let sum = 0;
@@ -1368,8 +1376,9 @@ function update_contour_levels() {
     // Update all slices
     for (let s of spectra_3d) {
         s.spectrum_color = "#0000ff";
+        s.spectrum_color_negative = "#ff0000";
         s.levels = calculate_levels(s.noise_level, scale, 30);
-        s.negative_levels = [];
+        s.negative_levels = calculate_negative_levels(s.noise_level, scale, 30);
         // Invalidate cache to force recalculation
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
@@ -1628,7 +1637,8 @@ function refresh_current_view(spectrum_in) {
         let p_pos = spec.cached_contour_pos ? spec.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = new Float32Array([]); // Skip negative
+        let p_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -1636,11 +1646,11 @@ function refresh_current_view(spectrum_in) {
         len_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.levels_length : []);
         poly_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push([]);
-        poly_neg_list.push([]);
+        len_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.polygon_length : []);
 
         color_pos_list.push(hexToRgb(spec.spectrum_color));
-        color_neg_list.push([0, 0, 0]); // Not used
+        color_neg_list.push(spec.spectrum_color_negative ? hexToRgb(spec.spectrum_color_negative) : [0, 0, 0, 1]);
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
