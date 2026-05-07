@@ -65,6 +65,7 @@ function plotit(input) {
     this.bottom = -1000;
 
     this.drawto_contour = input.drawto_contour;
+    this.drawto_infor = input.drawto_infor || "infor";
 
     this.x_ppm_start = input.x_ppm_start;
     this.x_ppm_step = input.x_ppm_step;
@@ -122,7 +123,8 @@ function plotit(input) {
     this.hline_ppm = null;
     this.vline_ppm = null;
     this.cross_line_timeout = null;
-    this.cross_line_pause_flag = document.getElementById("pause_cursor").checked;
+    const pause_el = document.getElementById("pause_cursor");
+    this.cross_line_pause_flag = pause_el ? pause_el.checked : false;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
@@ -508,7 +510,8 @@ plotit.prototype.send_scales_to_other_window = function () {
     /**
      * Get plot_group number (from 1 to 10)
      */
-    let peak_group = document.getElementById("plot_group").value;
+    const pg_el = document.getElementById("plot_group");
+    let peak_group = pg_el ? pg_el.value : "1";
 
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
@@ -816,7 +819,7 @@ plotit.prototype.draw = function () {
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
-        tooldiv.style.opacity = 1.0;
+        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 1.0;
         let coordinates = [event.offsetX, event.offsetY];
         let x_ppm = self.xRange.invert(coordinates[0]);
         let y_ppm = self.yRange.invert(coordinates[1]);
@@ -837,18 +840,23 @@ plotit.prototype.draw = function () {
             }
         }
 
+        const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
-            document.getElementById("infor").innerHTML
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
-                + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
-                + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+            if (infor_el) {
+                infor_el.innerHTML
+                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
+                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+            }
         }
         else {
-            document.getElementById("infor").innerHTML
-                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+            if (infor_el) {
+                infor_el.innerHTML
+                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+            }
         }
 
 
@@ -871,7 +879,7 @@ plotit.prototype.draw = function () {
         }
     });
     this.$vis.on("mouseleave", function (d) {
-        tooldiv.style.opacity = 0.0;
+        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 0.0;
         document.activeElement.blur();
         if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
@@ -885,7 +893,8 @@ plotit.prototype.draw = function () {
     /**
      * Allow right click to set cross section by default
      */
-    this.allow_right_click(document.getElementById("right_click").checked);
+    const rc_el = document.getElementById("right_click");
+    this.allow_right_click(rc_el ? rc_el.checked : true);
 
     /**
      * Draw contour on the canvas, which is a background layer
@@ -917,7 +926,7 @@ plotit.prototype.setup_cross_line = function (event) {
             type: 'cross_line',
             y_ppm: y_ppm,
             x_ppm: x_ppm,
-            peak_group: document.getElementById("plot_group").value
+            peak_group: (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1")
         });
     }
 
@@ -1974,6 +1983,7 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * set display to block. 
              */
             let peak_information_div = document.getElementById('peak_information_div');
+            if (peak_information_div) peak_information_div.style.display = 'block';
 
             peak_information_div.style.left = x + 'px';
             peak_information_div.style.top = y + 'px';
@@ -2041,7 +2051,8 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             /**
              * Remove (if any) previous drawing
              */
-            document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+            const p3d_el = document.getElementById("pseudo3d_fitting_plot");
+            if (p3d_el) p3d_el.innerHTML = "";
 
 
             const plot = new fitting_plot('#pseudo3d_fitting_plot', {
@@ -2080,7 +2091,7 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
                  */
                 timeout_id = setTimeout(function () {
                     let peak_information_div = document.getElementById('peak_information_div');
-                    peak_information_div.style.display = 'none';
+                    if (peak_information_div) peak_information_div.style.display = 'none';
                 }, 5000);
             });
     }
