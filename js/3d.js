@@ -21,6 +21,10 @@ var trace_zoom_domains = {
     'trace_z_svg': null
 };
 
+var main_plot_proj = null;
+var spectrum_proj = null;
+var theoretical_spectrum_proj = null;
+
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
@@ -42,6 +46,9 @@ function reset_3d_dataset_state() {
     // Release large contiguous visualization buffers from previous dataset.
     current_volume_data = null;
     clear_all_1d_traces();
+
+    spectrum_proj = null;
+    theoretical_spectrum_proj = null;
 }
 
 function set_status_message(element_id, text, auto_clear_ms = 0) {
@@ -120,7 +127,7 @@ function download_ft3() {
     floatView[15] = nz;  // FDF3SIZE (Number of planes)
     floatView[99] = nx;  // FDSIZE (Size of direct dimension)
     floatView[219] = ny; // FDSPECNUM (Size of indirect dimension 1)
-    
+
     // Quad flags: 0=Complex, 1=Real
     floatView[56] = has_ri ? 0 : 1; // FDF2QUADFLAG (Direct)
     floatView[55] = has_ir ? 0 : 1; // FDF1QUADFLAG (Indirect 1)
@@ -481,6 +488,7 @@ async function load_theoretical_peaks() {
     console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
     theoretical_peaks_data = peaks;
     generate_theoretical_volume(peaks);
+    generate_projection_spectrum();
 
     // Refresh views to show overlay
     if (current_slice_index >= 0) {
@@ -629,6 +637,16 @@ function handle_worker_message(e) {
         }
         if (e.data.spectrum_type === "yz_theo") {
             handle_ortho_response(e.data, "yz_theo");
+            return;
+        }
+
+        if (e.data.spectrum_type === "proj") {
+            handle_proj_response(e.data, "proj");
+            return;
+        }
+
+        if (e.data.spectrum_type === "proj_theo") {
+            handle_proj_response(e.data, "proj_theo");
             return;
         }
 
@@ -1041,10 +1059,10 @@ async function load_ft3_file() {
             let plane_name = "plane_" + String(i + 1).padStart(3, '0');
             s.process_ft_file(plane_buffer, plane_name, -1);
 
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1067,6 +1085,8 @@ async function load_ft3_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+        generate_projection_spectrum();
+        generate_projection_spectrum();
 
         // Auto-render 3D Visualization with full dataset
         setTimeout(() => {
@@ -1107,11 +1127,11 @@ async function load_raw_3d_file() {
 
     // Payload starts after the 3-value header
     let payload = floatData.subarray(3);
-    
+
     // Figure out if we have imaginary data (along direct dimension) by checking file size
     let n_total_real = n_indirect2 * n_indirect1 * n_direct;
     let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
-    
+
     let has_imaginary = (payload.length >= n_total_real_imag);
     let stride = has_imaginary ? 2 * n_direct : n_direct;
 
@@ -1130,7 +1150,7 @@ async function load_raw_3d_file() {
             let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
             let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
             let plane_offset = p * n_indirect1 * stride;
-            
+
             for (let t = 0; t < n_indirect1; t++) {
                 let trace_offset = plane_offset + t * stride;
                 if (trace_offset + n_direct <= payload.length) {
@@ -1161,13 +1181,13 @@ async function load_raw_3d_file() {
             s.header[99] = n_direct;   // FDSIZE
             s.header[219] = n_indirect1; // FDSPECNUM
             s.header[15] = n_indirect2; // FDF3SIZE
-            
+
             // Set data type: 0 for complex, 1 for real
             // header[56] is FDF2QUADFLAG (direct dimension)
             // header[55] is FDF1QUADFLAG (indirect dimension)
             s.header[56] = has_imaginary ? 0 : 1;
             s.header[55] = 1; // Assume real for indirect for now in raw format
-            
+
             // Dimension orders
             s.header[24] = 2; // direct
             s.header[25] = 1; // indirect 1
@@ -1177,10 +1197,10 @@ async function load_raw_3d_file() {
             s.process_spectrum_common_task();
 
             // Set visual defaults
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.4, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1203,6 +1223,7 @@ async function load_raw_3d_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+        generate_projection_spectrum();
 
         // Auto-render 3D Visualization
         setTimeout(() => {
@@ -1241,10 +1262,10 @@ async function load_files() {
             s.process_ft_file(buffer, file.name, -1);
 
             // Set some defaults
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = null;
             s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
             s.visible = true;
 
             spectra_3d.push(s);
@@ -1268,6 +1289,7 @@ async function load_files() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+        generate_projection_spectrum();
 
         // Auto-render 3D Visualization with full dataset
         setTimeout(() => {
@@ -1287,23 +1309,39 @@ function read_file_as_buffer(file) {
     });
 }
 
-function calculate_levels(noise, scale, count) {
+function calculate_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
     let levels = [];
     let multiplier = 10.0;
-    let multiplier_input = document.getElementById('contour_start_multiplier');
-    if (multiplier_input) {
-        multiplier = parseFloat(multiplier_input.value);
+    if (multiplier_val !== null) {
+        multiplier = multiplier_val;
+    } else {
+        let multiplier_input = document.getElementById('contour_start_multiplier');
+        if (multiplier_input) {
+            multiplier = parseFloat(multiplier_input.value);
+        }
     }
     let user_scale = scale;
-    let scale_input = document.getElementById('contour_scale_factor');
-    if (scale_input) {
-        user_scale = parseFloat(scale_input.value);
+    if (scale_val !== null) {
+        user_scale = scale_val;
+    } else {
+        let scale_input = document.getElementById('contour_scale_factor');
+        if (scale_input) {
+            user_scale = parseFloat(scale_input.value);
+        }
     }
 
     let current = noise * multiplier;
     for (let i = 0; i < count; i++) {
         levels.push(current);
         current *= user_scale;
+    }
+    return levels;
+}
+
+function calculate_negative_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
+    let levels = calculate_levels(noise, scale, count, multiplier_val, scale_val);
+    for (let i = 0; i < levels.length; i++) {
+        levels[i] = -levels[i];
     }
     return levels;
 }
@@ -1338,8 +1376,9 @@ function update_contour_levels() {
     // Update all slices
     for (let s of spectra_3d) {
         s.spectrum_color = "#0000ff";
+        s.spectrum_color_negative = "#ff0000";
         s.levels = calculate_levels(s.noise_level, scale, 30);
-        s.negative_levels = [];
+        s.negative_levels = calculate_negative_levels(s.noise_level, scale, 30);
         // Invalidate cache to force recalculation
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
@@ -1369,6 +1408,28 @@ function update_contour_levels() {
         spectrum_yz.negative_levels = [];
         spectrum_yz.cached_contour_pos = null;
         spectrum_yz.cached_contour_neg = null;
+    }
+
+    if (spectrum_proj) {
+        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+        spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
+        spectrum_proj.negative_levels = [];
+        spectrum_proj.cached_contour_pos = null;
+        spectrum_proj.cached_contour_neg = null;
+        request_contour_calculation(spectrum_proj, 0, 0, "proj");
+        request_contour_calculation(spectrum_proj, 0, 1, "proj");
+    }
+
+    if (theoretical_spectrum_proj) {
+        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+        theoretical_spectrum_proj.levels = calculate_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
+        theoretical_spectrum_proj.negative_levels = [];
+        theoretical_spectrum_proj.cached_contour_pos = null;
+        theoretical_spectrum_proj.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj, 0, 0, "proj_theo");
+        request_contour_calculation(theoretical_spectrum_proj, 0, 1, "proj_theo");
     }
 
     // Refresh views
@@ -1469,6 +1530,7 @@ function init_main_plot(first_spectrum) {
         drawto_legend: "none",
         drawto_peak: "#visualization",
         drawto_contour: "canvas1",
+        drawto_infor: "infor",
         size: [cr.width, cr.height],
         PointData: [],
         inter_window_channel: null
@@ -1490,6 +1552,9 @@ function init_main_plot(first_spectrum) {
 
     // Initialize Orthogonal Plots
     init_ortho_plots(first_spectrum);
+
+    // Initialize Projection Plot
+    init_proj_plot(first_spectrum);
 }
 
 
@@ -1572,7 +1637,8 @@ function refresh_current_view(spectrum_in) {
         let p_pos = spec.cached_contour_pos ? spec.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = new Float32Array([]); // Skip negative
+        let p_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -1580,11 +1646,11 @@ function refresh_current_view(spectrum_in) {
         len_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.levels_length : []);
         poly_pos_list.push(spec.cached_contour_pos ? spec.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push([]);
-        poly_neg_list.push([]);
+        len_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.polygon_length : []);
 
         color_pos_list.push(hexToRgb(spec.spectrum_color));
-        color_neg_list.push([0, 0, 0]); // Not used
+        color_neg_list.push(spec.spectrum_color_negative ? hexToRgb(spec.spectrum_color_negative) : [0, 0, 0, 1]);
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
@@ -1828,7 +1894,7 @@ function sync_from_xz_plot(is_end = true) {
             val_yz.innerText = (new_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
         }
     }
-    
+
     update_3d_crosshairs();
 }
 
@@ -1912,7 +1978,7 @@ function sync_from_yz_plot(is_end = true) {
             val_xz.innerText = (new_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
         }
     }
-    
+
     update_3d_crosshairs();
 }
 
@@ -2038,6 +2104,7 @@ function init_ortho_plots(s) {
             n_indirect: spectra_3d.length,
             drawto: "#visualization_xz",
             drawto_contour: "canvas_xz",
+            drawto_infor: "infor_xz",
             size: [cr.width, cr.height]
         };
         main_plot_xz = new plotit(input_xz);
@@ -2083,6 +2150,7 @@ function init_ortho_plots(s) {
             n_indirect: s.n_indirect,
             drawto: "#visualization_yz",
             drawto_contour: "canvas_yz",
+            drawto_infor: "infor_yz",
             size: [cr.width, cr.height]
         };
         main_plot_yz = new plotit(input_yz);
@@ -2511,7 +2579,8 @@ function refresh_ortho_plot(type) {
         let p_pos = s.cached_contour_pos ? s.cached_contour_pos.points : new Float32Array([]);
         if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
 
-        let p_neg = new Float32Array([]); // Skip negative
+        let p_neg = s.cached_contour_neg ? s.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
 
         points_pos_list.push(p_pos);
         points_neg_list.push(p_neg);
@@ -2519,11 +2588,11 @@ function refresh_ortho_plot(type) {
         len_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.levels_length : []);
         poly_pos_list.push(s.cached_contour_pos ? s.cached_contour_pos.polygon_length : []);
 
-        len_neg_list.push([]);
-        poly_neg_list.push([]);
+        len_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(s.cached_contour_neg ? s.cached_contour_neg.polygon_length : []);
 
         color_pos_list.push(hexToRgb(s.spectrum_color));
-        color_neg_list.push([0, 0, 0]); // Not used
+        color_neg_list.push(s.spectrum_color_negative ? hexToRgb(s.spectrum_color_negative) : [0, 0, 0, 1]);
 
         lbs_pos_list.push(0);
         lbs_neg_list.push(0);
@@ -2717,6 +2786,7 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_z_svg');
     clear_1d_trace_svg('trace_y_svg');
     clear_1d_trace_svg('trace_x_svg');
+    clear_1d_trace_svg('trace_proj_x_svg');
 }
 
 function render_trace_3d(svgId, points, xDomain, lineColor) {
@@ -2842,7 +2912,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
             event.preventDefault();
             if (!spectra_3d || spectra_3d.length === 0) return;
             if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
-            
+
             if (trace_x_pivot === null) {
                 let rect = svgEl.getBoundingClientRect();
                 let mouseX = event.clientX - rect.left;
@@ -2861,13 +2931,13 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         svg.on('wheel', function (event) {
             if (!spectra_3d || spectra_3d.length === 0) return;
             if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
-            
+
             event.preventDefault();
             let delta = event.deltaY;
             let step = 1.0;
             if (event.shiftKey) step = 1.0;
             else if (event.ctrlKey) step = 0.1;
-            
+
             let direction = delta > 0 ? -1 : 1;
             if (trace_x_pivot === null) {
                 trace_x_ph0 += direction * step;
@@ -2917,6 +2987,41 @@ function update_1d_traces_from_center() {
     render_trace_3d('trace_z_svg', traceZ, domainZ, '#1f77b4');
     render_trace_3d('trace_y_svg', traceY, domainY, '#2ca02c');
     render_trace_3d('trace_x_svg', traceX, domainX, '#d62728');
+
+    // Update Projection 1D Trace
+    if (spectrum_proj && spectrum_proj.raw_data) {
+        const traceProjX = [];
+        const nx = spectrum_proj.n_direct;
+        const ny = spectrum_proj.n_indirect;
+        
+        // Use projection view center for the projection 1D trace
+        let target_y_ppm;
+        if (main_plot_proj && main_plot_proj.yRange) {
+            let y_domain = main_plot_proj.yRange.domain();
+            target_y_ppm = (y_domain[0] + y_domain[1]) / 2;
+        } else {
+            target_y_ppm = center.ppm_y;
+        }
+        
+        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
+        
+        for (let x = 0; x < nx; x++) {
+            traceProjX.push({
+                ppm: spectrum_proj.x_ppm_start + x * spectrum_proj.x_ppm_step,
+                value: spectrum_proj.raw_data[pyIndex * nx + x] || 0
+            });
+        }
+        // Always show independent range for 1D trace (can be zoomed by its own brush)
+        const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx - 1) * spectrum_proj.x_ppm_step];
+        render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#2a9d8f');
+        
+        // Update label to indicate if it's a cross-section or center
+        const label = document.getElementById('trace_proj_x_label');
+        if (label) {
+            const ppm_str = target_y_ppm.toFixed(3);
+            label.innerText = `1D Trace Along X (at Y=${ppm_str} ppm)`;
+        }
+    }
 }
 
 
@@ -2947,7 +3052,6 @@ function update_3d_crosshairs() {
     } else {
         ppm_z = s.z_ppm_start + (current_slice_index * s.z_ppm_step);
     }
-
     // Update Main Plot (XY)
     if (main_plot && typeof main_plot.draw_center_lines === 'function') {
         main_plot.draw_center_lines(ppm_x, ppm_y);
@@ -2961,6 +3065,15 @@ function update_3d_crosshairs() {
     // Update YZ Plot (Z vs Indirect) - arguments: (Z_PPM, Y_PPM)
     if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') {
         main_plot_yz.draw_center_lines(ppm_z, ppm_y);
+    }
+
+    // Update Projection Plot (XY Projection) - center crosshair
+    if (main_plot_proj && main_plot_proj.xRange && main_plot_proj.yRange && typeof main_plot_proj.draw_center_lines === 'function') {
+        let x_domain = main_plot_proj.xRange.domain();
+        let y_domain = main_plot_proj.yRange.domain();
+        let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        let proj_ppm_y = (y_domain[0] + y_domain[1]) / 2;
+        main_plot_proj.draw_center_lines(proj_ppm_x, proj_ppm_y);
     }
 
     // Update Info Div using precise matching index strings based on view
@@ -3154,7 +3267,7 @@ function setup_sliders() {
         inputSolid.max = maxRange;
         inputSolid.step = step;
         inputSolid.value = (20.0 * noise).toExponential(4);
-        
+
         inputWire.min = minRange;
         inputWire.max = maxRange;
         inputWire.step = step;
@@ -3921,11 +4034,11 @@ function build_3d_worker_cfg_from_ui() {
         apodIndirect1: document.getElementById('apodization_indirect1').value,
         apodIndirect2: document.getElementById('apodization_indirect2').value,
         phaseText: document.getElementById('phase_correction_direct_p0').value + " " +
-                   document.getElementById('phase_correction_direct_p1').value + " " +
-                   document.getElementById('phase_correction_indirect1_p0').value + " " +
-                   document.getElementById('phase_correction_indirect1_p1').value + " " +
-                   document.getElementById('phase_correction_indirect2_p0').value + " " +
-                   document.getElementById('phase_correction_indirect2_p1').value,
+            document.getElementById('phase_correction_direct_p1').value + " " +
+            document.getElementById('phase_correction_indirect1_p0').value + " " +
+            document.getElementById('phase_correction_indirect1_p1').value + " " +
+            document.getElementById('phase_correction_indirect2_p0').value + " " +
+            document.getElementById('phase_correction_indirect2_p1').value,
         tdPolyOrder: parseTdPolynomialOrder(),
         frqPolyOrder: parseFrqPolynomialOrder(),
         inverse: [0, 0, 0],
@@ -4173,7 +4286,7 @@ async function load_fid_3d_file() {
             nuslist: buffers[4] ? new TextDecoder().decode(buffers[4]) : ""
         };
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
-        
+
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
         const debugNusRunFullProcess = !!cfg.debugNusRunFullProcess;
         console.log('[3D][fid] Sending worker message. NUS mode=', isNus);
@@ -4248,7 +4361,7 @@ function handle_webass_3d_message(e) {
             let btn = document.getElementById('button_download_ft3_processed');
             if (btn) {
                 btn.style.display = 'inline-block';
-                btn.onclick = function() {
+                btn.onclick = function () {
                     download_binary_file(e.data.ft3Bytes, 'processed.ft3');
                 };
             }
@@ -4409,36 +4522,36 @@ function apply_trace_x_phase() {
 
     let p0_rad = trace_x_ph0 * Math.PI / 180.0;
     let p1_rad = trace_x_ph1 * Math.PI / 180.0;
-    
+
     for (let z = 0; z < spectra_3d.length; z++) {
         let s = spectra_3d[z];
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s.x_ppm_start) / s.x_ppm_step) : 0;
         let nx = s.n_direct;
         let ny = s.n_indirect;
-        
+
         let new_raw_data = new Float32Array(s.raw_data.length);
         let has_ri = s.raw_data_ri && s.raw_data_ri.length > 0;
         let new_raw_data_ri = has_ri ? new Float32Array(s.raw_data_ri.length) : null;
-        
+
         for (let y = 0; y < ny; y++) {
             for (let x = 0; x < nx; x++) {
                 let re = s.raw_data[y * nx + x];
                 let im = has_ri ? s.raw_data_ri[y * nx + x] : 0;
-                
+
                 let phase_rad;
                 if (trace_x_pivot === null) {
                     phase_rad = p0_rad;
                 } else {
                     phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
                 }
-                
+
                 new_raw_data[y * nx + x] = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
                 if (has_ri) {
                     new_raw_data_ri[y * nx + x] = re * Math.sin(phase_rad) + im * Math.cos(phase_rad);
                 }
             }
         }
-        
+
         s.raw_data = new_raw_data;
         if (has_ri) {
             s.raw_data_ri = new_raw_data_ri;
@@ -4453,7 +4566,7 @@ function apply_trace_x_phase() {
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
     }
-    
+
     trace_x_ph0 = 0.0;
     trace_x_ph1 = 0.0;
     trace_x_pivot = null;
@@ -4480,11 +4593,429 @@ window.addEventListener('DOMContentLoaded', () => {
                 update_1d_traces_from_center();
             }
         });
-        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg'].forEach(id => {
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
             const el = document.getElementById(id);
             if (el && el.parentElement) {
                 ro.observe(el.parentElement);
             }
         });
     }
+
+    const pause_el = document.getElementById("pause_cursor");
+    if (pause_el) {
+        pause_el.addEventListener('change', () => {
+            const val = pause_el.checked;
+            // Only projection plot responds to cross-section pause
+            if (typeof main_plot_proj !== 'undefined' && main_plot_proj) main_plot_proj.cross_line_pause_flag = val;
+        });
+    }
+
+    const rc_el = document.getElementById("right_click");
+    if (rc_el) {
+        rc_el.addEventListener('change', () => {
+            const val = rc_el.checked;
+            // Interactive right-click is disabled for all 3D view plots (XY, XZ, YZ, Proj)
+            // as they now use fixed center crosshairs to define 1D traces.
+            // Note: In the 2D viewer (index.html), plotit instances still handle this internally.
+        });
+    }
+
+    setup_2d_plot_resizing();
 });
+
+function setup_2d_plot_resizing() {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const plots = [
+        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
+        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
+        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
+        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null }
+    ];
+
+    const ro = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+            let el = entry.target;
+            let plot_info = plots.find(p => p.parent === el.id);
+            if (!plot_info) continue;
+
+            let plot_instance = plot_info.get_plot();
+            if (!plot_instance) continue;
+
+            let cr = get_content_size(plot_info.parent);
+            if (!cr || cr.width <= 0 || cr.height <= 0) continue;
+
+            let svg_el = document.getElementById(plot_info.svg);
+            if (svg_el) {
+                svg_el.setAttribute("width", cr.width);
+                svg_el.setAttribute("height", cr.height);
+            }
+
+            let plot_font_size = 24;
+            let plot_margin_left = 30 + plot_font_size * 5;
+            let plot_margin_bottom = 30 + plot_font_size * 3;
+            let plot_margin_top = 30;
+            let plot_margin_right = 30;
+
+            let plot_width = cr.width - plot_margin_left - plot_margin_right;
+            let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
+            if (plot_width > 0 && plot_height > 0) {
+                let canvas_el = document.getElementById(plot_info.canvas);
+                if (canvas_el) {
+                    canvas_el.style.left = plot_margin_left + "px";
+                    canvas_el.style.top = plot_margin_top + "px";
+                    canvas_el.setAttribute("width", plot_width);
+                    canvas_el.setAttribute("height", plot_height);
+                }
+            }
+
+            // Important: update the plot scales and visuals
+            plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
+            
+            // Draw center lines specifically
+            if (typeof plot_instance.draw_center_lines === 'function') {
+                plot_instance.draw_center_lines();
+            }
+        }
+    });
+
+    plots.forEach(p => {
+        let el = document.getElementById(p.parent);
+        if (el) ro.observe(el);
+    });
+
+    const ro_1d = new ResizeObserver(() => {
+        if (spectra_3d && spectra_3d.length > 0) {
+            update_1d_traces_from_center();
+        }
+    });
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.parentElement) {
+            ro_1d.observe(el.parentElement);
+        }
+    });
+}
+
+
+/**
+ * XY Projection Plot Logic
+ */
+function init_proj_plot(s) {
+    if (!s) return;
+
+    let parent = document.getElementById("vis_parent_proj");
+    if (!parent) return;
+    let cr = parent.getBoundingClientRect();
+
+    let plot_font_size = 24;
+    let plot_margin_left = 30 + plot_font_size * 5;
+    let plot_margin_bottom = 30 + plot_font_size * 3;
+    let plot_margin_top = 30;
+    let plot_margin_right = 30;
+
+    let margins = {
+        left: plot_margin_left,
+        top: plot_margin_top,
+        right: plot_margin_right,
+        bottom: plot_margin_bottom
+    };
+
+    let plot_width = cr.width - plot_margin_left - plot_margin_right;
+    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
+    let cvs = document.getElementById("canvas_proj");
+    let svg = document.getElementById("visualization_proj");
+
+    if (cvs) {
+        cvs.style.position = "absolute";
+        cvs.style.left = plot_margin_left + "px";
+        cvs.style.top = plot_margin_top + "px";
+        cvs.setAttribute("width", plot_width);
+        cvs.setAttribute("height", plot_height);
+    }
+
+    if (svg) { svg.setAttribute("width", cr.width); svg.setAttribute("height", cr.height); }
+
+    let input_proj = {
+        WIDTH: cr.width,
+        HEIGHT: cr.height,
+        MARGINS: margins,
+        fontsize: plot_font_size,
+        x_ppm_start: s.x_ppm_start,
+        x_ppm_step: s.x_ppm_step,
+        y_ppm_start: s.y_ppm_start,
+        y_ppm_step: s.y_ppm_step,
+        n_direct: s.n_direct,
+        n_indirect: s.n_indirect,
+        drawto: "#visualization_proj",
+        drawto_contour: "canvas_proj",
+        drawto_infor: "infor_proj",
+        size: [cr.width, cr.height]
+    };
+    main_plot_proj = new plotit(input_proj);
+    main_plot_proj.draw();
+}
+
+function handle_proj_response(data, type) {
+    let spec = (type === "proj") ? spectrum_proj : theoretical_spectrum_proj;
+    if (!spec) return;
+
+    if (data.contour_sign === 0) spec.cached_contour_pos = data;
+    else spec.cached_contour_neg = data;
+
+    refresh_proj_plot();
+}
+
+function refresh_proj_plot() {
+    if (!main_plot_proj || !spectrum_proj) return;
+
+    let spectra_list = [spectrum_proj];
+    if (theoretical_spectrum_proj) spectra_list.push(theoretical_spectrum_proj);
+
+    render_to_plot(main_plot_proj, spectra_list);
+}
+
+function render_to_plot(plot, spectra_list) {
+    if (!plot) return;
+
+    let points_pos_list = [];
+    let len_pos_list = [];
+    let poly_pos_list = [];
+    let points_neg_list = [];
+    let len_neg_list = [];
+    let poly_neg_list = [];
+    let color_pos_list = [];
+    let color_neg_list = [];
+    let lbs_pos_list = [];
+    let lbs_neg_list = [];
+    let start_pos_list = [];
+    let start_neg_list = [];
+    let spectral_info_list = [];
+    let spectral_order_list = [];
+
+    let total_points = 0;
+
+    for (let i = 0; i < spectra_list.length; i++) {
+        let spec = spectra_list[i];
+        if (!spec.cached_contour_pos) continue;
+
+        let p_pos = spec.cached_contour_pos.points;
+        if (!(p_pos instanceof Float32Array)) p_pos = new Float32Array(p_pos);
+
+        let p_neg = spec.cached_contour_neg ? spec.cached_contour_neg.points : new Float32Array([]);
+        if (!(p_neg instanceof Float32Array)) p_neg = new Float32Array(p_neg);
+
+        points_pos_list.push(p_pos);
+        points_neg_list.push(p_neg);
+
+        len_pos_list.push(spec.cached_contour_pos.levels_length);
+        poly_pos_list.push(spec.cached_contour_pos.polygon_length);
+        len_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.levels_length : []);
+        poly_neg_list.push(spec.cached_contour_neg ? spec.cached_contour_neg.polygon_length : []);
+
+        color_pos_list.push(hexToRgb(spec.spectrum_color));
+        color_neg_list.push(spec.spectrum_color_negative ? hexToRgb(spec.spectrum_color_negative) : [0, 0, 0, 1]);
+
+        lbs_pos_list.push(0);
+        lbs_neg_list.push(0);
+
+        start_pos_list.push(total_points);
+        total_points += p_pos.length;
+        start_neg_list.push(total_points);
+        total_points += p_neg.length;
+
+        spectral_info_list.push({
+            x_ppm_start: spec.x_ppm_start,
+            x_ppm_step: spec.x_ppm_step,
+            y_ppm_start: spec.y_ppm_start,
+            y_ppm_step: spec.y_ppm_step,
+            x_ppm_ref: 0,
+            y_ppm_ref: 0
+        });
+        spectral_order_list.push(i);
+    }
+
+    if (spectral_order_list.length === 0) return;
+
+    let combined_points = new Float32Array(total_points);
+    let offset = 0;
+    for (let i = 0; i < points_pos_list.length; i++) {
+        combined_points.set(points_pos_list[i], offset);
+        offset += points_pos_list[i].length;
+        combined_points.set(points_neg_list[i], offset);
+        offset += points_neg_list[i].length;
+    }
+
+    plot.contour_plot.spectral_order = spectral_order_list;
+    plot.contour_plot.set_data(
+        spectral_info_list,
+        combined_points,
+        start_pos_list,
+        poly_pos_list,
+        len_pos_list,
+        color_pos_list,
+        lbs_pos_list,
+        start_neg_list,
+        poly_neg_list,
+        len_neg_list,
+        color_neg_list,
+        lbs_neg_list
+    );
+
+    let x_dom = plot.xRange.domain();
+    let y_dom = plot.yRange.domain();
+    plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], y_dom[0], y_dom[1]);
+    plot.contour_plot.drawScene();
+}
+
+function generate_projection_spectrum() {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+
+    let s0 = spectra_3d[0];
+    let nx = s0.n_direct;
+    let ny = s0.n_indirect;
+    let nz = spectra_3d.length;
+
+    let spec = new spectrum();
+    spec.n_direct = nx;
+    spec.n_indirect = ny;
+    spec.x_ppm_start = s0.x_ppm_start;
+    spec.x_ppm_step = s0.x_ppm_step;
+    spec.y_ppm_start = s0.y_ppm_start;
+    spec.y_ppm_step = s0.y_ppm_step;
+
+    let raw = new Float32Array(nx * ny);
+    for (let z = 0; z < nz; z++) {
+        let slice_data = spectra_3d[z].raw_data;
+        if (slice_data && slice_data.length === nx * ny) {
+            for (let i = 0; i < nx * ny; i++) {
+                raw[i] += slice_data[i];
+            }
+        }
+    }
+    for (let i = 0; i < nx * ny; i++) {
+        raw[i] /= nz;
+    }
+    spec.raw_data = raw;
+    
+    // Estimate noise level for the projected 2D spectrum separately
+    spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
+    let display = document.getElementById("proj_noise_level_display");
+    if (display) display.innerText = "Proj. Noise: " + spec.noise_level.toExponential(2);
+
+    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+    let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+
+    spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier, scale);
+    spec.negative_levels = calculate_negative_levels(spec.noise_level, scale, 30, multiplier, scale);
+    spec.spectrum_color = "#0000ff";
+    spec.spectrum_color_negative = "#ff0000";
+
+    spectrum_proj = spec;
+    request_contour_calculation(spec, 0, 0, "proj");
+    request_contour_calculation(spec, 0, 1, "proj");
+
+    // Theoretical projection
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+        let st0 = theoretical_spectra_3d[0];
+        let spec_theo = new spectrum();
+        spec_theo.n_direct = nx;
+        spec_theo.n_indirect = ny;
+        spec_theo.x_ppm_start = st0.x_ppm_start;
+        spec_theo.x_ppm_step = st0.x_ppm_step;
+        spec_theo.y_ppm_start = st0.y_ppm_start;
+        spec_theo.y_ppm_step = st0.y_ppm_step;
+
+        let raw_theo = new Float32Array(nx * ny);
+        for (let z = 0; z < theoretical_spectra_3d.length; z++) {
+            let slice_data = theoretical_spectra_3d[z].raw_data;
+            if (slice_data && slice_data.length === nx * ny) {
+                for (let i = 0; i < nx * ny; i++) {
+                    raw_theo[i] += slice_data[i];
+                }
+            }
+        }
+        for (let i = 0; i < nx * ny; i++) {
+            raw_theo[i] /= theoretical_spectra_3d.length;
+        }
+        spec_theo.raw_data = raw_theo;
+        spec_theo.noise_level = st0.noise_level;
+        spec_theo.levels = st0.levels;
+        spec_theo.negative_levels = st0.negative_levels;
+        spec_theo.spectrum_color = "#ff0000";
+
+        theoretical_spectrum_proj = spec_theo;
+        request_contour_calculation(spec_theo, 0, 0, "proj_theo");
+        request_contour_calculation(spec_theo, 0, 1, "proj_theo");
+    }
+    update_1d_traces_from_center();
+}
+
+function estimate_proj_noise() {
+    if (!spectrum_proj) return;
+    let raw = spectrum_proj.raw_data;
+    let nx = spectrum_proj.n_direct;
+    let ny = spectrum_proj.n_indirect;
+    
+    spectrum_proj.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
+    let display = document.getElementById("proj_noise_level_display");
+    if (display) display.innerText = "Proj. Noise: " + spectrum_proj.noise_level.toExponential(2);
+    
+    update_proj_contour_levels();
+}
+
+function update_proj_contour_levels() {
+    if (!spectrum_proj) return;
+    
+    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+    let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+    
+    spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj.cached_contour_pos = null;
+    spectrum_proj.cached_contour_neg = null;
+    
+    request_contour_calculation(spectrum_proj, 0, 0, "proj");
+    request_contour_calculation(spectrum_proj, 0, 1, "proj");
+    
+    if (theoretical_spectrum_proj) {
+        theoretical_spectrum_proj.levels = spectrum_proj.levels;
+        theoretical_spectrum_proj.negative_levels = spectrum_proj.negative_levels;
+        theoretical_spectrum_proj.cached_contour_pos = null;
+        theoretical_spectrum_proj.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj, 0, 0, "proj_theo");
+        request_contour_calculation(theoretical_spectrum_proj, 0, 1, "proj_theo");
+    }
+}
+
+function reset_proj_zoom() {
+    if (!main_plot_proj || !spectrum_proj) return;
+    let s = spectrum_proj;
+    let x_dom = [s.x_ppm_start, s.x_ppm_start + s.x_ppm_step * s.n_direct];
+    let y_dom = [s.y_ppm_start, s.y_ppm_start + s.y_ppm_step * s.n_indirect];
+    main_plot_proj.resetzoom(x_dom, y_dom);
+}
+
+function sync_from_proj_plot(is_end = true) {
+    update_1d_traces_from_center();
+    update_3d_crosshairs();
+}
+
+/**
+ * Global synchronization function called by plotit instances
+ * @param {object} plot_instance The plot instance that triggered the sync
+ * @param {boolean} is_end True if the interaction (drag/zoom) has ended
+ */
+function sync_3d_views(plot_instance, is_end) {
+    if (plot_instance === main_plot_proj) {
+        sync_from_proj_plot(is_end);
+    } else if (plot_instance === main_plot) {
+        sync_sliders_to_center(is_end);
+    } else if (plot_instance === main_plot_xz) {
+        sync_from_xz_plot(is_end);
+    } else if (plot_instance === main_plot_yz) {
+        sync_from_yz_plot(is_end);
+    }
+}
