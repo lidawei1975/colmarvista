@@ -118,7 +118,7 @@ self.onmessage = async function(event) {
             const textInputs = event.data.textInputs;
             const fidBytes = new Uint8Array(event.data.fidBytes);
             const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-            const forceNusFullProcess = !!(cfg && cfg.debugNusRunFullProcess);
+            const forceNusFullProcess = !!(cfg && (cfg.debugNusRunFullProcess || cfg.nusDirectDimAutoPhase));
             const useNusStepPipeline = isNus && !forceNusFullProcess;
 
             console.log('[webass_3d] process_fid_3d config:', cfg);
@@ -197,7 +197,10 @@ self.onmessage = async function(event) {
 
             const fid = new Module.fid_3d();
             try {
-                const delImg = cfg.deleteImage || [1, 1, 1];
+                let delImg = cfg.deleteImage ? [...cfg.deleteImage] : [1, 1, 1];
+                if (cfg && cfg.nusDirectDimAutoPhase) {
+                    delImg[0] = 0; // force keep direct dimension imag data
+                }
                 applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [delImg[0], 0, 0] : delImg);
 
                 console.log('[webass_3d] read_bruker_files_as_strings');
