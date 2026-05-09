@@ -25,6 +25,10 @@ var main_plot_proj = null;
 var spectrum_proj = null;
 var theoretical_spectrum_proj = null;
 
+var main_plot_proj_y = null;
+var spectrum_proj_y = null;
+var theoretical_spectrum_proj_y = null;
+
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
@@ -49,6 +53,9 @@ function reset_3d_dataset_state() {
 
     spectrum_proj = null;
     theoretical_spectrum_proj = null;
+
+    spectrum_proj_y = null;
+    theoretical_spectrum_proj_y = null;
 }
 
 function set_status_message(element_id, text, auto_clear_ms = 0) {
@@ -647,6 +654,16 @@ function handle_worker_message(e) {
 
         if (e.data.spectrum_type === "proj_theo") {
             handle_proj_response(e.data, "proj_theo");
+            return;
+        }
+
+        if (e.data.spectrum_type === "proj_y") {
+            handle_proj_y_response(e.data, "proj_y");
+            return;
+        }
+
+        if (e.data.spectrum_type === "proj_y_theo") {
+            handle_proj_y_response(e.data, "proj_y_theo");
             return;
         }
 
@@ -1414,22 +1431,44 @@ function update_contour_levels() {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
         spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
-        spectrum_proj.negative_levels = [];
+        spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj.cached_contour_pos = null;
         spectrum_proj.cached_contour_neg = null;
         request_contour_calculation(spectrum_proj, 0, 0, "proj");
         request_contour_calculation(spectrum_proj, 0, 1, "proj");
     }
 
+    if (spectrum_proj_y) {
+        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+        spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
+        spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
+        spectrum_proj_y.cached_contour_pos = null;
+        spectrum_proj_y.cached_contour_neg = null;
+        request_contour_calculation(spectrum_proj_y, 0, 0, "proj_y");
+        request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
+    }
+
     if (theoretical_spectrum_proj) {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
         theoretical_spectrum_proj.levels = calculate_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
-        theoretical_spectrum_proj.negative_levels = [];
+        theoretical_spectrum_proj.negative_levels = calculate_negative_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj.cached_contour_pos = null;
         theoretical_spectrum_proj.cached_contour_neg = null;
         request_contour_calculation(theoretical_spectrum_proj, 0, 0, "proj_theo");
         request_contour_calculation(theoretical_spectrum_proj, 0, 1, "proj_theo");
+    }
+
+    if (theoretical_spectrum_proj_y) {
+        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+        theoretical_spectrum_proj_y.levels = calculate_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
+        theoretical_spectrum_proj_y.negative_levels = calculate_negative_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
+        theoretical_spectrum_proj_y.cached_contour_pos = null;
+        theoretical_spectrum_proj_y.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj_y, 0, 0, "proj_y_theo");
+        request_contour_calculation(theoretical_spectrum_proj_y, 0, 1, "proj_y_theo");
     }
 
     // Refresh views
@@ -1553,8 +1592,9 @@ function init_main_plot(first_spectrum) {
     // Initialize Orthogonal Plots
     init_ortho_plots(first_spectrum);
 
-    // Initialize Projection Plot
+    // Initialize Projection Plots
     init_proj_plot(first_spectrum);
+    init_proj_y_plot(first_spectrum);
 }
 
 
@@ -2787,6 +2827,7 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_y_svg');
     clear_1d_trace_svg('trace_x_svg');
     clear_1d_trace_svg('trace_proj_x_svg');
+    clear_1d_trace_svg('trace_proj_y_x_svg');
 }
 
 function render_trace_3d(svgId, points, xDomain, lineColor) {
@@ -3107,6 +3148,55 @@ function update_1d_traces_from_center() {
             label.innerText = `1D Trace Along X (at Y=${ppm_str} ppm)`;
         }
     }
+
+    // Update Y-Projection 1D Trace (Trace along X at some Z)
+    if (spectrum_proj_y && spectrum_proj_y.raw_data) {
+        const traceProjYX = [];
+        const nx = spectrum_proj_y.n_direct;
+        const nz = spectrum_proj_y.n_indirect;
+        
+        let target_z_ppm;
+        if (main_plot_proj_y && main_plot_proj_y.yRange) {
+            let z_domain = main_plot_proj_y.yRange.domain();
+            target_z_ppm = (z_domain[0] + z_domain[1]) / 2;
+        } else {
+            target_z_ppm = center.ppm_z;
+        }
+        
+        const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz);
+        
+        // Use same phase as other X-traces
+        let p0_rad = trace_x_ph0 * Math.PI / 180.0;
+        let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+        let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj_y.x_ppm_start) / spectrum_proj_y.x_ppm_step) : 0;
+        let has_ri = spectrum_proj_y.raw_data_ri && spectrum_proj_y.raw_data_ri.length > 0;
+
+        for (let x = 0; x < nx; x++) {
+            let re = spectrum_proj_y.raw_data[pzIndex * nx + x] || 0;
+            let val = re;
+            if (has_ri) {
+                let im = spectrum_proj_y.raw_data_ri[pzIndex * nx + x] || 0;
+                let phase_rad;
+                if (trace_x_pivot === null) {
+                    phase_rad = p0_rad;
+                } else {
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                }
+                val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
+            }
+            traceProjYX.push({
+                ppm: spectrum_proj_y.x_ppm_start + x * spectrum_proj_y.x_ppm_step,
+                value: val
+            });
+        }
+        const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx - 1) * spectrum_proj_y.x_ppm_step];
+        render_trace_3d('trace_proj_y_x_svg', traceProjYX, domainProjYX, '#2a9d8f');
+        
+        const label = document.getElementById('trace_proj_y_x_label');
+        if (label) {
+            label.innerText = `1D Trace Along X (at Z=${target_z_ppm.toFixed(3)} ppm)`;
+        }
+    }
 }
 
 
@@ -3159,6 +3249,15 @@ function update_3d_crosshairs() {
         let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
         let proj_ppm_y = (y_domain[0] + y_domain[1]) / 2;
         main_plot_proj.draw_center_lines(proj_ppm_x, proj_ppm_y);
+    }
+
+    // Update Y-Projection Plot (XZ Projection) - center crosshair
+    if (main_plot_proj_y && main_plot_proj_y.xRange && main_plot_proj_y.yRange && typeof main_plot_proj_y.draw_center_lines === 'function') {
+        let x_domain = main_plot_proj_y.xRange.domain();
+        let y_domain = main_plot_proj_y.yRange.domain();
+        let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        let proj_ppm_z = (y_domain[0] + y_domain[1]) / 2;
+        main_plot_proj_y.draw_center_lines(proj_ppm_x, proj_ppm_z);
     }
 
     // Update Info Div using precise matching index strings based on view
@@ -4660,10 +4759,24 @@ function apply_trace_x_phase() {
     trace_x_pivot = null;
     let p0_val = document.getElementById('trace_x_ph0_val');
     if (p0_val) p0_val.innerText = '0.0';
+    let p0_proj_val = document.getElementById('trace_proj_x_ph0_val');
+    if (p0_proj_val) p0_proj_val.innerText = '0.0';
+    let p0_proj_y_val = document.getElementById('trace_proj_y_x_ph0_val');
+    if (p0_proj_y_val) p0_proj_y_val.innerText = '0.0';
+
     let p1_val = document.getElementById('trace_x_ph1_val');
     if (p1_val) p1_val.innerText = '0.0';
+    let p1_proj_val = document.getElementById('trace_proj_x_ph1_val');
+    if (p1_proj_val) p1_proj_val.innerText = '0.0';
+    let p1_proj_y_val = document.getElementById('trace_proj_y_x_ph1_val');
+    if (p1_proj_y_val) p1_proj_y_val.innerText = '0.0';
+
     let pivot_val = document.getElementById('trace_x_pivot_val');
     if (pivot_val) pivot_val.innerText = 'not set';
+    let pivot_proj_val = document.getElementById('trace_proj_x_pivot_val');
+    if (pivot_proj_val) pivot_proj_val.innerText = 'not set';
+    let pivot_proj_y_val = document.getElementById('trace_proj_y_x_pivot_val');
+    if (pivot_proj_y_val) pivot_proj_y_val.innerText = 'not set';
 
     update_contour_levels();
     visualize_3d();
@@ -4718,7 +4831,8 @@ function setup_2d_plot_resizing() {
         { parent: "vis_parent", svg: "visualization", canvas: "canvas1", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
         { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
         { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
-        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null }
+        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
+        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null }
     ];
 
     const ro = new ResizeObserver((entries) => {
@@ -4778,7 +4892,7 @@ function setup_2d_plot_resizing() {
             update_1d_traces_from_center();
         }
     });
-    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentElement) {
             ro_1d.observe(el.parentElement);
@@ -5017,6 +5131,52 @@ function generate_projection_spectrum() {
     request_contour_calculation(spec, 0, 0, "proj");
     request_contour_calculation(spec, 0, 1, "proj");
 
+    // Y-Projection (XZ Plane)
+    let specY = new spectrum();
+    specY.n_direct = nx;
+    specY.n_indirect = nz;
+    specY.x_ppm_start = s0.x_ppm_start;
+    specY.x_ppm_step = s0.x_ppm_step;
+    specY.y_ppm_start = s0.z_ppm_start;
+    specY.y_ppm_step = s0.z_ppm_step;
+
+    let rawY = new Float32Array(nx * nz);
+    let rawY_ri = has_ri ? new Float32Array(nx * nz) : null;
+
+    for (let z = 0; z < nz; z++) {
+        let slice = spectra_3d[z];
+        let slice_data = slice.raw_data;
+        let slice_ri = has_ri ? slice.raw_data_ri : null;
+        for (let y = 0; y < ny; y++) {
+            for (let x = 0; x < nx; x++) {
+                rawY[z * nx + x] += slice_data[y * nx + x];
+                if (has_ri) rawY_ri[z * nx + x] += slice_ri[y * nx + x];
+            }
+        }
+    }
+    for (let i = 0; i < nx * nz; i++) {
+        rawY[i] /= ny;
+        if (has_ri) rawY_ri[i] /= ny;
+    }
+    specY.raw_data = rawY;
+    if (has_ri) specY.raw_data_ri = rawY_ri;
+
+    specY.noise_level = mathTool.estimate_noise_level(nx, nz, rawY);
+    let displayY = document.getElementById("proj_y_noise_level_display");
+    if (displayY) displayY.innerText = "Proj Y Noise: " + specY.noise_level.toExponential(2);
+
+    let multiplierY = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+    let scaleY = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+
+    specY.levels = calculate_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
+    specY.negative_levels = calculate_negative_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
+    specY.spectrum_color = "#0000ff";
+    specY.spectrum_color_negative = "#ff0000";
+
+    spectrum_proj_y = specY;
+    request_contour_calculation(specY, 0, 0, "proj_y");
+    request_contour_calculation(specY, 0, 1, "proj_y");
+
     // Theoretical projection
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         let st0 = theoretical_spectra_3d[0];
@@ -5049,6 +5209,37 @@ function generate_projection_spectrum() {
         theoretical_spectrum_proj = spec_theo;
         request_contour_calculation(spec_theo, 0, 0, "proj_theo");
         request_contour_calculation(spec_theo, 0, 1, "proj_theo");
+
+        // Theoretical Y-Projection
+        let spec_theo_y = new spectrum();
+        spec_theo_y.n_direct = nx;
+        spec_theo_y.n_indirect = nz;
+        spec_theo_y.x_ppm_start = st0.x_ppm_start;
+        spec_theo_y.x_ppm_step = st0.x_ppm_step;
+        spec_theo_y.y_ppm_start = st0.z_ppm_start;
+        spec_theo_y.y_ppm_step = st0.z_ppm_step;
+
+        let raw_theo_y = new Float32Array(nx * nz);
+        for (let z = 0; z < theoretical_spectra_3d.length; z++) {
+            let slice_data = theoretical_spectra_3d[z].raw_data;
+            for (let y = 0; y < ny; y++) {
+                for (let x = 0; x < nx; x++) {
+                    raw_theo_y[z * nx + x] += slice_data[y * nx + x];
+                }
+            }
+        }
+        for (let i = 0; i < nx * nz; i++) {
+            raw_theo_y[i] /= ny;
+        }
+        spec_theo_y.raw_data = raw_theo_y;
+        spec_theo_y.noise_level = st0.noise_level;
+        spec_theo_y.levels = specY.levels;
+        spec_theo_y.negative_levels = specY.negative_levels;
+        spec_theo_y.spectrum_color = "#ff0000";
+
+        theoretical_spectrum_proj_y = spec_theo_y;
+        request_contour_calculation(spec_theo_y, 0, 0, "proj_y_theo");
+        request_contour_calculation(spec_theo_y, 0, 1, "proj_y_theo");
     }
     update_1d_traces_from_center();
 }
@@ -5098,7 +5289,135 @@ function reset_proj_zoom() {
     main_plot_proj.resetzoom(x_dom, y_dom);
 }
 
+/**
+ * Y-Projection (XZ) Plot Logic
+ */
+function init_proj_y_plot(s) {
+    if (!s) return;
+
+    let parent = document.getElementById("vis_parent_proj_y");
+    if (!parent) return;
+    let cr = parent.getBoundingClientRect();
+
+    let plot_font_size = 24;
+    let plot_margin_left = 30 + plot_font_size * 5;
+    let plot_margin_bottom = 30 + plot_font_size * 3;
+    let plot_margin_top = 30;
+    let plot_margin_right = 30;
+
+    let margins = {
+        left: plot_margin_left,
+        top: plot_margin_top,
+        right: plot_margin_right,
+        bottom: plot_margin_bottom
+    };
+
+    let plot_width = cr.width - plot_margin_left - plot_margin_right;
+    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+
+    let cvs = document.getElementById("canvas_proj_y");
+    let svg = document.getElementById("visualization_proj_y");
+
+    if (cvs) {
+        cvs.style.position = "absolute";
+        cvs.style.left = plot_margin_left + "px";
+        cvs.style.top = plot_margin_top + "px";
+        cvs.setAttribute("width", plot_width);
+        cvs.setAttribute("height", plot_height);
+    }
+
+    if (svg) { svg.setAttribute("width", cr.width); svg.setAttribute("height", cr.height); }
+
+    let input_proj = {
+        WIDTH: cr.width,
+        HEIGHT: cr.height,
+        MARGINS: margins,
+        fontsize: plot_font_size,
+        x_ppm_start: s.x_ppm_start,
+        x_ppm_step: s.x_ppm_step,
+        y_ppm_start: s.z_ppm_start, // Corrected: use Z-axis for vertical
+        y_ppm_step: s.z_ppm_step,   // Corrected
+        n_direct: s.n_direct,
+        n_indirect: spectra_3d.length, // Corrected: number of planes
+        drawto: "#visualization_proj_y",
+        drawto_contour: "canvas_proj_y",
+        drawto_infor: "infor_proj_y",
+        size: [cr.width, cr.height]
+    };
+    main_plot_proj_y = new plotit(input_proj);
+    main_plot_proj_y.draw();
+}
+
+function handle_proj_y_response(data, type) {
+    let spec = (type === "proj_y") ? spectrum_proj_y : theoretical_spectrum_proj_y;
+    if (!spec) return;
+
+    if (data.contour_sign === 0) spec.cached_contour_pos = data;
+    else spec.cached_contour_neg = data;
+
+    refresh_proj_y_plot();
+}
+
+function refresh_proj_y_plot() {
+    if (!main_plot_proj_y || !spectrum_proj_y) return;
+
+    let spectra_list = [spectrum_proj_y];
+    if (theoretical_spectrum_proj_y) spectra_list.push(theoretical_spectrum_proj_y);
+
+    render_to_plot(main_plot_proj_y, spectra_list);
+}
+
+function estimate_proj_y_noise() {
+    if (!spectrum_proj_y) return;
+    let raw = spectrum_proj_y.raw_data;
+    let nx = spectrum_proj_y.n_direct;
+    let nz = spectrum_proj_y.n_indirect;
+    
+    spectrum_proj_y.noise_level = mathTool.estimate_noise_level(nx, nz, raw);
+    let display = document.getElementById("proj_y_noise_level_display");
+    if (display) display.innerText = "Proj Y Noise: " + spectrum_proj_y.noise_level.toExponential(2);
+    
+    update_proj_y_contour_levels();
+}
+
+function update_proj_y_contour_levels() {
+    if (!spectrum_proj_y) return;
+    
+    let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+    let scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+    
+    spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj_y.cached_contour_pos = null;
+    spectrum_proj_y.cached_contour_neg = null;
+    
+    request_contour_calculation(spectrum_proj_y, 0, 0, "proj_y");
+    request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
+    
+    if (theoretical_spectrum_proj_y) {
+        theoretical_spectrum_proj_y.levels = spectrum_proj_y.levels;
+        theoretical_spectrum_proj_y.negative_levels = spectrum_proj_y.negative_levels;
+        theoretical_spectrum_proj_y.cached_contour_pos = null;
+        theoretical_spectrum_proj_y.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj_y, 0, 0, "proj_y_theo");
+        request_contour_calculation(theoretical_spectrum_proj_y, 0, 1, "proj_y_theo");
+    }
+}
+
+function reset_proj_y_zoom() {
+    if (!main_plot_proj_y || !spectrum_proj_y) return;
+    let s = spectrum_proj_y;
+    let x_dom = [s.x_ppm_start, s.x_ppm_start + s.x_ppm_step * s.n_direct];
+    let y_dom = [s.y_ppm_start, s.y_ppm_start + s.y_ppm_step * s.n_indirect];
+    main_plot_proj_y.resetzoom(x_dom, y_dom);
+}
+
 function sync_from_proj_plot(is_end = true) {
+    update_1d_traces_from_center();
+    update_3d_crosshairs();
+}
+
+function sync_from_proj_y_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -5111,6 +5430,8 @@ function sync_from_proj_plot(is_end = true) {
 function sync_3d_views(plot_instance, is_end) {
     if (plot_instance === main_plot_proj) {
         sync_from_proj_plot(is_end);
+    } else if (plot_instance === main_plot_proj_y) {
+        sync_from_proj_y_plot(is_end);
     } else if (plot_instance === main_plot) {
         sync_sliders_to_center(is_end);
     } else if (plot_instance === main_plot_xz) {
@@ -5158,12 +5479,12 @@ function apply_trace_phase() {
     trace_x_pivot = null;
 
     // Update UI labels
-    let IDs = ['trace_x_ph0_val', 'trace_proj_x_ph0_val', 'trace_x_ph1_val', 'trace_proj_x_ph1_val'];
+    let IDs = ['trace_x_ph0_val', 'trace_proj_x_ph0_val', 'trace_proj_y_x_ph0_val', 'trace_x_ph1_val', 'trace_proj_x_ph1_val', 'trace_proj_y_x_ph1_val'];
     IDs.forEach(id => {
         let el = document.getElementById(id);
         if (el) el.innerText = "0.0";
     });
-    let pivotIDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val'];
+    let pivotIDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'];
     pivotIDs.forEach(id => {
         let el = document.getElementById(id);
         if (el) el.innerText = "not set";
