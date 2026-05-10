@@ -35,12 +35,24 @@ fid_base (base class)
 
 ---
 
-## 3. fid_2d Class - Data Input Methods
+## 3. fid_3d Class - Parameter Configuration
+
+| Function | Signature | Returns | Purpose | Example |
+|----------|-----------|---------|---------|---------|
+| **run_zf** | `run_zf(zf_direct: int, zf_indirect1: int, zf_indirect2: int)` | `bool` | Set zero filling factors for all three axes | `fid3d.run_zf(2, 2, 2)` |
+
+**Parameter Details:**
+
+- **run_zf**: Typical values are `1, 2, 4, 8, 16` (multiplication factors)
+
+---
+
+## 4. fid_3d Class - Data Input Methods
 
 | Function | Signature | Returns | Purpose | Notes |
 |----------|-----------|---------|---------|-------|
-| **read_bruker_files** | `read_bruker_files(pulse_prog: string, acqu2s: string, acqus: string, fid_files: string[])` | `bool` | Read Bruker data from file paths | Traditional file-based approach |
-| **read_bruker_files_as_strings** | `read_bruker_files_as_strings(pulse: string, acqus: string, acqu2s: string)` | `bool` | Read Bruker parameters from text | In-memory approach (recommended for web) |
+| **read_bruker_files** | `read_bruker_files(pulse_prog: string, acqu2s: string, acqu3s: string, acqus: string, fid_file: string, nuslist_contents?: string, simulate_nus?: bool, nus_ser_inflated?: bool)` | `bool` | Read Bruker data from file paths | Traditional file-based approach |
+| **read_bruker_files_as_strings** | `read_bruker_files_as_strings(pulse: string, acqus: string, acqu2s: string, acqu3s: string, nuslist_contents?: string, simulate_nus?: bool, nus_ser_inflated?: bool)` | `bool` | Read Bruker parameters from text | In-memory approach (recommended for web) |
 | **read_bruker_fid_data_bytes** | `read_bruker_fid_data_bytes(fid_bytes: Uint8Array)` | `bool` | Read Bruker FID binary data | Companion to read_bruker_files_as_strings |
 | **read_nmrpipe_file_from_buffer** | `read_nmrpipe_file_from_buffer(nmrpipe_bytes: Uint8Array)` | `bool` | Read NMRPipe binary format | Complete file read in one call |
 
@@ -50,11 +62,15 @@ fid_base (base class)
 - **read_bruker_files_as_strings + read_bruker_fid_data_bytes**: Two-step in-memory approach
   - First call: parameters (from uploaded files)
   - Second call: FID binary data (from uploaded files)
+- **simulate_nus**: When `true`, the loader reads as fully sampled and zeros traces not listed in the nuslist after unpacking
+- **nus_ser_inflated**: When `true`, the Bruker raw data is already on the full NusTD grid and should not be expanded
 - **read_nmrpipe_file_from_buffer**: Single-step approach for NMRPipe data
+
+**WebAssembly Note:** The 3D loader owns NUS handling internally. For simulate-NUS workflows, pass the nuslist contents, `simulate_nus=true`, and `nus_ser_inflated=false` if the source data is not already inflated.
 
 ---
 
-## 4. fid_2d Class - Data Processing Methods
+## 5. fid_2d Class - Data Processing Methods
 
 | Function | Signature | Returns | Purpose | Parameters |
 |----------|-----------|---------|---------|-----------|
@@ -73,7 +89,7 @@ fid_base (base class)
 
 ---
 
-## 5. fid_2d Class - Data Output Methods
+## 6. fid_2d Class - Data Output Methods
 
 | Function | Signature | Returns | Purpose | File Format |
 |----------|-----------|---------|---------|-------------|
@@ -92,7 +108,7 @@ fid_base (base class)
 
 ---
 
-## 6. fid_2d Class - Apodization Methods
+## 7. fid_2d Class - Apodization Methods
 
 | Function | Signature | Returns | Purpose | Notes |
 |----------|-----------|---------|---------|-------|
@@ -103,7 +119,7 @@ fid_base (base class)
 
 ---
 
-## 7. spectrum_phasing Class - Specialized Methods
+## 8. spectrum_phasing Class - Specialized Methods
 
 | Function | Signature | Returns | Purpose | Notes |
 |----------|-----------|---------|---------|-------|
@@ -119,7 +135,7 @@ fid_base (base class)
 
 ---
 
-## 8. spectrum_phasing Class - Inherited Methods from fid_2d
+## 9. spectrum_phasing Class - Inherited Methods from fid_2d
 
 `spectrum_phasing` inherits all methods from `fid_2d`, including:
 - All parameter configuration methods (set_aqseq, set_negative, etc.)
@@ -129,7 +145,7 @@ fid_base (base class)
 
 ---
 
-## 9. Helper Types and Utilities
+## 10. Helper Types and Utilities
 
 ### Vector Types (Registered in Emscripten)
 
@@ -165,7 +181,7 @@ stringVector.delete();
 
 ---
 
-## 10. Recommended Workflow Patterns
+## 11. Recommended Workflow Patterns
 
 ### Pattern A: Bruker In-Memory (Recommended for Web)
 

@@ -27,7 +27,7 @@ Input/setup:
 - `set_delete_image(f2, f1, f3)`
 
 In-memory Bruker load:
-- `read_bruker_files_as_strings(contentsPulse, contentsAcqus, contentsAcqu2s, contentsAcqu3s, contentsNuslist, nusSerInflated)`
+- `read_bruker_files_as_strings(contentsPulse, contentsAcqus, contentsAcqu2s, contentsAcqu3s, contentsNuslist, simulateNus, nusSerInflated)`
 - `read_bruker_fid_data(vectorFloat)`
 - `read_bruker_fid_data_bytes(vectorUChar)`
 
@@ -116,7 +116,8 @@ export function runFid3dWasm(Module, cfg, textInputs, fidBytes, mode) {
       textInputs.acqu2s,
       textInputs.acqu3s,
       textInputs.nuslist || "",
-      !!cfg.nusSerInflated
+      false, // simulate_nus: false for compressed NUS
+      false  // nus_ser_inflated: false for web env
     );
 
     const v = new Module.VectorUChar();
