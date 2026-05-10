@@ -209,6 +209,10 @@ var current_reprocess_spectrum_index = -1; // Not used but required by global va
 var current_slice_index = -1;
 
 function append_3d_log(message) {
+    const area = document.getElementById("log_area_3d");
+    if (area && area.style.display === 'none') {
+        area.style.display = 'block';
+    }
     const logElem = document.getElementById("log");
     if (!logElem) {
         return;
@@ -218,6 +222,10 @@ function append_3d_log(message) {
 }
 
 function append_3d_worker_stdout(stdoutText) {
+    const area = document.getElementById("log_area_3d");
+    if (area && area.style.display === 'none') {
+        area.style.display = 'block';
+    }
     const logElem = document.getElementById("log");
     if (!logElem) {
         return;
@@ -238,6 +246,73 @@ function clear_3d_log() {
     }
     logElem.value = "";
 }
+
+function toggle_log_minimize() {
+    const log_area = document.getElementById('log_area_3d');
+    const log_textarea = document.getElementById('log');
+    const min_btn = document.getElementById('button_minimize_log_3d');
+    
+    if (!log_area || !log_textarea || !min_btn) return;
+
+    if (log_textarea.style.display === 'none') {
+        log_textarea.style.display = 'block';
+        log_area.style.height = log_area.dataset.lastHeight || '250px';
+        log_area.style.width = log_area.dataset.lastWidth || '450px';
+        log_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        log_area.dataset.lastHeight = log_area.offsetHeight + 'px';
+        log_area.dataset.lastWidth = log_area.offsetWidth + 'px';
+        log_textarea.style.display = 'none';
+        log_area.style.height = 'auto';
+        log_area.style.width = '250px';
+        log_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+function make_log_movable() {
+    const log_area = document.getElementById("log_area_3d");
+    const header = document.getElementById("log_area_3d_header");
+    if (!log_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function(e) {
+        e = e || window.event;
+        e.preventDefault();
+        
+        // Initial mouse position
+        startX = e.clientX;
+        startY = e.clientY;
+        
+        // Current element position
+        let rect = log_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+        
+        document.onmouseup = function() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+        
+        document.onmousemove = function(e) {
+            e = e || window.event;
+            e.preventDefault();
+            
+            // Calculate distance moved
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+            
+            // Apply new position
+            log_area.style.top = (initialTop + dy) + "px";
+            log_area.style.left = (initialLeft + dx) + "px";
+        };
+    };
+}
+
+// Call this once to init
+setTimeout(make_log_movable, 100);
 
 // Helper to convert hex color to normalized RGB array
 function hexToRgb(hex) {
@@ -1093,7 +1168,7 @@ async function load_ft3_file() {
         slider.max = spectra_3d.length - 1;
         slider.value = 0;
         document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('spectra_list').style.display = 'block'; // Or hide if not needed
+        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
         document.getElementById('main_plot_area').style.display = 'flex';
 
         // Initialize the main plot now that we have data dimensions from the first slice
@@ -1102,13 +1177,6 @@ async function load_ft3_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
-        generate_projection_spectrum();
-        generate_projection_spectrum();
-
-        // Auto-render 3D Visualization with full dataset
-        setTimeout(() => {
-            visualize_3d();
-        }, 500);
     }
 
     document.getElementById("webassembly_message").innerText = "";
@@ -1231,7 +1299,7 @@ async function load_raw_3d_file() {
         slider.max = spectra_3d.length - 1;
         slider.value = 0;
         document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('spectra_list').style.display = 'block';
+        document.getElementById('aux_buttons').style.display = 'block';
         document.getElementById('main_plot_area').style.display = 'flex';
 
         // Initialize the main plot with dimensions from the first slice
@@ -1240,12 +1308,6 @@ async function load_raw_3d_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
-        generate_projection_spectrum();
-
-        // Auto-render 3D Visualization
-        setTimeout(() => {
-            visualize_3d();
-        }, 500);
     }
 
     document.getElementById("webassembly_message").innerText = "";
@@ -1297,7 +1359,7 @@ async function load_files() {
         slider.max = spectra_3d.length - 1;
         slider.value = 0;
         document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('spectra_list').style.display = 'block'; // Or hide if not needed
+        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
         document.getElementById('main_plot_area').style.display = 'flex';
 
         // Initialize the main plot now that we have data dimensions from the first slice
@@ -1306,12 +1368,6 @@ async function load_files() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
-        generate_projection_spectrum();
-
-        // Auto-render 3D Visualization with full dataset
-        setTimeout(() => {
-            visualize_3d();
-        }, 500);
     }
 
     document.getElementById("webassembly_message").innerText = "";
@@ -1587,6 +1643,12 @@ function init_main_plot(first_spectrum) {
     // Draw fixed center crosshairs
     if (typeof main_plot.draw_center_lines === 'function') {
         main_plot.draw_center_lines();
+    }
+
+    // Disable interactive behaviors for 3D view
+    main_plot.cross_line_pause_flag = false;
+    if (typeof main_plot.allow_right_click === 'function') {
+        main_plot.allow_right_click(false);
     }
 
     // Initialize Orthogonal Plots
@@ -2154,6 +2216,12 @@ function init_ortho_plots(s) {
         if (typeof main_plot_xz.draw_center_lines === 'function') {
             main_plot_xz.draw_center_lines();
         }
+
+        // Disable interactive behaviors
+        main_plot_xz.cross_line_pause_flag = false;
+        if (typeof main_plot_xz.allow_right_click === 'function') {
+            main_plot_xz.allow_right_click(false);
+        }
     }
 
     if (!main_plot_yz) {
@@ -2199,6 +2267,12 @@ function init_ortho_plots(s) {
         // Draw fixed center crosshairs
         if (typeof main_plot_yz.draw_center_lines === 'function') {
             main_plot_yz.draw_center_lines();
+        }
+
+        // Disable interactive behaviors
+        main_plot_yz.cross_line_pause_flag = false;
+        if (typeof main_plot_yz.allow_right_click === 'function') {
+            main_plot_yz.allow_right_click(false);
         }
     }
 
@@ -3326,8 +3400,18 @@ function build_reconstructed_volume_data(dims) {
 }
 
 function visualize_3d() {
+    let container = document.getElementById('container_3d_view');
+    if (container) container.style.display = 'block';
     // Wrapper to start the process
     extract_3d_data();
+}
+
+function visualize_proj() {
+    let c1 = document.getElementById('container_projection_view');
+    let c2 = document.getElementById('container_projection_y_view');
+    if (c1) c1.style.display = 'block';
+    if (c2) c2.style.display = 'block';
+    generate_projection_spectrum();
 }
 
 function extract_3d_data() {
@@ -4641,7 +4725,7 @@ function handle_webass_3d_message(e) {
             slider.max = spectra_3d.length - 1;
             slider.value = 0;
             document.getElementById('slice_control_area').style.display = 'block';
-            document.getElementById('spectra_list').style.display = 'block';
+            document.getElementById('aux_buttons').style.display = 'block';
             document.getElementById('main_plot_area').style.display = 'flex';
 
             // Keep initialization behavior consistent with .ft2/.ft3 file loaders.
@@ -4652,8 +4736,6 @@ function handle_webass_3d_message(e) {
             let s0 = spectra_3d[0];
             init_ortho_plots(s0);
             update_global_noise_level();
-            generate_projection_spectrum();
-            visualize_3d();
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
         } else {
@@ -4802,25 +4884,6 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    const pause_el = document.getElementById("pause_cursor");
-    if (pause_el) {
-        pause_el.addEventListener('change', () => {
-            const val = pause_el.checked;
-            // Only projection plot responds to cross-section pause
-            if (typeof main_plot_proj !== 'undefined' && main_plot_proj) main_plot_proj.cross_line_pause_flag = val;
-        });
-    }
-
-    const rc_el = document.getElementById("right_click");
-    if (rc_el) {
-        rc_el.addEventListener('change', () => {
-            const val = rc_el.checked;
-            // Interactive right-click is disabled for all 3D view plots (XY, XZ, YZ, Proj)
-            // as they now use fixed center crosshairs to define 1D traces.
-            // Note: In the 2D viewer (index.html), plotit instances still handle this internally.
-        });
-    }
-
     setup_2d_plot_resizing();
 });
 
@@ -4958,6 +5021,12 @@ function init_proj_plot(s) {
     };
     main_plot_proj = new plotit(input_proj);
     main_plot_proj.draw();
+
+    // Disable interactive behaviors
+    main_plot_proj.cross_line_pause_flag = false;
+    if (typeof main_plot_proj.allow_right_click === 'function') {
+        main_plot_proj.allow_right_click(false);
+    }
 }
 
 function handle_proj_response(data, type) {
@@ -5346,6 +5415,12 @@ function init_proj_y_plot(s) {
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
+
+    // Disable interactive behaviors
+    main_plot_proj_y.cross_line_pause_flag = false;
+    if (typeof main_plot_proj_y.allow_right_click === 'function') {
+        main_plot_proj_y.allow_right_click(false);
+    }
 }
 
 function handle_proj_y_response(data, type) {

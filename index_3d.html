@@ -29,12 +29,19 @@
 
         <span id="contour_message"></span>
         <span id="webassembly_message"></span>
-        <div id="log_area_3d" class="drop-area-neighbor" style="width: 98%; box-sizing: border-box; padding: 8px; margin-top: 8px;">
-            <div style="display:flex; align-items:center; justify-content:space-between;">
-                <strong>3D Processing Log</strong>
-                <button type="button" id="button_clear_log_3d">Clear Log</button>
+        <div id="log_area_3d" class="drop-area-neighbor"
+            style="position: fixed; top: 20px; left: 20px; width: 450px; height: 250px; box-sizing: border-box; padding: 10px; z-index: 9999; background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.2); border: 1px solid #ccc; border-radius: 8px; display: none; resize: both; overflow: hidden; min-width: 200px; min-height: 100px;">
+            <div id="log_area_3d_header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 5px; cursor: move; user-select: none;">
+                <strong onclick="toggle_log_minimize()">3D Processing Log</strong>
+                <div style="flex-shrink: 0;">
+                    <button type="button" onclick="clear_3d_log()" id="button_clear_log_3d"
+                        style="font-size: 11px; padding: 2px 6px;">Clear</button>
+                    <button type="button" onclick="toggle_log_minimize()" id="button_minimize_log_3d"
+                        style="font-size: 11px; padding: 2px 6px; margin-left: 5px;">—</button>
+                </div>
             </div>
-            <textarea id="log" style="width:100%; height:140px; margin-top:6px; font-family: Consolas, 'Courier New', monospace;"></textarea>
+            <textarea id="log"
+                style="width:100%; height: calc(100% - 30px); font-family: Consolas, 'Courier New', monospace; font-size: 12px; border: 1px solid #eee; border-radius: 4px; resize: none; box-sizing: border-box;"></textarea>
         </div>
 
         <div id="section1" style=" Padding: 10px; width: 100%">
@@ -46,20 +53,27 @@
 
         <div id="section2">
 
-            <div id="fid_file_area" class="drop-area-neighbor" style="width: 98%; box-sizing: border-box; overflow: clip; height: auto;">
+            <div id="fid_file_area" class="drop-area-neighbor"
+                style="width: 98%; box-sizing: border-box; overflow: clip; height: auto;">
                 <span>
-                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time domain data for processing (3D)</p>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
+                        domain data for processing (3D)</p>
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
-                        <label for="fid_file">fid file (required, usually called ser): </label><input type="file" name="fid_file" id="fid_file" multiple><br>
-                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called acqus):</label>
+                        <label for="fid_file">fid file (required, usually called ser): </label><input type="file"
+                            name="fid_file" id="fid_file" multiple><br>
+                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called
+                            acqus):</label>
                         <input type="file" name="acquisition_file" id="acquisition_file"><br>
-                        <label for="acquisition_file2">Indirect dimension 1 acquisition file (required, usually called acqu2s): </label>
+                        <label for="acquisition_file2">Indirect dimension 1 acquisition file (required, usually called
+                            acqu2s): </label>
                         <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
-                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (required, usually called acqu3s): </label>
+                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (required, usually called
+                            acqu3s): </label>
                         <input type="file" name="acquisition_file3" id="acquisition_file3"><br>
-                        <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist): </label>
+                        <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist):
+                        </label>
                         <input type="file" name="nuslist_file" id="nuslist_file"><br>
                         <span class="information"> You can also drag and drop Bruker folder.</span><br>
                     </div>
@@ -69,47 +83,67 @@
                         <div><strong>Direct Dimension:</strong></div>
                         <span>
                             <label for="apodization_direct">Apodization </label>
-                            <input type="text" name="apodization_direct" id="apodization_direct" value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 0.5" size="40">
+                            <input type="text" name="apodization_direct" id="apodization_direct"
+                                value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 0.5" size="40">
                             <label for="zf_direct">Zero filling </label>
                             <select name="zf_direct" id="zf_direct">
-                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                                <option value="1">1</option>
+                                <option value="2" selected>2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
                             </select>
                             <label for="phase_correction_direct_p0">P0: </label>
-                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0" value="27.9" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_direct_p0" id="phase_correction_direct_p0"
+                                value="27.9" step="any" style="width: 60px;">
                             <label for="phase_correction_direct_p1">P1: </label>
-                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1" value="59.1" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
+                                value="59.1" step="any" style="width: 60px;">
                             <label for="extract_direct_from">Extract(ppm): from </label>
-                            <input type="number" name="extract_direct_from" id="extract_direct_from" value="11.3" step="any" style="width: 50px;">
+                            <input type="number" name="extract_direct_from" id="extract_direct_from" value="11.3"
+                                step="any" style="width: 50px;">
                             <label for="extract_direct_to">to</label>
-                            <input type="number" name="extract_direct_to" id="extract_direct_to" value="5.2" step="any" style="width: 50px;">
+                            <input type="number" name="extract_direct_to" id="extract_direct_to" value="5.2" step="any"
+                                style="width: 50px;">
                         </span><br>
                         <!-- Options for Indirect 1 -->
                         <div><strong>Indirect Dimension 1 (F1):</strong></div>
                         <span>
                             <label for="apodization_indirect1">Apodization </label>
-                            <input type="text" name="apodization_indirect1" id="apodization_indirect1" value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 1.0" size="40">
+                            <input type="text" name="apodization_indirect1" id="apodization_indirect1"
+                                value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 1.0" size="40">
                             <label for="zf_indirect1">Zero filling </label>
                             <select name="zf_indirect1" id="zf_indirect1">
-                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                                <option value="1">1</option>
+                                <option value="2" selected>2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
                             </select>
                             <label for="phase_correction_indirect1_p0">P0: </label>
-                            <input type="number" name="phase_correction_indirect1_p0" id="phase_correction_indirect1_p0" value="90" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_indirect1_p0" id="phase_correction_indirect1_p0"
+                                value="90" step="any" style="width: 60px;">
                             <label for="phase_correction_indirect1_p1">P1: </label>
-                            <input type="number" name="phase_correction_indirect1_p1" id="phase_correction_indirect1_p1" value="0" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_indirect1_p1" id="phase_correction_indirect1_p1"
+                                value="0" step="any" style="width: 60px;">
                         </span><br>
                         <!-- Options for Indirect 2 -->
                         <div><strong>Indirect Dimension 2 (F3):</strong></div>
                         <span>
                             <label for="apodization_indirect2">Apodization </label>
-                            <input type="text" name="apodization_indirect2" id="apodization_indirect2" value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 1.0" size="40">
+                            <input type="text" name="apodization_indirect2" id="apodization_indirect2"
+                                value="sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 1.0" size="40">
                             <label for="zf_indirect2">Zero filling </label>
                             <select name="zf_indirect2" id="zf_indirect2">
-                                <option value="1">1</option><option value="2" selected>2</option><option value="4">4</option><option value="8">8</option>
+                                <option value="1">1</option>
+                                <option value="2" selected>2</option>
+                                <option value="4">4</option>
+                                <option value="8">8</option>
                             </select>
                             <label for="phase_correction_indirect2_p0">P0: </label>
-                            <input type="number" name="phase_correction_indirect2_p0" id="phase_correction_indirect2_p0" value="0" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_indirect2_p0" id="phase_correction_indirect2_p0"
+                                value="0" step="any" style="width: 60px;">
                             <label for="phase_correction_indirect2_p1">P1: </label>
-                            <input type="number" name="phase_correction_indirect2_p1" id="phase_correction_indirect2_p1" value="0" step="any" style="width: 60px;">
+                            <input type="number" name="phase_correction_indirect2_p1" id="phase_correction_indirect2_p1"
+                                value="0" step="any" style="width: 60px;">
                         </span><br>
                         <!-- Polynomial / Process Radio -->
                         <span>
@@ -117,19 +151,22 @@
                             <input type="text" id="td_polynomial_order_3d" value="4 -1 -1" size="14">
                             &nbsp;&nbsp;
                             <label for="frq_polynomial_order_3d">Poly f2 (f2 f1 f3): </label>
-                            <input type="text" id="frq_polynomial_order_3d" value="-1 2 2" size="14">
+                            <input type="text" id="frq_polynomial_order_3d" value="2 2 2" size="14">
                             &nbsp;&nbsp;
-                            <span>Processing mode: automatic (full process, or NUS direct->SMILE->indirect when nuslist is provided)</span>
+                            <span>Processing mode: automatic (full process, or NUS direct->SMILE->indirect when nuslist
+                                is provided)</span>
                         </span>
                         <br>
                         <span>
                             <input type="checkbox" id="nus_direct_dim_auto_phase_3d">
-                            <label for="nus_direct_dim_auto_phase_3d">Direct dimension automatic phase correction (NUS)</label>
+                            <label for="nus_direct_dim_auto_phase_3d">Direct dimension automatic phase correction
+                                (NUS)</label>
                         </span>
                         <br>
                         <span>
                             <input type="checkbox" id="debug_nus_process_like_normal_3d">
-                            <label for="debug_nus_process_like_normal_3d">Debug: for NUS, run full_process like normal 3D (skip step1/SMILE/step2)</label>
+                            <label for="debug_nus_process_like_normal_3d">Debug: for NUS, run full_process like normal
+                                3D (skip step1/SMILE/step2)</label>
                         </span>
                         <br>
                         <span>
@@ -137,17 +174,14 @@
                             <label for="keep_direct_imag_data_3d">Keep direct dimension imaginary data</label>
                         </span>
                         <br>
-                        <span>
-                            <input type="checkbox" id="pause_cursor">
-                            <label for="pause_cursor">Pause the cursor</label>
-                            <input type="checkbox" id="right_click" checked>
-                            <label for="right_click">Right click</label>
-                        </span>
                     </div>
-                    <button type="button" id="button_toggle_options" onclick="const e=document.getElementById('input_options'); e.style.display=e.style.display==='none'?'block':'none';">Options...</button>
+                    <button type="button" id="button_toggle_options"
+                        onclick="const e=document.getElementById('input_options'); e.style.display=e.style.display==='none'?'block':'none';">Options...</button>
 
-                    <input type="submit" id="button_fid_process_3d" name="button_fid_process_3d" value="Upload and Process 3D FID">
-                    <button type="button" id="button_download_ft3_processed" style="display: none; margin-left: 10px;">Download Processed .ft3</button>
+                    <input type="submit" id="button_fid_process_3d" name="button_fid_process_3d"
+                        value="Upload and Process 3D FID">
+                    <button type="button" id="button_download_ft3_processed"
+                        style="display: none; margin-left: 10px;">Download Processed .ft3</button>
                     <br>
                 </form>
             </div>
@@ -170,7 +204,8 @@
                         <form id="ft3_file_form" action="" enctype="multipart/form-data">
                             <label for="userfile_ft3">Select a single 3D spectral file (.ft3): </label>
                             <input type="file" id="userfile_ft3" accept=".ft3"><br>
-                            <span class="information"> The file must contain a single 2D header followed by concatenated planes.</span><br>
+                            <span class="information"> The file must contain a single 2D header followed by concatenated
+                                planes.</span><br>
                             <input type="submit" id="button_ft3_process" value="Upload and Process .ft3 Spectrum"></br>
                         </form>
                     </div>
@@ -192,7 +227,11 @@
                 </div>
             </div>
 
-            <div id="spectra_list" style=" Padding: 10px; width: 98%; box-sizing: border-box; display:none;" class="drop-area-neighbor">
+            <div id="aux_buttons" style=" Padding: 10px; width: 98%; box-sizing: border-box; display:none;"
+                class="drop-area-neighbor">
+                <button id="button_save_ft3" onclick="download_ft3()">Save as .ft3</button>
+                <button onclick="visualize_3d()">Visualize 3D</button>
+                <button onclick="visualize_proj()">Visualize Proj</button>
                 <!-- Hidden list, used by myplot if needed, or we might not use it -->
                 <ol id="spectra_list_ol" type="1"></ol>
             </div>
@@ -200,36 +239,46 @@
             <!-- Slice Control -->
             <!-- Slice Control Moved to Main Plot Area -->
 
-            <div class="flex-container" id="main_plot_area" style="display:none; flex-direction: column; gap: 30px; align-items: center;">
+            <div class="flex-container" id="main_plot_area"
+                style="display:none; flex-direction: column; gap: 30px; align-items: center;">
 
                 <!-- Section 1: Original Views (2D and 1D) -->
-                <div id="container_original_views" style="width: 98%; box-sizing: border-box; border: 2px solid #666; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-                    <h2 style="text-align: center; margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px;">Standard Orthogonal Views</h2>
-                    
-                    <div id="trace_plots_area" style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center; width: 100%; margin-top: 10px; margin-bottom: 20px;">
+                <div id="container_original_views"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #666; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px;">
+                        Standard Orthogonal Views</h2>
+
+                    <div id="trace_plots_area"
+                        style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center; width: 100%; margin-top: 10px; margin-bottom: 20px;">
                         <!-- Trace Z -->
-                        <div style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
+                        <div
+                            style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                            <div
+                                style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
                                 1D Trace Along Z (at XY center)
                             </div>
                             <svg id="trace_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
                         <!-- Trace Y -->
-                        <div style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
+                        <div
+                            style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                            <div
+                                style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
                                 1D Trace Along Y (at XZ center)
                             </div>
                             <svg id="trace_y_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
                         <!-- Trace X -->
-                        <div style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                        <div
+                            style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
+                            <div
+                                style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
                                 <span>1D Trace Along X (at YZ center)</span>
                                 <span style="font-weight: normal; font-size: 11px;">
-                                    P0: <span id="trace_x_ph0_val">0.0</span>, 
-                                    P1: <span id="trace_x_ph1_val">0.0</span>, 
+                                    P0: <span id="trace_x_ph0_val">0.0</span>,
+                                    P1: <span id="trace_x_ph1_val">0.0</span>,
                                     Pivot: <span id="trace_x_pivot_val">not set</span>
-                                    <button onclick="apply_trace_phase()" style="margin-left: 5px; font-size: 10px; padding: 0 4px;">Apply</button>
                                 </span>
                             </div>
                             <svg id="trace_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
@@ -237,47 +286,65 @@
                     </div>
 
                     <div id="plot" style="padding: 10px;">
-                        <div style="margin-bottom: 15px; text-align: center; background: #f0f0f0; padding: 10px; border-radius: 6px;">
+                        <div
+                            style="margin-bottom: 15px; text-align: center; background: #f0f0f0; padding: 10px; border-radius: 6px;">
                             <strong>Global Controls:</strong>
                             <button onclick="resetzoom()">Reset all Zoom</button>
                             <button onclick="popzoom()">Zoom Back</button>
                             <label for="plot_font_size">Plot font size: </label>
                             <input type="number" id="plot_font_size" value="24" min="12" max="72">
                             <button onclick="download_plot()">Download plot</button>
-                            <button id="button_save_ft3" onclick="download_ft3()">Save as .ft3</button>
-                            <button onclick="visualize_3d()">Visualize 3D</button>
+                            <button onclick="apply_trace_phase()"
+                                style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply
+                                Phase</button>
                             <br>
-                            <div style="display:inline-block; margin: 5px; padding: 4px 10px; border: 1px solid #ccc; background: #fdfdfd; border-radius: 4px; font-size: 14px;">
-                                <span id="global_noise_level_display" style="font-weight: bold; color: #555;">Noise: -</span>
+                            <div
+                                style="display:inline-block; margin: 5px; padding: 4px 10px; border: 1px solid #ccc; background: #fdfdfd; border-radius: 4px; font-size: 14px;">
+                                <span id="global_noise_level_display" style="font-weight: bold; color: #555;">Noise:
+                                    -</span>
                             </div>
-                            <label for="contour_start_multiplier" style="font-weight: bold; margin-left: 10px;">Lowest level (x noise): </label>
-                            <input type="number" id="contour_start_multiplier" value="10.0" step="0.5" style="width: 60px;">
-                            <label for="contour_scale_factor" style="font-weight: bold; margin-left: 10px;">Scale factor: </label>
+                            <label for="contour_start_multiplier" style="font-weight: bold; margin-left: 10px;">Lowest
+                                level (x noise): </label>
+                            <input type="number" id="contour_start_multiplier" value="10.0" step="0.5"
+                                style="width: 60px;">
+                            <label for="contour_scale_factor" style="font-weight: bold; margin-left: 10px;">Scale
+                                factor: </label>
                             <input type="number" id="contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
                             <button onclick="update_contour_levels()">Update Contours</button>
                         </div>
 
-                        <div style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                        <div
+                            style="display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; justify-content: center;">
                             <!-- XY Plane -->
-                            <div style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
+                            <div
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
                                 <h4>XY Plane</h4>
-                                <div id="slice_control_area" style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
+                                <div id="slice_control_area"
+                                    style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
                                     <label for="slice_slider" style="font-weight: bold;">Z-Plane: </label>
                                     <button id="prev_slice">&lt;</button>
-                                    <input type="range" id="slice_slider" min="0" max="0" value="0" style="width: 200px; vertical-align: middle;">
+                                    <input type="range" id="slice_slider" min="0" max="0" value="0"
+                                        style="width: 200px; vertical-align: middle;">
                                     <button id="next_slice">&gt;</button>
                                     <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent" class="resizable" style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar" style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                <div id="vis_parent" class="resizable"
+                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor">Information</span>
                                     </div>
-                                    <div id="canvas_parent" style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas id="canvas1"></canvas></div>
-                                    <div id="svg_parent" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg id="visualization"></svg></div>
+                                    <div id="canvas_parent"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas1"></canvas></div>
+                                    <div id="svg_parent"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization"></svg></div>
                                 </div>
                             </div>
                             <!-- XZ Plane -->
-                            <div id="main_plot_area_xz" style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
+                            <div id="main_plot_area_xz"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
                                 <h4>XZ Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
@@ -286,16 +353,23 @@
                                     <button id="next_slice_xz">&gt;</button>
                                     <span id="val_xz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent_xz" class="resizable" style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar" style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                <div id="vis_parent_xz" class="resizable"
+                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_xz">Information</span>
                                     </div>
-                                    <div id="canvas_parent_xz" style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas id="canvas_xz"></canvas></div>
-                                    <div id="svg_parent_xz" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg id="visualization_xz"></svg></div>
+                                    <div id="canvas_parent_xz"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_xz"></canvas></div>
+                                    <div id="svg_parent_xz"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_xz"></svg></div>
                                 </div>
                             </div>
                             <!-- YZ Plane -->
-                            <div id="main_plot_area_yz" style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
+                            <div id="main_plot_area_yz"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
                                 <h4>YZ Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
@@ -304,12 +378,18 @@
                                     <button id="next_slice_yz">&gt;</button>
                                     <span id="val_yz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent_yz" class="resizable" style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar" style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                <div id="vis_parent_yz" class="resizable"
+                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_yz">Information</span>
                                     </div>
-                                    <div id="canvas_parent_yz" style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas id="canvas_yz"></canvas></div>
-                                    <div id="svg_parent_yz" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg id="visualization_yz"></svg></div>
+                                    <div id="canvas_parent_yz"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_yz"></canvas></div>
+                                    <div id="svg_parent_yz"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_yz"></svg></div>
                                 </div>
                             </div>
                         </div>
@@ -317,45 +397,65 @@
                 </div>
 
                 <!-- Section 2: Projected 2D View -->
-                <div id="container_projection_view" style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-                    <h2 style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">Z-Projection (Averaged) View</h2>
-                    
-                    <div style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
+                <div id="container_projection_view"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
+                        Z-Projection (Averaged) View</h2>
+
+                    <div
+                        style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
                         <!-- Trace for Projection -->
                         <div style="display: flex; flex-direction: column; gap: 10px;">
-                             <div style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
-                                <div id="trace_proj_x_label" style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
+                            <div
+                                style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
+                                <div id="trace_proj_x_label"
+                                    style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
                                     <span>1D Trace Along X (at Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
-                                        P0: <span id="trace_proj_x_ph0_val">0.0</span>, 
-                                        P1: <span id="trace_proj_x_ph1_val">0.0</span>, 
+                                        P0: <span id="trace_proj_x_ph0_val">0.0</span>,
+                                        P1: <span id="trace_proj_x_ph1_val">0.0</span>,
                                         Pivot: <span id="trace_proj_x_pivot_val">not set</span>
-                                        <button onclick="apply_trace_phase()" style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply Phase</button>
+                                        <button onclick="apply_trace_phase()"
+                                            style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply
+                                            Phase</button>
                                     </span>
                                 </div>
                                 <svg id="trace_proj_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                             </div>
 
-                            <div id="main_plot_area_proj" style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
+                            <div id="main_plot_area_proj"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
                                 <h4>XY Projection</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <span style="font-weight: bold;">Full Z-Range Average</span>
                                 </div>
-                                <div id="proj_contour_controls" style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
+                                <div id="proj_contour_controls"
+                                    style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
                                     <span id="proj_noise_level_display" style="font-weight: bold;">Proj. Noise: -</span>
                                     <button onclick="estimate_proj_noise()">Estimate Noise</button>
-                                    <label>Start (x noise): </label><input type="number" id="proj_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
-                                    <label>Scale: </label><input type="number" id="proj_contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
+                                    <label>Start (x noise): </label><input type="number"
+                                        id="proj_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
+                                    <label>Scale: </label><input type="number" id="proj_contour_scale_factor"
+                                        value="1.4" step="0.05" style="width: 50px;">
                                     <button onclick="update_proj_contour_levels()">Update</button>
-                                    <button onclick="apply_trace_phase()" style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply Phase</button>
+                                    <button onclick="apply_trace_phase()"
+                                        style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply
+                                        Phase</button>
                                     <button onclick="reset_proj_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
-                                <div id="vis_parent_proj" class="resizable" style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar" style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                <div id="vis_parent_proj" class="resizable"
+                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_proj">Information</span>
                                     </div>
-                                    <div id="canvas_parent_proj" style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas id="canvas_proj"></canvas></div>
-                                    <div id="svg_parent_proj" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg id="visualization_proj"></svg></div>
+                                    <div id="canvas_parent_proj"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_proj"></canvas></div>
+                                    <div id="svg_parent_proj"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_proj"></svg></div>
                                 </div>
                             </div>
                         </div>
@@ -363,45 +463,67 @@
                 </div>
 
                 <!-- Section 3: Projected 2D View (Y-Projection) -->
-                <div id="container_projection_y_view" style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 30px;">
-                    <h2 style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">Y-Projection (Averaged) View</h2>
-                    
-                    <div style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
+                <div id="container_projection_y_view"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 30px; display: none;">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
+                        Y-Projection (Averaged) View</h2>
+
+                    <div
+                        style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
                         <!-- Trace for Projection Y -->
                         <div style="display: flex; flex-direction: column; gap: 10px;">
-                             <div style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
-                                <div id="trace_proj_y_x_label" style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
+                            <div
+                                style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
+                                <div id="trace_proj_y_x_label"
+                                    style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
                                     <span>1D Trace Along X (at Y-Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
-                                        P0: <span id="trace_proj_y_x_ph0_val">0.0</span>, 
-                                        P1: <span id="trace_proj_y_x_ph1_val">0.0</span>, 
+                                        P0: <span id="trace_proj_y_x_ph0_val">0.0</span>,
+                                        P1: <span id="trace_proj_y_x_ph1_val">0.0</span>,
                                         Pivot: <span id="trace_proj_y_x_pivot_val">not set</span>
-                                        <button onclick="apply_trace_phase()" style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply Phase</button>
+                                        <button onclick="apply_trace_phase()"
+                                            style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply
+                                            Phase</button>
                                     </span>
                                 </div>
                                 <svg id="trace_proj_y_x_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                             </div>
 
-                            <div id="main_plot_area_proj_y" style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
+                            <div id="main_plot_area_proj_y"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
                                 <h4>XZ Projection</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <span style="font-weight: bold;">Full Y-Range Average</span>
                                 </div>
-                                <div id="proj_y_contour_controls" style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
-                                    <span id="proj_y_noise_level_display" style="font-weight: bold;">Proj Y Noise: -</span>
+                                <div id="proj_y_contour_controls"
+                                    style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
+                                    <span id="proj_y_noise_level_display" style="font-weight: bold;">Proj Y Noise:
+                                        -</span>
                                     <button onclick="estimate_proj_y_noise()">Estimate Noise</button>
-                                    <label>Start (x noise): </label><input type="number" id="proj_y_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
-                                    <label>Scale: </label><input type="number" id="proj_y_contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
+                                    <label>Start (x noise): </label><input type="number"
+                                        id="proj_y_contour_start_multiplier" value="10.0" step="0.5"
+                                        style="width: 50px;">
+                                    <label>Scale: </label><input type="number" id="proj_y_contour_scale_factor"
+                                        value="1.4" step="0.05" style="width: 50px;">
                                     <button onclick="update_proj_y_contour_levels()">Update</button>
-                                    <button onclick="apply_trace_phase()" style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply Phase</button>
+                                    <button onclick="apply_trace_phase()"
+                                        style="background-color: #2a9d8f; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 10px; font-weight: bold;">Apply
+                                        Phase</button>
                                     <button onclick="reset_proj_y_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
-                                <div id="vis_parent_proj_y" class="resizable" style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar" style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                <div id="vis_parent_proj_y" class="resizable"
+                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_proj_y">Information</span>
                                     </div>
-                                    <div id="canvas_parent_proj_y" style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas id="canvas_proj_y"></canvas></div>
-                                    <div id="svg_parent_proj_y" style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg id="visualization_proj_y"></svg></div>
+                                    <div id="canvas_parent_proj_y"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_proj_y"></canvas></div>
+                                    <div id="svg_parent_proj_y"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_proj_y"></svg></div>
                                 </div>
                             </div>
                         </div>
@@ -409,39 +531,60 @@
                 </div>
 
                 <!-- Section 4: 3D Visualization -->
-                <div id="container_3d_view" style="width: 98%; box-sizing: border-box; border: 2px solid #e76f51; padding: 20px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-                    <h2 style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #f4a261; padding-bottom: 10px;">3D Isosurface Visualization</h2>
-                    
-                    <div id="main_plot_area_3d" style="display:flex; flex-direction:column; align-items: center; width: 100%;">
-                        <div style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px; background: #f8f8f8; padding: 15px; border-radius: 8px; border: 1px solid #eee; width: 100%; justify-content: center; align-items: center;">
+                <div id="container_3d_view"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #e76f51; padding: 2px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #f4a261; padding-bottom: 2px;">
+                        3D Isosurface Visualization</h2>
+
+                    <div id="main_plot_area_3d"
+                        style="display:flex; flex-direction:column; align-items: center; width: 100%;">
+                        <div
+                            style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px; background: #f8f8f8; padding: 2px; border-radius: 8px; border: 1px solid #eee; width: 100%; justify-content: center; align-items: center;">
                             <button onclick="reset_3d_view()">Reset View</button>
                             <button onclick="center_3d_on_slices()">Set 3D Center</button>
-                            <div style="font-weight: bold; border: 1px solid #ccc; padding: 5px 10px; border-radius: 4px; background: #fff;">Center: <span id="center_info">-</span></div>
-                            
-                            <div style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 20px;">
-                                <label style="font-weight: bold;">Solid (Red):</label><input type="number" id="iso_solid_level" style="width: 80px;">
-                                <label style="font-weight: bold;">Mesh (Blue):</label><input type="number" id="iso_wire_level" style="width: 80px;">
+                            <div
+                                style="font-weight: bold; border: 1px solid #ccc; padding: 2px 2px; border-radius: 4px; background: #fff;">
+                                Center: <span id="center_info">-</span></div>
+
+                            <div
+                                style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 20px;">
+                                <label style="font-weight: bold;">Solid (Red):</label><input type="number"
+                                    id="iso_solid_level" style="width: 80px;">
+                                <label style="font-weight: bold;">Mesh (Blue):</label><input type="number"
+                                    id="iso_wire_level" style="width: 80px;">
                                 <button onclick="update_3d_view()">Update Isosurface</button>
                             </div>
-                            
-                            <div style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 20px;">
+
+                            <div
+                                style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 2px;">
                                 <label>Peak Size:</label>
-                                <input type="range" id="iso_peak_slider" min="0.002" max="0.03" step="0.001" value="0.015" style="width: 100px;">
-                                <input type="number" id="iso_peak_input" style="width: 65px;" min="0.002" max="0.03" step="0.001" value="0.015">
+                                <input type="range" id="iso_peak_slider" min="0.002" max="0.03" step="0.001"
+                                    value="0.015" style="width: 100px;">
+                                <input type="number" id="iso_peak_input" style="width: 65px;" min="0.002" max="0.03"
+                                    step="0.001" value="0.015">
                             </div>
                         </div>
 
-                        <div id="loading_3d" style="display:none; color: #e76f51; font-weight: bold; margin-bottom: 10px; font-size: 18px;">
+                        <div id="loading_3d"
+                            style="display:none; color: #e76f51; font-weight: bold; margin-bottom: 10px; font-size: 18px;">
                             <span class="spinner"></span> Processing 3D Geometry...
                         </div>
 
-                        <div style="display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center;">
-                            <div id="vis_parent_3d" class="resizable" style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden;">
-                                <h5 style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Experimental 3D</h5>
+                        <div
+                            style="display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center;">
+                            <div id="vis_parent_3d" class="resizable"
+                                style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
+                                <h5
+                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
+                                    Experimental 3D</h5>
                                 <canvas id="canvas_3d" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
-                            <div id="vis_parent_3d_recon" class="resizable" style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden;">
-                                <h5 style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Reconstructed 3D</h5>
+                            <div id="vis_parent_3d_recon" class="resizable"
+                                style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
+                                <h5
+                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
+                                    Reconstructed 3D</h5>
                                 <canvas id="canvas_3d_recon" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
                         </div>
@@ -458,46 +601,47 @@
                     <svg id="cross_section_svg_x"></svg><svg id="cross_section_svg_y"></svg>
                     <input type="checkbox" id="show_peak_label"><input type="checkbox" id="filled_peaks">
                     <input type="number" id="peak_size"><input type="number" id="peak_label_size">
-                    <input type="radio" name="select_plot_1d" value="projection"><input type="radio" name="select_plot_1d" value="cross_section">
+                    <input type="radio" name="select_plot_1d" value="projection"><input type="radio"
+                        name="select_plot_1d" value="cross_section">
                 </div>
             </div>
 
-                        <!-- Hidden pop up div -->
-                        <div id="peak_information_div" class="popup_div" style="display: block">
-                            <div id="pseudo3d_fitting_plot"></div>
-                        </div>
+            <!-- Hidden pop up div -->
+            <div id="peak_information_div" class="popup_div" style="display: block">
+                <div id="pseudo3d_fitting_plot"></div>
+            </div>
 
-                        <!-- dummy elements to prevent JS errors if referenced by shared code -->
-                        <div style="display:none;">
-                            <input type="file" id="load_file">
-                            <input type="file" id="pseudo3d_file">
-                            <button id="button_download_fitted_peaks"></button>
-                            <input type="file" id="assignment_file">
-                            <input type="hidden" id="plot_group" value="1">
-                        </div>
+            <!-- dummy elements to prevent JS errors if referenced by shared code -->
+            <div style="display:none;">
+                <input type="file" id="load_file">
+                <input type="file" id="pseudo3d_file">
+                <button id="button_download_fitted_peaks"></button>
+                <input type="file" id="assignment_file">
+                <input type="hidden" id="plot_group" value="1">
+            </div>
 
-                        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
-                        <script type="text/javascript" src="js/webgl-utils.js"></script>
-                        <script type="text/javascript" src="js/d3.7.min.js"></script>
-                        <script type="text/javascript" src="js/ldwmath.js"></script>
-                        <script type="text/javascript" src="js/m3.js"></script>
-                        <script type="text/javascript" src="js/myplot/myplot_webgl.js"></script>
-                        <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
-                        <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
-                        <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
-                        <script type="text/javascript" src="js/peaks.js"></script>
-                        <script type="text/javascript" src="js/spectrum.js"></script>
-                        <script type="text/javascript" src="js/file_drop.js"></script>
-                        <script type="text/javascript" src="js/make_table.js"></script>
-                        <!-- 3D Visualization Scripts -->
-                        <script type="text/javascript" src="js/m4.js"></script>
-                        <script type="text/javascript" src="js/marching_cubes_tables.js"></script>
-                        <script type="text/javascript" src="js/marching_cubes.js"></script>
-                        <script type="text/javascript" src="js/webgl_iso_renderer.js"></script>
+            <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+            <script type="text/javascript" src="js/webgl-utils.js"></script>
+            <script type="text/javascript" src="js/d3.7.min.js"></script>
+            <script type="text/javascript" src="js/ldwmath.js"></script>
+            <script type="text/javascript" src="js/m3.js"></script>
+            <script type="text/javascript" src="js/myplot/myplot_webgl.js"></script>
+            <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
+            <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
+            <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
+            <script type="text/javascript" src="js/peaks.js"></script>
+            <script type="text/javascript" src="js/spectrum.js"></script>
+            <script type="text/javascript" src="js/file_drop.js"></script>
+            <script type="text/javascript" src="js/make_table.js"></script>
+            <!-- 3D Visualization Scripts -->
+            <script type="text/javascript" src="js/m4.js"></script>
+            <script type="text/javascript" src="js/marching_cubes_tables.js"></script>
+            <script type="text/javascript" src="js/marching_cubes.js"></script>
+            <script type="text/javascript" src="js/webgl_iso_renderer.js"></script>
 
-                        <!-- Use 3d.js instead of nmrwebview.js -->
-                        <script type="text/javascript" src="js/3d.js"></script>
-                    </div>
+            <!-- Use 3d.js instead of nmrwebview.js -->
+            <script type="text/javascript" src="js/3d.js"></script>
+        </div>
 </body>
 
 </html>
