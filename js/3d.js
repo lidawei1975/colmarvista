@@ -37,6 +37,8 @@ var trace_x_pivot = null;
 var tfjs_normal_model = null;
 var tfjs_large_model = null;
 var current_fid_config = null;
+var auto_p0_3d = null;
+var auto_p1_3d = null;
 
 
 function reset_3d_dataset_state() {
@@ -60,6 +62,9 @@ function reset_3d_dataset_state() {
 
     spectrum_proj_y = null;
     theoretical_spectrum_proj_y = null;
+
+    auto_p0_3d = null;
+    auto_p1_3d = null;
 }
 
 function set_status_message(element_id, text, auto_clear_ms = 0) {
@@ -95,9 +100,21 @@ function clear_status_message(element_id) {
  * This combines all planes in spectra_3d into a single NMRPipe-compatible buffer.
  */
 function download_ft3() {
+    const buffer = create_ft3_buffer();
+    if (!buffer) return;
+
+    const s0 = spectra_3d[0];
+    const outName = (s0.filename || "spectrum").replace(/\.[^/.]+$/, "") + "_processed.ft3";
+    download_binary_file(buffer, outName);
+}
+
+/**
+ * Creates an NMRPipe-compliant FT3 buffer from the currently loaded spectra_3d.
+ */
+function create_ft3_buffer() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectra loaded.");
-        return;
+        return null;
     }
 
     const s0 = spectra_3d[0];
@@ -105,8 +122,6 @@ function download_ft3() {
     const ny = s0.n_indirect;
     const nx = s0.n_direct;
 
-    // Determine complexity from first plane
-    // datatype_direct: 0 means complex, 1 means real
     const has_ri = s0.raw_data_ri && s0.raw_data_ri.length > 0;
     const has_ir = s0.raw_data_ir && s0.raw_data_ir.length > 0;
     const has_ii = s0.raw_data_ii && s0.raw_data_ii.length > 0;
@@ -123,33 +138,26 @@ function download_ft3() {
     const buffer = new ArrayBuffer(total_byte_size);
     const floatView = new Float32Array(buffer);
 
-    // Header Template
     if (s0.header && s0.header.length >= 512) {
         floatView.set(s0.header.subarray(0, 512));
     } else {
-        // Fallback minimal header if missing
         floatView.fill(0, 0, 512);
-        floatView[0] = 0;   // FDMAGIC
-        floatView[1] = 1.0; // FDFLTFORMAT
-        floatView[2] = 2.0; // FDFLTORDER (Little Endian)
+        floatView[1] = 1.0; 
+        floatView[2] = 2.0; 
     }
 
-    // Update 3D Metadata in header
-    floatView[15] = nz;  // FDF3SIZE (Number of planes)
-    floatView[99] = nx;  // FDSIZE (Size of direct dimension)
-    floatView[219] = ny; // FDSPECNUM (Size of indirect dimension 1)
+    floatView[15] = nz; 
+    floatView[99] = nx; 
+    floatView[219] = ny; 
 
-    // Quad flags: 0=Complex, 1=Real
-    floatView[56] = has_ri ? 0 : 1; // FDF2QUADFLAG (Direct)
-    floatView[55] = has_ir ? 0 : 1; // FDF1QUADFLAG (Indirect 1)
-    floatView[51] = (has_ir && has_ii) ? 0 : 1; // FDF3QUADFLAG (Z / Indirect 2) - Approximate logic
+    floatView[56] = has_ri ? 0 : 1; 
+    floatView[55] = has_ir ? 0 : 1; 
+    floatView[51] = (has_ir && has_ii) ? 0 : 1; 
 
-    // Calculate Global Max/Min
     let gMax = -Infinity;
     let gMin = Infinity;
 
-    // Data concatenation loop
-    let floatOffset = 512; // Start after 2048-byte header
+    let floatOffset = 512; 
     for (let z = 0; z < nz; z++) {
         const s = spectra_3d[z];
         const re = s.raw_data;
@@ -161,7 +169,6 @@ function download_ft3() {
             const row_start = y * nx;
             const row_end = (y + 1) * nx;
 
-            // Real Part (RR)
             floatView.set(re.subarray(row_start, row_end), floatOffset);
             for (let i = row_start; i < row_end; i++) {
                 if (re[i] > gMax) gMax = re[i];
@@ -169,7 +176,6 @@ function download_ft3() {
             }
             floatOffset += nx;
 
-            // Imaginary Part (RI) - Complex along Direct
             if (has_ri) {
                 if (ri && ri.length >= row_end) {
                     floatView.set(ri.subarray(row_start, row_end), floatOffset);
@@ -179,7 +185,6 @@ function download_ft3() {
                 floatOffset += nx;
             }
 
-            // Imaginary Part (IR) - Complex along Indirect 1
             if (has_ir) {
                 if (ir && ir.length >= row_end) {
                     floatView.set(ir.subarray(row_start, row_end), floatOffset);
@@ -189,7 +194,6 @@ function download_ft3() {
                 floatOffset += nx;
             }
 
-            // Imaginary Part (II) - Complex along both
             if (has_ii) {
                 if (ii && ii.length >= row_end) {
                     floatView.set(ii.subarray(row_start, row_end), floatOffset);
@@ -201,12 +205,65 @@ function download_ft3() {
         }
     }
 
-    // Final Header Updates
-    floatView[247] = gMax; // FDMAX
-    floatView[248] = gMin; // FDMIN
+    floatView[247] = gMax; 
+    floatView[248] = gMin; 
 
-    const outName = (s0.filename || "spectrum").replace(/\.[^/.]+$/, "") + "_processed.ft3";
-    download_binary_file(buffer, outName);
+    return buffer;
+}
+
+async function run_auto_phase_on_loaded_spectrum() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectra loaded.");
+        return;
+    }
+
+    const has_ri = spectra_3d[0].raw_data_ri && spectra_3d[0].raw_data_ri.length > 0;
+    if (!has_ri) {
+        alert("Auto-phase correction requires imaginary data along the direct dimension. Please reload the spectrum with imaginary data enabled.");
+        return;
+    }
+
+    append_3d_log("[tfjs] Running manual auto phase correction...");
+    try {
+        if (!tfjs_normal_model || !tfjs_large_model) {
+            append_3d_log("[tfjs] Pre-loading models...");
+            if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
+            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
+        }
+
+        const buffer = create_ft3_buffer();
+        if (!buffer) return;
+
+        const result = await NUS3DPhasePipeline.runFromFt3({
+            tf: window.tf,
+            ft3ArrayBuffer: buffer,
+            model: tfjs_normal_model,
+            largeModel: tfjs_large_model,
+        });
+
+        const lr = result.final_wls_phase_left_right[0];
+        const left = lr[0];
+        const right = lr[1];
+
+        append_3d_log(`[tfjs] Auto phase result: left=${left.toFixed(2)}, right=${right.toFixed(2)}`);
+
+        auto_p0_3d = left;
+        auto_p1_3d = right - left;
+
+        document.getElementById('phase_correction_direct_p0').value = auto_p0_3d.toFixed(2);
+        document.getElementById('phase_correction_direct_p1').value = auto_p1_3d.toFixed(2);
+
+        trace_x_ph0 = auto_p0_3d;
+        trace_x_ph1 = auto_p1_3d;
+        trace_x_pivot = spectra_3d[0].x_ppm_start;
+
+        append_3d_log("[tfjs] Applying correction to all planes...");
+        apply_trace_x_phase();
+
+    } catch (err) {
+        console.error(err);
+        append_3d_log("[tfjs-error] Manual auto phase failed: " + err.message);
+    }
 }
 
 var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
@@ -4604,16 +4661,25 @@ async function handle_webass_3d_message(e) {
         pending_nus_cfg_3d = e.data.cfg || null;
 
         append_3d_log('[main] Received half.ft3 from direct-only step, bytes=' + halfBytes.length);
-        // Debug 1 disabled in UI (kept for future use).
-        // if (document.getElementById('debug_save_direct_only_file_3d') && document.getElementById('debug_save_direct_only_file_3d').checked) {
-        //     download_binary_file(halfBytes, 'half_debug.ft3');
-        // }
 
         const smileCommand = build_nus_3d_smile_command(pending_nus_cfg_3d || {}, {
             ft3Bytes: halfBytes,
             ndataIndirect1: Number(e.data.ndataIndirect1),
             ndataIndirect2: Number(e.data.ndataIndirect2)
         });
+
+        // If NUS auto-phase is enabled, bypass SMILE and go straight to step 3 (indirect processing)
+        if (current_fid_config && current_fid_config.nusDirectDimAutoPhase) {
+            append_3d_log("[tfjs] NUS Auto-phase enabled: Bypassing SMILE for fast phase verification...");
+            append_3d_log("[tfjs] Running indirect-only processing on NUS data (treating as fully sampled)...");
+            document.getElementById("webassembly_message").innerText = 'Bypassing SMILE: Running indirect processing...';
+            web_worker_3d.postMessage({
+                "#sym:webassembly_job ": 'process_fid_3d_nus_step3',
+                cfg: pending_nus_cfg_3d,
+                smileFt3Bytes: halfBytes
+            }, [halfBytes.buffer]);
+            return;
+        }
 
         append_3d_log('[main] Sending half.ft3 to SMILE worker');
         append_3d_log('[main] SMILE command: ' + smileCommand);
@@ -4654,8 +4720,8 @@ async function handle_webass_3d_message(e) {
         if (e.data.ft3Bytes) {
             let ft3Data = e.data.ft3Bytes;
 
-            // Auto phase correction for normal workflow
-            if (current_fid_config && current_fid_config.normalDirectDimAutoPhase) {
+            // Auto phase correction for normal workflow (or NUS phase check mode)
+            if (current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
                 append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
                 try {
                     const slicedBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + ft3Data.byteLength);
@@ -4682,21 +4748,11 @@ async function handle_webass_3d_message(e) {
                     
                     append_3d_log(`[tfjs] Auto phase result: left=${left.toFixed(2)}, right=${right.toFixed(2)}`);
                     
-                    const p0 = left;
-                    const p1 = right - left;
+                    auto_p0_3d = left;
+                    auto_p1_3d = right - left;
                     
-                    // We need to apply this phase to the ft3Data before processing it into planes.
-                    // Or we can just set trace_x_ph0/ph1 and call apply_trace_x_phase later?
-                    // No, it's better to apply it now so the initial rendering is correct.
-                    // However, apply_trace_x_phase works on spectra_3d.
-                    // Let's just set the UI values so the user sees what happened, and then we'll apply it to spectra_3d after they are created.
-                    
-                    document.getElementById('phase_correction_direct_p0').value = p0.toFixed(2);
-                    document.getElementById('phase_correction_direct_p1').value = p1.toFixed(2);
-                    
-                    // We will apply it to spectra_3d after the loop.
-                    var auto_p0 = p0;
-                    var auto_p1 = p1;
+                    document.getElementById('phase_correction_direct_p0').value = auto_p0_3d.toFixed(2);
+                    document.getElementById('phase_correction_direct_p1').value = auto_p1_3d.toFixed(2);
                 } catch (err) {
                     append_3d_log("[tfjs-error] " + err.message);
                     console.error(err);
@@ -4789,10 +4845,11 @@ async function handle_webass_3d_message(e) {
 
             draw_slice(0);
 
-            if (typeof auto_p0 !== 'undefined' && typeof auto_p1 !== 'undefined') {
+            // Auto-apply direct phase correction if it was calculated (Normal or NUS)
+            if (auto_p0_3d !== null && auto_p1_3d !== null) {
                 append_3d_log("[tfjs] Applying auto phase correction to all planes...");
-                trace_x_ph0 = auto_p0;
-                trace_x_ph1 = auto_p1;
+                trace_x_ph0 = auto_p0_3d;
+                trace_x_ph1 = auto_p1_3d;
                 // Set pivot to the start of the spectrum (index 0) to match auto-phase prediction
                 trace_x_pivot = spectra_3d[0].x_ppm_start;
                 apply_trace_x_phase();

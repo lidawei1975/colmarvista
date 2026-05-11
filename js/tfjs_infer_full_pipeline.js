@@ -826,6 +826,13 @@ Intended use in webpage:
 
       const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerTokenFinal, cfg.l2Reg);
 
+      // Log per-token predictions for the first batch (usually only 1 batch)
+      if (phasePerToken.length > 0) {
+        console.log("[tfjs] Per-token local phase:", phasePerToken[0].map(v => v.toFixed(2)));
+        console.log("[tfjs] Per-token weights:", weightPerTokenFinal[0].map(v => v.toFixed(3)));
+        console.log("[tfjs] Stage WLS Left/Right:", leftRight[0].map(v => v.toFixed(2)));
+      }
+
       // cleanup
       cubesTensor.dispose();
       weightTensor.dispose();
@@ -912,6 +919,13 @@ Intended use in webpage:
     const weightPerToken = await weightTensor.array();
     const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerToken, cfg.l2Reg);
 
+    // Log per-token predictions for the first batch
+    if (phasePerToken.length > 0) {
+      console.log("[tfjs] Per-token local phase:", phasePerToken[0].map(v => v.toFixed(2)));
+      console.log("[tfjs] Per-token weights:", weightPerToken.map(v => v.toFixed(3)));
+      console.log("[tfjs] Stage WLS Left/Right:", leftRight[0].map(v => v.toFixed(2)));
+    }
+
     // Clean up
     cubesTensor.dispose();
     rawOutput.dispose();
@@ -984,20 +998,25 @@ Intended use in webpage:
 
     // TENSORFLOW.JS PART: Three-stage inference pipeline
     // Stage 1: run the large model and apply its left/right phase to all cubes
+    console.log("[tfjs] Starting Stage 1: Large Model");
     const largeOut = await runModelOnCubes(tf, largeModel, ext, cfg);
     applyLeftRightToCubes(ext, largeOut.wls_phase_left_right);
 
     // Stage 2: run the normal model, apply its left/right
+    console.log("[tfjs] Starting Stage 2: Normal Model (Iteration 1)");
     const normalOut1 = await runModelOnCubes(tf, normalModel, ext, cfg);
     applyLeftRightToCubes(ext, normalOut1.wls_phase_left_right);
 
     // Stage 3: run the normal model again and return its prediction (final)
+    console.log("[tfjs] Starting Stage 3: Normal Model (Iteration 2)");
     const normalOut2 = await runModelOnCubes(tf, normalModel, ext, cfg);
 
     // PURE JAVASCRIPT PART 2: Combine phase predictions from all stages via WLS fitting
     // Sum left/right from each stage to get final left/right
     const sum01 = addLeftRightArrays(largeOut.wls_phase_left_right, normalOut1.wls_phase_left_right);
     const finalLeftRight = addLeftRightArrays(sum01, normalOut2.wls_phase_left_right);
+
+    console.log("[tfjs] Final combined WLS Left/Right:", finalLeftRight[0].map(v => v.toFixed(2)));
 
     return {
       ft3Meta: exp.meta,
