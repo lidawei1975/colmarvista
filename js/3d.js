@@ -34,6 +34,10 @@ var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
 var trace_x_pivot = null;
 
+var tfjs_normal_model = null;
+var tfjs_large_model = null;
+var current_fid_config = null;
+
 
 function reset_3d_dataset_state() {
     spectra_3d = [];
@@ -4318,6 +4322,7 @@ function build_3d_worker_cfg_from_ui() {
         nusSerInflated: false,
         debugNusRunFullProcess: !!(document.getElementById('debug_nus_process_like_normal_3d') && document.getElementById('debug_nus_process_like_normal_3d').checked),
         nusDirectDimAutoPhase: !!(document.getElementById('nus_direct_dim_auto_phase_3d') && document.getElementById('nus_direct_dim_auto_phase_3d').checked),
+        normalDirectDimAutoPhase: !!(document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked),
         extPpm: [
             parseFloat(document.getElementById('extract_direct_from').value),
             parseFloat(document.getElementById('extract_direct_to').value)
@@ -4543,6 +4548,7 @@ async function load_fid_3d_file() {
         const fidBytes = buffers[0];
         append_3d_log('[main] Input buffers loaded. fidBytes=' + (fidBytes ? fidBytes.byteLength : 0) + ' bytes');
         const cfg = build_3d_worker_cfg_from_ui();
+        current_fid_config = cfg;
 
         console.log('[3D][fid] cfg prepared', cfg);
         append_3d_log('[main] cfg: zf=(' + cfg.zfDirect + ',' + cfg.zfIndirect1 + ',' + cfg.zfIndirect2 + ')');
@@ -4580,7 +4586,7 @@ async function load_fid_3d_file() {
     }
 }
 
-function handle_webass_3d_message(e) {
+async function handle_webass_3d_message(e) {
     console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
@@ -4647,6 +4653,56 @@ function handle_webass_3d_message(e) {
 
         if (e.data.ft3Bytes) {
             let ft3Data = e.data.ft3Bytes;
+
+            // Auto phase correction for normal workflow
+            if (current_fid_config && current_fid_config.normalDirectDimAutoPhase) {
+                append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
+                try {
+                    const slicedBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + ft3Data.byteLength);
+                    const result = await NUS3DPhasePipeline.runFromFt3({
+                        tf: window.tf,
+                        ft3ArrayBuffer: slicedBuffer,
+                        model: tfjs_normal_model,
+                        largeModel: tfjs_large_model,
+                        modelUrl: 'js/model21_tfjs/model.json',
+                        largeModelUrl: 'js/model21_large_tfjs/model.json'
+                    });
+                    
+                    // Cache models if they were loaded inside the pipeline
+                    if (!tfjs_normal_model && result.stage_normal_1 && result.stage_normal_1.model) {
+                        // Wait, looking at tfjs_infer_full_pipeline.js, it doesn't return the model in stage_normal_1.
+                        // I'll have to load them manually if I want to cache them easily, or modify the pipeline.
+                        // But let's check if they are returned. Stage_normal_1 is the result of runModelOnCubes.
+                        // runModelOnCubes returns { pred_local_phase, pred_local_w, wls_phase_left_right }. No model.
+                    }
+                    
+                    const lr = result.final_wls_phase_left_right[0]; // Batch 0
+                    const left = lr[0];
+                    const right = lr[1];
+                    
+                    append_3d_log(`[tfjs] Auto phase result: left=${left.toFixed(2)}, right=${right.toFixed(2)}`);
+                    
+                    const p0 = left;
+                    const p1 = right - left;
+                    
+                    // We need to apply this phase to the ft3Data before processing it into planes.
+                    // Or we can just set trace_x_ph0/ph1 and call apply_trace_x_phase later?
+                    // No, it's better to apply it now so the initial rendering is correct.
+                    // However, apply_trace_x_phase works on spectra_3d.
+                    // Let's just set the UI values so the user sees what happened, and then we'll apply it to spectra_3d after they are created.
+                    
+                    document.getElementById('phase_correction_direct_p0').value = p0.toFixed(2);
+                    document.getElementById('phase_correction_direct_p1').value = p1.toFixed(2);
+                    
+                    // We will apply it to spectra_3d after the loop.
+                    var auto_p0 = p0;
+                    var auto_p1 = p1;
+                } catch (err) {
+                    append_3d_log("[tfjs-error] " + err.message);
+                    console.error(err);
+                }
+            }
+
             let headerBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
             let header = new Float32Array(headerBuffer, 0, 512);
 
@@ -4733,6 +4789,15 @@ function handle_webass_3d_message(e) {
 
             draw_slice(0);
 
+            if (typeof auto_p0 !== 'undefined' && typeof auto_p1 !== 'undefined') {
+                append_3d_log("[tfjs] Applying auto phase correction to all planes...");
+                trace_x_ph0 = auto_p0;
+                trace_x_ph1 = auto_p1;
+                // Set pivot to the start of the spectrum (index 0) to match auto-phase prediction
+                trace_x_pivot = spectra_3d[0].x_ppm_start;
+                apply_trace_x_phase();
+            }
+
             let s0 = spectra_3d[0];
             init_ortho_plots(s0);
             update_global_noise_level();
@@ -4809,7 +4874,8 @@ function apply_trace_x_phase() {
 
                 let phase_rad;
                 if (trace_x_pivot === null) {
-                    phase_rad = p0_rad;
+                    // Default to pivot at index 0 if not set, but still apply P1 slope
+                    phase_rad = p0_rad + p1_rad * x / nx;
                 } else {
                     phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
                 }
@@ -4885,6 +4951,43 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     setup_2d_plot_resizing();
+
+    // Auto phase correction (Normal) checkbox pre-load
+    const autoDirectNormal = document.getElementById('normal_direct_dim_auto_phase_3d');
+    if (autoDirectNormal) {
+        autoDirectNormal.addEventListener('change', async function() {
+            if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
+                if (!tfjs_normal_model || !tfjs_large_model) {
+                    append_3d_log("[tfjs] Pre-loading models...");
+                    try {
+                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
+                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
+                        append_3d_log("[tfjs] Models loaded successfully.");
+                    } catch (err) {
+                        append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
+                    }
+                }
+            }
+        });
+    }
+
+    const autoDirectNus = document.getElementById('nus_direct_dim_auto_phase_3d');
+    if (autoDirectNus) {
+        autoDirectNus.addEventListener('change', async function() {
+            if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
+                if (!tfjs_normal_model || !tfjs_large_model) {
+                    append_3d_log("[tfjs] Pre-loading models...");
+                    try {
+                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
+                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
+                        append_3d_log("[tfjs] Models loaded successfully.");
+                    } catch (err) {
+                        append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
+                    }
+                }
+            }
+        });
+    }
 });
 
 function setup_2d_plot_resizing() {

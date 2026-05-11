@@ -198,7 +198,7 @@ self.onmessage = async function (event) {
             const fid = new Module.fid_3d();
             try {
                 let delImg = cfg.deleteImage ? [...cfg.deleteImage] : [1, 1, 1];
-                if (cfg && cfg.nusDirectDimAutoPhase) {
+                if (cfg && (cfg.nusDirectDimAutoPhase || cfg.normalDirectDimAutoPhase)) {
                     delImg[0] = 0; // force keep direct dimension imag data
                 }
                 applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [delImg[0], 0, 0] : delImg);

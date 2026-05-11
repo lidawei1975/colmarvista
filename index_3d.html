@@ -159,8 +159,12 @@
                         <br>
                         <span>
                             <input type="checkbox" id="nus_direct_dim_auto_phase_3d">
-                            <label for="nus_direct_dim_auto_phase_3d">Direct dimension automatic phase correction
-                                (NUS)</label>
+                            <label for="nus_direct_dim_auto_phase_3d">Direct dimension automatic phase correction (NUS)</label>
+                        </span>
+                        <br>
+                        <span>
+                            <input type="checkbox" id="normal_direct_dim_auto_phase_3d">
+                            <label for="normal_direct_dim_auto_phase_3d">Direct dimension automatic phase correction (Normal)</label>
                         </span>
                         <br>
                         <span>
@@ -639,7 +643,8 @@
             <script type="text/javascript" src="js/marching_cubes.js"></script>
             <script type="text/javascript" src="js/webgl_iso_renderer.js"></script>
 
-            <!-- Use 3d.js instead of nmrwebview.js -->
+            <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+            <script type="text/javascript" src="js/tfjs_infer_full_pipeline.js"></script>
             <script type="text/javascript" src="js/3d.js"></script>
         </div>
 </body>
