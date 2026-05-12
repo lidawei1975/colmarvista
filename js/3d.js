@@ -1238,6 +1238,11 @@ async function load_ft3_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
     }
 
     document.getElementById("webassembly_message").innerText = "";
@@ -1369,6 +1374,11 @@ async function load_raw_3d_file() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
     }
 
     document.getElementById("webassembly_message").innerText = "";
@@ -1429,6 +1439,11 @@ async function load_files() {
         // Draw first slice
         draw_slice(0);
         update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
     }
 
     document.getElementById("webassembly_message").innerText = "";

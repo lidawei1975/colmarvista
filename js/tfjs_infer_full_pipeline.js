@@ -66,7 +66,7 @@ Intended use in webpage:
     const tf = globalScope.tf;
     const gateCenterVal = 0.5;
     const gateSharpnessVal = 50.0;
-    const minWeightVal = 0.25;
+    const minWeightVal = 0.01;
     const maxWeightVal = 1.0;
 
     return tf.tidy(() => {
@@ -90,7 +90,7 @@ Intended use in webpage:
     // Just return the custom layer classes for TensorFlow.js to use
     const tfi = tf || cachedTf || ensureTf();
     if (!cachedTf) cachedTf = tfi;
-    
+
     if (!customLayerClasses.TransformerBlock) {
       customLayerClasses = createCustomLayerClasses(tfi);
     }
@@ -653,6 +653,44 @@ Intended use in webpage:
             cubes[off + q] *= inv;
           }
         }
+
+        // Debug: Save cubes for token 10 (3*16*16 traces, each with 32 re + 32 im)
+        // Captured AFTER normalization.
+        if (t === 10 && b === 0) {
+          try {
+            console.log("[tfjs-debug] Preparing debug_token10_cubes.txt (NORMALIZED)...");
+            let content = "";
+            for (let k = 0; k < topN; k += 1) {
+              for (let x = 0; x < cubeSizeXY; x += 1) {
+                for (let y = 0; y < cubeSizeXY; y += 1) {
+                  let lineParts = [];
+                  // Extract the central 'tokenWidth' points (the 32 points of the token itself)
+                  for (let dz = 0; dz < tokenWidth; dz += 1) {
+                    const outR = cubeIndex(cubesShape, b, t, k, x, y, directExtend + dz, 0);
+                    lineParts.push(cubes[outR].toFixed(8));
+                  }
+                  for (let dz = 0; dz < tokenWidth; dz += 1) {
+                    const outI = cubeIndex(cubesShape, b, t, k, x, y, directExtend + dz, 1);
+                    lineParts.push(cubes[outI].toFixed(8));
+                  }
+                  content += lineParts.join(" ") + "\n";
+                }
+              }
+            }
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = "debug_token10_cubes.txt";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            console.log("[tfjs-debug] Saved normalized token 10 cubes.");
+          } catch (err) {
+            console.error("[tfjs-debug-error] Failed to save debug file:", err);
+          }
+        }
       }
     }
 
@@ -764,7 +802,9 @@ Intended use in webpage:
     return out;
   }
 
-  async function runModelOnCubes(tf, model, ext, cfg) {
+  async function runModelOnCubes(tf, model, ext, cfg, stageName) {
+    // stageName: optional identifier for debug output (e.g., 'large_model', 'normal_1', 'normal_2')
+    const debugStage = stageName || null;
     const cubesTensor = tf.tensor(ext.cubes, ext.cubesShape, "float32");
 
     // If the model exposes `execute` assume a GraphModel exported with n_tokens=1
@@ -795,8 +835,17 @@ Intended use in webpage:
 
         const raw = model.execute(reshaped);
 
-        // raw expected shape: [bsz*nb, 1, 2] -> convert to [bsz, nb, 2]
-        const rawSqueezed = tf.tidy(() => tf.squeeze(raw, [1]));
+        // raw is an array: [phase_output, local_preds_output, patch_local_output]
+        // We want local_preds_output which has shape [bsz*nb, 1, 2]
+        const rawLocal = Array.isArray(raw) ? raw[1] : raw;
+        if (Array.isArray(raw)) {
+          // Dispose the unused outputs
+          raw[0].dispose();
+          if (raw[2]) raw[2].dispose();
+        }
+
+        // rawLocal expected shape: [bsz*nb, 1, 2] -> convert to [bsz, nb, 2]
+        const rawSqueezed = tf.tidy(() => tf.squeeze(rawLocal, [1]));
         const rawReshaped = tf.tidy(() => tf.reshape(rawSqueezed, [bsz, nb, 2]));
 
         const phaseChunk = tf.tidy(() => tf.slice(rawReshaped, [0, 0, 0], [-1, -1, 1]).squeeze([2]));
@@ -813,7 +862,7 @@ Intended use in webpage:
         // dispose temporaries
         slice.dispose();
         reshaped.dispose();
-        if (Array.isArray(raw)) raw.forEach(r => r.dispose()); else raw.dispose();
+        rawLocal.dispose();
         rawSqueezed.dispose();
         rawReshaped.dispose();
         phaseChunk.dispose();
@@ -827,10 +876,24 @@ Intended use in webpage:
       const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerTokenFinal, cfg.l2Reg);
 
       // Log per-token predictions for the first batch (usually only 1 batch)
-      if (phasePerToken.length > 0) {
-        console.log("[tfjs] Per-token local phase:", phasePerToken[0].map(v => v.toFixed(2)));
-        console.log("[tfjs] Per-token weights:", weightPerTokenFinal[0].map(v => v.toFixed(3)));
-        console.log("[tfjs] Stage WLS Left/Right:", leftRight[0].map(v => v.toFixed(2)));
+      // Only log for the large model stage (first stage)
+      if (phasePerToken.length > 0 && debugStage === 'large_model') {
+        console.log("[tfjs-debug] RAW model output:");
+        console.log("[tfjs-debug]   Phase shape: [" + phasePerToken.length + ", " + phasePerToken[0].length + "]");
+        console.log("[tfjs-debug]   Weight-logits shape: [" + weightPerToken.length + ", " + weightPerToken[0].length + "]");
+        
+        const phaseMin = Math.min(...phasePerToken[0]);
+        const phaseMax = Math.max(...phasePerToken[0]);
+        const wlogMin = Math.min(...weightPerToken[0]);
+        const wlogMax = Math.max(...weightPerToken[0]);
+        
+        console.log("[tfjs-debug]   Phase range: [" + phaseMin.toFixed(3) + ", " + phaseMax.toFixed(3) + "]");
+        console.log("[tfjs-debug]   W-logit range: [" + wlogMin.toFixed(3) + ", " + wlogMax.toFixed(3) + "]");
+        
+        console.log("[tfjs-debug] Per-token local phase:", phasePerToken[0].map((v, i) => i < 10 ? v.toFixed(3) : null).filter(x => x !== null).join(', ') + (phasePerToken[0].length > 10 ? '...' : ''));
+        console.log("[tfjs-debug] Per-token w-logits (raw):", weightPerToken[0].map((v, i) => i < 10 ? v.toFixed(3) : null).filter(x => x !== null).join(', ') + (weightPerToken[0].length > 10 ? '...' : ''));
+        console.log("[tfjs-debug] Per-token weights (smoothed):", weightPerTokenFinal[0].map((v, i) => i < 10 ? v.toFixed(4) : null).filter(x => x !== null).join(', ') + (weightPerTokenFinal[0].length > 10 ? '...' : ''));
+        console.log("[tfjs-debug] Stage WLS Left/Right:", leftRight[0].map(v => v.toFixed(2)));
       }
 
       // cleanup
@@ -847,13 +910,23 @@ Intended use in webpage:
     // Fallback: layers model path (predict whole tensor at once)
     const rawOutput = model.predict(cubesTensor);
 
-    // Extract phase and weight logits from raw output
+    // rawOutput is an array: [phase_output, local_preds_output, patch_local_output]
+    // We want local_preds_output which has shape [batch, n_tokens, 2]
+    const localPredsOutput = Array.isArray(rawOutput) ? rawOutput[1] : rawOutput;
+
+    // Dispose outputs we don't need
+    if (Array.isArray(rawOutput)) {
+      rawOutput[0].dispose();
+      if (rawOutput[2]) rawOutput[2].dispose();
+    }
+
+    // Extract phase and weight logits from localPredsOutput
     const phaseTensor = tf.tidy(() => {
-      return tf.slice(rawOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2]);
+      return tf.slice(localPredsOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2]);
     });
 
     const wLogitsTensor = tf.tidy(() => {
-      return tf.slice(rawOutput, [0, 0, 1], [-1, -1, 1]).squeeze([2]);
+      return tf.slice(localPredsOutput, [0, 0, 1], [-1, -1, 1]).squeeze([2]);
     });
 
     const weightTensor = smoothGatedWeightFromLogits(wLogitsTensor);
@@ -864,7 +937,7 @@ Intended use in webpage:
 
     // Clean up tensors
     cubesTensor.dispose();
-    rawOutput.dispose();
+    localPredsOutput.dispose();
     phaseTensor.dispose();
     wLogitsTensor.dispose();
     weightTensor.dispose();
@@ -899,19 +972,28 @@ Intended use in webpage:
     const ext = extractTopNCubes(spectraObj, cfg);
     const cubesTensor = tf.tensor(ext.cubes, ext.cubesShape, "float32");
 
-    // Model outputs raw predictions: (batch, n_tokens, 2)
-    // [..., 0] = phase, [..., 1] = weight logits
+    // Model outputs an array: [phase_output, local_preds_output, patch_local_output]
+    // We want local_preds_output which has shape [batch, n_tokens, 2]
     const rawOutput = model.predict(cubesTensor);
+    
+    // Extract the local predictions output (output 1)
+    const localPredsOutput = Array.isArray(rawOutput) ? rawOutput[1] : rawOutput;
+    
+    // Dispose of unused outputs
+    if (Array.isArray(rawOutput)) {
+      rawOutput[0].dispose();
+      if (rawOutput[2]) rawOutput[2].dispose();
+    }
 
-    // Extract phase and weight logits
+    // Extract phase and weight logits from local predictions
     const phaseTensor = tf.tidy(() => {
-      return tf.slice(rawOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2]);
+      return tf.slice(localPredsOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2]);
     });
-    
+
     const wLogitsTensor = tf.tidy(() => {
-      return tf.slice(rawOutput, [0, 0, 1], [-1, -1, 1]).squeeze([2]);
+      return tf.slice(localPredsOutput, [0, 0, 1], [-1, -1, 1]).squeeze([2]);
     });
-    
+
     // Apply weight smoothing
     const weightTensor = smoothGatedWeightFromLogits(wLogitsTensor);
 
@@ -926,9 +1008,9 @@ Intended use in webpage:
       console.log("[tfjs] Stage WLS Left/Right:", leftRight[0].map(v => v.toFixed(2)));
     }
 
-    // Clean up
+    // Clean up tensors
     cubesTensor.dispose();
-    rawOutput.dispose();
+    localPredsOutput.dispose();
     phaseTensor.dispose();
     wLogitsTensor.dispose();
     weightTensor.dispose();
@@ -996,20 +1078,62 @@ Intended use in webpage:
     const spectraObj = { spectra: exp.spectra, shape: exp.shape };
     const ext = extractTopNCubes(spectraObj, cfg);
 
+    // DEBUG: Inspect model architecture before inference
+    console.log("[tfjs-debug] === Large Model Architecture ===");
+    console.log("[tfjs-debug] Large model layer count:", largeModel.layers ? largeModel.layers.length : "N/A");
+    if (largeModel.weights && largeModel.weights.length > 0) {
+      console.log("[tfjs-debug] Large model weights count:", largeModel.weights.length);
+      // Show first few layer weights
+      largeModel.weights.slice(0, Math.min(3, largeModel.weights.length)).forEach((w, i) => {
+        const data = w.dataSync();
+        const stats = {
+          shape: w.shape,
+          min: Math.min(...data),
+          max: Math.max(...data),
+          mean: data.reduce((a,b) => a+b) / data.length
+        };
+        console.log(`[tfjs-debug]   Weight ${i}:`, stats);
+      });
+    }
+
+    // Test inference on a small sample to verify output structure
+    console.log("[tfjs-debug] === Testing Large Model on First Batch ===");
+    const testBatch = tf.tidy(() => {
+      return tf.slice(tf.tensor(ext.cubes, ext.cubesShape), [0, 0, 0, 0, 0, 0, 0], [1, 1, -1, -1, -1, -1, -1]);
+    });
+    const testOutput = largeModel.predict(testBatch);
+    
+    if (Array.isArray(testOutput)) {
+      console.log("[tfjs-debug] Model output is array with", testOutput.length, "tensors");
+      testOutput.forEach((output, i) => {
+        console.log(`[tfjs-debug]   Output[${i}] shape:`, output.shape.toString(), "dtype:", output.dtype);
+        const dataSlice = output.dataSync().slice(0, Math.min(10, output.size));
+        console.log(`[tfjs-debug]   Output[${i}] first 10 values:`, Array.from(dataSlice).map(v => v.toFixed(4)).join(', '));
+      });
+      testOutput.forEach(o => o.dispose());
+    } else {
+      console.log("[tfjs-debug] Model output is single tensor:");
+      console.log("[tfjs-debug]   Shape:", testOutput.shape.toString());
+      const dataSlice = testOutput.dataSync().slice(0, Math.min(10, testOutput.size));
+      console.log("[tfjs-debug]   First 10 values:", Array.from(dataSlice).map(v => v.toFixed(4)).join(', '));
+      testOutput.dispose();
+    }
+    testBatch.dispose();
+
     // TENSORFLOW.JS PART: Three-stage inference pipeline
     // Stage 1: run the large model and apply its left/right phase to all cubes
     console.log("[tfjs] Starting Stage 1: Large Model");
-    const largeOut = await runModelOnCubes(tf, largeModel, ext, cfg);
+    const largeOut = await runModelOnCubes(tf, largeModel, ext, cfg, 'large_model');
     applyLeftRightToCubes(ext, largeOut.wls_phase_left_right);
 
     // Stage 2: run the normal model, apply its left/right
     console.log("[tfjs] Starting Stage 2: Normal Model (Iteration 1)");
-    const normalOut1 = await runModelOnCubes(tf, normalModel, ext, cfg);
+    const normalOut1 = await runModelOnCubes(tf, normalModel, ext, cfg, 'normal_1');
     applyLeftRightToCubes(ext, normalOut1.wls_phase_left_right);
 
     // Stage 3: run the normal model again and return its prediction (final)
     console.log("[tfjs] Starting Stage 3: Normal Model (Iteration 2)");
-    const normalOut2 = await runModelOnCubes(tf, normalModel, ext, cfg);
+    const normalOut2 = await runModelOnCubes(tf, normalModel, ext, cfg, 'normal_2');
 
     // PURE JAVASCRIPT PART 2: Combine phase predictions from all stages via WLS fitting
     // Sum left/right from each stage to get final left/right
@@ -1048,7 +1172,7 @@ Intended use in webpage:
     runFromFt3,
     registerCustomLayers,
     getCustomObjects,
-    loadModel: async function(tf, modelUrl) {
+    loadModel: async function (tf, modelUrl) {
       const tfi = ensureTf(tf);
       return await tfi.loadGraphModel(modelUrl);
     },
