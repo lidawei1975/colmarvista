@@ -65,11 +65,16 @@ function plotit(input) {
     this.bottom = -1000;
 
     this.drawto_contour = input.drawto_contour;
+    this.drawto_infor = input.drawto_infor || "infor";
 
     this.x_ppm_start = input.x_ppm_start;
     this.x_ppm_step = input.x_ppm_step;
     this.y_ppm_start = input.y_ppm_start;
     this.y_ppm_step = input.y_ppm_step;
+    this.x_ppm_ref = input.x_ppm_ref || 0;
+    this.y_ppm_ref = input.y_ppm_ref || 0;
+    this.n_direct = input.n_direct;
+    this.n_indirect = input.n_indirect;
 
     /**
      * Flag to draw horizontal and vertical cross section. IF not set in input, default is off
@@ -122,7 +127,8 @@ function plotit(input) {
     this.hline_ppm = null;
     this.vline_ppm = null;
     this.cross_line_timeout = null;
-    this.cross_line_pause_flag = document.getElementById("pause_cursor").checked;
+    const pause_el = document.getElementById("pause_cursor");
+    this.cross_line_pause_flag = pause_el ? pause_el.checked : false;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
@@ -500,6 +506,14 @@ plotit.prototype.sync_3d_views = function (is_end = true) {
         if (typeof sync_from_yz_plot === 'function') {
             sync_from_yz_plot(is_end);
         }
+    } else if (this.drawto === '#visualization_proj') {
+        if (typeof sync_from_proj_plot === 'function') {
+            sync_from_proj_plot(is_end);
+        }
+    } else if (this.drawto === '#visualization_proj_y') {
+        if (typeof sync_from_proj_y_plot === 'function') {
+            sync_from_proj_y_plot(is_end);
+        }
     }
 };
 
@@ -508,7 +522,8 @@ plotit.prototype.send_scales_to_other_window = function () {
     /**
      * Get plot_group number (from 1 to 10)
      */
-    let peak_group = document.getElementById("plot_group").value;
+    const pg_el = document.getElementById("plot_group");
+    let peak_group = pg_el ? pg_el.value : "1";
 
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
@@ -777,8 +792,9 @@ plotit.prototype.draw = function () {
         });
 
 
+    this.clipId = "clip_" + this.drawto.replace(/[^a-zA-Z0-9]/g, "");
     this.$rect = this.$vis.append("defs").append("clipPath")
-        .attr("id", "clip")
+        .attr("id", this.clipId)
         .append("rect")
         .attr("x", this.MARGINS.left)
         .attr("y", this.MARGINS.top)
@@ -816,7 +832,7 @@ plotit.prototype.draw = function () {
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
-        tooldiv.style.opacity = 1.0;
+        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 1.0;
         let coordinates = [event.offsetX, event.offsetY];
         let x_ppm = self.xRange.invert(coordinates[0]);
         let y_ppm = self.yRange.invert(coordinates[1]);
@@ -837,18 +853,23 @@ plotit.prototype.draw = function () {
             }
         }
 
+        const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
-            document.getElementById("infor").innerHTML
-                = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
-                + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
-                + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+            if (infor_el) {
+                infor_el.innerHTML
+                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
+                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+            }
         }
         else {
-            document.getElementById("infor").innerHTML
-                = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+            if (infor_el) {
+                infor_el.innerHTML
+                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+            }
         }
 
 
@@ -871,7 +892,7 @@ plotit.prototype.draw = function () {
         }
     });
     this.$vis.on("mouseleave", function (d) {
-        tooldiv.style.opacity = 0.0;
+        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 0.0;
         document.activeElement.blur();
         if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
@@ -885,7 +906,8 @@ plotit.prototype.draw = function () {
     /**
      * Allow right click to set cross section by default
      */
-    this.allow_right_click(document.getElementById("right_click").checked);
+    const rc_el = document.getElementById("right_click");
+    this.allow_right_click(rc_el ? rc_el.checked : true);
 
     /**
      * Draw contour on the canvas, which is a background layer
@@ -917,19 +939,15 @@ plotit.prototype.setup_cross_line = function (event) {
             type: 'cross_line',
             y_ppm: y_ppm,
             x_ppm: x_ppm,
-            peak_group: document.getElementById("plot_group").value
+            peak_group: (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1")
         });
     }
 
     let spectra_source = self.local_spectra || hsqc_spectra;
-    let main_spec = spectra_source[0]; // Assuming index 0 for basic props
-
-    if (!main_spec) return;
-
-    let x_ppm_start = main_spec.x_ppm_start + main_spec.x_ppm_ref;
-    let x_ppm_end = x_ppm_start + main_spec.x_ppm_step * main_spec.n_direct;
-    let y_ppm_start = main_spec.y_ppm_start + main_spec.y_ppm_ref;
-    let y_ppm_end = y_ppm_start + main_spec.y_ppm_step * main_spec.n_indirect;
+    let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
+    let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
+    let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
+    let y_ppm_end = y_ppm_start + self.y_ppm_step * self.n_indirect;
 
     /**
      * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
@@ -939,7 +957,7 @@ plotit.prototype.setup_cross_line = function (event) {
     self.$vis.selectAll(".hline").remove();
     self.$vis.append("path")
         .attr("class", "hline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr("d", self.lineFunc(self.hline_data))
         .attr("stroke-width", 1)
         .attr("stroke", "green");
@@ -952,7 +970,7 @@ plotit.prototype.setup_cross_line = function (event) {
     self.$vis.selectAll(".vline").remove();
     self.$vis.append("path")
         .attr("class", "vline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr("d", self.lineFunc(self.vline_data))
         .attr("stroke-width", 1)
         .attr("stroke", "green");
@@ -988,6 +1006,7 @@ plotit.prototype.setup_cross_line = function (event) {
         }
     }
 
+    self.sync_3d_views(true);
 };
 
 
@@ -1588,7 +1607,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         .attr('y', function (d) {
             return self.yRange(d.Y_PPM);
         })
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     /**
      * Update pos using dx,dy and save text length (width) to visible_peaks as well
@@ -1634,7 +1653,7 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         .attr('y2', function (d) {
             return self.yRange(d.Y_PPM);
         })
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     self.$peaks_text_svg.call(peak_text_drag);
 
@@ -1741,7 +1760,7 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
 
     hline.enter().append("line")
         .attr("class", "center-hline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .merge(hline)
         .attr("x1", x_range[0])
         .attr("x2", x_range[1])
@@ -1758,7 +1777,7 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
 
     vline.enter().append("line")
         .attr("class", "center-vline")
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .merge(vline)
         .attr("x1", x_center)
         .attr("x2", x_center)
@@ -1823,7 +1842,7 @@ plotit.prototype.draw_peaks = function () {
                 return "hidden";
             }
         })
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr('r', self.peak_size)
         .attr('stroke', function () {
             return self.peak_color;
@@ -1869,7 +1888,7 @@ plotit.prototype.draw_extra_peaks = function () {
     // Add new
     let enter = selection.enter().append('path')
         .attr('class', 'extra-peak')
-        .attr("clip-path", "url(#clip)");
+        .attr("clip-path", "url(#" + self.clipId + ")");
 
     // Update all
     enter.merge(selection)
@@ -1939,7 +1958,7 @@ plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
 
     let enter = selection.enter().append('rect')
         .attr('class', 'bounding-box-rect')
-        .attr("clip-path", "url(#clip)")
+        .attr("clip-path", "url(#" + self.clipId + ")")
         .attr('fill', 'none')
         .attr('stroke-width', 2);
 
@@ -1974,6 +1993,7 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * set display to block. 
              */
             let peak_information_div = document.getElementById('peak_information_div');
+            if (peak_information_div) peak_information_div.style.display = 'block';
 
             peak_information_div.style.left = x + 'px';
             peak_information_div.style.top = y + 'px';
@@ -2041,7 +2061,8 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             /**
              * Remove (if any) previous drawing
              */
-            document.getElementById("pseudo3d_fitting_plot").innerHTML = "";
+            const p3d_el = document.getElementById("pseudo3d_fitting_plot");
+            if (p3d_el) p3d_el.innerHTML = "";
 
 
             const plot = new fitting_plot('#pseudo3d_fitting_plot', {
@@ -2080,7 +2101,7 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
                  */
                 timeout_id = setTimeout(function () {
                     let peak_information_div = document.getElementById('peak_information_div');
-                    peak_information_div.style.display = 'none';
+                    if (peak_information_div) peak_information_div.style.display = 'none';
                 }, 5000);
             });
     }

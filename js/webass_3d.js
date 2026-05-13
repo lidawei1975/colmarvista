@@ -105,7 +105,7 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     console.log('[webass_3d] process_fid_3d finished successfully');
 }
 
-self.onmessage = async function(event) {
+self.onmessage = async function (event) {
     const job = event.data[WEBASSEMBLY_JOB_KEY] || event.data.webassembly_job;
     const Module = await ModulePromise;
 
@@ -118,7 +118,7 @@ self.onmessage = async function(event) {
             const textInputs = event.data.textInputs;
             const fidBytes = new Uint8Array(event.data.fidBytes);
             const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-            const forceNusFullProcess = !!(cfg && cfg.debugNusRunFullProcess);
+            const forceNusFullProcess = !!(cfg && (cfg.debugNusRunFullProcess || cfg.nusDirectDimAutoPhase));
             const useNusStepPipeline = isNus && !forceNusFullProcess;
 
             console.log('[webass_3d] process_fid_3d config:', cfg);
@@ -197,25 +197,35 @@ self.onmessage = async function(event) {
 
             const fid = new Module.fid_3d();
             try {
-                const delImg = cfg.deleteImage || [1, 1, 1];
+                let delImg = cfg.deleteImage ? [...cfg.deleteImage] : [1, 1, 1];
+                if (cfg && (cfg.nusDirectDimAutoPhase || cfg.normalDirectDimAutoPhase)) {
+                    delImg[0] = 0; // force keep direct dimension imag data
+                }
                 applyCommonConfig(fid, true, cfg.phaseText, cfg.zfDirect, useNusStepPipeline ? [delImg[0], 0, 0] : delImg);
 
                 console.log('[webass_3d] read_bruker_files_as_strings');
                 postMessage({ stdout: '[webass_3d] read_bruker_files_as_strings(...)' });
-                fid.read_bruker_files_as_strings(
+                const ok_params = fid.read_bruker_files_as_strings(
                     textInputs.pulse || "",
                     textInputs.acqus || "",
                     textInputs.acqu2s || "",
                     textInputs.acqu3s || "",
                     textInputs.nuslist || "",
-                    !!cfg.nusSerInflated
+                    false, // simulate_nus: should be false for real compressed NUS data
+                    false  // nus_ser_inflated: always false for web uploads
                 );
+                if (!ok_params) {
+                    throw new Error('read_bruker_files_as_strings failed. Check if Bruker parameter files (acqus, acqu2s, acqu3s) are valid and if direct dimension TD is even.');
+                }
 
                 const v = bytesToVectorUChar(Module, fidBytes);
                 try {
                     console.log('[webass_3d] read_bruker_fid_data_bytes with bytes:', fidBytes.length);
                     postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes(' + fidBytes.length + ' bytes)' });
-                    fid.read_bruker_fid_data_bytes(v);
+                    const ok_fid = fid.read_bruker_fid_data_bytes(v);
+                    if (!ok_fid) {
+                        throw new Error('read_bruker_fid_data_bytes failed. Verify the ser/fid file size matches the dimensions in the parameter files.');
+                    }
                 } finally {
                     v.delete();
                 }

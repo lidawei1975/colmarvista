@@ -3159,12 +3159,14 @@ function adjust_ref(index, flag) {
          * spectral_information is required to redraw the contour plot by myplot_webgl.js
          */
         main_plot.spectral_information[index].x_ppm_ref = new_ref;
+        if (index === 0) main_plot.x_ppm_ref = new_ref;
     }
     else if (flag === 1) {
         let new_ref = parseFloat(document.getElementById("ref2".concat("-").concat(index)).value);
 
         hsqc_spectra[index].update_y_ppm_ref(new_ref);
         main_plot.spectral_information[index].y_ppm_ref = new_ref;
+        if (index === 0) main_plot.y_ppm_ref = new_ref;
     }
     /**
      * Redraw the contour plot
