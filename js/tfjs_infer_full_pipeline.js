@@ -745,12 +745,46 @@ Intended use in webpage:
                 const idx = cubeIndex(shape, b, t, k, xx, yy, dz, 0);
                 const rr = cubes[idx];
                 const ri = cubes[idx + 1];
-                const nr = rr * c + ri * s;
-                const ni = rr * s - ri * c;
+                const nr = rr * c - ri * s;
+                const ni = rr * s + ri * c;
                 cubes[idx] = nr;
                 cubes[idx + 1] = ni;
               }
             }
+          }
+        }
+      }
+    }
+  }
+
+  function applyLeftRightToSpectra(spectraObj, leftRight) {
+    // spectraObj: { spectra, shape } with shape [batch, ni1, ni2, nd, 2]
+    const spectra = spectraObj.spectra;
+    const shape = spectraObj.shape;
+    const bsz = shape[0];
+    const ni1 = shape[1];
+    const ni2 = shape[2];
+    const nd = shape[3];
+
+    const denom = Math.max(nd - 1, 1);
+
+    for (let b = 0; b < bsz; b += 1) {
+      const lr = leftRight[b];
+      const left = lr[0];
+      const right = lr[1];
+      for (let i1 = 0; i1 < ni1; i1 += 1) {
+        for (let i2 = 0; i2 < ni2; i2 += 1) {
+          for (let d = 0; d < nd; d += 1) {
+            const x = d / denom;
+            const phaseDeg = left * (1.0 - x) + right * x;
+            const phi = phaseDeg * Math.PI / 180.0;
+            const c = Math.cos(phi);
+            const s = Math.sin(phi);
+            const idx = spectraIndex(shape, b, i1, i2, d, 0);
+            const rr = spectra[idx];
+            const ri = spectra[idx + 1];
+            spectra[idx] = rr * c - ri * s;
+            spectra[idx + 1] = rr * s + ri * c;
           }
         }
       }
@@ -1027,6 +1061,11 @@ Intended use in webpage:
       flipRiSign: params.flipRiSign != null ? params.flipRiSign : DEFAULTS.flipRiSign,
     });
 
+    const spectraOriginal = {
+      spectra: exp.spectra.slice(0),
+      shape: exp.shape,
+    };
+
     const cfg = {
       topN: params.topN != null ? params.topN : DEFAULTS.topN,
       tokenWidth: params.tokenWidth != null ? params.tokenWidth : DEFAULTS.tokenWidth,
@@ -1035,8 +1074,11 @@ Intended use in webpage:
       l2Reg: params.l2Reg != null ? params.l2Reg : DEFAULTS.l2Reg,
     };
 
-    const spectraObj = { spectra: exp.spectra, shape: exp.shape };
-    const ext = extractTopNCubes(spectraObj, cfg);
+    const spectraWorking1 = {
+      spectra: spectraOriginal.spectra,
+      shape: spectraOriginal.shape,
+    };
+    const ext1 = extractTopNCubes(spectraWorking1, cfg);
 
     // DEBUG: Inspect model architecture before inference
     console.log("[tfjs-debug] === Large Model Architecture ===");
@@ -1059,7 +1101,7 @@ Intended use in webpage:
     // Test inference on a small sample to verify output structure
     console.log("[tfjs-debug] === Testing Large Model on First Batch ===");
     const testBatch = tf.tidy(() => {
-      return tf.slice(tf.tensor(ext.cubes, ext.cubesShape), [0, 0, 0, 0, 0, 0, 0], [1, 1, -1, -1, -1, -1, -1]);
+      return tf.slice(tf.tensor(ext1.cubes, ext1.cubesShape), [0, 0, 0, 0, 0, 0, 0], [1, 1, -1, -1, -1, -1, -1]);
     });
     const testOutput = largeModel.predict(testBatch);
 
@@ -1081,19 +1123,23 @@ Intended use in webpage:
     testBatch.dispose();
 
     // TENSORFLOW.JS PART: Three-stage inference pipeline
-    // Stage 1: run the large model and apply its left/right phase to all cubes
+    // Stage 1: run the large model and apply its left/right phase to the full spectrum
     console.log("[tfjs] Starting Stage 1: Large Model");
-    const largeOut = await runModelOnCubes(tf, largeModel, ext, cfg, 'large_model');
-    applyLeftRightToCubes(ext, largeOut.wls_phase_left_right);
+    const largeOut = await runModelOnCubes(tf, largeModel, ext1, cfg, 'large_model');
+    applyLeftRightToSpectra(spectraWorking1, largeOut.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Stage 2: run the normal model, apply its left/right
+    const ext2 = extractTopNCubes(spectraWorking1, cfg);
+
+    // Stage 2: run the normal model, apply its left/right to the full spectrum again
     console.log("[tfjs] Starting Stage 2: Normal Model (Iteration 1)");
-    const normalOut1 = await runModelOnCubes(tf, normalModel, ext, cfg, 'normal_1');
-    applyLeftRightToCubes(ext, normalOut1.wls_phase_left_right);
+    const normalOut1 = await runModelOnCubes(tf, normalModel, ext2, cfg, 'normal_1');
+    applyLeftRightToSpectra(spectraWorking1, normalOut1.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Stage 3: run the normal model again and return its prediction (final)
+    const ext3 = extractTopNCubes(spectraWorking1, cfg);
+
+    // Stage 3: run the normal model again on the re-extracted spectrum
     console.log("[tfjs] Starting Stage 3: Normal Model (Iteration 2)");
-    const normalOut2 = await runModelOnCubes(tf, normalModel, ext, cfg, 'normal_2');
+    const normalOut2 = await runModelOnCubes(tf, normalModel, ext3, cfg, 'normal_2');
 
     // PURE JAVASCRIPT PART 2: Combine phase predictions from all stages via WLS fitting
     // Sum left/right from each stage to get final left/right
@@ -1108,12 +1154,12 @@ Intended use in webpage:
       config: cfg,
       shapes: {
         spectra: exp.shape,
-        cubes: ext.cubesShape,
+        cubes: ext1.cubesShape,
       },
       cubeMeta: {
-        i1Idx: ext.i1Idx,
-        i2Idx: ext.i2Idx,
-        cubeScore: ext.cubeScore,
+        i1Idx: ext1.i1Idx,
+        i2Idx: ext1.i2Idx,
+        cubeScore: ext1.cubeScore,
       },
       stage_large: largeOut,
       stage_normal_1: normalOut1,
