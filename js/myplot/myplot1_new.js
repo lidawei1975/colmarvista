@@ -510,6 +510,10 @@ plotit.prototype.sync_3d_views = function (is_end = true) {
         if (typeof sync_from_proj_plot === 'function') {
             sync_from_proj_plot(is_end);
         }
+    } else if (this.drawto === '#visualization_proj_y') {
+        if (typeof sync_from_proj_y_plot === 'function') {
+            sync_from_proj_y_plot(is_end);
+        }
     }
 };
 
