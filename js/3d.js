@@ -3475,19 +3475,60 @@ function build_reconstructed_volume_data(dims) {
     return recon;
 }
 
-function visualize_3d() {
+function toggle_visualize_3d(show) {
     let container = document.getElementById('container_3d_view');
-    if (container) container.style.display = 'block';
-    // Wrapper to start the process
-    extract_3d_data();
+    if (!container) return;
+    if (show) {
+        container.style.display = 'block';
+        if (!current_volume_data) {
+            extract_3d_data();
+        } else {
+            update_3d_view();
+        }
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function toggle_visualize_proj(show) {
+    let c1 = document.getElementById('container_projection_view');
+    let c2 = document.getElementById('container_projection_y_view');
+    if (show) {
+        if (c1) c1.style.display = 'block';
+        if (c2) c2.style.display = 'block';
+        if (!spectrum_proj) {
+            generate_projection_spectrum();
+        }
+    } else {
+        if (c1) c1.style.display = 'none';
+        if (c2) c2.style.display = 'none';
+    }
+}
+
+function visualize_3d() {
+    let cb = document.getElementById('check_visualize_3d');
+    if (cb) {
+        cb.checked = true;
+        toggle_visualize_3d(true);
+    } else {
+        let container = document.getElementById('container_3d_view');
+        if (container) container.style.display = 'block';
+        extract_3d_data();
+    }
 }
 
 function visualize_proj() {
-    let c1 = document.getElementById('container_projection_view');
-    let c2 = document.getElementById('container_projection_y_view');
-    if (c1) c1.style.display = 'block';
-    if (c2) c2.style.display = 'block';
-    generate_projection_spectrum();
+    let cb = document.getElementById('check_visualize_proj');
+    if (cb) {
+        cb.checked = true;
+        toggle_visualize_proj(true);
+    } else {
+        let c1 = document.getElementById('container_projection_view');
+        let c2 = document.getElementById('container_projection_y_view');
+        if (c1) c1.style.display = 'block';
+        if (c2) c2.style.display = 'block';
+        generate_projection_spectrum();
+    }
 }
 
 function extract_3d_data() {
@@ -4377,12 +4418,16 @@ function build_3d_worker_cfg_from_ui() {
         apodDirect: document.getElementById('apodization_direct').value,
         apodIndirect1: document.getElementById('apodization_indirect1').value,
         apodIndirect2: document.getElementById('apodization_indirect2').value,
-        phaseText: document.getElementById('phase_correction_direct_p0').value + " " +
-            document.getElementById('phase_correction_direct_p1').value + " " +
-            document.getElementById('phase_correction_indirect1_p0').value + " " +
-            document.getElementById('phase_correction_indirect1_p1').value + " " +
-            document.getElementById('phase_correction_indirect2_p0').value + " " +
-            document.getElementById('phase_correction_indirect2_p1').value,
+        phaseText: (function () {
+            const auto = document.getElementById('normal_direct_dim_auto_phase_3d');
+            const p0 = (auto && auto.checked) ? "0.0" : document.getElementById('phase_correction_direct_p0').value;
+            const p1 = (auto && auto.checked) ? "0.0" : document.getElementById('phase_correction_direct_p1').value;
+            return p0 + " " + p1 + " " +
+                document.getElementById('phase_correction_indirect1_p0').value + " " +
+                document.getElementById('phase_correction_indirect1_p1').value + " " +
+                document.getElementById('phase_correction_indirect2_p0').value + " " +
+                document.getElementById('phase_correction_indirect2_p1').value;
+        })(),
         tdPolyOrder: parseTdPolynomialOrder(),
         frqPolyOrder: parseFrqPolynomialOrder(),
         inverse: [0, 0, 0],
