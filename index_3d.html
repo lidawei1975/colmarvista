@@ -31,7 +31,8 @@
         <span id="webassembly_message"></span>
         <div id="log_area_3d" class="drop-area-neighbor"
             style="position: fixed; top: 20px; left: 20px; width: 450px; height: 250px; box-sizing: border-box; padding: 10px; z-index: 9999; background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.2); border: 1px solid #ccc; border-radius: 8px; display: none; resize: both; overflow: hidden; min-width: 200px; min-height: 100px;">
-            <div id="log_area_3d_header" style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 5px; cursor: move; user-select: none;">
+            <div id="log_area_3d_header"
+                style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 5px; cursor: move; user-select: none;">
                 <strong onclick="toggle_log_minimize()">3D Processing Log</strong>
                 <div style="flex-shrink: 0;">
                     <button type="button" onclick="clear_3d_log()" id="button_clear_log_3d"
@@ -98,13 +99,17 @@
                             <label for="phase_correction_direct_p1">P1: </label>
                             <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
                                 value="59.1" step="any" style="width: 60px;">
-                            <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox" id="normal_direct_dim_auto_phase_3d"> Automatic</label>
+                            <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox"
+                                    id="normal_direct_dim_auto_phase_3d"> Automatic phase correction</label>
+                            <br>
                             <label for="extract_direct_from">Extract(ppm): from </label>
                             <input type="number" name="extract_direct_from" id="extract_direct_from" value="11.3"
                                 step="any" style="width: 50px;">
                             <label for="extract_direct_to">to</label>
                             <input type="number" name="extract_direct_to" id="extract_direct_to" value="5.2" step="any"
                                 style="width: 50px;">
+                            <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox"
+                                    id="keep_direct_imag_data_3d"> Keep direct dimension imaginary data</label>
                         </span><br>
                         <!-- Options for Indirect 1 -->
                         <div><strong>Indirect Dimension 1 (F1):</strong></div>
@@ -153,28 +158,10 @@
                             &nbsp;&nbsp;
                             <label for="frq_polynomial_order_3d">Poly f2 (f2 f1 f3): </label>
                             <input type="text" id="frq_polynomial_order_3d" value="2 2 2" size="14">
-                            &nbsp;&nbsp;
-                            <span>Processing mode: automatic (full process, or NUS direct->SMILE->indirect when nuslist
-                                is provided)</span>
                         </span>
                         <br>
-                        <span>
-                            <input type="checkbox" id="nus_direct_dim_auto_phase_3d">
-                            <label for="nus_direct_dim_auto_phase_3d">Direct dimension automatic phase correction (NUS)</label>
-                        </span>
                         <br>
 
-                        <br>
-                        <span>
-                            <input type="checkbox" id="debug_nus_process_like_normal_3d">
-                            <label for="debug_nus_process_like_normal_3d">Debug: for NUS, run full_process like normal
-                                3D (skip step1/SMILE/step2)</label>
-                        </span>
-                        <br>
-                        <span>
-                            <input type="checkbox" id="keep_direct_imag_data_3d">
-                            <label for="keep_direct_imag_data_3d">Keep direct dimension imaginary data</label>
-                        </span>
                         <br>
                     </div>
                     <button type="button" id="button_toggle_options"
@@ -232,8 +219,10 @@
             <div id="aux_buttons" style=" Padding: 10px; width: 98%; box-sizing: border-box; display:none;"
                 class="drop-area-neighbor">
                 <button id="button_save_ft3" onclick="download_ft3()">Save as .ft3</button>
-                <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_3d" onchange="toggle_visualize_3d(this.checked)"> Visualize 3D</label>
-                <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj" onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
+                <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_3d"
+                        onchange="toggle_visualize_3d(this.checked)"> Visualize 3D</label>
+                <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj"
+                        onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
                 <button onclick="run_auto_phase_on_loaded_spectrum()">Auto Phase</button>
                 <!-- Hidden list, used by myplot if needed, or we might not use it -->
                 <ol id="spectra_list_ol" type="1"></ol>
