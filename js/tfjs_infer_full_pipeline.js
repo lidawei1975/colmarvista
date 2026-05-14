@@ -676,14 +676,17 @@ Intended use in webpage:
     return [x1, x2];
   }
 
-  function wlsLeftRightFromLocal(phasePerToken, weightPerToken, l2Reg) {
+  function wlsLeftRightFromLocal(phasePerToken, weightPerToken, directDim, tokenWidth, l2Reg) {
     const bsz = phasePerToken.length;
     const t = phasePerToken[0].length;
     const out = new Array(bsz);
 
-    const denom = Math.max(t - 1, 1);
     const x = new Float32Array(t);
-    for (let i = 0; i < t; i += 1) x[i] = i / denom;
+    const directDimVal = Math.max(Number(directDim), 1);
+    const tokenWidthVal = Number(tokenWidth);
+    for (let i = 0; i < t; i += 1) {
+      x[i] = ((i * tokenWidthVal) + (0.5 * tokenWidthVal)) / directDimVal;
+    }
 
     for (let b = 0; b < bsz; b += 1) {
       let s11 = 0.0;
@@ -715,7 +718,7 @@ Intended use in webpage:
     return out;
   }
 
-  function applyLeftRightToCubes(ext, leftRight) {
+  function applyLeftRightToCubes(ext, leftRight, directDim, tokenWidth) {
     // ext: { cubes, cubesShape }
     const cubes = ext.cubes;
     const shape = ext.cubesShape;
@@ -725,11 +728,12 @@ Intended use in webpage:
     const cubeXY = shape[3];
     const extWidth = shape[5];
 
-    const denom = Math.max(tTotal - 1, 1);
+    const directDimVal = Math.max(Number(directDim), 1);
+    const tokenWidthVal = Number(tokenWidth);
 
     for (let b = 0; b < bsz; b += 1) {
       for (let t = 0; t < tTotal; t += 1) {
-        const xToken = t / denom;
+        const xToken = ((t * tokenWidthVal) + (0.5 * tokenWidthVal)) / directDimVal;
         const lr = leftRight[b];
         const left = lr[0];
         const right = lr[1];
@@ -876,7 +880,7 @@ Intended use in webpage:
       const weightTensor = smoothGatedWeightFromLogits(tf.tensor(weightPerToken));
       const weightPerTokenFinal = await weightTensor.array();
 
-      const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerTokenFinal, cfg.l2Reg);
+      const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerTokenFinal, cfg.directDim, cfg.tokenWidth, cfg.l2Reg);
 
       // Log per-token predictions for the first batch (usually only 1 batch)
       if (phasePerToken.length > 0) {
@@ -927,7 +931,7 @@ Intended use in webpage:
 
     const phasePerToken = await phaseTensor.array();
     const weightPerToken = await weightTensor.array();
-    const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerToken, cfg.l2Reg);
+    const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerToken, cfg.directDim, cfg.tokenWidth, cfg.l2Reg);
 
     // Clean up tensors
     cubesTensor.dispose();
@@ -956,6 +960,7 @@ Intended use in webpage:
       cubeSizeXY: params.cubeSizeXY != null ? params.cubeSizeXY : DEFAULTS.cubeSizeXY,
       directExtend: params.directExtend != null ? params.directExtend : DEFAULTS.directExtend,
       l2Reg: params.l2Reg != null ? params.l2Reg : DEFAULTS.l2Reg,
+      directDim: params.shape[3],
     };
 
     const spectraObj = {
@@ -993,7 +998,7 @@ Intended use in webpage:
 
     const phasePerToken = await phaseTensor.array();
     const weightPerToken = await weightTensor.array();
-    const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerToken, cfg.l2Reg);
+    const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerToken, cfg.directDim, cfg.tokenWidth, cfg.l2Reg);
 
     // Log per-token predictions for the first batch
     if (phasePerToken.length > 0) {
@@ -1072,6 +1077,7 @@ Intended use in webpage:
       cubeSizeXY: params.cubeSizeXY != null ? params.cubeSizeXY : DEFAULTS.cubeSizeXY,
       directExtend: params.directExtend != null ? params.directExtend : DEFAULTS.directExtend,
       l2Reg: params.l2Reg != null ? params.l2Reg : DEFAULTS.l2Reg,
+      directDim: exp.shape[3],
     };
 
     const spectraWorking1 = {

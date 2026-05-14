@@ -40,6 +40,12 @@ var current_fid_config = null;
 var auto_p0_3d = null;
 var auto_p1_3d = null;
 
+/**
+ * Capture spectral ranges from worker logs for phase extrapolation
+ */
+var last_fid_full_ppm_range = null;
+var last_fid_extract_ppm_range = null;
+
 
 function reset_3d_dataset_state() {
     spectra_3d = [];
@@ -52,6 +58,9 @@ function reset_3d_dataset_state() {
     spectrum_yz = null;
     theoretical_spectrum_xz = null;
     theoretical_spectrum_yz = null;
+
+    auto_p0_3d = null;
+    auto_p1_3d = null;
 
     // Release large contiguous visualization buffers from previous dataset.
     current_volume_data = null;
@@ -242,23 +251,24 @@ async function run_auto_phase_on_loaded_spectrum() {
         });
 
         const lr = result.final_wls_phase_left_right[0];
-        const left = lr[0];
-        const right = lr[1];
+        const leftEdge = lr[0];
+        const rightEdge = lr[1];
 
-        append_3d_log(`[tfjs] Auto phase result: left=${left.toFixed(2)}, right=${right.toFixed(2)}`);
+        const s = spectra_3d[0];
+        const nx = result.ft3Meta.nDirect;
 
-        auto_p0_3d = left;
-        auto_p1_3d = right - left;
+        // Use local parameters for immediate application to the loaded spectrum
+        const local_p0 = leftEdge;
+        const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
 
-        document.getElementById('phase_correction_direct_p0').value = auto_p0_3d.toFixed(2);
-        document.getElementById('phase_correction_direct_p1').value = auto_p1_3d.toFixed(2);
+        append_3d_log(`[tfjs] Auto phase result: local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
 
-        trace_x_ph0 = auto_p0_3d;
-        trace_x_ph1 = auto_p1_3d;
-        trace_x_pivot = spectra_3d[0].x_ppm_start;
+        // Fill UI boxes with the local values (no extrapolation for manual route as requested)
+        document.getElementById('phase_correction_direct_p0').value = local_p0.toFixed(2);
+        document.getElementById('phase_correction_direct_p1').value = local_p1.toFixed(2);
 
         append_3d_log("[tfjs] Applying correction to all planes...");
-        apply_trace_x_phase();
+        apply_trace_x_phase(local_p0, local_p1, s.x_ppm_start);
 
     } catch (err) {
         console.error(err);
@@ -282,6 +292,39 @@ function append_3d_log(message) {
     logElem.scrollTop = logElem.scrollHeight;
 }
 
+/**
+ * Calculates global phase correction parameters (p0, p1) for the full spectrum
+ * by extrapolating from local phase predictions at the edges of an extracted spectrum.
+ * @param {number} leftEdge - Phase predicted at the left edge (index 0) of the extract.
+ * @param {number} rightEdge - Phase predicted at the right edge (index nx) of the extract.
+ * @param {number[]} fullPpmRange - [start, end] PPM of the full spectrum.
+ * @param {number[]} extractPpmRange - [start, end] PPM of the extract.
+ */
+function get_full_spectrum_phase_correction(leftEdge, rightEdge, fullPpmRange, extractPpmRange) {
+    const ppm_full_start = fullPpmRange[0];
+    const ppm_full_end = fullPpmRange[1];
+    const ppm_extract_start = extractPpmRange[0];
+    const ppm_extract_end = extractPpmRange[1];
+
+    // Slope in degrees per PPM
+    const slope = (rightEdge - leftEdge) / (ppm_extract_end - ppm_extract_start);
+
+    // p0 is at d=0 of the full spectrum
+    const p0 = leftEdge + slope * (ppm_full_start - ppm_extract_start);
+
+    // p1 is the total phase change across the full spectrum
+    const p1 = slope * (ppm_full_end - ppm_full_start);
+
+    return {
+        p0: p0,
+        p1: p1,
+        ppm_full_start: ppm_full_start,
+        ppm_extract_start: ppm_extract_start,
+        ppm_extract_end: ppm_extract_end,
+        ppm_full_end: ppm_full_end
+    };
+}
+
 function append_3d_worker_stdout(stdoutText) {
     const area = document.getElementById("log_area_3d");
     if (area && area.style.display === 'none') {
@@ -293,6 +336,20 @@ function append_3d_worker_stdout(stdoutText) {
     }
 
     const text = stdoutText == null ? "" : String(stdoutText);
+    
+    // Capture spectral metadata from direct dimension processing.
+    // Targeted line example: "Direct metadata after extraction: SW ... ppm [full] -> [ext]"
+    // Explicitly matches: "ppm [11.7046, -2.29145] -> [9.79016, 6.39199]"
+    // Format: "ppm [full_start, full_end] -> [ext_start, ext_end]"
+    const num_re = /[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/;
+    const ppmRegex = new RegExp(`ppm\\s*\\[\\s*(${num_re.source})\\s*,\\s*(${num_re.source})\\s*\\]\\s*->\\s*\\[\\s*(${num_re.source})\\s*,\\s*(${num_re.source})\\s*\\]`);
+    const match = text.match(ppmRegex);
+    if (match) {
+        window.last_fid_full_ppm_range = [parseFloat(match[1]), parseFloat(match[2])];
+        window.last_fid_extract_ppm_range = [parseFloat(match[3]), parseFloat(match[4])];
+        console.log('[3D] Captured spectral metadata:', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+    }
+
     logElem.value += "[worker] " + text;
     if (!text.endsWith("\n")) {
         logElem.value += "\n";
@@ -4647,6 +4704,11 @@ async function load_fid_3d_file() {
 
     console.log('[3D][fid] Starting 3D FID processing request');
     append_3d_log('[main] Starting 3D FID processing request');
+    
+    // Reset spectral metadata for the new experiment
+    window.last_fid_full_ppm_range = null;
+    window.last_fid_extract_ppm_range = null;
+
     append_3d_log('[main] Files: fid=' + fid_file.name + ', acqus=' + acquisition_file.name + ', acqu2s=' + acquisition_file2.name + ', acqu3s=' + acquisition_file3.name + ', nuslist=' + (nuslist_file ? nuslist_file.name : 'none'));
 
     document.getElementById("webassembly_message").innerText = "Reading files...";
@@ -4803,16 +4865,49 @@ async function handle_webass_3d_message(e) {
                     }
                     
                     const lr = result.final_wls_phase_left_right[0]; // Batch 0
-                    const left = lr[0];
-                    const right = lr[1];
+                    const leftEdge = lr[0];
+                    const rightEdge = lr[1];
                     
-                    append_3d_log(`[tfjs] Auto phase result: left=${left.toFixed(2)}, right=${right.toFixed(2)}`);
+                    // Read header to get spectral parameters for local scaling
+                    const headerBufForPhase = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
+                    const h = new Float32Array(headerBufForPhase, 0, 512);
+                    const sw = h[100];
+                    const frq = h[119];
+                    const ref = h[101];
+                    const x_ppm_width = sw / frq;
+                    const x_ppm_start_val = (ref + sw) / frq - x_ppm_width / nx / 2;
+
+                    // Local parameters for immediate application to the current extracted spectrum
+                    const local_p0 = leftEdge;
+                    const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
+                    const local_pivot = x_ppm_start_val;
+
+                    // Extrapolate to global parameters ONLY for UI box display
+                    let ui_p0 = local_p0;
+                    let ui_p1 = local_p1;
+
+                    if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+                        const phaseMeta = get_full_spectrum_phase_correction(leftEdge, rightEdge, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                        ui_p0 = phaseMeta.p0;
+                        ui_p1 = phaseMeta.p1;
+                        append_3d_log(`[tfjs] Extrapolated phase for UI display: p0=${ui_p0.toFixed(2)}, p1=${ui_p1.toFixed(2)}`);
+                    } else {
+                        append_3d_log(`[tfjs] Auto phase result (local): p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
+                        console.warn('[3D] Missing spectral metadata for extrapolation. Falling back to local values.', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                    }
                     
-                    auto_p0_3d = left;
-                    auto_p1_3d = right - left;
-                    
-                    document.getElementById('phase_correction_direct_p0').value = auto_p0_3d.toFixed(2);
-                    document.getElementById('phase_correction_direct_p1').value = auto_p1_3d.toFixed(2);
+                    // Fill UI boxes with the values (global if available, else local)
+                    document.getElementById('phase_correction_direct_p0').value = ui_p0.toFixed(2);
+                    document.getElementById('phase_correction_direct_p1').value = ui_p1.toFixed(2);
+
+                    // Internally, ALWAYS use the local parameters for the current extraction
+                    trace_x_ph0 = local_p0;
+                    trace_x_ph1 = local_p1;
+                    trace_x_pivot = local_pivot;
+
+                    // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
+                    auto_p0_3d = local_p0;
+                    auto_p1_3d = local_p1;
                 } catch (err) {
                     append_3d_log("[tfjs-error] " + err.message);
                     console.error(err);
@@ -4908,11 +5003,8 @@ async function handle_webass_3d_message(e) {
             // Auto-apply direct phase correction if it was calculated (Normal or NUS)
             if (auto_p0_3d !== null && auto_p1_3d !== null) {
                 append_3d_log("[tfjs] Applying auto phase correction to all planes...");
-                trace_x_ph0 = auto_p0_3d;
-                trace_x_ph1 = auto_p1_3d;
-                // Set pivot to the start of the spectrum (index 0) to match auto-phase prediction
-                trace_x_pivot = spectra_3d[0].x_ppm_start;
-                apply_trace_x_phase();
+                // Note: trace_x_ph0, trace_x_ph1, and trace_x_pivot were already set to local values above
+                apply_trace_x_phase(trace_x_ph0, trace_x_ph1, trace_x_pivot);
             }
 
             let s0 = spectra_3d[0];
@@ -4964,19 +5056,27 @@ function handle_webass_smile_3d_message(e) {
     }
 }
 
-function apply_trace_x_phase() {
+function apply_trace_x_phase(p0, p1, pivot) {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
         alert("Imaginary data (raw_data_ri) not available for phase correction.");
         return;
     }
 
+    // Synchronize from UI if parameters are not provided explicitly
+    if (p0 !== undefined) trace_x_ph0 = p0;
+    else trace_x_ph0 = parseFloat(document.getElementById('phase_correction_direct_p0').value || "0");
+    
+    if (p1 !== undefined) trace_x_ph1 = p1;
+    else trace_x_ph1 = parseFloat(document.getElementById('phase_correction_direct_p1').value || "0");
+    
+    if (pivot !== undefined) trace_x_pivot = pivot;
+
     let p0_rad = trace_x_ph0 * Math.PI / 180.0;
     let p1_rad = trace_x_ph1 * Math.PI / 180.0;
 
     for (let z = 0; z < spectra_3d.length; z++) {
         let s = spectra_3d[z];
-        let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s.x_ppm_start) / s.x_ppm_step) : 0;
         let nx = s.n_direct;
         let ny = s.n_indirect;
 
@@ -4989,12 +5089,18 @@ function apply_trace_x_phase() {
                 let re = s.raw_data[y * nx + x];
                 let im = has_ri ? s.raw_data_ri[y * nx + x] : 0;
 
+                const nx_full = Math.max(s.header[96], nx);
+                const x1 = s.header[257] || 0;
+
                 let phase_rad;
-                if (trace_x_pivot === null) {
-                    // Default to pivot at index 0 if not set, but still apply P1 slope
-                    phase_rad = p0_rad + p1_rad * x / nx;
+                // If pivot is the current spectrum start, we assume P1 is for the current width (local).
+                // If pivot is elsewhere (like ppm_full_start), we assume P1 is for the full width (global).
+                if (trace_x_pivot === null || Math.abs(trace_x_pivot - s.x_ppm_start) < 1e-6) {
+                    phase_rad = p0_rad + p1_rad * x / (nx - 1);
                 } else {
-                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                    const global_x = x + x1;
+                    const global_pivot = Math.round((trace_x_pivot - s.x_ppm_start) / s.x_ppm_step) + x1;
+                    phase_rad = p0_rad + p1_rad * (global_x - global_pivot) / (nx_full - 1);
                 }
 
                 new_raw_data[y * nx + x] = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
