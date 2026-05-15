@@ -151,22 +151,22 @@ function create_ft3_buffer() {
         floatView.set(s0.header.subarray(0, 512));
     } else {
         floatView.fill(0, 0, 512);
-        floatView[1] = 1.0; 
-        floatView[2] = 2.0; 
+        floatView[1] = 1.0;
+        floatView[2] = 2.0;
     }
 
-    floatView[15] = nz; 
-    floatView[99] = nx; 
-    floatView[219] = ny; 
+    floatView[15] = nz;
+    floatView[99] = nx;
+    floatView[219] = ny;
 
-    floatView[56] = has_ri ? 0 : 1; 
-    floatView[55] = has_ir ? 0 : 1; 
-    floatView[51] = (has_ir && has_ii) ? 0 : 1; 
+    floatView[56] = has_ri ? 0 : 1;
+    floatView[55] = has_ir ? 0 : 1;
+    floatView[51] = (has_ir && has_ii) ? 0 : 1;
 
     let gMax = -Infinity;
     let gMin = Infinity;
 
-    let floatOffset = 512; 
+    let floatOffset = 512;
     for (let z = 0; z < nz; z++) {
         const s = spectra_3d[z];
         const re = s.raw_data;
@@ -214,8 +214,8 @@ function create_ft3_buffer() {
         }
     }
 
-    floatView[247] = gMax; 
-    floatView[248] = gMin; 
+    floatView[247] = gMax;
+    floatView[248] = gMin;
 
     return buffer;
 }
@@ -262,10 +262,6 @@ async function run_auto_phase_on_loaded_spectrum() {
         const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
 
         append_3d_log(`[tfjs] Auto phase result: local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
-
-        // Fill UI boxes with the local values (no extrapolation for manual route as requested)
-        document.getElementById('phase_correction_direct_p0').value = local_p0.toFixed(2);
-        document.getElementById('phase_correction_direct_p1').value = local_p1.toFixed(2);
 
         append_3d_log("[tfjs] Applying correction to all planes...");
         apply_trace_x_phase(local_p0, local_p1, s.x_ppm_start);
@@ -336,7 +332,7 @@ function append_3d_worker_stdout(stdoutText) {
     }
 
     const text = stdoutText == null ? "" : String(stdoutText);
-    
+
     // Capture spectral metadata from direct dimension processing.
     // Targeted line example: "Direct metadata after extraction: SW ... ppm [full] -> [ext]"
     // Explicitly matches: "ppm [11.7046, -2.29145] -> [9.79016, 6.39199]"
@@ -369,7 +365,7 @@ function toggle_log_minimize() {
     const log_area = document.getElementById('log_area_3d');
     const log_textarea = document.getElementById('log');
     const min_btn = document.getElementById('button_minimize_log_3d');
-    
+
     if (!log_area || !log_textarea || !min_btn) return;
 
     if (log_textarea.style.display === 'none') {
@@ -396,32 +392,32 @@ function make_log_movable() {
 
     let startX, startY, initialLeft, initialTop;
 
-    header.onmousedown = function(e) {
+    header.onmousedown = function (e) {
         e = e || window.event;
         e.preventDefault();
-        
+
         // Initial mouse position
         startX = e.clientX;
         startY = e.clientY;
-        
+
         // Current element position
         let rect = log_area.getBoundingClientRect();
         initialLeft = rect.left;
         initialTop = rect.top;
-        
-        document.onmouseup = function() {
+
+        document.onmouseup = function () {
             document.onmouseup = null;
             document.onmousemove = null;
         };
-        
-        document.onmousemove = function(e) {
+
+        document.onmousemove = function (e) {
             e = e || window.event;
             e.preventDefault();
-            
+
             // Calculate distance moved
             let dx = e.clientX - startX;
             let dy = e.clientY - startY;
-            
+
             // Apply new position
             log_area.style.top = (initialTop + dy) + "px";
             log_area.style.left = (initialLeft + dx) + "px";
@@ -3147,7 +3143,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
                 .attr('stroke', 'magenta')
                 .attr('stroke-width', 1.5)
                 .attr('stroke-dasharray', '4,2');
-            
+
             plotGroup.append('text')
                 .attr('x', xScale(trace_x_pivot) + 4)
                 .attr('y', m.top + 12)
@@ -3162,14 +3158,14 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
             .attr('transform', `translate(${m.left + plotWidth - 10}, ${m.top + 10})`)
             .attr('text-anchor', 'end')
             .style('pointer-events', 'none');
-        
+
         infoGroup.append('text')
             .attr('y', 10)
             .attr('font-size', '12px')
             .attr('font-weight', 'bold')
             .attr('fill', '#333')
             .text(`P0: ${trace_x_ph0.toFixed(1)}°`);
-        
+
         infoGroup.append('text')
             .attr('y', 25)
             .attr('font-size', '12px')
@@ -3309,7 +3305,7 @@ function update_1d_traces_from_center() {
         const traceProjX = [];
         const nx = spectrum_proj.n_direct;
         const ny = spectrum_proj.n_indirect;
-        
+
         // Use projection view center for the projection 1D trace
         let target_y_ppm;
         if (main_plot_proj && main_plot_proj.yRange) {
@@ -3318,9 +3314,9 @@ function update_1d_traces_from_center() {
         } else {
             target_y_ppm = center.ppm_y;
         }
-        
+
         const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
-        
+
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
         let p1_rad = trace_x_ph1 * Math.PI / 180.0;
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj.x_ppm_start) / spectrum_proj.x_ppm_step) : 0;
@@ -3347,7 +3343,7 @@ function update_1d_traces_from_center() {
         // Always show independent range for 1D trace (can be zoomed by its own brush)
         const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx - 1) * spectrum_proj.x_ppm_step];
         render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#2a9d8f');
-        
+
         // Update label to indicate if it's a cross-section or center
         const label = document.getElementById('trace_proj_x_label');
         if (label) {
@@ -3361,7 +3357,7 @@ function update_1d_traces_from_center() {
         const traceProjYX = [];
         const nx = spectrum_proj_y.n_direct;
         const nz = spectrum_proj_y.n_indirect;
-        
+
         let target_z_ppm;
         if (main_plot_proj_y && main_plot_proj_y.yRange) {
             let z_domain = main_plot_proj_y.yRange.domain();
@@ -3369,9 +3365,9 @@ function update_1d_traces_from_center() {
         } else {
             target_z_ppm = center.ppm_z;
         }
-        
+
         const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz);
-        
+
         // Use same phase as other X-traces
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
         let p1_rad = trace_x_ph1 * Math.PI / 180.0;
@@ -3398,7 +3394,7 @@ function update_1d_traces_from_center() {
         }
         const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx - 1) * spectrum_proj_y.x_ppm_step];
         render_trace_3d('trace_proj_y_x_svg', traceProjYX, domainProjYX, '#2a9d8f');
-        
+
         const label = document.getElementById('trace_proj_y_x_label');
         if (label) {
             label.innerText = `1D Trace Along X (at Z=${target_z_ppm.toFixed(3)} ppm)`;
@@ -4494,8 +4490,6 @@ function build_3d_worker_cfg_from_ui() {
             1
         ],
         nusSerInflated: false,
-        debugNusRunFullProcess: !!(document.getElementById('debug_nus_process_like_normal_3d') && document.getElementById('debug_nus_process_like_normal_3d').checked),
-        nusDirectDimAutoPhase: !!(document.getElementById('nus_direct_dim_auto_phase_3d') && document.getElementById('nus_direct_dim_auto_phase_3d').checked),
         normalDirectDimAutoPhase: !!(document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked),
         extPpm: [
             parseFloat(document.getElementById('extract_direct_from').value),
@@ -4704,10 +4698,20 @@ async function load_fid_3d_file() {
 
     console.log('[3D][fid] Starting 3D FID processing request');
     append_3d_log('[main] Starting 3D FID processing request');
-    
-    // Reset spectral metadata for the new experiment
+
+    // Reset spectral metadata and UI phase for the new experiment
     window.last_fid_full_ppm_range = null;
     window.last_fid_extract_ppm_range = null;
+    
+    // Reset UI phase boxes ONLY if auto-phase is checked. 
+    // If not checked, we keep the user's manual input for the FID processing.
+    const autoPhaseChecked = !!(document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked);
+    if (autoPhaseChecked) {
+        const box0 = document.getElementById('phase_correction_direct_p0');
+        const box1 = document.getElementById('phase_correction_direct_p1');
+        if (box0) box0.value = "0.00";
+        if (box1) box1.value = "0.00";
+    }
 
     append_3d_log('[main] Files: fid=' + fid_file.name + ', acqus=' + acquisition_file.name + ', acqu2s=' + acquisition_file2.name + ', acqu3s=' + acquisition_file3.name + ', nuslist=' + (nuslist_file ? nuslist_file.name : 'none'));
 
@@ -4742,16 +4746,27 @@ async function load_fid_3d_file() {
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
 
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-        const debugNusRunFullProcess = !!cfg.debugNusRunFullProcess;
-        const nusDirectDimAutoPhase = !!cfg.nusDirectDimAutoPhase;
-        console.log('[3D][fid] Sending worker message. NUS mode=', isNus);
-        append_3d_log('[main] Posting process_fid_3d to worker (NUS=' + isNus + ', debugNusRunFullProcess=' + debugNusRunFullProcess + ', nusDirectDimAutoPhase=' + nusDirectDimAutoPhase + ')');
+        
+        // Consolidate auto-phase logic
+        const autoPhaseChecked = !!cfg.normalDirectDimAutoPhase;
+        const nusDirectDimAutoPhase = isNus && autoPhaseChecked;
+        
+        // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
+        // to get a spectrum the model can phase correctly.
+        if (isNus && autoPhaseChecked) {
+            cfg.debugNusRunFullProcess = true;
+            cfg.nusDirectDimAutoPhase = true;
+        }
+
+        console.log('[3D][fid] Sending worker message. NUS mode=', isNus, 'AutoPhase=', nusDirectDimAutoPhase);
+        append_3d_log(`[main] Posting process_fid_3d to worker (NUS=${isNus}, AutoPhase=${nusDirectDimAutoPhase}, FullProcess=${!!cfg.debugNusRunFullProcess})`);
 
         document.getElementById("webassembly_message").innerText = isNus
-            ? ((debugNusRunFullProcess || nusDirectDimAutoPhase)
-                ? "Processing 3D NUS using full_process debug mode (SMILE pipeline skipped)..."
+            ? (cfg.debugNusRunFullProcess 
+                ? "Processing 3D NUS: Full reconstruction (required for auto-phase)..." 
                 : "Processing 3D NUS: direct-only -> SMILE -> indirect-only...")
             : "Processing 3D FID using WebAssembly...";
+
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "process_fid_3d",
             cfg: cfg,
@@ -4855,7 +4870,7 @@ async function handle_webass_3d_message(e) {
                         modelUrl: 'js/model21_tfjs/model.json',
                         largeModelUrl: 'js/model21_large_tfjs/model.json'
                     });
-                    
+
                     // Cache models if they were loaded inside the pipeline
                     if (!tfjs_normal_model && result.stage_normal_1 && result.stage_normal_1.model) {
                         // Wait, looking at tfjs_infer_full_pipeline.js, it doesn't return the model in stage_normal_1.
@@ -4863,11 +4878,11 @@ async function handle_webass_3d_message(e) {
                         // But let's check if they are returned. Stage_normal_1 is the result of runModelOnCubes.
                         // runModelOnCubes returns { pred_local_phase, pred_local_w, wls_phase_left_right }. No model.
                     }
-                    
+
                     const lr = result.final_wls_phase_left_right[0]; // Batch 0
                     const leftEdge = lr[0];
                     const rightEdge = lr[1];
-                    
+
                     // Read header to get spectral parameters for local scaling
                     const headerBufForPhase = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
                     const h = new Float32Array(headerBufForPhase, 0, 512);
@@ -4895,10 +4910,8 @@ async function handle_webass_3d_message(e) {
                         append_3d_log(`[tfjs] Auto phase result (local): p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
                         console.warn('[3D] Missing spectral metadata for extrapolation. Falling back to local values.', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
                     }
-                    
-                    // Fill UI boxes with the values (global if available, else local)
-                    document.getElementById('phase_correction_direct_p0').value = ui_p0.toFixed(2);
-                    document.getElementById('phase_correction_direct_p1').value = ui_p1.toFixed(2);
+
+                    append_3d_log(`[tfjs] Auto phase calculated. UI update will follow application.`);
 
                     // Internally, ALWAYS use the local parameters for the current extraction
                     trace_x_ph0 = local_p0;
@@ -4969,8 +4982,8 @@ async function handle_webass_3d_message(e) {
                     let plane_name = "plane_" + String(i + 1).padStart(3, '0');
                     s.process_ft_file(plane_buffer, plane_name, -1);
 
-                    s.spectrum_color = "#0000ff"; 
-                    s.spectrum_color_negative = "#ff0000"; 
+                    s.spectrum_color = "#0000ff";
+                    s.spectrum_color_negative = "#ff0000";
                     s.levels = calculate_levels(s.noise_level, 1.5, 30);
                     s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
                     s.visible = true;
@@ -5063,17 +5076,46 @@ function apply_trace_x_phase(p0, p1, pivot) {
         return;
     }
 
-    // Synchronize from UI if parameters are not provided explicitly
-    if (p0 !== undefined) trace_x_ph0 = p0;
-    else trace_x_ph0 = parseFloat(document.getElementById('phase_correction_direct_p0').value || "0");
-    
-    if (p1 !== undefined) trace_x_ph1 = p1;
-    else trace_x_ph1 = parseFloat(document.getElementById('phase_correction_direct_p1').value || "0");
-    
-    if (pivot !== undefined) trace_x_pivot = pivot;
+    // Determine the 'delta' phase to be applied.
+    // If called from the UI button, p0/p1 are undefined, so we use the slider values (trace_x_ph0/ph1).
+    let add_p0 = p0 !== undefined ? p0 : trace_x_ph0;
+    let add_p1 = p1 !== undefined ? p1 : trace_x_ph1;
+    let apply_pivot = pivot !== undefined ? pivot : trace_x_pivot;
 
-    let p0_rad = trace_x_ph0 * Math.PI / 180.0;
-    let p1_rad = trace_x_ph1 * Math.PI / 180.0;
+    if (add_p0 === 0 && add_p1 === 0) return;
+
+    // 1. Calculate global extrapolation of this 'delta' phase and add to the total boxes
+    const s0 = spectra_3d[0];
+    const h = s0.header;
+    if (h && h.length >= 512 && typeof get_full_spectrum_phase_correction === 'function') {
+        let full_ppm_range, extract_ppm_range;
+
+        // Prefer worker-captured ranges for FID route (especially important for NUS)
+        if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+            full_ppm_range = window.last_fid_full_ppm_range;
+            extract_ppm_range = window.last_fid_extract_ppm_range;
+        } else {
+            const swDirect = h[100];
+            const obsDirect = h[119];
+            const originDirect = h[257];
+            const full_ppm_width = swDirect / obsDirect;
+            full_ppm_range = [originDirect, originDirect - full_ppm_width];
+            extract_ppm_range = [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+        }
+
+        // We assume add_p1 is for the current extracted width (local)
+        const phaseMeta = get_full_spectrum_phase_correction(add_p0, add_p0 + add_p1, full_ppm_range, extract_ppm_range);
+
+        const box0 = document.getElementById('phase_correction_direct_p0');
+        const box1 = document.getElementById('phase_correction_direct_p1');
+        if (box0) box0.value = (parseFloat(box0.value || 0) + phaseMeta.p0).toFixed(2);
+        if (box1) box1.value = (parseFloat(box1.value || 0) + phaseMeta.p1).toFixed(2);
+
+        append_3d_log(`[phase] Applied delta: local_p0=${add_p0.toFixed(2)}, local_p1=${add_p1.toFixed(2)}`);
+    }
+
+    let p0_rad = add_p0 * Math.PI / 180.0;
+    let p1_rad = add_p1 * Math.PI / 180.0;
 
     for (let z = 0; z < spectra_3d.length; z++) {
         let s = spectra_3d[z];
@@ -5093,13 +5135,11 @@ function apply_trace_x_phase(p0, p1, pivot) {
                 const x1 = s.header[257] || 0;
 
                 let phase_rad;
-                // If pivot is the current spectrum start, we assume P1 is for the current width (local).
-                // If pivot is elsewhere (like ppm_full_start), we assume P1 is for the full width (global).
-                if (trace_x_pivot === null || Math.abs(trace_x_pivot - s.x_ppm_start) < 1e-6) {
+                if (apply_pivot === null || Math.abs(apply_pivot - s.x_ppm_start) < 1e-6) {
                     phase_rad = p0_rad + p1_rad * x / (nx - 1);
                 } else {
                     const global_x = x + x1;
-                    const global_pivot = Math.round((trace_x_pivot - s.x_ppm_start) / s.x_ppm_step) + x1;
+                    const global_pivot = Math.round((apply_pivot - s.x_ppm_start) / s.x_ppm_step) + x1;
                     phase_rad = p0_rad + p1_rad * (global_x - global_pivot) / (nx_full - 1);
                 }
 
@@ -5128,31 +5168,26 @@ function apply_trace_x_phase(p0, p1, pivot) {
     trace_x_ph0 = 0.0;
     trace_x_ph1 = 0.0;
     trace_x_pivot = null;
-    let p0_val = document.getElementById('trace_x_ph0_val');
-    if (p0_val) p0_val.innerText = '0.0';
-    let p0_proj_val = document.getElementById('trace_proj_x_ph0_val');
-    if (p0_proj_val) p0_proj_val.innerText = '0.0';
-    let p0_proj_y_val = document.getElementById('trace_proj_y_x_ph0_val');
-    if (p0_proj_y_val) p0_proj_y_val.innerText = '0.0';
 
-    let p1_val = document.getElementById('trace_x_ph1_val');
-    if (p1_val) p1_val.innerText = '0.0';
-    let p1_proj_val = document.getElementById('trace_proj_x_ph1_val');
-    if (p1_proj_val) p1_proj_val.innerText = '0.0';
-    let p1_proj_y_val = document.getElementById('trace_proj_y_x_ph1_val');
-    if (p1_proj_y_val) p1_proj_y_val.innerText = '0.0';
-
-    let pivot_val = document.getElementById('trace_x_pivot_val');
-    if (pivot_val) pivot_val.innerText = 'not set';
-    let pivot_proj_val = document.getElementById('trace_proj_x_pivot_val');
-    if (pivot_proj_val) pivot_proj_val.innerText = 'not set';
-    let pivot_proj_y_val = document.getElementById('trace_proj_y_x_pivot_val');
-    if (pivot_proj_y_val) pivot_proj_y_val.innerText = 'not set';
+    // Reset slider labels
+    ['trace_x_ph0_val', 'trace_proj_x_ph0_val', 'trace_proj_y_x_ph0_val',
+        'trace_x_ph1_val', 'trace_proj_x_ph1_val', 'trace_proj_y_x_ph1_val'].forEach(id => {
+            let el = document.getElementById(id);
+            if (el) el.innerText = '0.0';
+        });
+    ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'].forEach(id => {
+        let el = document.getElementById(id);
+        if (el) el.innerText = 'not set';
+    });
 
     update_contour_levels();
-    visualize_3d();
-}
 
+    // Update 2D projections after phase application
+    generate_projection_spectrum();
+
+    visualize_3d();
+    draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+}
 window.addEventListener('DOMContentLoaded', () => {
     let btn = document.getElementById('btn_apply_trace_x_phase');
     if (btn) {
@@ -5178,7 +5213,7 @@ window.addEventListener('DOMContentLoaded', () => {
     // Auto phase correction (Normal) checkbox pre-load
     const autoDirectNormal = document.getElementById('normal_direct_dim_auto_phase_3d');
     if (autoDirectNormal) {
-        autoDirectNormal.addEventListener('change', async function() {
+        autoDirectNormal.addEventListener('change', async function () {
             if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
                 if (!tfjs_normal_model || !tfjs_large_model) {
                     append_3d_log("[tfjs] Pre-loading models...");
@@ -5194,23 +5229,6 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    const autoDirectNus = document.getElementById('nus_direct_dim_auto_phase_3d');
-    if (autoDirectNus) {
-        autoDirectNus.addEventListener('change', async function() {
-            if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
-                if (!tfjs_normal_model || !tfjs_large_model) {
-                    append_3d_log("[tfjs] Pre-loading models...");
-                    try {
-                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
-                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
-                        append_3d_log("[tfjs] Models loaded successfully.");
-                    } catch (err) {
-                        append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
-                    }
-                }
-            }
-        });
-    }
 });
 
 function setup_2d_plot_resizing() {
@@ -5263,7 +5281,7 @@ function setup_2d_plot_resizing() {
 
             // Important: update the plot scales and visuals
             plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
-            
+
             // Draw center lines specifically
             if (typeof plot_instance.draw_center_lines === 'function') {
                 plot_instance.draw_center_lines();
@@ -5508,7 +5526,7 @@ function generate_projection_spectrum() {
     }
     spec.raw_data = raw;
     if (has_ri) spec.raw_data_ri = raw_ri;
-    
+
     // Estimate noise level for the projected 2D spectrum separately
     spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
     let display = document.getElementById("proj_noise_level_display");
@@ -5644,28 +5662,28 @@ function estimate_proj_noise() {
     let raw = spectrum_proj.raw_data;
     let nx = spectrum_proj.n_direct;
     let ny = spectrum_proj.n_indirect;
-    
+
     spectrum_proj.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
     let display = document.getElementById("proj_noise_level_display");
     if (display) display.innerText = "Proj. Noise: " + spectrum_proj.noise_level.toExponential(2);
-    
+
     update_proj_contour_levels();
 }
 
 function update_proj_contour_levels() {
     if (!spectrum_proj) return;
-    
+
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
-    
+
     spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.cached_contour_pos = null;
     spectrum_proj.cached_contour_neg = null;
-    
+
     request_contour_calculation(spectrum_proj, 0, 0, "proj");
     request_contour_calculation(spectrum_proj, 0, 1, "proj");
-    
+
     if (theoretical_spectrum_proj) {
         theoretical_spectrum_proj.levels = spectrum_proj.levels;
         theoretical_spectrum_proj.negative_levels = spectrum_proj.negative_levels;
@@ -5773,28 +5791,28 @@ function estimate_proj_y_noise() {
     let raw = spectrum_proj_y.raw_data;
     let nx = spectrum_proj_y.n_direct;
     let nz = spectrum_proj_y.n_indirect;
-    
+
     spectrum_proj_y.noise_level = mathTool.estimate_noise_level(nx, nz, raw);
     let display = document.getElementById("proj_y_noise_level_display");
     if (display) display.innerText = "Proj Y Noise: " + spectrum_proj_y.noise_level.toExponential(2);
-    
+
     update_proj_y_contour_levels();
 }
 
 function update_proj_y_contour_levels() {
     if (!spectrum_proj_y) return;
-    
+
     let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
-    
+
     spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.cached_contour_pos = null;
     spectrum_proj_y.cached_contour_neg = null;
-    
+
     request_contour_calculation(spectrum_proj_y, 0, 0, "proj_y");
     request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
-    
+
     if (theoretical_spectrum_proj_y) {
         theoretical_spectrum_proj_y.levels = spectrum_proj_y.levels;
         theoretical_spectrum_proj_y.negative_levels = spectrum_proj_y.negative_levels;
@@ -5893,23 +5911,23 @@ function apply_trace_phase() {
 
     // Recalculate everything
     generate_projection_spectrum();
-    
+
     // Recalculate 2D contours for all slices
     for (let z = 0; z < spectra_3d.length; z++) {
         spectra_3d[z].cached_contour_pos = null;
         spectra_3d[z].cached_contour_neg = null;
     }
-    
+
     // Refresh current views
     if (main_plot) draw_slice(current_slice_index);
     if (main_plot_xz) refresh_xz_view();
     if (main_plot_yz) refresh_yz_view();
-    
+
     // Update 3D visualization if it's active
     if (current_volume_data) {
         visualize_3d();
     }
-    
+
     update_1d_traces_from_center();
     console.log("Phase correction applied.");
 }
