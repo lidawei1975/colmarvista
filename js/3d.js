@@ -46,8 +46,14 @@ var auto_p1_3d = null;
 var last_fid_full_ppm_range = null;
 var last_fid_extract_ppm_range = null;
 
+/**
+ * Capture nuclear names from worker logs for axis labeling
+ * Mapping: F2 -> x (Direct), F3 -> y (Indirect 1), F1 -> z (Indirect 2/Planes)
+ */
+window.last_fid_nuclei = { x: '', y: '', z: '' };
 
-function reset_3d_dataset_state() {
+
+function reset_3d_dataset_state(keepNuclei = false) {
     spectra_3d = [];
     hsqc_spectra = [];
     current_slice_index = -1;
@@ -74,6 +80,11 @@ function reset_3d_dataset_state() {
 
     auto_p0_3d = null;
     auto_p1_3d = null;
+
+    if (!keepNuclei) {
+        window.last_fid_nuclei = { x: '', y: '', z: '' };
+        update_all_plot_axis_labels();
+    }
 }
 
 function set_status_message(element_id, text, auto_clear_ms = 0) {
@@ -346,11 +357,65 @@ function append_3d_worker_stdout(stdoutText) {
         console.log('[3D] Captured spectral metadata:', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
     }
 
+    // Capture nuclear names (F1, F2, F3)
+    // Examples:
+    // "[worker] F2: nucleus=1H, size=1024, ppm=[11.7115, -2.29145]"
+    // "[worker] F1: nucleus=15N, size=30, ppm=[135.154, 100.152]"
+    // "[worker] F3: nucleus=1H, size=95, ppm=[11.8452, -2.15772]"
+    const nucleusRegex = /(F[123]):\s*nucleus=([^,]+)/;
+    const nucMatch = text.match(nucleusRegex);
+    if (nucMatch) {
+        const dim = nucMatch[1];
+        const nuc = nucMatch[2].trim();
+        if (dim === 'F2') window.last_fid_nuclei.x = nuc;
+        else if (dim === 'F3') window.last_fid_nuclei.y = nuc;
+        else if (dim === 'F1') window.last_fid_nuclei.z = nuc;
+
+        console.log(`[3D] Captured nucleus for ${dim}: ${nuc}`);
+        update_all_plot_axis_labels();
+    }
+
     logElem.value += "[worker] " + text;
     if (!text.endsWith("\n")) {
         logElem.value += "\n";
     }
     logElem.scrollTop = logElem.scrollHeight;
+}
+
+function update_all_plot_axis_labels() {
+    const nx = window.last_fid_nuclei.x;
+    const ny = window.last_fid_nuclei.y;
+    const nz = window.last_fid_nuclei.z;
+
+    const getLabel = (nuc) => nuc ? `${nuc} (ppm)` : "Chemical Shift (ppm)";
+
+    // Update XY Plot (Main)
+    if (main_plot) {
+        d3.select(main_plot.drawto).select('.xlabel').text(getLabel(nx));
+        d3.select(main_plot.drawto).select('.ylabel').text(getLabel(ny));
+    }
+
+    // Update XZ Plot
+    if (main_plot_xz) {
+        d3.select(main_plot_xz.drawto).select('.xlabel').text(getLabel(nx));
+        d3.select(main_plot_xz.drawto).select('.ylabel').text(getLabel(nz));
+    }
+
+    // Update YZ Plot
+    if (main_plot_yz) {
+        d3.select(main_plot_yz.drawto).select('.xlabel').text(getLabel(nz));
+        d3.select(main_plot_yz.drawto).select('.ylabel').text(getLabel(ny));
+    }
+
+    // Update Projections
+    if (main_plot_proj) {
+        d3.select(main_plot_proj.drawto).select('.xlabel').text(getLabel(nx));
+        d3.select(main_plot_proj.drawto).select('.ylabel').text(getLabel(ny));
+    }
+    if (main_plot_proj_y) {
+        d3.select(main_plot_proj_y.drawto).select('.xlabel').text(getLabel(nx));
+        d3.select(main_plot_proj_y.drawto).select('.ylabel').text(getLabel(nz));
+    }
 }
 
 function clear_3d_log() {
@@ -1786,6 +1851,8 @@ function init_main_plot(first_spectrum) {
     // Initialize Projection Plots
     init_proj_plot(first_spectrum);
     init_proj_y_plot(first_spectrum);
+
+    update_all_plot_axis_labels();
 }
 
 
@@ -4702,7 +4769,9 @@ async function load_fid_3d_file() {
     // Reset spectral metadata and UI phase for the new experiment
     window.last_fid_full_ppm_range = null;
     window.last_fid_extract_ppm_range = null;
-    
+    window.last_fid_nuclei = { x: '', y: '', z: '' };
+    update_all_plot_axis_labels();
+
     // Reset UI phase boxes ONLY if auto-phase is checked. 
     // If not checked, we keep the user's manual input for the FID processing.
     const autoPhaseChecked = !!(document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked);
@@ -4746,11 +4815,11 @@ async function load_fid_3d_file() {
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
 
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-        
+
         // Consolidate auto-phase logic
         const autoPhaseChecked = !!cfg.normalDirectDimAutoPhase;
         const nusDirectDimAutoPhase = isNus && autoPhaseChecked;
-        
+
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
         if (isNus && autoPhaseChecked) {
@@ -4762,8 +4831,8 @@ async function load_fid_3d_file() {
         append_3d_log(`[main] Posting process_fid_3d to worker (NUS=${isNus}, AutoPhase=${nusDirectDimAutoPhase}, FullProcess=${!!cfg.debugNusRunFullProcess})`);
 
         document.getElementById("webassembly_message").innerText = isNus
-            ? (cfg.debugNusRunFullProcess 
-                ? "Processing 3D NUS: Full reconstruction (required for auto-phase)..." 
+            ? (cfg.debugNusRunFullProcess
+                ? "Processing 3D NUS: Full reconstruction (required for auto-phase)..."
                 : "Processing 3D NUS: direct-only -> SMILE -> indirect-only...")
             : "Processing 3D FID using WebAssembly...";
 
@@ -4852,7 +4921,8 @@ async function handle_webass_3d_message(e) {
         append_3d_log('[main] dims: nx=' + nx + ', ny=' + ny + ', nz=' + nz);
         console.log('[3D][fid] Received dims', dims);
 
-        reset_3d_dataset_state();
+        // Preserve nuclei captured during processing logs
+        reset_3d_dataset_state(true);
 
         if (e.data.ft3Bytes) {
             let ft3Data = e.data.ft3Bytes;
