@@ -29,6 +29,10 @@ var main_plot_proj_y = null;
 var spectrum_proj_y = null;
 var theoretical_spectrum_proj_y = null;
 
+var main_plot_proj_x = null;
+var spectrum_proj_x = null;
+var theoretical_spectrum_proj_x = null;
+
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
@@ -74,13 +78,14 @@ function reset_3d_dataset_state(keepNuclei = false) {
     clear_all_1d_traces();
 
     spectrum_proj = null;
-    theoretical_spectrum_proj = null;
-
     spectrum_proj_y = null;
+    spectrum_proj_x = null;
+    theoretical_spectrum_proj = null;
     theoretical_spectrum_proj_y = null;
-
-    auto_p0_3d = null;
-    auto_p1_3d = null;
+    theoretical_spectrum_proj_x = null;
+    main_plot_proj = null;
+    main_plot_proj_y = null;
+    main_plot_proj_x = null;
 
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
@@ -393,32 +398,30 @@ function update_all_plot_axis_labels() {
         return nuc ? `${prefix}${nuc} (ppm)` : `${prefix}Chemical Shift (ppm)`;
     };
 
-    // Update XY Plot (Main) -> now zx Plane
+    // Update XY Plot (Main) -> now zy Plane
     if (main_plot) {
-        d3.select(main_plot.drawto).select('.xlabel').text(getLabel(nx, "z"));
-        d3.select(main_plot.drawto).select('.ylabel').text(getLabel(ny, "x"));
+        main_plot.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
     }
 
-    // Update XZ Plot -> now zy Plane
+    // Update XZ Plot -> now zx Plane
     if (main_plot_xz) {
-        d3.select(main_plot_xz.drawto).select('.xlabel').text(getLabel(nx, "z"));
-        d3.select(main_plot_xz.drawto).select('.ylabel').text(getLabel(nz, "y"));
+        main_plot_xz.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
     }
 
     // Update YZ Plot -> now xy Plane
     if (main_plot_yz) {
-        d3.select(main_plot_yz.drawto).select('.xlabel').text(getLabel(nz, "y"));
-        d3.select(main_plot_yz.drawto).select('.ylabel').text(getLabel(ny, "x"));
+        main_plot_yz.set_labels(getLabel(nz, "x"), getLabel(ny, "y"));
     }
 
     // Update Projections
     if (main_plot_proj) {
-        d3.select(main_plot_proj.drawto).select('.xlabel').text(getLabel(nx, "z"));
-        d3.select(main_plot_proj.drawto).select('.ylabel').text(getLabel(ny, "x"));
+        main_plot_proj.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
     }
     if (main_plot_proj_y) {
-        d3.select(main_plot_proj_y.drawto).select('.xlabel').text(getLabel(nx, "z"));
-        d3.select(main_plot_proj_y.drawto).select('.ylabel').text(getLabel(nz, "y"));
+        main_plot_proj_y.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
+    }
+    if (main_plot_proj_x) {
+        main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "x"));
     }
 }
 
@@ -925,6 +928,16 @@ function handle_worker_message(e) {
             return;
         }
 
+        if (e.data.spectrum_type === "proj_x") {
+            handle_proj_x_response(e.data, "proj_x");
+            return;
+        }
+
+        if (e.data.spectrum_type === "proj_x_theo") {
+            handle_proj_x_response(e.data, "proj_x_theo");
+            return;
+        }
+
         let slice_idx = e.data.spectrum_index; // We passed slice index as spectrum_index
 
         let spec = null;
@@ -1354,6 +1367,10 @@ async function load_ft3_file() {
         document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
         document.getElementById('main_plot_area').style.display = 'flex';
 
+        // Clear projection state for new dataset
+        spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
+        main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
+
         // Initialize the main plot now that we have data dimensions from the first slice
         init_main_plot(spectra_3d[0]);
 
@@ -1773,8 +1790,8 @@ function init_main_plot(first_spectrum) {
     let plot_margin_right = 30;
 
     // Correctly size and position the WebGL canvas to align with the SVG plot area (inner margins)
-    let plot_width = cr.width - plot_margin_left - plot_margin_right;
-    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+    let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+    let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
 
     let canvas_el = document.getElementById("canvas1");
     canvas_el.style.position = "absolute";
@@ -1851,10 +1868,6 @@ function init_main_plot(first_spectrum) {
 
     // Initialize Orthogonal Plots
     init_ortho_plots(first_spectrum);
-
-    // Initialize Projection Plots
-    init_proj_plot(first_spectrum);
-    init_proj_y_plot(first_spectrum);
 
     update_all_plot_axis_labels();
 }
@@ -2111,9 +2124,6 @@ function sync_sliders_to_center(is_end = true) {
         }
     }
 
-    // Always update crosshairs because even if indices (PPM center) didn't change,
-    // the zoom scale might have changed, requiring new pixel coordinates.
-    // Call this at the end to ensure all scales are updated.
     update_3d_crosshairs();
 }
 
@@ -2376,8 +2386,8 @@ function init_ortho_plots(s) {
         let parent = document.getElementById("vis_parent_xz");
         let cr = parent.getBoundingClientRect();
 
-        let plot_width = cr.width - plot_margin_left - plot_margin_right;
-        let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+        let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+        let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
 
         let cvs = document.getElementById("canvas_xz");
         let svg = document.getElementById("visualization_xz");
@@ -2428,8 +2438,8 @@ function init_ortho_plots(s) {
         let parent = document.getElementById("vis_parent_yz");
         let cr = parent.getBoundingClientRect();
 
-        let plot_width = cr.width - plot_margin_left - plot_margin_right;
-        let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+        let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+        let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
 
         let cvs = document.getElementById("canvas_yz");
         let svg = document.getElementById("visualization_yz");
@@ -3423,7 +3433,7 @@ function update_1d_traces_from_center() {
         }
     }
 
-    // Update Y-Projection 1D Trace (Trace along X at some Z)
+    // Update Y-Projection 1D Trace (Trace along Z at some Y)
     if (spectrum_proj_y && spectrum_proj_y.raw_data) {
         const traceProjYX = [];
         const nx = spectrum_proj_y.n_direct;
@@ -3469,6 +3479,38 @@ function update_1d_traces_from_center() {
         const label = document.getElementById('trace_proj_y_x_label');
         if (label) {
             label.innerText = `1D Trace Along z (at y=${target_z_ppm.toFixed(3)} ppm)`;
+        }
+    }
+
+    // Update X-Projection 1D Trace (Trace along X at some Y)
+    if (spectrum_proj_x && spectrum_proj_x.raw_data) {
+        const traceProjZX = [];
+        const n_direct = spectrum_proj_x.n_direct;
+        const n_indirect = spectrum_proj_x.n_indirect;
+
+        let target_y_ppm;
+        if (main_plot_proj_x && main_plot_proj_x.yRange) {
+            let y_domain = main_plot_proj_x.yRange.domain();
+            target_y_ppm = (y_domain[0] + y_domain[1]) / 2;
+        } else {
+            target_y_ppm = center.ppm_y;
+        }
+
+        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj_x.y_ppm_start) / spectrum_proj_x.y_ppm_step, n_indirect);
+
+        for (let x = 0; x < n_direct; x++) {
+            let val = spectrum_proj_x.raw_data[pyIndex * n_direct + x] || 0;
+            traceProjZX.push({
+                ppm: spectrum_proj_x.x_ppm_start + x * spectrum_proj_x.x_ppm_step,
+                value: val
+            });
+        }
+        const domainProjZX = trace_zoom_domains['trace_proj_z_svg'] || [spectrum_proj_x.x_ppm_start, spectrum_proj_x.x_ppm_start + (n_direct - 1) * spectrum_proj_x.x_ppm_step];
+        render_trace_3d('trace_proj_z_svg', traceProjZX, domainProjZX, '#e9c46a');
+
+        const label = document.getElementById('trace_proj_z_label');
+        if (label) {
+            label.innerText = `1D Trace Along x (at y=${target_y_ppm.toFixed(3)} ppm)`;
         }
     }
 }
@@ -3532,6 +3574,15 @@ function update_3d_crosshairs() {
         let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
         let proj_ppm_z = (y_domain[0] + y_domain[1]) / 2;
         main_plot_proj_y.draw_center_lines(proj_ppm_x, proj_ppm_z);
+    }
+
+    // Update X-Projection Plot (XY Projection) - center crosshair
+    if (main_plot_proj_x && main_plot_proj_x.xRange && main_plot_proj_x.yRange && typeof main_plot_proj_x.draw_center_lines === 'function') {
+        let x_domain = main_plot_proj_x.xRange.domain();
+        let y_domain = main_plot_proj_x.yRange.domain();
+        let proj_ppm_x = (x_domain[0] + x_domain[1]) / 2;
+        let proj_ppm_y = (y_domain[0] + y_domain[1]) / 2;
+        main_plot_proj_x.draw_center_lines(proj_ppm_x, proj_ppm_y);
     }
 
     // Update Info Div using precise matching index strings based on view
@@ -3617,41 +3668,57 @@ function toggle_visualize_3d(show) {
 function toggle_visualize_proj(show) {
     let c1 = document.getElementById('container_projection_view');
     let c2 = document.getElementById('container_projection_y_view');
+    let c3 = document.getElementById('container_projection_x_view');
     if (show) {
         if (c1) c1.style.display = 'block';
         if (c2) c2.style.display = 'block';
+        if (c3) c3.style.display = 'block';
+
+        // Re-initialize plots if they were created while hidden (width=0)
+        if (spectra_3d.length > 0) {
+            let s = spectra_3d[0];
+            if (!main_plot_proj || main_plot_proj.WIDTH === 0) init_proj_plot(s);
+            if (!main_plot_proj_y || main_plot_proj_y.WIDTH === 0) init_proj_y_plot(s);
+            if (!main_plot_proj_x || main_plot_proj_x.WIDTH === 0) init_proj_x_plot(s);
+        }
+
         if (!spectrum_proj) {
             generate_projection_spectrum();
+        } else {
+            refresh_proj_plot();
+            refresh_proj_y_plot();
+            refresh_proj_x_plot();
         }
     } else {
         if (c1) c1.style.display = 'none';
         if (c2) c2.style.display = 'none';
+        if (c3) c3.style.display = 'none';
     }
 }
 
 function visualize_3d() {
     let cb = document.getElementById('check_visualize_3d');
-    if (cb) {
-        cb.checked = true;
+    if (cb && cb.checked) {
         toggle_visualize_3d(true);
-    } else {
+    } else if (!cb) {
         let container = document.getElementById('container_3d_view');
-        if (container) container.style.display = 'block';
-        extract_3d_data();
+        if (container && container.style.display !== 'none') {
+            extract_3d_data();
+        }
     }
 }
 
 function visualize_proj() {
     let cb = document.getElementById('check_visualize_proj');
-    if (cb) {
-        cb.checked = true;
+    if (cb && cb.checked) {
         toggle_visualize_proj(true);
-    } else {
+    } else if (!cb) {
         let c1 = document.getElementById('container_projection_view');
         let c2 = document.getElementById('container_projection_y_view');
-        if (c1) c1.style.display = 'block';
-        if (c2) c2.style.display = 'block';
-        generate_projection_spectrum();
+        let c3 = document.getElementById('container_projection_x_view');
+        if ((c1 && c1.style.display !== 'none') || (c2 && c2.style.display !== 'none') || (c3 && c3.style.display !== 'none')) {
+            generate_projection_spectrum();
+        }
     }
 }
 
@@ -5348,8 +5415,8 @@ function setup_2d_plot_resizing() {
                 if (canvas_el) {
                     canvas_el.style.left = plot_margin_left + "px";
                     canvas_el.style.top = plot_margin_top + "px";
-                    canvas_el.setAttribute("width", plot_width);
-                    canvas_el.setAttribute("height", plot_height);
+                    canvas_el.setAttribute("width", Math.max(0, plot_width));
+                    canvas_el.setAttribute("height", Math.max(0, plot_height));
                 }
             }
 
@@ -5405,8 +5472,8 @@ function init_proj_plot(s) {
         bottom: plot_margin_bottom
     };
 
-    let plot_width = cr.width - plot_margin_left - plot_margin_right;
-    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+    let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+    let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
 
     let cvs = document.getElementById("canvas_proj");
     let svg = document.getElementById("visualization_proj");
@@ -5664,6 +5731,46 @@ function generate_projection_spectrum() {
     request_contour_calculation(specY, 0, 0, "proj_y");
     request_contour_calculation(specY, 0, 1, "proj_y");
 
+    // X-Projection (Along Direct dimension F2/z, showing F3/x vs F1/y)
+    let specX = new spectrum();
+    specX.n_direct = ny;
+    specX.n_indirect = nz;
+    specX.x_ppm_start = s0.y_ppm_start;
+    specX.x_ppm_step = s0.y_ppm_step;
+    specX.y_ppm_start = s0.z_ppm_start;
+    specX.y_ppm_step = s0.z_ppm_step;
+
+    let rawX = new Float32Array(ny * nz);
+    for (let z = 0; z < nz; z++) {
+        let slice = spectra_3d[z];
+        let slice_data = slice.raw_data;
+        if (slice_data && slice_data.length === nx * ny) {
+            for (let y = 0; y < ny; y++) {
+                let sum = 0;
+                for (let x = 0; x < nx; x++) {
+                    sum += slice_data[y * nx + x];
+                }
+                rawX[z * ny + y] = sum / nx;
+            }
+        }
+    }
+    specX.raw_data = rawX;
+    specX.noise_level = mathTool.estimate_noise_level(ny, nz, rawX);
+    let displayX = document.getElementById("proj_x_noise_level_display");
+    if (displayX) displayX.innerText = "Proj X Noise: " + specX.noise_level.toExponential(2);
+
+    let multiplierX = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+    let scaleX = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
+
+    specX.levels = calculate_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
+    specX.negative_levels = calculate_negative_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
+    specX.spectrum_color = "#0000ff";
+    specX.spectrum_color_negative = "#ff0000";
+
+    spectrum_proj_x = specX;
+    request_contour_calculation(specX, 0, 0, "proj_x");
+    request_contour_calculation(specX, 0, 1, "proj_x");
+
     // Theoretical projection
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         let st0 = theoretical_spectra_3d[0];
@@ -5727,6 +5834,36 @@ function generate_projection_spectrum() {
         theoretical_spectrum_proj_y = spec_theo_y;
         request_contour_calculation(spec_theo_y, 0, 0, "proj_y_theo");
         request_contour_calculation(spec_theo_y, 0, 1, "proj_y_theo");
+
+        // Theoretical X-Projection
+        let spec_theo_x = new spectrum();
+        spec_theo_x.n_direct = ny;
+        spec_theo_x.n_indirect = nz;
+        spec_theo_x.x_ppm_start = st0.y_ppm_start;
+        spec_theo_x.x_ppm_step = st0.y_ppm_step;
+        spec_theo_x.y_ppm_start = st0.z_ppm_start;
+        spec_theo_x.y_ppm_step = st0.z_ppm_step;
+
+        let raw_theo_x = new Float32Array(ny * nz);
+        for (let z = 0; z < theoretical_spectra_3d.length; z++) {
+            let slice_data = theoretical_spectra_3d[z].raw_data;
+            for (let y = 0; y < ny; y++) {
+                let sum = 0;
+                for (let x = 0; x < nx; x++) {
+                    sum += slice_data[y * nx + x];
+                }
+                raw_theo_x[z * ny + y] = sum / nx;
+            }
+        }
+        spec_theo_x.raw_data = raw_theo_x;
+        spec_theo_x.noise_level = st0.noise_level;
+        spec_theo_x.levels = specX.levels;
+        spec_theo_x.negative_levels = specX.negative_levels;
+        spec_theo_x.spectrum_color = "#ff0000";
+
+        theoretical_spectrum_proj_x = spec_theo_x;
+        request_contour_calculation(spec_theo_x, 0, 0, "proj_x_theo");
+        request_contour_calculation(spec_theo_x, 0, 1, "proj_x_theo");
     }
     update_1d_traces_from_center();
 }
@@ -5799,8 +5936,8 @@ function init_proj_y_plot(s) {
         bottom: plot_margin_bottom
     };
 
-    let plot_width = cr.width - plot_margin_left - plot_margin_right;
-    let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
+    let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+    let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
 
     let cvs = document.getElementById("canvas_proj_y");
     let svg = document.getElementById("visualization_proj_y");
@@ -5905,6 +6042,140 @@ function reset_proj_y_zoom() {
     main_plot_proj_y.resetzoom(x_dom, y_dom);
 }
 
+/**
+ * X-Projection (Collapse Direct) Plot Logic
+ */
+function init_proj_x_plot(s) {
+    if (!s) return;
+
+    let parent = document.getElementById("vis_parent_proj_x");
+    if (!parent) return;
+    let cr = parent.getBoundingClientRect();
+
+    let plot_font_size = 24;
+    let plot_margin_left = 30 + plot_font_size * 5;
+    let plot_margin_bottom = 30 + plot_font_size * 3;
+    let plot_margin_top = 30;
+    let plot_margin_right = 30;
+
+    let margins = {
+        left: plot_margin_left,
+        top: plot_margin_top,
+        right: plot_margin_right,
+        bottom: plot_margin_bottom
+    };
+
+    let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
+    let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
+
+    let cvs = document.getElementById("canvas_proj_x");
+    let svg = document.getElementById("visualization_proj_x");
+
+    if (cvs) {
+        cvs.style.position = "absolute";
+        cvs.style.left = plot_margin_left + "px";
+        cvs.style.top = plot_margin_top + "px";
+        cvs.setAttribute("width", plot_width);
+        cvs.setAttribute("height", plot_height);
+    }
+
+    if (svg) { svg.setAttribute("width", cr.width); svg.setAttribute("height", cr.height); }
+
+    let input_proj = {
+        WIDTH: cr.width,
+        HEIGHT: cr.height,
+        MARGINS: margins,
+        fontsize: plot_font_size,
+        x_ppm_start: s.y_ppm_start,
+        x_ppm_step: s.y_ppm_step,
+        y_ppm_start: s.z_ppm_start,
+        y_ppm_step: s.z_ppm_step,
+        n_direct: s.n_indirect, // In X-proj, Indirect 1 is direct
+        n_indirect: spectra_3d.length, // Indirect 2 is indirect
+        drawto: "#visualization_proj_x",
+        drawto_contour: "canvas_proj_x",
+        drawto_infor: "infor_proj_x",
+        size: [cr.width, cr.height]
+    };
+    main_plot_proj_x = new plotit(input_proj);
+    main_plot_proj_x.draw();
+
+    // Disable interactive behaviors
+    main_plot_proj_x.cross_line_pause_flag = false;
+    if (typeof main_plot_proj_x.allow_right_click === 'function') {
+        main_plot_proj_x.allow_right_click(false);
+    }
+}
+
+function handle_proj_x_response(data, type) {
+    let spec = (type === "proj_x") ? spectrum_proj_x : theoretical_spectrum_proj_x;
+    if (!spec) return;
+
+    if (data.contour_sign === 0) spec.cached_contour_pos = data;
+    else spec.cached_contour_neg = data;
+
+    refresh_proj_x_plot();
+}
+
+function refresh_proj_x_plot() {
+    if (!main_plot_proj_x || !spectrum_proj_x) return;
+
+    let spectra_list = [spectrum_proj_x];
+    if (theoretical_spectrum_proj_x) spectra_list.push(theoretical_spectrum_proj_x);
+
+    render_to_plot(main_plot_proj_x, spectra_list);
+}
+
+function estimate_proj_x_noise() {
+    if (!spectrum_proj_x) return;
+    let raw = spectrum_proj_x.raw_data;
+    let nx = spectrum_proj_x.n_direct;
+    let ny = spectrum_proj_x.n_indirect;
+
+    spectrum_proj_x.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
+    let display = document.getElementById("proj_x_noise_level_display");
+    if (display) display.innerText = "Proj X Noise: " + spectrum_proj_x.noise_level.toExponential(2);
+
+    update_proj_x_contour_levels();
+}
+
+function update_proj_x_contour_levels() {
+    if (!spectrum_proj_x) return;
+
+    let multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+    let scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
+
+    spectrum_proj_x.levels = calculate_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj_x.negative_levels = calculate_negative_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
+    spectrum_proj_x.cached_contour_pos = null;
+    spectrum_proj_x.cached_contour_neg = null;
+
+    request_contour_calculation(spectrum_proj_x, 0, 0, "proj_x");
+    request_contour_calculation(spectrum_proj_x, 0, 1, "proj_x");
+
+    if (theoretical_spectrum_proj_x) {
+        theoretical_spectrum_proj_x.levels = spectrum_proj_x.levels;
+        theoretical_spectrum_proj_x.negative_levels = spectrum_proj_x.negative_levels;
+        theoretical_spectrum_proj_x.cached_contour_pos = null;
+        theoretical_spectrum_proj_x.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj_x, 0, 0, "proj_x_theo");
+        request_contour_calculation(theoretical_spectrum_proj_x, 0, 1, "proj_x_theo");
+    }
+}
+
+function reset_proj_x_zoom() {
+    if (!main_plot_proj_x || !spectrum_proj_x) return;
+    let s = spectrum_proj_x;
+    let x_dom = [s.x_ppm_start, s.x_ppm_start + s.x_ppm_step * s.n_direct];
+    let y_dom = [s.y_ppm_start, s.y_ppm_start + s.y_ppm_step * s.n_indirect];
+    main_plot_proj_x.resetzoom(x_dom, y_dom);
+}
+
+function sync_from_proj_x_plot(is_end = true) {
+    update_1d_traces_from_center();
+    update_3d_crosshairs();
+}
+
 function sync_from_proj_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
@@ -5925,6 +6196,8 @@ function sync_3d_views(plot_instance, is_end) {
         sync_from_proj_plot(is_end);
     } else if (plot_instance === main_plot_proj_y) {
         sync_from_proj_y_plot(is_end);
+    } else if (plot_instance === main_plot_proj_x) {
+        sync_from_proj_x_plot(is_end);
     } else if (plot_instance === main_plot) {
         sync_sliders_to_center(is_end);
     } else if (plot_instance === main_plot_xz) {

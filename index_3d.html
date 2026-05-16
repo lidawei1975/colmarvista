@@ -522,6 +522,69 @@
                     </div>
                 </div>
 
+                <!-- Section 3: Projected 2D View (x-Projection, sum over direct) -->
+                <div id="container_projection_x_view"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #e9c46a; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #2a9d8f; padding-bottom: 10px;">
+                        x-Projection (Averaged) View</h2>
+
+                    <div
+                        style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
+                        <!-- Trace for Projection -->
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div
+                                style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
+                                <div id="trace_proj_z_label"
+                                    style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>1D Trace Along x (at Projection center)</span>
+                                    <span style="font-weight: normal; font-size: 12px;">
+                                        P0: <span id="trace_proj_z_ph0_val">0.0</span>,
+                                        P1: <span id="trace_proj_z_ph1_val">0.0</span>,
+                                        Pivot: <span id="trace_proj_z_pivot_val">not set</span>
+                                        <button onclick="apply_trace_phase()"
+                                            style="margin-left: 5px; font-size: 11px; padding: 2px 6px;">Apply
+                                            Phase</button>
+                                    </span>
+                                </div>
+                                <svg id="trace_proj_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                            </div>
+
+                            <div id="main_plot_area_proj_x"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
+                                <h4>xy Projection</h4>
+                                <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
+                                    <span style="font-weight: bold;">Full z-Range Average</span>
+                                </div>
+                                <div id="proj_x_contour_controls"
+                                    style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
+                                    <span id="proj_x_noise_level_display" style="font-weight: bold;">Proj. X Noise: -</span>
+                                    <button onclick="estimate_proj_x_noise()">Estimate Noise</button>
+                                    <label>Start (x noise): </label><input type="number"
+                                        id="proj_x_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
+                                    <label>Scale: </label><input type="number" id="proj_x_contour_scale_factor"
+                                        value="1.4" step="0.05" style="width: 50px;">
+                                    <button onclick="update_proj_x_contour_levels()">Update</button>
+                                    <button onclick="reset_proj_x_zoom()" style="margin-left: 10px;">Reset Zoom</button>
+                                </div>
+                                <div id="vis_parent_proj_x" class="resizable"
+                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                        <span id="infor_proj_x">Information</span>
+                                    </div>
+                                    <div id="canvas_parent_proj_x"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_proj_x"></canvas></div>
+                                    <div id="svg_parent_proj_x"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_proj_x"></svg></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Section 4: 3D Visualization -->
                 <div id="container_3d_view"
                     style="width: 98%; box-sizing: border-box; border: 2px solid #e76f51; padding: 2px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">

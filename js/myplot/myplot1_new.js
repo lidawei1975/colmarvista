@@ -136,12 +136,25 @@ function plotit(input) {
 
     this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
     this.$extra_peaks_group = null; // SVG group for extra peaks
+
+    this.xlabel_text = input.xlabel || "Chemical Shift (ppm)";
+    this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
 };
 
 plotit.prototype.enable_magnifying_glass = function (flag, ratio, size) {
     this.magnifying_glass = flag ? flag : false; //default is false
     this.magnifying_glass_ratio = ratio ? ratio : 4.0; //default is 4.0
     this.magnifying_glass_size = size ? size : 10; //default is 10% of the plot size
+};
+
+plotit.prototype.set_labels = function (xlabel, ylabel) {
+    if (xlabel !== undefined) this.xlabel_text = xlabel;
+    if (ylabel !== undefined) this.ylabel_text = ylabel;
+
+    if (this.$vis) {
+        this.$vis.selectAll('.xlabel').text(this.xlabel_text);
+        this.$vis.selectAll('.ylabel').text(this.ylabel_text);
+    }
 };
 
 
@@ -234,15 +247,20 @@ plotit.prototype.update = function (input) {
         .attr("transform", `translate(${yLabelX}, ${yLabelY}) rotate(-90)`);
 
     this.$vis.selectAll('.ylabel')
-        .attr("font-size", this.fontsize + "px");
+        .attr("font-size", this.fontsize + "px")
+        .text(this.ylabel_text);
+
+    this.$vis.selectAll('.xlabel')
+        .attr("font-size", this.fontsize + "px")
+        .text(this.xlabel_text);
 
 
 
     this.$rect
         .attr("x", this.MARGINS.left)
         .attr("y", this.MARGINS.top)
-        .attr("width", this.WIDTH - this.MARGINS.right - this.MARGINS.left)
-        .attr("height", this.HEIGHT - this.MARGINS.bottom - this.MARGINS.top);
+        .attr("width", Math.max(0, this.WIDTH - this.MARGINS.right - this.MARGINS.left))
+        .attr("height", Math.max(0, this.HEIGHT - this.MARGINS.bottom - this.MARGINS.top));
 
 
     /**
@@ -285,6 +303,12 @@ plotit.prototype.reset_axis = function () {
 
     this.$xAxis_svg.call(this.xAxis);
     this.$yAxis_svg.call(this.yAxis);
+
+    // Re-apply custom labels if set
+    if (this.$vis) {
+        this.$vis.selectAll('.xlabel').text(this.xlabel_text);
+        this.$vis.selectAll('.ylabel').text(this.ylabel_text);
+    }
     this.$vis.selectAll(".xaxis>.tick>text")
         .each(function () {
             d3.select(this).style("font-size", self.fontsize + "px");
@@ -753,7 +777,7 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("font-family", "Arial, Helvetica, sans-serif")
-        .text("Chemical Shift (ppm)")
+        .text(this.xlabel_text)
         .on("click", function (event) {
             let e = event || d3.event;
             self.handleLabelClick(e, this, false);
@@ -785,7 +809,7 @@ plotit.prototype.draw = function () {
         .attr("text-anchor", "middle")
         .attr("font-size", this.fontsize + "px")
         .attr("font-family", "Arial, Helvetica, sans-serif")
-        .text("Chemical Shift (ppm)")
+        .text(this.ylabel_text)
         .on("click", function (event) {
             let e = event || d3.event;
             self.handleLabelClick(e, this, true);
@@ -798,11 +822,11 @@ plotit.prototype.draw = function () {
         .append("rect")
         .attr("x", this.MARGINS.left)
         .attr("y", this.MARGINS.top)
-        .attr("width", this.WIDTH - this.MARGINS.right - this.MARGINS.left)
-        .attr("height", this.HEIGHT - this.MARGINS.bottom - this.MARGINS.top);
+        .attr("width", Math.max(0, this.WIDTH - this.MARGINS.right - this.MARGINS.left))
+        .attr("height", Math.max(0, this.HEIGHT - this.MARGINS.bottom - this.MARGINS.top));
 
     this.brush = d3.brush()
-        .extent([[this.MARGINS.left, this.MARGINS.top], [this.WIDTH - this.MARGINS.right, this.HEIGHT - this.MARGINS.bottom]])
+        .extent([[this.MARGINS.left, this.MARGINS.top], [Math.max(this.MARGINS.left, this.WIDTH - this.MARGINS.right), Math.max(this.MARGINS.top, this.HEIGHT - this.MARGINS.bottom)]])
         .on("end", this.brushend.bind(this));
 
     this.$brush_element = this.$vis.append("g")

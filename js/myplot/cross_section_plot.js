@@ -108,8 +108,8 @@ class cross_section_plot {
                 .attr("id", "clip" + this.orientation)
                 .append("rect")
                 .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", width - this.margin.left - this.margin.right)
-                .attr("height", height - this.margin.top - this.margin.bottom);
+                .attr("width", Math.max(0, width - this.margin.left - this.margin.right))
+                .attr("height", Math.max(0, height - this.margin.top - this.margin.bottom));
 
         /**
          * Add a line to show the 0 intensity
@@ -394,8 +394,8 @@ class cross_section_plot {
              */
             this.clip_space
                 .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", this.width - this.margin.left - this.margin.right)
-                .attr("height", this.height - this.margin.top - this.margin.bottom);
+                .attr("width", Math.max(0, this.width - this.margin.left - this.margin.right))
+                .attr("height", Math.max(0, this.height - this.margin.top - this.margin.bottom));
 
         }
         else if(this.orientation === "vertical"){
@@ -428,7 +428,7 @@ class cross_section_plot {
         /**
          * Change height of the clip space according to the new height of the main_plot object
          */
-        this.clip_space.attr("height", height - this.margin.top - this.margin.bottom);
+        this.clip_space.attr("height", Math.max(0, height - this.margin.top - this.margin.bottom));
         this.redraw();
     }
     
