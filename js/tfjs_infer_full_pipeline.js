@@ -1128,7 +1128,7 @@ Intended use in webpage:
     }
     testBatch.dispose();
 
-    // TENSORFLOW.JS PART: Three-stage inference pipeline
+    // TENSORFLOW.JS PART: Five-stage inference pipeline
     // Stage 1: run the large model and apply its left/right phase to the full spectrum
     console.log("[tfjs] Starting Stage 1: Large Model");
     const largeOut = await runModelOnCubes(tf, largeModel, ext1, cfg, 'large_model');
@@ -1143,14 +1143,31 @@ Intended use in webpage:
 
     const ext3 = extractTopNCubes(spectraWorking1, cfg);
 
-    // Stage 3: run the normal model again on the re-extracted spectrum
+    // Stage 3: run the normal model again
     console.log("[tfjs] Starting Stage 3: Normal Model (Iteration 2)");
     const normalOut2 = await runModelOnCubes(tf, normalModel, ext3, cfg, 'normal_2');
+    applyLeftRightToSpectra(spectraWorking1, normalOut2.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
+
+    const ext4 = extractTopNCubes(spectraWorking1, cfg);
+
+    // Stage 4: run the normal model again
+    console.log("[tfjs] Starting Stage 4: Normal Model (Iteration 3)");
+    const normalOut3 = await runModelOnCubes(tf, normalModel, ext4, cfg, 'normal_3');
+    applyLeftRightToSpectra(spectraWorking1, normalOut3.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
+
+    const ext5 = extractTopNCubes(spectraWorking1, cfg);
+
+    // Stage 5: run the normal model for the final time
+    console.log("[tfjs] Starting Stage 5: Normal Model (Iteration 4)");
+    const normalOut4 = await runModelOnCubes(tf, normalModel, ext5, cfg, 'normal_4');
 
     // PURE JAVASCRIPT PART 2: Combine phase predictions from all stages via WLS fitting
     // Sum left/right from each stage to get final left/right
-    const sum01 = addLeftRightArrays(largeOut.wls_phase_left_right, normalOut1.wls_phase_left_right);
-    const finalLeftRight = addLeftRightArrays(sum01, normalOut2.wls_phase_left_right);
+    let finalLeftRight = largeOut.wls_phase_left_right;
+    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut1.wls_phase_left_right);
+    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut2.wls_phase_left_right);
+    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut3.wls_phase_left_right);
+    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut4.wls_phase_left_right);
 
     console.log("[tfjs] Final combined WLS Left/Right:", finalLeftRight[0].map(v => v.toFixed(2)));
     logToHtml(`[tfjs][Final] Combined WLS: [${finalLeftRight[0].map(v => v.toFixed(2)).join(", ")}]`);
@@ -1170,6 +1187,8 @@ Intended use in webpage:
       stage_large: largeOut,
       stage_normal_1: normalOut1,
       stage_normal_2: normalOut2,
+      stage_normal_3: normalOut3,
+      stage_normal_4: normalOut4,
       final_wls_phase_left_right: finalLeftRight,
     };
   }
