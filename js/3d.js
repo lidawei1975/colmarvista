@@ -48,7 +48,8 @@ var last_fid_extract_ppm_range = null;
 
 /**
  * Capture nuclear names from worker logs for axis labeling
- * Mapping: F2 -> x (Direct), F3 -> y (Indirect 1), F1 -> z (Indirect 2/Planes)
+ * Internal Mapping: F2 -> x (Direct), F3 -> y (Indirect 1), F1 -> z (Indirect 2/Planes)
+ * UI Display Names: F2 as z, F3 as x, F1 as y
  */
 window.last_fid_nuclei = { x: '', y: '', z: '' };
 
@@ -387,34 +388,37 @@ function update_all_plot_axis_labels() {
     const ny = window.last_fid_nuclei.y;
     const nz = window.last_fid_nuclei.z;
 
-    const getLabel = (nuc) => nuc ? `${nuc} (ppm)` : "Chemical Shift (ppm)";
+    const getLabel = (nuc, axis) => {
+        const prefix = axis ? `${axis} ` : "";
+        return nuc ? `${prefix}${nuc} (ppm)` : `${prefix}Chemical Shift (ppm)`;
+    };
 
-    // Update XY Plot (Main)
+    // Update XY Plot (Main) -> now zx Plane
     if (main_plot) {
-        d3.select(main_plot.drawto).select('.xlabel').text(getLabel(nx));
-        d3.select(main_plot.drawto).select('.ylabel').text(getLabel(ny));
+        d3.select(main_plot.drawto).select('.xlabel').text(getLabel(nx, "z"));
+        d3.select(main_plot.drawto).select('.ylabel').text(getLabel(ny, "x"));
     }
 
-    // Update XZ Plot
+    // Update XZ Plot -> now zy Plane
     if (main_plot_xz) {
-        d3.select(main_plot_xz.drawto).select('.xlabel').text(getLabel(nx));
-        d3.select(main_plot_xz.drawto).select('.ylabel').text(getLabel(nz));
+        d3.select(main_plot_xz.drawto).select('.xlabel').text(getLabel(nx, "z"));
+        d3.select(main_plot_xz.drawto).select('.ylabel').text(getLabel(nz, "y"));
     }
 
-    // Update YZ Plot
+    // Update YZ Plot -> now xy Plane
     if (main_plot_yz) {
-        d3.select(main_plot_yz.drawto).select('.xlabel').text(getLabel(nz));
-        d3.select(main_plot_yz.drawto).select('.ylabel').text(getLabel(ny));
+        d3.select(main_plot_yz.drawto).select('.xlabel').text(getLabel(nz, "y"));
+        d3.select(main_plot_yz.drawto).select('.ylabel').text(getLabel(ny, "x"));
     }
 
     // Update Projections
     if (main_plot_proj) {
-        d3.select(main_plot_proj.drawto).select('.xlabel').text(getLabel(nx));
-        d3.select(main_plot_proj.drawto).select('.ylabel').text(getLabel(ny));
+        d3.select(main_plot_proj.drawto).select('.xlabel').text(getLabel(nx, "z"));
+        d3.select(main_plot_proj.drawto).select('.ylabel').text(getLabel(ny, "x"));
     }
     if (main_plot_proj_y) {
-        d3.select(main_plot_proj_y.drawto).select('.xlabel').text(getLabel(nx));
-        d3.select(main_plot_proj_y.drawto).select('.ylabel').text(getLabel(nz));
+        d3.select(main_plot_proj_y.drawto).select('.xlabel').text(getLabel(nx, "z"));
+        d3.select(main_plot_proj_y.drawto).select('.ylabel').text(getLabel(nz, "y"));
     }
 }
 
@@ -3415,7 +3419,7 @@ function update_1d_traces_from_center() {
         const label = document.getElementById('trace_proj_x_label');
         if (label) {
             const ppm_str = target_y_ppm.toFixed(3);
-            label.innerText = `1D Trace Along X (at Y=${ppm_str} ppm)`;
+            label.innerText = `1D Trace Along z (at x=${ppm_str} ppm)`;
         }
     }
 
@@ -3464,7 +3468,7 @@ function update_1d_traces_from_center() {
 
         const label = document.getElementById('trace_proj_y_x_label');
         if (label) {
-            label.innerText = `1D Trace Along X (at Z=${target_z_ppm.toFixed(3)} ppm)`;
+            label.innerText = `1D Trace Along z (at y=${target_z_ppm.toFixed(3)} ppm)`;
         }
     }
 }

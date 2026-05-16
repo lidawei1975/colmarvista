@@ -248,7 +248,7 @@
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
                             <div
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                                1D Trace Along Z (at XY center)
+                                1D Trace Along y (at zx center)
                             </div>
                             <svg id="trace_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
@@ -257,7 +257,7 @@
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
                             <div
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                                1D Trace Along Y (at XZ center)
+                                1D Trace Along x (at zy center)
                             </div>
                             <svg id="trace_y_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
@@ -266,7 +266,7 @@
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
                             <div
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
-                                <span>1D Trace Along X (at YZ center)</span>
+                                <span>1D Trace Along z (at xy center)</span>
                                 <span style="font-weight: normal; font-size: 11px;">
                                     P0: <span id="trace_x_ph0_val">0.0</span>,
                                     P1: <span id="trace_x_ph1_val">0.0</span>,
@@ -310,10 +310,10 @@
                             <!-- XY Plane -->
                             <div
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>XY Plane</h4>
+                                <h4>zx Plane</h4>
                                 <div id="slice_control_area"
                                     style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
-                                    <label for="slice_slider" style="font-weight: bold;">Z-Plane: </label>
+                                    <label for="slice_slider" style="font-weight: bold;">y-Plane: </label>
                                     <button id="prev_slice">&lt;</button>
                                     <input type="range" id="slice_slider" min="0" max="0" value="0"
                                         style="width: 200px; vertical-align: middle;">
@@ -337,9 +337,9 @@
                             <!-- XZ Plane -->
                             <div id="main_plot_area_xz"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>XZ Plane</h4>
+                                <h4>zy Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
+                                    <label for="slider_xz" style="font-weight: bold;">x Slice: </label>
                                     <button id="prev_slice_xz">&lt;</button>
                                     <input type="range" id="slider_xz" style="width: 200px; vertical-align: middle;">
                                     <button id="next_slice_xz">&gt;</button>
@@ -362,9 +362,9 @@
                             <!-- YZ Plane -->
                             <div id="main_plot_area_yz"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>YZ Plane</h4>
+                                <h4>xy Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
+                                    <label for="slider_yz" style="font-weight: bold;">z Slice: </label>
                                     <button id="prev_slice_yz">&lt;</button>
                                     <input type="range" id="slider_yz" style="width: 200px; vertical-align: middle;">
                                     <button id="next_slice_yz">&gt;</button>
@@ -393,7 +393,7 @@
                     style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
                     <h2
                         style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
-                        Z-Projection (Averaged) View</h2>
+                        y-Projection (Averaged) View</h2>
 
                     <div
                         style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
@@ -403,7 +403,7 @@
                                 style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
                                 <div id="trace_proj_x_label"
                                     style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>1D Trace Along X (at Projection center)</span>
+                                    <span>1D Trace Along z (at Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
                                         P0: <span id="trace_proj_x_ph0_val">0.0</span>,
                                         P1: <span id="trace_proj_x_ph1_val">0.0</span>,
@@ -418,9 +418,9 @@
 
                             <div id="main_plot_area_proj"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
-                                <h4>XY Projection</h4>
+                                <h4>zx Projection</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <span style="font-weight: bold;">Full Z-Range Average</span>
+                                    <span style="font-weight: bold;">Full y-Range Average</span>
                                 </div>
                                 <div id="proj_contour_controls"
                                     style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
@@ -459,7 +459,7 @@
                     style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 30px; display: none;">
                     <h2
                         style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
-                        Y-Projection (Averaged) View</h2>
+                        x-Projection (Averaged) View</h2>
 
                     <div
                         style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
@@ -469,7 +469,7 @@
                                 style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
                                 <div id="trace_proj_y_x_label"
                                     style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>1D Trace Along X (at Y-Projection center)</span>
+                                    <span>1D Trace Along z (at x-Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
                                         P0: <span id="trace_proj_y_x_ph0_val">0.0</span>,
                                         P1: <span id="trace_proj_y_x_ph1_val">0.0</span>,
@@ -484,9 +484,9 @@
 
                             <div id="main_plot_area_proj_y"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
-                                <h4>XZ Projection</h4>
+                                <h4>zy Projection</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <span style="font-weight: bold;">Full Y-Range Average</span>
+                                    <span style="font-weight: bold;">Full x-Range Average</span>
                                 </div>
                                 <div id="proj_y_contour_controls"
                                     style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
