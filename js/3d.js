@@ -1,3 +1,38 @@
+/**
+ * IMPORTANT NOTE
+ * 
+ * Internally, we define:
+ * X axis as     direct, F2 dimension,
+ * Y axis as indirect 1, F3 dimension,
+ * Z axis as indirect 2, F1 dimension
+ * All the variable names and comments are based on this definition.
+ * 
+ * However, in the UI, we display X as z, Y as x, Z as y for plot labels, titles, and sliders, etc.
+ */
+
+
+/**
+ * This is the mermaid diagram when we load ft3 (or raw, or group of ft2) file(s) or when we processing fid data
+ 
+flowchart TD
+    subgraph Direct Loading Route
+        L1[load_ft3_file]
+        L2[load_raw_3d_file]
+    end
+    subgraph FID Processing Route
+        P1[Run WebAss 3D / SMILE Workers] --> P2[Worker returns process_fid_3d complete]
+        P2 --> P3[Optional: Run TensorFlow.js Auto-Phase Pipeline]
+    end
+    L1 & L2 --> CONV[CONVERGENCE POINT: spectra_3d is fully populated]
+    P3 & P2 --> CONV
+    CONV --> S1[Update UI Slider Limits & Show Containers]
+    S1 --> S2[Call init_main_plot spectra_3d 0]
+    S2 --> S3[Call draw_slice 0]
+    S3 --> S4[Call init_ortho_plots spectra_3d 0]
+    S4 --> S5[Call update_global_noise_level]
+
+ */
+
 
 /**
  * Global variables required by myplot1_new.js and others
@@ -7,7 +42,7 @@ var spectra_3d = [];   // Stores all loaded 3D planes (spectrum objects)
 var theoretical_spectra_3d = []; // Stores theoretical 3D volume
 var theoretical_spectrum_xz = null;
 var theoretical_spectrum_yz = null;
-var main_plot = null;
+
 var my_contour_worker = null;
 var tooldiv = document.getElementById("information_bar");
 var zoom_on_call_function = null;
@@ -20,6 +55,30 @@ var trace_zoom_domains = {
     'trace_y_svg': null,
     'trace_z_svg': null
 };
+
+/**
+ * The 3 2D plots
+ * XZ and YZ Plot Logic
+ */
+var main_plot = null;
+var main_plot_xz = null;
+var main_plot_yz = null;
+
+/**
+ * 2D spectrum objects. spectra_3d is for main_plot. 
+ * spectrum_xz and spectrum_yz are for orthogonal views.
+ */
+var spectrum_xz = null;
+var spectrum_yz = null;
+
+// Temporary Fixed positions (Center of the cube)
+// Ideally updated by crosshair interaction
+var current_y_index = -1; // Set during init, For Y axis, indirect1, F3
+var current_x_index = -1; // Set during init. For X axis, direct F2
+var current_slice_index = -1; // Set during init, For Z axis, indirect2, F1
+
+var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
+
 
 var main_plot_proj = null;
 var spectrum_proj = null;
@@ -310,8 +369,6 @@ async function run_auto_phase_on_loaded_spectrum() {
     }
 }
 
-var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
-var current_slice_index = -1;
 
 /**
  * Appends 3D log.
@@ -1208,7 +1265,8 @@ function handle_ortho_response(data, type) {
 }
 
 /**
- * Refreshes orthogonal plot.
+ * Refreshes orthogonal plot for xz and yz slices.
+ * Function draw_slice  draw xy slice of the 3D spectrum
  *
  * @param {any} type - Type
  */
@@ -2432,20 +2490,6 @@ function sync_from_yz_plot(is_end = true) {
 }
 
 /**
- * XZ and YZ Plot Logic
- */
-var main_plot_xz = null;
-var main_plot_yz = null;
-
-var spectrum_xz = null;
-var spectrum_yz = null;
-
-// Temporary Fixed positions (Center of the cube)
-// Ideally updated by crosshair interaction
-var current_y_index = -1; // Set during init
-var current_x_index = -1; // Set during init
-
-/**
  * Initializes orthogonal plots.
  *
  * @param {any} s - S
@@ -2649,6 +2693,7 @@ function init_ortho_plots(s) {
 
 /**
  * Refreshes XZ view.
+ * This function also construct spectrum_xz from spectra_3d if it is null.
  */
 function refresh_xz_view() {
     if (!main_plot_xz || spectra_3d.length === 0) return;
@@ -2812,6 +2857,7 @@ function refresh_xz_view() {
 
 /**
  * Refreshes YZ view.
+ * This function also construct spectrum_yz from spectra_3d if it is null.
  */
 function refresh_yz_view() {
     if (!main_plot_yz || spectra_3d.length === 0) return;
@@ -5459,8 +5505,6 @@ async function handle_webass_3d_message(e) {
                 apply_trace_x_phase(trace_x_ph0, trace_x_ph1, trace_x_pivot);
             }
 
-            let s0 = spectra_3d[0];
-            init_ortho_plots(s0);
             update_global_noise_level();
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
@@ -5638,6 +5682,10 @@ function apply_trace_x_phase(p0, p1, pivot) {
 
     visualize_3d();
     draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+
+    // Update 2D orthogonal views with new phased contours
+    if (main_plot_xz) refresh_xz_view();
+    if (main_plot_yz) refresh_yz_view();
 }
 window.addEventListener('DOMContentLoaded', () => {
     let btn = document.getElementById('btn_apply_trace_x_phase');
