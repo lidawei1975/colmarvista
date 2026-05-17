@@ -621,6 +621,19 @@ var zf_indirect = 0;
 
 var mathTool = new ldwmath();
 
+function set_loading_buttons_state(disabled) {
+    const ids = [
+        'button_fid_process_3d',
+        'button_ft2_process',
+        'button_ft3_process',
+        'button_raw_process',
+        'btn_load_theoretical'
+    ];
+    ids.forEach(id => {
+        let el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    });
+}
 
 document.addEventListener('DOMContentLoaded', function () {
 
@@ -637,6 +650,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
         alert("Your browser doesn't support Web Workers. The viewer will not work.");
     }
+
 
     // Initialize Plot on window resize
     window.addEventListener('resize', function () {
@@ -757,7 +771,9 @@ async function load_theoretical_peaks() {
         return;
     }
 
-    let file = fileInput.files[0];
+    set_loading_buttons_state(true);
+    try {
+        let file = fileInput.files[0];
     let text = await file.text();
     let lines = text.split('\n');
 
@@ -875,6 +891,9 @@ async function load_theoretical_peaks() {
 
     // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
     fileInput.value = '';
+    } finally {
+        set_loading_buttons_state(false);
+    }
 }
 
 /**
@@ -1382,7 +1401,9 @@ async function load_ft3_file() {
         return;
     }
 
-    let file = files[0];
+    set_loading_buttons_state(true);
+    try {
+        let file = files[0];
     document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
 
     // Reset state
@@ -1509,13 +1530,15 @@ async function load_ft3_file() {
         draw_slice(0);
         update_global_noise_level();
 
-        // Trigger auto-phase if requested
         if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
             run_auto_phase_on_loaded_spectrum();
         }
     }
 
     document.getElementById("webassembly_message").innerText = "";
+    } finally {
+        set_loading_buttons_state(false);
+    }
 }
 
 /**
@@ -1529,7 +1552,9 @@ async function load_raw_3d_file() {
         return;
     }
 
-    let file = fileInput.files[0];
+    set_loading_buttons_state(true);
+    try {
+        let file = fileInput.files[0];
     document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
 
     // Reset state
@@ -1649,13 +1674,15 @@ async function load_raw_3d_file() {
         draw_slice(0);
         update_global_noise_level();
 
-        // Trigger auto-phase if requested
         if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
             run_auto_phase_on_loaded_spectrum();
         }
     }
 
     document.getElementById("webassembly_message").innerText = "";
+    } finally {
+        set_loading_buttons_state(false);
+    }
 }
 
 /**
@@ -1671,7 +1698,9 @@ async function load_files() {
         return;
     }
 
-    document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
+    set_loading_buttons_state(true);
+    try {
+        document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
 
     // Reset state
     reset_3d_dataset_state();
@@ -1725,6 +1754,9 @@ async function load_files() {
     }
 
     document.getElementById("webassembly_message").innerText = "";
+    } finally {
+        set_loading_buttons_state(false);
+    }
 }
 
 /**
@@ -4835,6 +4867,7 @@ document.addEventListener('DOMContentLoaded', function () {
         web_worker_3d.onerror = function (err) {
             console.error('[3D][worker] error', err);
             append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
+            set_loading_buttons_state(false);
         };
 
         web_worker_smile_3d = new Worker('./js/webass2.js');
@@ -4843,6 +4876,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('[3D][smile-worker] error', err);
             append_3d_log('[smile-worker-error] ' + (err && err.message ? err.message : String(err)));
             document.getElementById("webassembly_message").innerText = 'SMILE worker error: ' + (err && err.message ? err.message : String(err));
+            set_loading_buttons_state(false);
         };
     }
 
@@ -5172,6 +5206,7 @@ async function load_fid_3d_file() {
         return;
     }
 
+    set_loading_buttons_state(true);
     console.log('[3D][fid] Starting 3D FID processing request');
     append_3d_log('[main] Starting 3D FID processing request');
 
@@ -5258,6 +5293,7 @@ async function load_fid_3d_file() {
         console.error('[3D][fid] Error while reading/posting input', err);
         append_3d_log('[main-error] ' + (err && err.toString ? err.toString() : String(err)));
         document.getElementById("webassembly_message").innerText = "Error reading files: " + err.toString();
+        set_loading_buttons_state(false);
     }
 }
 
@@ -5272,6 +5308,7 @@ async function handle_webass_3d_message(e) {
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
+        set_loading_buttons_state(false);
         return;
     }
     if (Object.prototype.hasOwnProperty.call(e.data, 'stdout')) {
@@ -5544,6 +5581,7 @@ async function handle_webass_3d_message(e) {
             append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
         }
+        set_loading_buttons_state(false);
     }
 }
 
@@ -5586,6 +5624,7 @@ function handle_webass_smile_3d_message(e) {
         // debug2_smile_only_3d = false;
         append_3d_log('[smile-worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = 'SMILE error: ' + e.data.error;
+        set_loading_buttons_state(false);
     }
 }
 
