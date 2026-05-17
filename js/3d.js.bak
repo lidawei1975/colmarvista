@@ -58,11 +58,6 @@ var last_fid_extract_ppm_range = null;
 window.last_fid_nuclei = { x: '', y: '', z: '' };
 
 
-/**
- * Resets 3D dataset state.
- *
- * @param {boolean} [keepNuclei] - Keep nuclei Default is false.
- */
 function reset_3d_dataset_state(keepNuclei = false) {
     spectra_3d = [];
     hsqc_spectra = [];
@@ -98,13 +93,6 @@ function reset_3d_dataset_state(keepNuclei = false) {
     }
 }
 
-/**
- * Sets status message.
- *
- * @param {any} element_id - Element id
- * @param {any} text - Text
- * @param {number} [auto_clear_ms] - Auto clear ms Default is 0.
- */
 function set_status_message(element_id, text, auto_clear_ms = 0) {
     let elem = document.getElementById(element_id);
     if (!elem) return;
@@ -127,11 +115,6 @@ function set_status_message(element_id, text, auto_clear_ms = 0) {
     }
 }
 
-/**
- * Clears status message.
- *
- * @param {any} element_id - Element id
- */
 function clear_status_message(element_id) {
     set_status_message(element_id, "", 0);
 }
@@ -254,10 +237,6 @@ function create_ft3_buffer() {
     return buffer;
 }
 
-/**
- * Runs auto phase on loaded spectrum.
- * @returns {Promise<void>}
- */
 async function run_auto_phase_on_loaded_spectrum() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectra loaded.");
@@ -313,11 +292,6 @@ async function run_auto_phase_on_loaded_spectrum() {
 var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
 var current_slice_index = -1;
 
-/**
- * Appends 3D log.
- *
- * @param {any} message - Message
- */
 function append_3d_log(message) {
     const area = document.getElementById("log_area_3d");
     if (area && area.style.display === 'none') {
@@ -364,11 +338,6 @@ function get_full_spectrum_phase_correction(leftEdge, rightEdge, fullPpmRange, e
     };
 }
 
-/**
- * Appends 3D worker stdout.
- *
- * @param {any} stdoutText - Stdout text
- */
 function append_3d_worker_stdout(stdoutText) {
     const area = document.getElementById("log_area_3d");
     if (area && area.style.display === 'none') {
@@ -419,9 +388,6 @@ function append_3d_worker_stdout(stdoutText) {
     logElem.scrollTop = logElem.scrollHeight;
 }
 
-/**
- * Updates all plot axis labels.
- */
 function update_all_plot_axis_labels() {
     const nx = window.last_fid_nuclei.x;
     const ny = window.last_fid_nuclei.y;
@@ -459,9 +425,6 @@ function update_all_plot_axis_labels() {
     }
 }
 
-/**
- * Clears 3D log.
- */
 function clear_3d_log() {
     const logElem = document.getElementById("log");
     if (!logElem) {
@@ -470,9 +433,6 @@ function clear_3d_log() {
     logElem.value = "";
 }
 
-/**
- * Toggles log minimize.
- */
 function toggle_log_minimize() {
     const log_area = document.getElementById('log_area_3d');
     const log_textarea = document.getElementById('log');
@@ -497,9 +457,6 @@ function toggle_log_minimize() {
     }
 }
 
-/**
- * Makes log movable.
- */
 function make_log_movable() {
     const log_area = document.getElementById("log_area_3d");
     const header = document.getElementById("log_area_3d_header");
@@ -684,10 +641,6 @@ document.addEventListener('DOMContentLoaded', function () {
 var theoretical_peaks_data = []; // Store raw peak data
 var partition_bounds_data = null; // Store global partition bounds
 
-/**
- * Loads theoretical peaks.
- * @returns {Promise<void>}
- */
 async function load_theoretical_peaks() {
     let fileInput = document.getElementById('theoretical_peaks_file');
     if (fileInput.files.length === 0) {
@@ -820,11 +773,6 @@ async function load_theoretical_peaks() {
     fileInput.value = '';
 }
 
-/**
- * Generates theoretical volume.
- *
- * @param {any} peaks - Peaks
- */
 function generate_theoretical_volume(peaks) {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -1029,12 +977,6 @@ function handle_worker_message(e) {
     }
 }
 
-/**
- * Draws slice.
- *
- * @param {any} index - Index
- * @param {boolean} [update_ortho_views] - Update orthogonal views Default is true.
- */
 function draw_slice(index, update_ortho_views = true) {
     current_slice_index = index;
     let s = spectra_3d[index];
@@ -1180,12 +1122,6 @@ function draw_slice(index, update_ortho_views = true) {
     }
 }
 
-/**
- * Handles orthogonal response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_ortho_response(data, type) {
     let spec = (type === "xz") ? spectrum_xz :
         (type === "yz") ? spectrum_yz :
@@ -1207,11 +1143,6 @@ function handle_ortho_response(data, type) {
     else refresh_ortho_plot(type);
 }
 
-/**
- * Refreshes orthogonal plot.
- *
- * @param {any} type - Type
- */
 function refresh_ortho_plot(type) {
     let plot = (type === "xz") ? main_plot_xz : main_plot_yz;
     let spec = (type === "xz") ? spectrum_xz : spectrum_yz;
@@ -1311,10 +1242,6 @@ function refresh_ortho_plot(type) {
     }
 }
 
-/**
- * Loads FT3 file.
- * @returns {Promise<void>}
- */
 async function load_ft3_file() {
     let fileInput = document.getElementById('userfile_ft3');
     let files = Array.from(fileInput.files);
@@ -1460,10 +1387,6 @@ async function load_ft3_file() {
     document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Loads raw 3D file.
- * @returns {Promise<void>}
- */
 async function load_raw_3d_file() {
     let fileInput = document.getElementById('userfile_raw');
     if (fileInput.files.length === 0) {
@@ -1600,10 +1523,6 @@ async function load_raw_3d_file() {
     document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Loads files.
- * @returns {Promise<void>}
- */
 async function load_files() {
     let fileInput = document.getElementById('userfile');
     let files = Array.from(fileInput.files);
@@ -1669,11 +1588,6 @@ async function load_files() {
     document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Reads file as buffer.
- *
- * @param {any} file - File
- */
 function read_file_as_buffer(file) {
     return new Promise((resolve, reject) => {
         let reader = new FileReader();
@@ -1683,15 +1597,6 @@ function read_file_as_buffer(file) {
     });
 }
 
-/**
- * Calculates levels.
- *
- * @param {any} noise - Noise
- * @param {any} scale - Scale
- * @param {any} count - Count
- * @param {any} [multiplier_val] - Multiplier value Default is null.
- * @param {any} [scale_val] - Scale value Default is null.
- */
 function calculate_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
     let levels = [];
     let multiplier = 10.0;
@@ -1721,15 +1626,6 @@ function calculate_levels(noise, scale, count, multiplier_val = null, scale_val 
     return levels;
 }
 
-/**
- * Calculates negative levels.
- *
- * @param {any} noise - Noise
- * @param {any} scale - Scale
- * @param {any} count - Count
- * @param {any} [multiplier_val] - Multiplier value Default is null.
- * @param {any} [scale_val] - Scale value Default is null.
- */
 function calculate_negative_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
     let levels = calculate_levels(noise, scale, count, multiplier_val, scale_val);
     for (let i = 0; i < levels.length; i++) {
@@ -1738,9 +1634,6 @@ function calculate_negative_levels(noise, scale, count, multiplier_val = null, s
     return levels;
 }
 
-/**
- * Updates global noise level.
- */
 function update_global_noise_level() {
     if (!spectra_3d || spectra_3d.length === 0) return;
     let sum = 0;
@@ -1759,9 +1652,6 @@ function update_global_noise_level() {
     }
 }
 
-/**
- * Updates contour levels.
- */
 function update_contour_levels() {
     let multiplier = parseFloat(document.getElementById('contour_start_multiplier').value);
     let scale = parseFloat(document.getElementById('contour_scale_factor').value);
@@ -1876,20 +1766,12 @@ function resetzoom() {
     }
 }
 
-/**
- * Pops zoom.
- */
 function popzoom() {
     if (main_plot) {
         main_plot.popzoom();
     }
 }
 
-/**
- * Initializes main plot.
- *
- * @param {any} first_spectrum - First spectrum
- */
 function init_main_plot(first_spectrum) {
     let cr = get_content_size("vis_parent");
 
@@ -1993,14 +1875,6 @@ function init_main_plot(first_spectrum) {
 
 
 
-/**
- * Requests contour calculation.
- *
- * @param {any} spectrum - Spectrum
- * @param {any} index - Index
- * @param {any} sign - Sign
- * @param {string} [spectrum_type] - Spectrum type Default is "full".
- */
 function request_contour_calculation(spectrum, index, sign, spectrum_type = "full") {
     // Mimic the message structure expected by contour.js
     // contour.js reads: e.data.spectrum.levels, etc.
@@ -2025,12 +1899,6 @@ function request_contour_calculation(spectrum, index, sign, spectrum_type = "ful
 }
 
 
-/**
- * Float32s concat.
- *
- * @param {any} first - First
- * @param {any} second - Second
- */
 function Float32Concat(first, second) {
     var firstLength = first.length,
         result = new Float32Array(firstLength + second.length);
@@ -2039,11 +1907,6 @@ function Float32Concat(first, second) {
     return result;
 }
 
-/**
- * Refreshes current view.
- *
- * @param {any} spectrum_in - Spectrum in
- */
 function refresh_current_view(spectrum_in) {
     if (!main_plot) return;
 
@@ -2445,11 +2308,6 @@ var spectrum_yz = null;
 var current_y_index = -1; // Set during init
 var current_x_index = -1; // Set during init
 
-/**
- * Initializes orthogonal plots.
- *
- * @param {any} s - S
- */
 function init_ortho_plots(s) {
     if (!s) return;
 
@@ -2647,9 +2505,6 @@ function init_ortho_plots(s) {
     refresh_yz_view();
 }
 
-/**
- * Refreshes XZ view.
- */
 function refresh_xz_view() {
     if (!main_plot_xz || spectra_3d.length === 0) return;
 
@@ -2810,9 +2665,6 @@ function refresh_xz_view() {
     }
 }
 
-/**
- * Refreshes YZ view.
- */
 function refresh_yz_view() {
     if (!main_plot_yz || spectra_3d.length === 0) return;
 
@@ -2981,11 +2833,6 @@ function refresh_yz_view() {
     }
 }
 
-/**
- * Refreshes orthogonal plot.
- *
- * @param {any} type - Type
- */
 function refresh_ortho_plot(type) {
     let plot = (type === "xz") ? main_plot_xz : main_plot_yz;
     let spec = (type === "xz") ? spectrum_xz : spectrum_yz;
@@ -3125,12 +2972,6 @@ function refresh_ortho_plot(type) {
     plot.contour_plot.drawScene();
 }
 
-/**
- * Clamps index 3D.
- *
- * @param {any} value - Value
- * @param {any} maxExclusive - Max exclusive
- */
 function clamp_index_3d(value, maxExclusive) {
     if (!Number.isFinite(value) || maxExclusive <= 0) {
         return 0;
@@ -3138,9 +2979,6 @@ function clamp_index_3d(value, maxExclusive) {
     return Math.max(0, Math.min(maxExclusive - 1, Math.round(value)));
 }
 
-/**
- * Gets crosshair center PPM 3D.
- */
 function get_crosshair_center_ppm_3d() {
     if (!spectra_3d || spectra_3d.length === 0) {
         return null;
@@ -3178,12 +3016,6 @@ function get_crosshair_center_ppm_3d() {
     };
 }
 
-/**
- * Gets trace domain 3D.
- *
- * @param {any} dim - Dimension
- * @param {any} s0 - S0
- */
 function get_trace_domain_3d(dim, s0) {
     if (!s0) {
         return [0, 1];
@@ -3199,15 +3031,6 @@ function get_trace_domain_3d(dim, s0) {
 }
 
 
-/**
- * Extracts trace 3D.
- *
- * @param {any} dim - Dimension
- * @param {any} xIndex - X index
- * @param {any} yIndex - Y index
- * @param {any} zIndex - Z index
- * @param {any} s0 - S0
- */
 function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
     let points = [];
     if (!s0 || !spectra_3d || spectra_3d.length === 0) {
@@ -3275,11 +3098,6 @@ function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
     return points;
 }
 
-/**
- * Clears 1d trace SVG.
- *
- * @param {any} svgId - SVG id
- */
 function clear_1d_trace_svg(svgId) {
     const svgEl = document.getElementById(svgId);
     if (!svgEl) {
@@ -3288,9 +3106,6 @@ function clear_1d_trace_svg(svgId) {
     d3.select(svgEl).selectAll('*').remove();
 }
 
-/**
- * Clears all 1d traces.
- */
 function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_z_svg');
     clear_1d_trace_svg('trace_y_svg');
@@ -3299,14 +3114,6 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_proj_y_x_svg');
 }
 
-/**
- * Renders trace 3D.
- *
- * @param {any} svgId - SVG id
- * @param {any} points - Points
- * @param {any} xDomain - X domain
- * @param {any} lineColor - Line color
- */
 function render_trace_3d(svgId, points, xDomain, lineColor) {
     const svgEl = document.getElementById(svgId);
     if (!svgEl) {
@@ -3540,9 +3347,6 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
 }
 
 
-/**
- * Updates 1d traces from center.
- */
 function update_1d_traces_from_center() {
     if (!spectra_3d || spectra_3d.length === 0) {
         clear_all_1d_traces();
@@ -3712,9 +3516,6 @@ function update_1d_traces_from_center() {
 }
 
 
-/**
- * Updates 3D crosshairs.
- */
 function update_3d_crosshairs() {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -3800,13 +3601,6 @@ function update_3d_crosshairs() {
     update_1d_traces_from_center();
 }
 
-/**
- * Requests orthogonal contour.
- *
- * @param {any} spectrum - Spectrum
- * @param {any} sign - Sign
- * @param {any} type - Type
- */
 function request_orthogonal_contour(spectrum, sign, type) {
     let spec_data = {
         levels: (sign === 0) ? spectrum.levels : spectrum.negative_levels,
@@ -3824,21 +3618,9 @@ function request_orthogonal_contour(spectrum, sign, type) {
     });
 }
 
-/**
- * Shows cross section.
- */
 function show_cross_section() { }
-/**
- * Shows peak table.
- */
 function show_peak_table() { }
-/**
- * Removes peak table.
- */
 function remove_peak_table() { }
-/**
- * Draws spectrum.
- */
 function draw_spectrum() { }
 
 // -- 3D Visualization Integration --
@@ -3847,11 +3629,6 @@ var iso_renderer = null;
 
 var current_volume_data = null; // Stores { data, dims, min, max, noise }
 
-/**
- * Builds reconstructed volume data.
- *
- * @param {any} dims - Dims
- */
 function build_reconstructed_volume_data(dims) {
     if (!theoretical_spectra_3d || theoretical_spectra_3d.length === 0) {
         return null;
@@ -3873,11 +3650,6 @@ function build_reconstructed_volume_data(dims) {
     return recon;
 }
 
-/**
- * Toggles visualize 3D.
- *
- * @param {any} show - Show
- */
 function toggle_visualize_3d(show) {
     let container = document.getElementById('container_3d_view');
     if (!container) return;
@@ -3893,11 +3665,6 @@ function toggle_visualize_3d(show) {
     }
 }
 
-/**
- * Toggles visualize projection.
- *
- * @param {any} show - Show
- */
 function toggle_visualize_proj(show) {
     let c1 = document.getElementById('container_projection_view');
     let c2 = document.getElementById('container_projection_y_view');
@@ -3929,9 +3696,6 @@ function toggle_visualize_proj(show) {
     }
 }
 
-/**
- * Visualizes 3D.
- */
 function visualize_3d() {
     let cb = document.getElementById('check_visualize_3d');
     if (cb && cb.checked) {
@@ -3944,9 +3708,6 @@ function visualize_3d() {
     }
 }
 
-/**
- * Visualizes projection.
- */
 function visualize_proj() {
     let cb = document.getElementById('check_visualize_proj');
     if (cb && cb.checked) {
@@ -3961,9 +3722,6 @@ function visualize_proj() {
     }
 }
 
-/**
- * Extracts 3D data.
- */
 function extract_3d_data() {
     if (!spectra_3d || spectra_3d.length === 0) {
         console.warn("visualize_3d called but no spectra loaded.");
@@ -4062,9 +3820,6 @@ function extract_3d_data() {
     }, 50);
 }
 
-/**
- * Setups sliders.
- */
 function setup_sliders() {
     if (!current_volume_data) return;
 
@@ -4135,9 +3890,6 @@ function setup_sliders() {
     }
 }
 
-/**
- * Updates 3D view.
- */
 function update_3d_view() {
     if (!current_volume_data) return;
 
@@ -4414,9 +4166,6 @@ function update_3d_view() {
 }
 
 
-/**
- * Resets 3D view.
- */
 function reset_3d_view() {
     if (iso_renderer) {
         iso_renderer.resetView();
@@ -4426,9 +4175,6 @@ function reset_3d_view() {
     }
 }
 
-/**
- * Centers 3D on crosshair.
- */
 function center_3d_on_crosshair() {
     if (!iso_renderer || !current_volume_data) return;
 
@@ -4494,9 +4240,6 @@ function center_3d_on_crosshair() {
     if (iso_renderer_recon) iso_renderer_recon.centerView(meshX, meshY, meshZ);
 }
 
-/**
- * Centers 3D on slices.
- */
 function center_3d_on_slices() {
     if (!iso_renderer || !current_volume_data) return;
 
@@ -4763,12 +4506,6 @@ var pending_nus_cfg_3d = null;
 // Debug-only mode flag kept for future use.
 var debug2_smile_only_3d = false;
 
-/**
- * Downloads binary file.
- *
- * @param {any} dataBytes - Data bytes
- * @param {any} filename - Filename
- */
 function download_binary_file(dataBytes, filename) {
     const bytes = dataBytes instanceof Uint8Array ? dataBytes : new Uint8Array(dataBytes);
     const blob = new Blob([bytes], { type: 'application/octet-stream' });
@@ -4840,9 +4577,6 @@ const read_file_as_array_buffer = (file) => {
     });
 };
 
-/**
- * Builds 3D worker configuration from UI.
- */
 function build_3d_worker_cfg_from_ui() {
     const parseTdPolynomialOrder = function () {
         const raw = document.getElementById('td_polynomial_order_3d').value || '';
@@ -4902,11 +4636,6 @@ function build_3d_worker_cfg_from_ui() {
     };
 }
 
-/**
- * Parses indirect phase from configuration.
- *
- * @param {any} cfg - Configuration
- */
 function parse_indirect_phase_from_cfg(cfg) {
     const parts = String((cfg && cfg.phaseText) || '').trim().split(/\s+/).map(function (v) {
         const n = parseFloat(v);
@@ -4920,12 +4649,6 @@ function parse_indirect_phase_from_cfg(cfg) {
     };
 }
 
-/**
- * Parses apod string to smile axis args.
- *
- * @param {any} apodText - Apod text
- * @param {any} axisPrefix - Axis prefix
- */
 function parse_apod_string_to_smile_axis_args(apodText, axisPrefix) {
     const tokens = String(apodText || '').trim().split(/\s+/).filter(Boolean);
     const fallback = {
@@ -4977,11 +4700,6 @@ function parse_apod_string_to_smile_axis_args(apodText, axisPrefix) {
         ' -' + axisPrefix + 'GLB ' + glb;
 }
 
-/**
- * Reads FT3 FN modes from header.
- *
- * @param {any} ft3Bytes - FT3 bytes
- */
 function read_ft3_fnmodes_from_header(ft3Bytes) {
     try {
         const bytes = ft3Bytes instanceof Uint8Array ? ft3Bytes : new Uint8Array(ft3Bytes || []);
@@ -4997,12 +4715,6 @@ function read_ft3_fnmodes_from_header(ft3Bytes) {
     }
 }
 
-/**
- * Builds NUS 3D smile command.
- *
- * @param {any} cfg - Configuration
- * @param {any} options - Options
- */
 function build_nus_3d_smile_command(cfg, options) {
     const opt = options || {};
     const xT = Number.isFinite(opt.ndataIndirect1) ? opt.ndataIndirect1 : 100;
@@ -5035,10 +4747,6 @@ function build_nus_3d_smile_command(cfg, options) {
     ].filter(Boolean).join(' ');
 }
 
-/**
- * Loads FID 3D file.
- * @returns {Promise<void>}
- */
 async function load_fid_3d_file() {
     // Debug UI is removed; keep debug code path commented for future use.
     // const debug2Only = !!(document.getElementById('debug_load_intermediate_webass2_3d') && document.getElementById('debug_load_intermediate_webass2_3d').checked);
@@ -5212,12 +4920,6 @@ async function load_fid_3d_file() {
     }
 }
 
-/**
- * Handles webass 3D message.
- *
- * @param {any} e - E
- * @returns {Promise<void>}
- */
 async function handle_webass_3d_message(e) {
     console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
@@ -5471,11 +5173,6 @@ async function handle_webass_3d_message(e) {
     }
 }
 
-/**
- * Handles webass smile 3D message.
- *
- * @param {any} e - E
- */
 function handle_webass_smile_3d_message(e) {
     if (e.data && e.data.stdout) {
         append_3d_worker_stdout('[smile] ' + e.data.stdout);
@@ -5513,13 +5210,6 @@ function handle_webass_smile_3d_message(e) {
     }
 }
 
-/**
- * Applies trace X phase.
- *
- * @param {any} p0 - P0
- * @param {any} p1 - P1
- * @param {any} pivot - Pivot
- */
 function apply_trace_x_phase(p0, p1, pivot) {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
@@ -5682,9 +5372,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 });
 
-/**
- * Setups 2D plot resizing.
- */
 function setup_2d_plot_resizing() {
     if (typeof ResizeObserver === 'undefined') return;
 
@@ -5827,12 +5514,6 @@ function init_proj_plot(s) {
     }
 }
 
-/**
- * Handles projection response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_response(data, type) {
     let spec = (type === "proj") ? spectrum_proj : theoretical_spectrum_proj;
     if (!spec) return;
@@ -5843,9 +5524,6 @@ function handle_proj_response(data, type) {
     refresh_proj_plot();
 }
 
-/**
- * Refreshes projection plot.
- */
 function refresh_proj_plot() {
     if (!main_plot_proj || !spectrum_proj) return;
 
@@ -5855,12 +5533,6 @@ function refresh_proj_plot() {
     render_to_plot(main_plot_proj, spectra_list);
 }
 
-/**
- * Renders to plot.
- *
- * @param {any} plot - Plot
- * @param {any} spectra_list - Spectra list
- */
 function render_to_plot(plot, spectra_list) {
     if (!plot) return;
 
@@ -5954,9 +5626,6 @@ function render_to_plot(plot, spectra_list) {
     plot.contour_plot.drawScene();
 }
 
-/**
- * Generates projection spectrum.
- */
 function generate_projection_spectrum() {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -6199,9 +5868,6 @@ function generate_projection_spectrum() {
     update_1d_traces_from_center();
 }
 
-/**
- * Estimates projection noise.
- */
 function estimate_proj_noise() {
     if (!spectrum_proj) return;
     let raw = spectrum_proj.raw_data;
@@ -6215,9 +5881,6 @@ function estimate_proj_noise() {
     update_proj_contour_levels();
 }
 
-/**
- * Updates projection contour levels.
- */
 function update_proj_contour_levels() {
     if (!spectrum_proj) return;
 
@@ -6242,9 +5905,6 @@ function update_proj_contour_levels() {
     }
 }
 
-/**
- * Resets projection zoom.
- */
 function reset_proj_zoom() {
     if (!main_plot_proj || !spectrum_proj) return;
     let s = spectrum_proj;
@@ -6318,12 +5978,6 @@ function init_proj_y_plot(s) {
     }
 }
 
-/**
- * Handles projection Y response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_y_response(data, type) {
     let spec = (type === "proj_y") ? spectrum_proj_y : theoretical_spectrum_proj_y;
     if (!spec) return;
@@ -6334,9 +5988,6 @@ function handle_proj_y_response(data, type) {
     refresh_proj_y_plot();
 }
 
-/**
- * Refreshes projection Y plot.
- */
 function refresh_proj_y_plot() {
     if (!main_plot_proj_y || !spectrum_proj_y) return;
 
@@ -6346,9 +5997,6 @@ function refresh_proj_y_plot() {
     render_to_plot(main_plot_proj_y, spectra_list);
 }
 
-/**
- * Estimates projection Y noise.
- */
 function estimate_proj_y_noise() {
     if (!spectrum_proj_y) return;
     let raw = spectrum_proj_y.raw_data;
@@ -6362,9 +6010,6 @@ function estimate_proj_y_noise() {
     update_proj_y_contour_levels();
 }
 
-/**
- * Updates projection Y contour levels.
- */
 function update_proj_y_contour_levels() {
     if (!spectrum_proj_y) return;
 
@@ -6389,9 +6034,6 @@ function update_proj_y_contour_levels() {
     }
 }
 
-/**
- * Resets projection Y zoom.
- */
 function reset_proj_y_zoom() {
     if (!main_plot_proj_y || !spectrum_proj_y) return;
     let s = spectrum_proj_y;
@@ -6465,12 +6107,6 @@ function init_proj_x_plot(s) {
     }
 }
 
-/**
- * Handles projection X response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_x_response(data, type) {
     let spec = (type === "proj_x") ? spectrum_proj_x : theoretical_spectrum_proj_x;
     if (!spec) return;
@@ -6481,9 +6117,6 @@ function handle_proj_x_response(data, type) {
     refresh_proj_x_plot();
 }
 
-/**
- * Refreshes projection X plot.
- */
 function refresh_proj_x_plot() {
     if (!main_plot_proj_x || !spectrum_proj_x) return;
 
@@ -6493,9 +6126,6 @@ function refresh_proj_x_plot() {
     render_to_plot(main_plot_proj_x, spectra_list);
 }
 
-/**
- * Estimates projection X noise.
- */
 function estimate_proj_x_noise() {
     if (!spectrum_proj_x) return;
     let raw = spectrum_proj_x.raw_data;
@@ -6509,9 +6139,6 @@ function estimate_proj_x_noise() {
     update_proj_x_contour_levels();
 }
 
-/**
- * Updates projection X contour levels.
- */
 function update_proj_x_contour_levels() {
     if (!spectrum_proj_x) return;
 
@@ -6536,9 +6163,6 @@ function update_proj_x_contour_levels() {
     }
 }
 
-/**
- * Resets projection X zoom.
- */
 function reset_proj_x_zoom() {
     if (!main_plot_proj_x || !spectrum_proj_x) return;
     let s = spectrum_proj_x;
@@ -6547,31 +6171,16 @@ function reset_proj_x_zoom() {
     main_plot_proj_x.resetzoom(x_dom, y_dom);
 }
 
-/**
- * Synchronizes from projection X plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_x_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
 
-/**
- * Synchronizes from projection plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
 
-/**
- * Synchronizes from projection Y plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_y_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
@@ -6597,9 +6206,6 @@ function sync_3d_views(plot_instance, is_end) {
         sync_from_yz_plot(is_end);
     }
 }
-/**
- * Applies trace phase.
- */
 function apply_trace_phase() {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {

@@ -26,6 +26,11 @@ Intended use in webpage:
   const HEADER_FLOAT_COUNT = 512;
   const HEADER_BYTES = HEADER_FLOAT_COUNT * 4;
 
+  /**
+   * Logs to html.
+   *
+   * @param {any} msg - Message
+   */
   function logToHtml(msg) {
     if (globalScope.append_3d_log) {
       globalScope.append_3d_log(msg);
@@ -55,6 +60,11 @@ Intended use in webpage:
     flipRiSign: true,
   };
 
+  /**
+   * Ensures TensorFlow.
+   *
+   * @param {any} tfInstance - TensorFlow instance
+   */
   function ensureTf(tfInstance) {
     const tf = tfInstance || globalScope.tf;
     if (!tf) {
@@ -66,6 +76,11 @@ Intended use in webpage:
   let customLayerClasses = {};
   let cachedTf = null;
 
+  /**
+   * Smooths gated weight from logits.
+   *
+   * @param {any} wLogits - W logits
+   */
   function smoothGatedWeightFromLogits(wLogits) {
     // Helper function to convert weight logits to effective weights
     // Parameters match the Python model: gate_center=0.5, gate_sharpness=50.0, min_weight=0.25, max_weight=1.0
@@ -91,6 +106,11 @@ Intended use in webpage:
     });
   }
 
+  /**
+   * Gets custom objects.
+   *
+   * @param {any} tf - TensorFlow
+   */
   function getCustomObjects(tf) {
     // Note: Model is now exported as pure CNN + Attention (no Lambda layers)
     // Just return the custom layer classes for TensorFlow.js to use
@@ -106,9 +126,19 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Creates custom layer classes.
+   *
+   * @param {any} tf - TensorFlow
+   */
   function createCustomLayerClasses(tf) {
     // Create TransformerBlock class
     class TransformerBlock extends tf.layers.Layer {
+      /**
+       * Constructor for class.
+       *
+       * @param {any} config - Config
+       */
       constructor(config) {
         super(config);
         this.embedDim = config.embedDim || 128;
@@ -117,6 +147,11 @@ Intended use in webpage:
         this.rate = config.rate || 0.1;
       }
 
+      /**
+       * Builds.
+       *
+       * @param {any} inputShape - Input shape
+       */
       build(inputShape) {
         const keyDim = Math.max(Math.floor(this.embedDim / this.numHeads), 1);
         this.queryDense = tf.layers.dense({ units: this.numHeads * keyDim, useBias: true, name: "query" });
@@ -132,6 +167,12 @@ Intended use in webpage:
         super.build(inputShape);
       }
 
+      /**
+       * Calls.
+       *
+       * @param {any} inputs - Inputs
+       * @param {any} kwargs - Kwargs
+       */
       call(inputs, kwargs) {
         const training = kwargs && kwargs.training;
         const attnOutput = tf.tidy(() => {
@@ -164,10 +205,18 @@ Intended use in webpage:
         return this.layernorm2.apply(tf.add(out1, dropout2Output));
       }
 
+      /**
+       * Computes output shape.
+       *
+       * @param {any} inputShape - Input shape
+       */
       computeOutputShape(inputShape) {
         return inputShape;
       }
 
+      /**
+       * Gets config.
+       */
       getConfig() {
         return {
           embedDim: this.embedDim,
@@ -184,6 +233,11 @@ Intended use in webpage:
 
     // Create PreExtractedCubeLocalHead3D class
     class PreExtractedCubeLocalHead3D extends tf.layers.Layer {
+      /**
+       * Constructor for class.
+       *
+       * @param {any} config - Config
+       */
       constructor(config) {
         super(config);
         this.topN = config.topN || 3;
@@ -194,6 +248,11 @@ Intended use in webpage:
         this.extWidth = this.tokenWidth + 2 * this.directExtend;
       }
 
+      /**
+       * Builds.
+       *
+       * @param {any} inputShape - Input shape
+       */
       build(inputShape) {
         this.conv1 = tf.layers.conv3d({ filters: 16, kernelSize: [3, 3, 3], padding: "same", activation: "relu" });
         this.pool1 = tf.layers.maxPooling3d({ poolSize: [2, 2, 2] });
@@ -216,6 +275,11 @@ Intended use in webpage:
         super.build(inputShape);
       }
 
+      /**
+       * Calls.
+       *
+       * @param {any} inputs - Inputs
+       */
       call(inputs) {
         const cubes = tf.cast(inputs, "float32");
         const batchSize = tf.shape(cubes)[0];
@@ -240,10 +304,18 @@ Intended use in webpage:
         return [tokenFeat, patchLocalReshaped];
       }
 
+      /**
+       * Computes output shape.
+       *
+       * @param {any} inputShape - Input shape
+       */
       computeOutputShape(inputShape) {
         return [[inputShape[0], inputShape[1], 2 * this.patchFeatDim], [inputShape[0], inputShape[1], this.topN, 2]];
       }
 
+      /**
+       * Gets config.
+       */
       getConfig() {
         return {
           topN: this.topN,
@@ -265,6 +337,11 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Registers custom layers.
+   *
+   * @param {any} tf - TensorFlow
+   */
   function registerCustomLayers(tf) {
     if (!customLayerClasses.TransformerBlock) {
       customLayerClasses = createCustomLayerClasses(tf);
@@ -279,6 +356,13 @@ Intended use in webpage:
     }
   }
 
+  /**
+   * Ints field.
+   *
+   * @param {any} header - Header
+   * @param {any} index - Index
+   * @param {any} name - Name
+   */
   function intField(header, index, name) {
     const v = header[index];
     if (!Number.isFinite(v)) {
@@ -288,6 +372,11 @@ Intended use in webpage:
   }
 
 
+  /**
+   * Parses FT3 meta from array buffer.
+   *
+   * @param {any} ft3ArrayBuffer - FT3 array buffer
+   */
   function parseFt3MetaFromArrayBuffer(ft3ArrayBuffer) {
     if (!(ft3ArrayBuffer instanceof ArrayBuffer)) {
       throw new Error("ft3ArrayBuffer must be an ArrayBuffer");
@@ -382,6 +471,12 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Reads FT3 all from array buffer.
+   *
+   * @param {any} ft3ArrayBuffer - FT3 array buffer
+   * @param {any} meta - Meta
+   */
   function readFt3AllFromArrayBuffer(ft3ArrayBuffer, meta) {
     const m = meta || parseFt3MetaFromArrayBuffer(ft3ArrayBuffer);
     const fileFloat32 = new Float32Array(ft3ArrayBuffer);
@@ -430,6 +525,12 @@ Intended use in webpage:
     return out;
   }
 
+  /**
+   * Loads experiment from FT3 array buffer.
+   *
+   * @param {any} ft3ArrayBuffer - FT3 array buffer
+   * @param {any} options - Options
+   */
   function loadExperimentFromFt3ArrayBuffer(ft3ArrayBuffer, options) {
     const opts = options || {};
     const flipRiSign = opts.flipRiSign !== false;
@@ -493,6 +594,16 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Spectras index.
+   *
+   * @param {any} shape - Shape
+   * @param {any} b - B
+   * @param {any} i1 - I1
+   * @param {any} i2 - I2
+   * @param {any} d - D
+   * @param {any} ch - Ch
+   */
   function spectraIndex(shape, b, i1, i2, d, ch) {
     const ni1 = shape[1];
     const ni2 = shape[2];
@@ -501,6 +612,18 @@ Intended use in webpage:
     return (((((b * ni1 + i1) * ni2 + i2) * nd + d) * channels) + ch);
   }
 
+  /**
+   * Cubes index.
+   *
+   * @param {any} shape - Shape
+   * @param {any} b - B
+   * @param {any} t - T
+   * @param {any} k - K
+   * @param {any} x - X
+   * @param {any} y - Y
+   * @param {any} dz - Dz
+   * @param {any} ch - Ch
+   */
   function cubeIndex(shape, b, t, k, x, y, dz, ch) {
     const tTotal = shape[1];
     const topN = shape[2];
@@ -510,6 +633,13 @@ Intended use in webpage:
     return (((((((((b * tTotal + t) * topN + k) * cubeXY + x) * cubeXY + y) * extWidth + dz) * channels) + ch)));
   }
 
+  /**
+   * Tokens offset.
+   *
+   * @param {any} shape - Shape
+   * @param {any} b - B
+   * @param {any} t - T
+   */
   function tokenOffset(shape, b, t) {
     const tTotal = shape[1];
     const topN = shape[2];
@@ -520,6 +650,12 @@ Intended use in webpage:
     return ((b * tTotal + t) * strideToken);
   }
 
+  /**
+   * Extracts top n cubes.
+   *
+   * @param {any} spectraObj - Spectra obj
+   * @param {any} cfg - Configuration
+   */
   function extractTopNCubes(spectraObj, cfg) {
     const { spectra, shape } = spectraObj;
     const bsz = shape[0];
@@ -666,6 +802,16 @@ Intended use in webpage:
     return { cubes, cubesShape, i1Idx, i2Idx, cubeScore };
   }
 
+  /**
+   * Solve2x2s.
+   *
+   * @param {any} a11 - A11
+   * @param {any} a12 - A12
+   * @param {any} a21 - A21
+   * @param {any} a22 - A22
+   * @param {any} b1 - B1
+   * @param {any} b2 - B2
+   */
   function solve2x2(a11, a12, a21, a22, b1, b2) {
     const det = a11 * a22 - a12 * a21;
     if (Math.abs(det) < 1e-20) {
@@ -676,6 +822,15 @@ Intended use in webpage:
     return [x1, x2];
   }
 
+  /**
+   * Wls left right from local.
+   *
+   * @param {any} phasePerToken - Phase per token
+   * @param {any} weightPerToken - Weight per token
+   * @param {any} directDim - Direct dimension
+   * @param {any} tokenWidth - Token width
+   * @param {any} l2Reg - L2 reg
+   */
   function wlsLeftRightFromLocal(phasePerToken, weightPerToken, directDim, tokenWidth, l2Reg) {
     const bsz = phasePerToken.length;
     const t = phasePerToken[0].length;
@@ -718,6 +873,14 @@ Intended use in webpage:
     return out;
   }
 
+  /**
+   * Applies left right to cubes.
+   *
+   * @param {any} ext - Ext
+   * @param {any} leftRight - Left right
+   * @param {any} directDim - Direct dimension
+   * @param {any} tokenWidth - Token width
+   */
   function applyLeftRightToCubes(ext, leftRight, directDim, tokenWidth) {
     // ext: { cubes, cubesShape }
     const cubes = ext.cubes;
@@ -761,6 +924,12 @@ Intended use in webpage:
     }
   }
 
+  /**
+   * Applies left right to spectra.
+   *
+   * @param {any} spectraObj - Spectra obj
+   * @param {any} leftRight - Left right
+   */
   function applyLeftRightToSpectra(spectraObj, leftRight) {
     // spectraObj: { spectra, shape } with shape [batch, ni1, ni2, nd, 2]
     const spectra = spectraObj.spectra;
@@ -795,6 +964,12 @@ Intended use in webpage:
     }
   }
 
+  /**
+   * Adds left right arrays.
+   *
+   * @param {any} a - A
+   * @param {any} b - B
+   */
   function addLeftRightArrays(a, b) {
     // a and b are arrays of shape [batch][2] where each element is [left, right]
     if (!a) return b;
@@ -809,6 +984,16 @@ Intended use in webpage:
     return out;
   }
 
+  /**
+   * Runs model on cubes.
+   *
+   * @param {any} tf - TensorFlow
+   * @param {any} model - Model
+   * @param {any} ext - Ext
+   * @param {any} cfg - Configuration
+   * @param {any} stageName - Stage name
+   * @returns {Promise<void>}
+   */
   async function runModelOnCubes(tf, model, ext, cfg, stageName) {
     // stageName: optional identifier for debug output (e.g., 'large_model', 'normal_1', 'normal_2')
     const debugStage = stageName || null;
@@ -947,6 +1132,12 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Infers from spectra.
+   *
+   * @param {any} params - Params
+   * @returns {Promise<void>}
+   */
   async function inferFromSpectra(params) {
     const tf = ensureTf(params.tf);
     const model = params.model;
@@ -1033,6 +1224,12 @@ Intended use in webpage:
     };
   }
 
+  /**
+   * Runs from FT3.
+   *
+   * @param {any} params - Params
+   * @returns {Promise<void>}
+   */
   async function runFromFt3(params) {
     const tf = ensureTf(params.tf);
     const ft3ArrayBuffer = params.ft3ArrayBuffer;
