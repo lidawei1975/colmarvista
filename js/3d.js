@@ -5741,7 +5741,8 @@ function setup_2d_plot_resizing() {
         { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
         { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
         { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
-        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null }
+        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
+        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
     ];
 
     const ro = new ResizeObserver((entries) => {
@@ -5784,10 +5785,8 @@ function setup_2d_plot_resizing() {
             // Important: update the plot scales and visuals
             plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
 
-            // Draw center lines specifically
-            if (typeof plot_instance.draw_center_lines === 'function') {
-                plot_instance.draw_center_lines();
-            }
+            // Redraw/move all crosshairs with updated scales
+            update_3d_crosshairs();
         }
     });
 
@@ -5911,6 +5910,8 @@ function refresh_proj_plot() {
  */
 function render_to_plot(plot, spectra_list) {
     if (!plot) return;
+
+    plot.local_spectra = spectra_list;
 
     let points_pos_list = [];
     let len_pos_list = [];
