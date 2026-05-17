@@ -5229,6 +5229,9 @@ async function load_fid_3d_file() {
         const autoPhaseChecked = !!cfg.normalDirectDimAutoPhase;
         const nusDirectDimAutoPhase = isNus && autoPhaseChecked;
 
+        const showArtifactChecked = !!(document.getElementById('show_spectrum_artifact_3d') && document.getElementById('show_spectrum_artifact_3d').checked);
+        cfg.showArtifact = showArtifactChecked;
+
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
         if (isNus && autoPhaseChecked) {
@@ -5406,6 +5409,35 @@ async function handle_webass_3d_message(e) {
                     // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
                     auto_p0_3d = local_p0;
                     auto_p1_3d = local_p1;
+
+                    if (current_fid_config && current_fid_config.nusDirectDimAutoPhase && !current_fid_config.showArtifact) {
+                        append_3d_log("[main] Automatically re-running NUS processing with calculated phase values...");
+
+                        const box0 = document.getElementById('phase_correction_direct_p0');
+                        const box1 = document.getElementById('phase_correction_direct_p1');
+                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
+                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
+
+                        const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
+                        if (autoCheckbox) {
+                            autoCheckbox.checked = false;
+                            autoCheckbox.dispatchEvent(new Event('change'));
+                        }
+
+                        auto_p0_3d = null;
+                        auto_p1_3d = null;
+                        trace_x_ph0 = 0.0;
+                        trace_x_ph1 = 0.0;
+                        trace_x_pivot = null;
+
+                        setTimeout(() => {
+                            const btn = document.getElementById('button_fid_process_3d');
+                            if (btn) btn.click();
+                        }, 100);
+
+                        return;
+                    }
+
                 } catch (err) {
                     append_3d_log("[tfjs-error] " + err.message);
                     console.error(err);
@@ -5726,6 +5758,25 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
+        // Handle grey out for "show spectrum with artifact" based on auto phase correction
+        autoDirectNormal.addEventListener('change', function() {
+            const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
+            const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
+            if (artifactCheckbox && artifactLabel) {
+                if (this.checked) {
+                    artifactCheckbox.disabled = false;
+                    artifactLabel.style.color = '';
+                } else {
+                    artifactCheckbox.disabled = true;
+                    artifactCheckbox.checked = false; // Reset to unchecked when disabled
+                    artifactLabel.style.color = 'gray';
+                }
+            }
+        });
+        
+        // Trigger initial state
+        autoDirectNormal.dispatchEvent(new Event('change'));
     }
 
 });
