@@ -4898,6 +4898,20 @@ document.addEventListener('DOMContentLoaded', function () {
             .init();
     }
 
+    const fid_area = document.getElementById("fid_file_area");
+    if (fid_area) {
+        fid_area.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("button_minimize_fid_area");
+            if (btn && btn.innerText === "+") {
+                minimize_fid_area(btn);
+            }
+        });
+        fid_area.addEventListener("dragover", (e) => {
+            e.preventDefault();
+        });
+    }
+
     let fid3dForm = document.getElementById('fid_file_form');
     if (fid3dForm) {
         fid3dForm.addEventListener('submit', function (e) {
@@ -4906,6 +4920,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+
+function minimize_fid_area(self) {
+    let button_text = self.innerText;
+    if (button_text === "-") {
+        self.innerText = "+";
+        document.getElementById("fid_file_area").style.height = "3rem";
+        document.getElementById("fid_file_area").style.padding = "5px 10px";
+        document.getElementById("fid_file_area").style.overflow = "clip";
+    }
+    else {
+        self.innerText = "-";
+        document.getElementById("fid_file_area").style.height = "auto";
+        document.getElementById("fid_file_area").style.padding = "10px";
+        document.getElementById("fid_file_area").style.overflow = "visible";
+    }
+}
 
 const read_file_as_array_buffer = (file) => {
     return new Promise((resolve, reject) => {
