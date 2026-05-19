@@ -514,6 +514,9 @@ function update_all_plot_axis_labels() {
     if (main_plot_proj_x) {
         main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "x"));
     }
+
+    // Update 1D trace labels based on the newly updated axes
+    update_1d_traces_from_center();
 }
 
 /**
@@ -3655,11 +3658,51 @@ function update_1d_traces_from_center() {
     render_trace_3d('trace_y_svg', traceY, domainY, '#2ca02c');
     render_trace_3d('trace_x_svg', traceX, domainX, '#d62728');
 
+    // Get dynamic labels for axes using window.last_fid_nuclei (x -> z, y -> y, z -> x)
+    const nx = window.last_fid_nuclei.x;
+    const ny = window.last_fid_nuclei.y;
+    const nz = window.last_fid_nuclei.z;
+
+    const getAxisName = (axis, nuc) => {
+        return nuc ? `${axis} (${nuc})` : axis;
+    };
+
+    const labelZ = getAxisName("z", nx); // direct dim, internal x
+    const labelY = getAxisName("y", ny); // indirect 1, internal y
+    const labelX = getAxisName("x", nz); // indirect 2, internal z
+
+    // Update Trace Z label (internal z -> UI x)
+    const labelZ_elem = document.getElementById('trace_z_label');
+    if (labelZ_elem) {
+        const span = labelZ_elem.querySelector('span');
+        if (span) {
+            span.innerText = `1D Trace Along ${labelX} (at ${labelZ}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm)`;
+        }
+    }
+
+    // Update Trace Y label (internal y -> UI y)
+    const labelY_elem = document.getElementById('trace_y_label');
+    if (labelY_elem) {
+        const span = labelY_elem.querySelector('span');
+        if (span) {
+            span.innerText = `1D Trace Along ${labelY} (at ${labelZ}=${center.ppm_x.toFixed(3)} ppm, ${labelX}=${center.ppm_z.toFixed(3)} ppm)`;
+        }
+    }
+
+    // Update Trace X label (internal x -> UI z)
+    const labelX_elem = document.getElementById('trace_x_label');
+    if (labelX_elem) {
+        const span = labelX_elem.querySelector('span');
+        if (span) {
+            span.innerText = `1D Trace Along ${labelZ} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelX}=${center.ppm_z.toFixed(3)} ppm)`;
+        }
+    }
+
     // Update Projection 1D Trace
     if (spectrum_proj && spectrum_proj.raw_data) {
         const traceProjX = [];
-        const nx = spectrum_proj.n_direct;
-        const ny = spectrum_proj.n_indirect;
+        const nx_proj = spectrum_proj.n_direct;
+        const ny_proj = spectrum_proj.n_indirect;
 
         // Use projection view center for the projection 1D trace
         let target_y_ppm;
@@ -3670,23 +3713,23 @@ function update_1d_traces_from_center() {
             target_y_ppm = center.ppm_y;
         }
 
-        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
+        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny_proj);
 
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
         let p1_rad = trace_x_ph1 * Math.PI / 180.0;
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj.x_ppm_start) / spectrum_proj.x_ppm_step) : 0;
         let has_ri = spectrum_proj.raw_data_ri && spectrum_proj.raw_data_ri.length > 0;
 
-        for (let x = 0; x < nx; x++) {
-            let re = spectrum_proj.raw_data[pyIndex * nx + x] || 0;
+        for (let x = 0; x < nx_proj; x++) {
+            let re = spectrum_proj.raw_data[pyIndex * nx_proj + x] || 0;
             let val = re;
             if (has_ri) {
-                let im = spectrum_proj.raw_data_ri[pyIndex * nx + x] || 0;
+                let im = spectrum_proj.raw_data_ri[pyIndex * nx_proj + x] || 0;
                 let phase_rad;
                 if (trace_x_pivot === null) {
                     phase_rad = p0_rad;
                 } else {
-                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_proj;
                 }
                 val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
             }
@@ -3696,22 +3739,25 @@ function update_1d_traces_from_center() {
             });
         }
         // Always show independent range for 1D trace (can be zoomed by its own brush)
-        const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx - 1) * spectrum_proj.x_ppm_step];
+        const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx_proj - 1) * spectrum_proj.x_ppm_step];
         render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#2a9d8f');
 
         // Update label to indicate if it's a cross-section or center
         const label = document.getElementById('trace_proj_x_label');
         if (label) {
-            const ppm_str = target_y_ppm.toFixed(3);
-            label.innerText = `1D Trace Along z (at x=${ppm_str} ppm)`;
+            const span = label.querySelector('span');
+            if (span) {
+                const ppm_str = target_y_ppm.toFixed(3);
+                span.innerText = `1D Trace Along ${labelZ} (at ${labelY}=${ppm_str} ppm)`;
+            }
         }
     }
 
     // Update Y-Projection 1D Trace (Trace along Z at some Y)
     if (spectrum_proj_y && spectrum_proj_y.raw_data) {
         const traceProjYX = [];
-        const nx = spectrum_proj_y.n_direct;
-        const nz = spectrum_proj_y.n_indirect;
+        const nx_proj = spectrum_proj_y.n_direct;
+        const nz_proj = spectrum_proj_y.n_indirect;
 
         let target_z_ppm;
         if (main_plot_proj_y && main_plot_proj_y.yRange) {
@@ -3721,7 +3767,7 @@ function update_1d_traces_from_center() {
             target_z_ppm = center.ppm_z;
         }
 
-        const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz);
+        const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz_proj);
 
         // Use same phase as other X-traces
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
@@ -3729,16 +3775,16 @@ function update_1d_traces_from_center() {
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj_y.x_ppm_start) / spectrum_proj_y.x_ppm_step) : 0;
         let has_ri = spectrum_proj_y.raw_data_ri && spectrum_proj_y.raw_data_ri.length > 0;
 
-        for (let x = 0; x < nx; x++) {
-            let re = spectrum_proj_y.raw_data[pzIndex * nx + x] || 0;
+        for (let x = 0; x < nx_proj; x++) {
+            let re = spectrum_proj_y.raw_data[pzIndex * nx_proj + x] || 0;
             let val = re;
             if (has_ri) {
-                let im = spectrum_proj_y.raw_data_ri[pzIndex * nx + x] || 0;
+                let im = spectrum_proj_y.raw_data_ri[pzIndex * nx_proj + x] || 0;
                 let phase_rad;
                 if (trace_x_pivot === null) {
                     phase_rad = p0_rad;
                 } else {
-                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_proj;
                 }
                 val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
             }
@@ -3747,12 +3793,15 @@ function update_1d_traces_from_center() {
                 value: val
             });
         }
-        const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx - 1) * spectrum_proj_y.x_ppm_step];
+        const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx_proj - 1) * spectrum_proj_y.x_ppm_step];
         render_trace_3d('trace_proj_y_x_svg', traceProjYX, domainProjYX, '#2a9d8f');
 
         const label = document.getElementById('trace_proj_y_x_label');
         if (label) {
-            label.innerText = `1D Trace Along z (at y=${target_z_ppm.toFixed(3)} ppm)`;
+            const span = label.querySelector('span');
+            if (span) {
+                span.innerText = `1D Trace Along ${labelZ} (at ${labelX}=${target_z_ppm.toFixed(3)} ppm)`;
+            }
         }
     }
 
@@ -3784,7 +3833,10 @@ function update_1d_traces_from_center() {
 
         const label = document.getElementById('trace_proj_z_label');
         if (label) {
-            label.innerText = `1D Trace Along x (at y=${target_y_ppm.toFixed(3)} ppm)`;
+            const span = label.querySelector('span');
+            if (span) {
+                span.innerText = `1D Trace Along ${labelY} (at ${labelX}=${target_y_ppm.toFixed(3)} ppm)`;
+            }
         }
     }
 }
