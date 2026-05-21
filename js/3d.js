@@ -4922,7 +4922,7 @@ document.addEventListener('DOMContentLoaded', function () {
             set_loading_buttons_state(false);
         };
 
-        web_worker_smile_3d = new Worker('./js/webass2.js');
+        web_worker_smile_3d = new Worker('./js/webass_smile.js');
         web_worker_smile_3d.onmessage = handle_webass_smile_3d_message;
         web_worker_smile_3d.onerror = function (err) {
             console.error('[3D][smile-worker] error', err);

@@ -23,8 +23,8 @@ function get_webassembly_job_flag(data) {
 }
 try {
     my_contour_worker = new Worker('./js/contour.js');
-    webassembly_worker = new Worker('./js/webass1d_2.js');
-    webassembly_worker2 = new Worker('./js/webass2.js');
+    webassembly_worker = new Worker('./js/webass_2d.js');
+    webassembly_worker2 = new Worker('./js/webass_smile.js');
 
     function clear_webassembly_message_after_delay(delay_ms = 5000) {
         window.setTimeout(function () {
@@ -1429,7 +1429,7 @@ webassembly_worker.onmessage = function (e) {
         });
 
         /**
-         * Send e.data.file_data as Unit8Array to webass2 (smile) work to process it.
+         * Send e.data.file_data as Unit8Array to webass_smile (smile) worker to process it.
          * Also need:
          * nuslist file as a string
          * apodization_direct as a string
