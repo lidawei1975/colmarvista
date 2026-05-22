@@ -73,18 +73,31 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     const rrrF32 = new Float32Array(Module.HEAPF32.subarray(rrrPtr >> 2, (rrrPtr >> 2) + n));
 
     postMessage({ stdout: '[webass_3d] extracting ft3 file...' });
-    const outVec = new Module.VectorUChar();
     let ft3Bytes = null;
     try {
-        if (fidInstance.write_ft3_to_buffer && fidInstance.write_ft3_to_buffer(outVec)) {
-            ft3Bytes = vectorUCharToUint8Array(outVec);
-            postMessage({ stdout: '[webass_3d] extracted ft3 file of ' + ft3Bytes.length + ' bytes.' });
+        if (typeof fidInstance.serialize_ft3_to_internal_buffer === 'function') {
+            if (fidInstance.serialize_ft3_to_internal_buffer()) {
+                const ptr = fidInstance.get_ft3_buffer_ptr();
+                const size = fidInstance.get_ft3_buffer_size();
+                ft3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
+                postMessage({ stdout: '[webass_3d] extracted ft3 file of ' + ft3Bytes.length + ' bytes (zero-copy).' });
+            } else {
+                postMessage({ stdout: '[webass_3d] serialize_ft3_to_internal_buffer failed.' });
+            }
+        } else {
+            const outVec = new Module.VectorUChar();
+            try {
+                if (fidInstance.write_ft3_to_buffer && fidInstance.write_ft3_to_buffer(outVec)) {
+                    ft3Bytes = vectorUCharToUint8Array(outVec);
+                    postMessage({ stdout: '[webass_3d] extracted ft3 file of ' + ft3Bytes.length + ' bytes (fallback).' });
+                }
+            } finally {
+                outVec.delete();
+            }
         }
     } catch (e) {
         console.error(e);
         postMessage({ stdout: '[webass_3d] error extracting ft3: ' + e.message });
-    } finally {
-        outVec.delete();
     }
 
     postMessage({ stdout: '[webass_3d] posting result payload header=' + headerF32.length + ', rrr=' + rrrF32.length });
@@ -218,16 +231,29 @@ self.onmessage = async function (event) {
                     throw new Error('read_bruker_files_as_strings failed. Check if Bruker parameter files (acqus, acqu2s, acqu3s) are valid and if direct dimension TD is even.');
                 }
 
-                const v = bytesToVectorUChar(Module, fidBytes);
-                try {
-                    console.log('[webass_3d] read_bruker_fid_data_bytes with bytes:', fidBytes.length);
-                    postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes(' + fidBytes.length + ' bytes)' });
-                    const ok_fid = fid.read_bruker_fid_data_bytes(v);
-                    if (!ok_fid) {
-                        throw new Error('read_bruker_fid_data_bytes failed. Verify the ser/fid file size matches the dimensions in the parameter files.');
+                let ok_fid = false;
+                if (typeof fid.read_bruker_fid_data_bytes_raw === 'function') {
+                    const ptr = Module._malloc(fidBytes.length);
+                    Module.HEAPU8.set(fidBytes, ptr);
+                    try {
+                        console.log('[webass_3d] read_bruker_fid_data_bytes_raw with bytes:', fidBytes.length);
+                        postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes_raw(' + fidBytes.length + ' bytes)' });
+                        ok_fid = fid.read_bruker_fid_data_bytes_raw(ptr, fidBytes.length);
+                    } finally {
+                        Module._free(ptr);
                     }
-                } finally {
-                    v.delete();
+                } else {
+                    const v = bytesToVectorUChar(Module, fidBytes);
+                    try {
+                        console.log('[webass_3d] read_bruker_fid_data_bytes with bytes:', fidBytes.length);
+                        postMessage({ stdout: '[webass_3d] read_bruker_fid_data_bytes(' + fidBytes.length + ' bytes)' });
+                        ok_fid = fid.read_bruker_fid_data_bytes(v);
+                    } finally {
+                        v.delete();
+                    }
+                }
+                if (!ok_fid) {
+                    throw new Error('read_bruker_fid_data_bytes/raw failed. Verify the ser/fid file size matches the dimensions in the parameter files.');
                 }
 
                 if (!useNusStepPipeline) {
@@ -243,17 +269,26 @@ self.onmessage = async function (event) {
                     const nIndirect2 = fid.get_ndata_indirect2();
                     postMessage({ stdout: '[webass_3d] NUS step1 dims indirect1=' + nIndirect1 + ', indirect2=' + nIndirect2 });
 
-                    const halfVec = new Module.VectorUChar();
                     let halfFt3Bytes;
-
-                    try {
-                        const ok = fid.write_ft3_to_buffer(halfVec);
-                        if (!ok) {
-                            throw new Error("write_ft3_to_buffer failed");
+                    if (typeof fid.serialize_ft3_to_internal_buffer === 'function') {
+                        if (fid.serialize_ft3_to_internal_buffer()) {
+                            const ptr = fid.get_ft3_buffer_ptr();
+                            const size = fid.get_ft3_buffer_size();
+                            halfFt3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
+                        } else {
+                            throw new Error("serialize_ft3_to_internal_buffer failed");
                         }
-                        halfFt3Bytes = vectorUCharToUint8Array(halfVec);
-                    } finally {
-                        halfVec.delete();
+                    } else {
+                        const halfVec = new Module.VectorUChar();
+                        try {
+                            const ok = fid.write_ft3_to_buffer(halfVec);
+                            if (!ok) {
+                                throw new Error("write_ft3_to_buffer failed");
+                            }
+                            halfFt3Bytes = vectorUCharToUint8Array(halfVec);
+                        } finally {
+                            halfVec.delete();
+                        }
                     }
 
                     postMessage({ stdout: '[webass_3d] NUS step1 output half.ft3 bytes=' + halfFt3Bytes.length });
@@ -329,18 +364,48 @@ self.onmessage = async function (event) {
                     throw new Error('fid_3d.write_ft3_to_buffer is not available in this WebAssembly build');
                 }
 
-                const inVec = bytesToVectorUChar(Module, smileFt3Bytes);
-                try {
-                    if (!fidIndirect.read_ft3_from_buffer(inVec)) {
-                        throw new Error('read_ft3_from_buffer failed');
+                let read_ok = false;
+                if (typeof fidIndirect.read_ft3_from_buffer_raw === 'function') {
+                    const ptr = Module._malloc(smileFt3Bytes.length);
+                    Module.HEAPU8.set(smileFt3Bytes, ptr);
+                    try {
+                        read_ok = fidIndirect.read_ft3_from_buffer_raw(ptr, smileFt3Bytes.length);
+                    } finally {
+                        Module._free(ptr);
                     }
-
-                    console.log('[webass_3d] indirect_only_process for NUS step3');
-                    postMessage({ stdout: '[webass_3d] NUS step3: indirect_only_process()' });
-                    if (!fidIndirect.indirect_only_process()) {
-                        throw new Error('indirect_only_process failed');
+                } else {
+                    if (typeof fidIndirect.read_ft3_from_buffer !== 'function') {
+                        throw new Error('fid_3d.read_ft3_from_buffer is not available in this WebAssembly build');
                     }
+                    const inVec = bytesToVectorUChar(Module, smileFt3Bytes);
+                    try {
+                        read_ok = fidIndirect.read_ft3_from_buffer(inVec);
+                    } finally {
+                        inVec.delete();
+                    }
+                }
+                if (!read_ok) {
+                    throw new Error('read_ft3_from_buffer failed');
+                }
 
+                console.log('[webass_3d] indirect_only_process for NUS step3');
+                postMessage({ stdout: '[webass_3d] NUS step3: indirect_only_process()' });
+                if (!fidIndirect.indirect_only_process()) {
+                    throw new Error('indirect_only_process failed');
+                }
+
+                if (typeof fidIndirect.serialize_ft3_to_internal_buffer === 'function') {
+                    if (fidIndirect.serialize_ft3_to_internal_buffer()) {
+                        const ptr = fidIndirect.get_ft3_buffer_ptr();
+                        const size = fidIndirect.get_ft3_buffer_size();
+                        finalFt3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
+                    } else {
+                        throw new Error('serialize_ft3_to_internal_buffer failed');
+                    }
+                } else {
+                    if (typeof fidIndirect.write_ft3_to_buffer !== 'function') {
+                        throw new Error('fid_3d.write_ft3_to_buffer is not available in this WebAssembly build');
+                    }
                     const outVec = new Module.VectorUChar();
                     try {
                         if (!fidIndirect.write_ft3_to_buffer(outVec)) {
@@ -350,8 +415,6 @@ self.onmessage = async function (event) {
                     } finally {
                         outVec.delete();
                     }
-                } finally {
-                    inVec.delete();
                 }
             } finally {
                 fidIndirect.delete();
@@ -359,13 +422,26 @@ self.onmessage = async function (event) {
 
             const fidFinal = new Module.fid_3d();
             try {
-                const finalVec = bytesToVectorUChar(Module, finalFt3Bytes || new Uint8Array());
-                try {
-                    if (!fidFinal.read_ft3_from_buffer(finalVec)) {
-                        throw new Error('read_ft3_from_buffer failed for final output');
+                let final_ok = false;
+                const bytesToLoad = finalFt3Bytes || new Uint8Array();
+                if (typeof fidFinal.read_ft3_from_buffer_raw === 'function') {
+                    const ptr = Module._malloc(bytesToLoad.length);
+                    Module.HEAPU8.set(bytesToLoad, ptr);
+                    try {
+                        final_ok = fidFinal.read_ft3_from_buffer_raw(ptr, bytesToLoad.length);
+                    } finally {
+                        Module._free(ptr);
                     }
-                } finally {
-                    finalVec.delete();
+                } else {
+                    const finalVec = bytesToVectorUChar(Module, bytesToLoad);
+                    try {
+                        final_ok = fidFinal.read_ft3_from_buffer(finalVec);
+                    } finally {
+                        finalVec.delete();
+                    }
+                }
+                if (!final_ok) {
+                    throw new Error('read_ft3_from_buffer failed for final output');
                 }
                 finalizeAndPostResult(Module, fidFinal, 'process_fid_3d');
             } finally {
