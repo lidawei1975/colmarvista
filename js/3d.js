@@ -5341,6 +5341,7 @@ async function load_fid_3d_file() {
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
 
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
+        cfg.isNus = isNus;
 
         // Consolidate auto-phase logic
         const autoPhaseChecked = !!cfg.normalDirectDimAutoPhase;
@@ -5354,6 +5355,11 @@ async function load_fid_3d_file() {
         if (isNus && autoPhaseChecked) {
             cfg.debugNusRunFullProcess = true;
             cfg.nusDirectDimAutoPhase = true;
+        } else if (!isNus && autoPhaseChecked) {
+            // For non-NUS automatic phase correction, bypass baseline correction on the first pass
+            cfg.userFrqPolyOrder = [...cfg.frqPolyOrder];
+            cfg.frqPolyOrder = [-1, -1, -1];
+            append_3d_log('[main] Non-NUS AutoPhase: setting frqPolyOrder to -1 -1 -1 for first-pass, caching user frqPolyOrder: ' + cfg.userFrqPolyOrder);
         }
 
         console.log('[3D][fid] Sending worker message. NUS mode=', isNus, 'AutoPhase=', nusDirectDimAutoPhase);
@@ -5435,9 +5441,12 @@ async function handle_webass_3d_message(e) {
         }, [halfBytes.buffer]);
         return;
     }
-    if (e.data["#sym:webassembly_job "] === "process_fid_3d") {
-        append_3d_log('[main] Received process_fid_3d result');
-        document.getElementById("webassembly_message").innerText = "3D processing complete. Rendering planes...";
+    if (e.data["#sym:webassembly_job "] === "process_fid_3d" || e.data["#sym:webassembly_job "] === "postprocess_ft3") {
+        const jobType = e.data["#sym:webassembly_job "];
+        append_3d_log('[main] Received ' + jobType + ' result');
+        document.getElementById("webassembly_message").innerText = jobType === "postprocess_ft3"
+            ? "3D post-processing complete. Rendering planes..."
+            : "3D processing complete. Rendering planes...";
         const dims = e.data.dims;
         const header = e.data.headerF32; // Float32Array 512 elements
         const rrr = e.data.rrrF32; // Float32Array
@@ -5465,7 +5474,7 @@ async function handle_webass_3d_message(e) {
             let ft3Data = e.data.ft3Bytes;
 
             // Auto phase correction for normal workflow (or NUS phase check mode)
-            if (current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
+            if (e.data["#sym:webassembly_job "] !== "postprocess_ft3" && current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
                 append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
                 try {
                     const slicedBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + ft3Data.byteLength);
@@ -5528,6 +5537,51 @@ async function handle_webass_3d_message(e) {
                     // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
                     auto_p0_3d = local_p0;
                     auto_p1_3d = local_p1;
+
+                    if (current_fid_config && !current_fid_config.isNus && current_fid_config.normalDirectDimAutoPhase) {
+                        append_3d_log("[main] Automatically running final baseline correction and phase correction in C++ post-processing...");
+
+                        const box0 = document.getElementById('phase_correction_direct_p0');
+                        const box1 = document.getElementById('phase_correction_direct_p1');
+                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
+                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
+
+                        const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
+                        if (autoCheckbox) {
+                            autoCheckbox.checked = false;
+                            autoCheckbox.dispatchEvent(new Event('change'));
+                        }
+
+                        // Reset JS phase variables so that the phase isn't double-applied on rendering/drawing
+                        auto_p0_3d = null;
+                        auto_p1_3d = null;
+                        trace_x_ph0 = 0.0;
+                        trace_x_ph1 = 0.0;
+                        trace_x_pivot = null;
+
+                        // Phase text to send: construct using calculated local_p0, local_p1 and current UI values for indirect dimensions
+                        const ind1_p0 = document.getElementById('phase_correction_indirect1_p0').value || "0.0";
+                        const ind1_p1 = document.getElementById('phase_correction_indirect1_p1').value || "0.0";
+                        const ind2_p0 = document.getElementById('phase_correction_indirect2_p0').value || "0.0";
+                        const ind2_p1 = document.getElementById('phase_correction_indirect2_p1').value || "0.0";
+                        const phaseTextToUse = `${local_p0} ${local_p1} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
+
+                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
+                        
+                        document.getElementById("webassembly_message").innerText = "Running final baseline correction and phase application in C++...";
+                        
+                        // Disable auto phase in config so it isn't run on final response
+                        current_fid_config.normalDirectDimAutoPhase = false;
+
+                        web_worker_3d.postMessage({
+                            "#sym:webassembly_job ": "postprocess_ft3",
+                            cfg: current_fid_config,
+                            phaseTextToUse: phaseTextToUse,
+                            ft3Bytes: ft3Data
+                        }, [ft3Data.buffer]);
+
+                        return;
+                    }
 
                     if (current_fid_config && current_fid_config.nusDirectDimAutoPhase && !current_fid_config.showArtifact) {
                         append_3d_log("[main] Automatically re-running NUS processing with calculated phase values...");

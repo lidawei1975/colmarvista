@@ -187,12 +187,26 @@ self.onmessage = async function (event) {
                 }
 
                 if (cfg.frqPolyOrder && cfg.frqPolyOrder.length === 3) {
-                    console.log('[webass_3d] set_frq_domain_polynorminal_order', cfg.frqPolyOrder);
-                    fidInstance.set_frq_domain_polynorminal_order(
-                        cfg.frqPolyOrder[0],
-                        cfg.frqPolyOrder[1],
-                        cfg.frqPolyOrder[2]
-                    );
+                    if (useNusStepPipeline) {
+                        console.log('[webass_3d] NUS route: calling both set_frq_domain_polynorminal_order and set_final_frq_polynorminal_order', cfg.frqPolyOrder);
+                        fidInstance.set_frq_domain_polynorminal_order(
+                            cfg.frqPolyOrder[0],
+                            cfg.frqPolyOrder[1],
+                            cfg.frqPolyOrder[2]
+                        );
+                        fidInstance.set_final_frq_polynorminal_order(
+                            cfg.frqPolyOrder[0],
+                            cfg.frqPolyOrder[1],
+                            cfg.frqPolyOrder[2]
+                        );
+                    } else {
+                        console.log('[webass_3d] Non-NUS route: calling set_final_frq_polynorminal_order', cfg.frqPolyOrder);
+                        fidInstance.set_final_frq_polynorminal_order(
+                            cfg.frqPolyOrder[0],
+                            cfg.frqPolyOrder[1],
+                            cfg.frqPolyOrder[2]
+                        );
+                    }
                 }
 
                 if (cfg.inverse && cfg.inverse.length === 3) {
@@ -338,7 +352,7 @@ self.onmessage = async function (event) {
                     );
                 }
                 if (cfg.frqPolyOrder && cfg.frqPolyOrder.length === 3) {
-                    fidInstance.set_frq_domain_polynorminal_order(
+                    fidInstance.set_final_frq_polynorminal_order(
                         cfg.frqPolyOrder[0],
                         cfg.frqPolyOrder[1],
                         cfg.frqPolyOrder[2]
@@ -449,6 +463,86 @@ self.onmessage = async function (event) {
             }
         } catch (err) {
             console.error('[webass_3d] process_fid_3d_nus_step3 failed', err);
+            postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
+        }
+    }
+    else if (job === 'postprocess_ft3') {
+        try {
+            const cfg = event.data.cfg || {};
+            const phaseTextToUse = event.data.phaseTextToUse;
+            const ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
+
+            console.log('[webass_3d] Running job postprocess_ft3, bytes:', ft3Bytes.length, 'phase:', phaseTextToUse);
+            postMessage({ stdout: '[webass_3d] postprocess_ft3 starting' });
+
+            const fid = new Module.fid_3d();
+            try {
+                // Set extraction range if present
+                if (cfg.extPpm && cfg.extPpm.length >= 2) {
+                    fid.extract_region_ppm(cfg.extPpm[0], cfg.extPpm[1]);
+                } else if (cfg.extNorm && cfg.extNorm.length >= 2) {
+                    fid.extract_region(cfg.extNorm[0], cfg.extNorm[1]);
+                }
+
+                // Set inverse/delete-image flags
+                if (cfg.inverse && cfg.inverse.length === 3) {
+                    fid.set_inverse(cfg.inverse[0], cfg.inverse[1], cfg.inverse[2]);
+                }
+                const delImg = cfg.deleteImage || [1, 1, 1];
+                fid.set_delete_image(delImg[0], delImg[1], delImg[2]);
+
+                // Phase correction to apply in post-processing
+                if (phaseTextToUse) {
+                    console.log('[webass_3d] postprocess_ft3: read_phase_correction_from_string:', phaseTextToUse);
+                    fid.read_phase_correction_from_string(phaseTextToUse);
+                }
+
+                // Baseline orders: set final baseline correction to userFrqPolyOrder
+                
+                const userFrqPolyOrder = cfg.userFrqPolyOrder || [-1, -1, -1];
+                console.log('[webass_3d] postprocess_ft3: set_final_frq_polynorminal_order:', userFrqPolyOrder);
+                fid.set_final_frq_polynorminal_order(
+                    userFrqPolyOrder[0],
+                    userFrqPolyOrder[1],
+                    userFrqPolyOrder[2]
+                );
+
+                let read_ok = false;
+                if (typeof fid.read_ft3_from_buffer_raw === 'function') {
+                    const ptr = Module._malloc(ft3Bytes.length);
+                    Module.HEAPU8.set(ft3Bytes, ptr);
+                    try {
+                        read_ok = fid.read_ft3_from_buffer_raw(ptr, ft3Bytes.length);
+                    } finally {
+                        Module._free(ptr);
+                    }
+                } else {
+                    if (typeof fid.read_ft3_from_buffer !== 'function') {
+                        throw new Error('fid_3d.read_ft3_from_buffer is not available in this WebAssembly build');
+                    }
+                    const inVec = bytesToVectorUChar(Module, ft3Bytes);
+                    try {
+                        read_ok = fid.read_ft3_from_buffer(inVec);
+                    } finally {
+                        inVec.delete();
+                    }
+                }
+                if (!read_ok) {
+                    throw new Error('read_ft3_from_buffer failed');
+                }
+
+                console.log('[webass_3d] postprocess_loaded_ft3');
+                postMessage({ stdout: '[webass_3d] calling postprocess_loaded_ft3()' });
+                if (!fid.postprocess_loaded_ft3()) {
+                    throw new Error('postprocess_loaded_ft3 failed');
+                }
+
+                finalizeAndPostResult(Module, fid, 'postprocess_ft3');
+            } finally {
+                fid.delete();
+            }
+        } catch (err) {
+            console.error('[webass_3d] postprocess_ft3 failed', err);
             postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
         }
     }
