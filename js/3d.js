@@ -1,4 +1,100 @@
 /**
+ * =========================================================================================
+ * COLMARVIEW 3D FID PROCESSING WORKFLOW DOCUMENTATION
+ * =========================================================================================
+ * 
+ * This file handles the main-thread orchestration of the 3D NMR processing pipeline.
+ * It manages the coordination between the user interface, the WebAssembly C++ worker
+ * (`webass_3d.js`), the SMILE worker (`webass_smile.js`), and the TensorFlow.js
+ * auto-phasing models.
+ * 
+ * Depending on the dataset type (NUS vs. Non-NUS) and whether "Automatic Phase Correction"
+ * is checked in the UI, the pipeline takes one of the four paths outlined below:
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 1: Non-NUS, Automatic Phase Correction DISABLED (Manual Phasing)
+ * -----------------------------------------------------------------------------------------
+ *   1. User clicks "Process FID" with Auto-Phase unchecked.
+ *   2. `load_fid_3d_file()` builds the configuration object `cfg` using UI values.
+ *   3. It posts a `process_fid_3d` job to `web_worker_3d` (the main WASM worker).
+ *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is false:
+ *      - It calls C++ `set_final_frq_polynorminal_order` with the UI baseline orders.
+ *      - It calls C++ `full_process()` to perform a single-pass 3D Fourier Transform.
+ *      - It extracts the phased/baseline-corrected spectrum and posts the result back.
+ *   5. The main thread receives the final spectrum and renders it immediately.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 2: Non-NUS, Automatic Phase Correction ENABLED
+ * -----------------------------------------------------------------------------------------
+ *   1. User clicks "Process FID" with Auto-Phase checked.
+ *   2. `load_fid_3d_file()` prepares the first-pass (Phase-Check Pass) config:
+ *      - Caches the UI baseline orders in `cfg.userFrqPolyOrder`.
+ *      - Overrides `cfg.frqPolyOrder` to `[-1, -1, -1]` to bypass baseline correction.
+ *      - Forces imaginary data retention in the direct dimension (to allow phasing).
+ *   3. It posts the `process_fid_3d` job to `web_worker_3d`.
+ *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is false:
+ *      - It calls C++ `set_final_frq_polynorminal_order(-1, -1, -1)` (no baseline applied).
+ *      - It calls C++ `full_process()` and returns the unbaselined spectrum.
+ *   5. The main thread receives the result and runs TF.js on the unbaselined buffer:
+ *      - Auto-phase model calculates the local direct-dimension phase angles (local p0/p1).
+ *      - Extrapolates local values to global full-spectrum values (`ui_p0`, `ui_p1`).
+ *      - Updates the UI manual phase boxes with the extrapolated values.
+ *      - Unchecks the UI Auto-Phase checkbox.
+ *   6. The main thread immediately launches a post-processing pass (`postprocess_ft3` job):
+ *      - Sends the unbaselined spectrum buffer, the calculated local phase angles, and `cfg.userFrqPolyOrder`.
+ *   7. Inside the worker (`webass_3d.js`) for job `postprocess_ft3`:
+ *      - It loads the unbaselined extracted spectrum.
+ *      - Calls C++ `set_final_frq_polynorminal_order` with the cached user baseline orders.
+ *      - Applies the calculated local phase correction in C++.
+ *      - Calls C++ `postprocess_loaded_ft3()` to run the final baseline correction.
+ *      - Discards direct imaginary data (if required) and returns the final spectrum.
+ *   8. The main thread receives the final processed spectrum and renders it.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 3: NUS, Automatic Phase Correction DISABLED (Manual Phasing)
+ * -----------------------------------------------------------------------------------------
+ *   1. User clicks "Process FID" with Auto-Phase unchecked.
+ *   2. `load_fid_3d_file()` builds `cfg` from the UI.
+ *   3. It posts a `process_fid_3d` job to `web_worker_3d`.
+ *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is true (isNus && no force full):
+ *      - It calls C++ `set_frq_domain_polynorminal_order` with the UI baseline orders.
+ *      - It calls C++ `direct_only_process()` (Step 2 of NUS pipeline).
+ *      - Posts back a `process_fid_3d_nus_half_ready` job containing the direct-phased half-spectrum.
+ *   5. The main thread receives the half-processed spectrum and sends it to the SMILE worker (`webass_smile.js`).
+ *   6. The SMILE worker performs reconstruction on the missing data points and returns a `smile.ft3` buffer.
+ *   7. The main thread receives the SMILE result and posts a `process_fid_3d_nus_step3` job to the WASM worker.
+ *   8. Inside the worker (`webass_3d.js`) for job `process_fid_3d_nus_step3`:
+ *      - It loads the SMILE reconstructed buffer.
+ *      - Calls C++ `set_final_frq_polynorminal_order` with the UI baseline orders.
+ *      - Calls C++ `indirect_only_process()`.
+ *      - Finalizes and posts back the completed spectrum.
+ *   9. The main thread receives the final spectrum and renders it.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 4: NUS, Automatic Phase Correction ENABLED
+ * -----------------------------------------------------------------------------------------
+ *   1. User clicks "Process FID" with Auto-Phase checked.
+ *   2. `load_fid_3d_file()` prepares the first-pass (Phase-Check Pass) config:
+ *      - Caches the UI baseline orders in `cfg.userFrqPolyOrder`.
+ *      - Overrides `cfg.frqPolyOrder` to `[-1, -1, -1]` to bypass baseline correction.
+ *      - Overrides `cfg.debugNusRunFullProcess = true` and `cfg.nusDirectDimAutoPhase = true`.
+ *        This forces the worker to run the full-process route (skipping SMILE) so the resulting spectrum
+ *        contains the expected sampling artifacts for the TF.js model to recognize.
+ *   3. It posts the `process_fid_3d` job to `web_worker_3d`.
+ *   4. Inside the worker (`webass_3d.js`), because `forceNusFullProcess` is true:
+ *      - It calls C++ `set_final_frq_polynorminal_order(-1, -1, -1)` (no baseline applied).
+ *      - It calls C++ `full_process()`, which generates a fast reconstruction with artifacts.
+ *      - It finalizes and returns the unbaselined spectrum.
+ *   5. The main thread receives the result and runs TF.js:
+ *      - Model calculates the local direct-dimension phase angles (local p0/p1).
+ *      - Extrapolates local values to global full-spectrum values (`ui_p0`, `ui_p1`).
+ *      - Updates the UI manual phase boxes with the extrapolated values.
+ *      - Unchecks the UI Auto-Phase checkbox.
+ *   6. The main thread automatically triggers a fresh re-run of `load_fid_3d_file()` after a 100ms delay.
+ *      Since Auto-Phase is now unchecked, this re-run falls back to **Path 3** (the standard multi-step NUS pipeline)
+ *      and processes the spectrum from scratch using the newly calculated phase values.
+ * =========================================================================================
+ * 
  * IMPORTANT NOTE
  * 
  * Internally, we define:
@@ -5355,6 +5451,9 @@ async function load_fid_3d_file() {
         if (isNus && autoPhaseChecked) {
             cfg.debugNusRunFullProcess = true;
             cfg.nusDirectDimAutoPhase = true;
+            cfg.userFrqPolyOrder = [...cfg.frqPolyOrder];
+            cfg.frqPolyOrder = [-1, -1, -1];
+            append_3d_log('[main] NUS AutoPhase: setting frqPolyOrder to -1 -1 -1 for first-pass, caching user frqPolyOrder: ' + cfg.userFrqPolyOrder);
         } else if (!isNus && autoPhaseChecked) {
             // For non-NUS automatic phase correction, bypass baseline correction on the first pass
             cfg.userFrqPolyOrder = [...cfg.frqPolyOrder];
@@ -5604,8 +5703,7 @@ async function handle_webass_3d_message(e) {
                         trace_x_pivot = null;
 
                         setTimeout(() => {
-                            const btn = document.getElementById('button_fid_process_3d');
-                            if (btn) btn.click();
+                            load_fid_3d_file();
                         }, 100);
 
                         return;

@@ -1,4 +1,73 @@
 // webass_3d.js
+/**
+ * =========================================================================================
+ * COLMARVIEW 3D FID WASM WORKER PROCESSING WORKFLOW DOCUMENTATION
+ * =========================================================================================
+ * 
+ * This file implements the WebAssembly worker thread logic for 3D FID processing.
+ * It interacts with the compiled C++ `fid_3d` class (via `webdp1d_cpp.js`) to perform
+ * Fourier transforms, baseline corrections, and phase corrections.
+ * 
+ * Below is how each of the 4 execution pathways maps to WASM worker jobs:
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 1: Non-NUS, Automatic Phase Correction DISABLED (Manual Phasing)
+ * -----------------------------------------------------------------------------------------
+ *   - Job received: `"process_fid_3d"`
+ *   - Worker execution:
+ *      1. `applyCommonConfig` calls `fid.set_final_frq_polynorminal_order` with user UI orders.
+ *      2. Runs `fid.full_process()`.
+ *      3. Finalizes and returns the spectrum with `finalizeAndPostResult`.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 2: Non-NUS, Automatic Phase Correction ENABLED (First-Pass and Post-Processing)
+ * -----------------------------------------------------------------------------------------
+ *   - First-Pass Pass:
+ *      - Job received: `"process_fid_3d"` (with `frqPolyOrder = [-1, -1, -1]`).
+ *      - Worker execution:
+ *         1. `applyCommonConfig` calls `fid.set_final_frq_polynorminal_order(-1, -1, -1)`.
+ *         2. Runs `fid.full_process()` (forces direct imaginary component retention).
+ *         3. Finalizes and returns the unbaselined spectrum.
+ *   - Post-Processing Pass:
+ *      - Job received: `"postprocess_ft3"` (with `phaseTextToUse` and `userFrqPolyOrder`).
+ *      - Worker execution:
+ *         1. Loads the unbaselined spectrum buffer.
+ *         2. `fid.set_final_frq_polynorminal_order` is called with the cached user baseline orders.
+ *         3. `fid.read_phase_correction_from_string` applies calculated phase correction.
+ *         4. Calls `fid.postprocess_loaded_ft3()` to run the final baseline correction in C++.
+ *         5. Finalizes and returns the finished spectrum.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 3: NUS, Automatic Phase Correction DISABLED (Manual Phasing)
+ * -----------------------------------------------------------------------------------------
+ *   - Step 2 (Direct-only processing):
+ *      - Job received: `"process_fid_3d"` (with `useNusStepPipeline = true`).
+ *      - Worker execution:
+ *         1. `applyCommonConfig` calls `fid.set_frq_domain_polynorminal_order` with user UI orders.
+ *         2. Runs `fid.direct_only_process()`.
+ *         3. Serializes intermediate buffer and returns `"process_fid_3d_nus_half_ready"`.
+ *   - Step 3 (Indirect-only processing):
+ *      - Job received: `"process_fid_3d_nus_step3"` (after SMILE reconstruction).
+ *      - Worker execution:
+ *         1. Loads reconstructed `smile.ft3` buffer.
+ *         2. `applyCommonConfig` calls `fid.set_final_frq_polynorminal_order` with user UI orders.
+ *         3. Runs `fid.indirect_only_process()`.
+ *         4. Finalizes and returns the completed spectrum.
+ * 
+ * -----------------------------------------------------------------------------------------
+ * PATH 4: NUS, Automatic Phase Correction ENABLED (First-Pass and Multi-Step Re-run)
+ * -----------------------------------------------------------------------------------------
+ *   - First-Pass (Phase-Check Pass):
+ *      - Job received: `"process_fid_3d"` (with `frqPolyOrder = [-1, -1, -1]` and `forceNusFullProcess = true`).
+ *      - Worker execution:
+ *         1. `applyCommonConfig` calls `fid.set_final_frq_polynorminal_order(-1, -1, -1)`.
+ *         2. Runs `fid.full_process()`, yielding a unbaselined fast reconstruction with artifacts.
+ *         3. Finalizes and returns the unbaselined spectrum for TF.js.
+ *   - Multi-Step Re-run (after TF.js auto-phases and updates the UI):
+ *      - Since the Auto-Phase checkbox is programmatically unchecked, the second processing request
+ *        automatically falls back to **Path 3** (NUS Step 2 -> SMILE -> NUS Step 3) using the new phase values.
+ * =========================================================================================
+ */
 
 importScripts('webdp1d_cpp.js');
 
@@ -188,19 +257,14 @@ self.onmessage = async function (event) {
 
                 if (cfg.frqPolyOrder && cfg.frqPolyOrder.length === 3) {
                     if (useNusStepPipeline) {
-                        console.log('[webass_3d] NUS route: calling both set_frq_domain_polynorminal_order and set_final_frq_polynorminal_order', cfg.frqPolyOrder);
+                        console.log('[webass_3d] NUS route: calling set_frq_domain_polynorminal_order', cfg.frqPolyOrder);
                         fidInstance.set_frq_domain_polynorminal_order(
                             cfg.frqPolyOrder[0],
                             cfg.frqPolyOrder[1],
                             cfg.frqPolyOrder[2]
                         );
-                        fidInstance.set_final_frq_polynorminal_order(
-                            cfg.frqPolyOrder[0],
-                            cfg.frqPolyOrder[1],
-                            cfg.frqPolyOrder[2]
-                        );
                     } else {
-                        console.log('[webass_3d] Non-NUS route: calling set_final_frq_polynorminal_order', cfg.frqPolyOrder);
+                        console.log('[webass_3d] Non-NUS/Full-process route: calling set_final_frq_polynorminal_order', cfg.frqPolyOrder);
                         fidInstance.set_final_frq_polynorminal_order(
                             cfg.frqPolyOrder[0],
                             cfg.frqPolyOrder[1],
