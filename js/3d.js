@@ -189,6 +189,79 @@ var main_plot_proj_x = null;
 var spectrum_proj_x = null;
 var theoretical_spectrum_proj_x = null;
 
+var global_3d_noise = 0.0;
+var raw_3d_noise_level = 0.0;
+
+function evaluate_global_noise_redefinition() {
+    if (raw_3d_noise_level === 0.0) {
+        let sum = 0;
+        let count = 0;
+        if (spectra_3d && spectra_3d.length > 0) {
+            for (let s of spectra_3d) {
+                if (s.noise_level) {
+                    sum += s.noise_level;
+                    count++;
+                }
+            }
+        }
+        if (count > 0) {
+            raw_3d_noise_level = sum / count;
+        } else {
+            raw_3d_noise_level = 0.001;
+        }
+    }
+
+    let base_noise = raw_3d_noise_level;
+
+    let max_pos = 0;
+    let max_neg_abs = 0;
+    if (spectra_3d && spectra_3d.length > 0) {
+        for (let s of spectra_3d) {
+            if (s.spectral_max && s.spectral_max > max_pos) {
+                max_pos = s.spectral_max;
+            }
+            if (s.spectral_min && Math.abs(s.spectral_min) > max_neg_abs) {
+                max_neg_abs = Math.abs(s.spectral_min);
+            }
+        }
+    }
+
+    let multiplier = 10.0;
+    let multiplier_input = document.getElementById('contour_start_multiplier');
+    if (multiplier_input) {
+        multiplier = parseFloat(multiplier_input.value) || 10.0;
+    }
+    let scale = 1.4;
+    let scale_input = document.getElementById('contour_scale_factor');
+    if (scale_input) {
+        scale = parseFloat(scale_input.value) || 1.4;
+    }
+
+    let highest_level = base_noise * multiplier * Math.pow(scale, 29);
+    let display_color = "#555"; // Default color
+
+    if (highest_level < max_pos && highest_level < max_neg_abs) {
+        global_3d_noise = Math.max(max_pos, max_neg_abs) / 10000.0;
+        display_color = "red";
+    } else {
+        global_3d_noise = base_noise;
+    }
+
+    let display = document.getElementById('global_noise_level_display');
+    if (display) {
+        display.innerText = "Estimated 3D Noise: " + global_3d_noise.toExponential(3);
+        display.style.color = display_color;
+    }
+}
+
+function get_global_3d_noise() {
+    if (global_3d_noise > 0.0) {
+        return global_3d_noise;
+    }
+    evaluate_global_noise_redefinition();
+    return global_3d_noise;
+}
+
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
@@ -233,6 +306,14 @@ function reset_3d_dataset_state(keepNuclei = false) {
 
     auto_p0_3d = null;
     auto_p1_3d = null;
+
+    global_3d_noise = 0.0;
+    raw_3d_noise_level = 0.0;
+    let display = document.getElementById('global_noise_level_display');
+    if (display) {
+        display.style.color = "#555";
+        display.innerText = "Noise: -";
+    }
 
     // Release large contiguous visualization buffers from previous dataset.
     current_volume_data = null;
@@ -1670,9 +1751,9 @@ async function load_ft3_file() {
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
 
+            update_global_noise_level();
             // Draw first slice
             draw_slice(0);
-            update_global_noise_level();
 
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
                 run_auto_phase_on_loaded_spectrum();
@@ -1820,9 +1901,9 @@ async function load_raw_3d_file() {
             // Initialize the main plot with dimensions from the first slice
             init_main_plot(spectra_3d[0]);
 
+            update_global_noise_level();
             // Draw first slice
             draw_slice(0);
-            update_global_noise_level();
 
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
                 run_auto_phase_on_loaded_spectrum();
@@ -1900,9 +1981,9 @@ async function load_files() {
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
 
+            update_global_noise_level();
             // Draw first slice
             draw_slice(0);
-            update_global_noise_level();
 
             // Trigger auto-phase if requested
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
@@ -2005,11 +2086,9 @@ function update_global_noise_level() {
         }
     }
     if (count === 0) return;
-    let global_noise = sum / count;
-    let display = document.getElementById('global_noise_level_display');
-    if (display) {
-        display.innerText = "Estimated 3D Noise: " + global_noise.toExponential(3);
-    }
+    raw_3d_noise_level = sum / count;
+    evaluate_global_noise_redefinition();
+    update_contour_levels();
 }
 
 /**
@@ -2024,12 +2103,14 @@ function update_contour_levels() {
         return;
     }
 
+    let global_noise = get_global_3d_noise();
+
     // Update all slices
     for (let s of spectra_3d) {
         s.spectrum_color = "#0000ff";
         s.spectrum_color_negative = "#ff0000";
-        s.levels = calculate_levels(s.noise_level, scale, 30);
-        s.negative_levels = calculate_negative_levels(s.noise_level, scale, 30);
+        s.levels = calculate_levels(global_noise, scale, 30);
+        s.negative_levels = calculate_negative_levels(global_noise, scale, 30);
         // Invalidate cache to force recalculation
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
@@ -2038,7 +2119,7 @@ function update_contour_levels() {
     if (theoretical_spectra_3d) {
         for (let s of theoretical_spectra_3d) {
             s.spectrum_color = "#ff0000"; // Red for theoretical
-            s.levels = calculate_levels(s.noise_level, scale, 30);
+            s.levels = calculate_levels(global_noise, scale, 30);
             s.negative_levels = [];
             s.cached_contour_pos = null;
             s.cached_contour_neg = null;
@@ -2048,17 +2129,29 @@ function update_contour_levels() {
     // Also update orthogonal spectra
     if (spectrum_xz) {
         spectrum_xz.spectrum_color = "#0000ff";
-        spectrum_xz.levels = calculate_levels(spectrum_xz.noise_level, scale, 30);
+        spectrum_xz.levels = calculate_levels(global_noise, scale, 30);
         spectrum_xz.negative_levels = [];
         spectrum_xz.cached_contour_pos = null;
         spectrum_xz.cached_contour_neg = null;
     }
     if (spectrum_yz) {
         spectrum_yz.spectrum_color = "#0000ff";
-        spectrum_yz.levels = calculate_levels(spectrum_yz.noise_level, scale, 30);
+        spectrum_yz.levels = calculate_levels(global_noise, scale, 30);
         spectrum_yz.negative_levels = [];
         spectrum_yz.cached_contour_pos = null;
         spectrum_yz.cached_contour_neg = null;
+    }
+    if (theoretical_spectrum_xz) {
+        theoretical_spectrum_xz.levels = calculate_levels(global_noise, scale, 30);
+        theoretical_spectrum_xz.negative_levels = [];
+        theoretical_spectrum_xz.cached_contour_pos = null;
+        theoretical_spectrum_xz.cached_contour_neg = null;
+    }
+    if (theoretical_spectrum_yz) {
+        theoretical_spectrum_yz.levels = calculate_levels(global_noise, scale, 30);
+        theoretical_spectrum_yz.negative_levels = [];
+        theoretical_spectrum_yz.cached_contour_pos = null;
+        theoretical_spectrum_yz.cached_contour_neg = null;
     }
 
     if (spectrum_proj) {
@@ -5869,7 +5962,7 @@ async function handle_webass_3d_message(e) {
             // Keep initialization behavior consistent with .ft2/.ft3 file loaders.
             init_main_plot(spectra_3d[0]);
 
-            draw_slice(0);
+            update_global_noise_level();
 
             // Auto-apply direct phase correction if it was calculated (Normal or NUS)
             if (auto_p0_3d !== null && auto_p1_3d !== null) {
@@ -5878,7 +5971,7 @@ async function handle_webass_3d_message(e) {
                 apply_trace_x_phase(trace_x_ph0, trace_x_ph1, trace_x_pivot);
             }
 
-            update_global_noise_level();
+            draw_slice(0);
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
 
