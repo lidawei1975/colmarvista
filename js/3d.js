@@ -574,6 +574,49 @@ function append_3d_worker_stdout(stdoutText) {
 }
 
 /**
+ * Extract nuclei names from spectrum header.
+ * @param {spectrum} s - Spectrum object
+ */
+function extract_nuclei_from_spectrum(s) {
+    if (!s || !s.header) return;
+    const header = s.header;
+    const dimorder1 = header[24];
+    const dimorder2 = header[25];
+    const dimorder3 = header[26];
+
+    const getLabelIndex = (dim) => {
+        if (dim === 1) return 18;
+        if (dim === 2) return 16;
+        if (dim === 3) return 20;
+        return null;
+    };
+
+    const readLabel = (dim) => {
+        const idx = getLabelIndex(dim);
+        if (idx === null) return "";
+        try {
+            const uint8 = new Uint8Array(header.buffer, s.header.byteOffset + idx * 4, 8);
+            let str = "";
+            for (let i = 0; i < 8; i++) {
+                if (uint8[i] === 0) break;
+                str += String.fromCharCode(uint8[i]);
+            }
+            return str.trim();
+        } catch (e) {
+            console.error("Error reading NMRPipe label for dimension " + dim, e);
+            return "";
+        }
+    };
+
+    window.last_fid_nuclei = {
+        x: readLabel(dimorder1),
+        y: readLabel(dimorder2),
+        z: readLabel(dimorder3)
+    };
+    update_all_plot_axis_labels();
+}
+
+/**
  * Updates all plot axis labels.
  */
 function update_all_plot_axis_labels() {
@@ -1623,6 +1666,7 @@ async function load_ft3_file() {
             spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
             main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
 
+            extract_nuclei_from_spectrum(spectra_3d[0]);
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
 
@@ -1632,6 +1676,12 @@ async function load_ft3_file() {
 
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
                 run_auto_phase_on_loaded_spectrum();
+            }
+
+            // Sync projection view if checked
+            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
+            if (projChecked) {
+                toggle_visualize_proj(true);
             }
         }
 
@@ -1777,6 +1827,12 @@ async function load_raw_3d_file() {
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
                 run_auto_phase_on_loaded_spectrum();
             }
+
+            // Sync projection view if checked
+            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
+            if (projChecked) {
+                toggle_visualize_proj(true);
+            }
         }
 
         document.getElementById("webassembly_message").innerText = "";
@@ -1840,6 +1896,7 @@ async function load_files() {
             document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
             document.getElementById('main_plot_area').style.display = 'flex';
 
+            extract_nuclei_from_spectrum(spectra_3d[0]);
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
 
@@ -1850,6 +1907,12 @@ async function load_files() {
             // Trigger auto-phase if requested
             if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
                 run_auto_phase_on_loaded_spectrum();
+            }
+
+            // Sync projection view if checked
+            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
+            if (projChecked) {
+                toggle_visualize_proj(true);
             }
         }
 
@@ -4140,6 +4203,7 @@ function toggle_visualize_proj(show) {
             if (!main_plot_proj || main_plot_proj.WIDTH === 0) init_proj_plot(s);
             if (!main_plot_proj_y || main_plot_proj_y.WIDTH === 0) init_proj_y_plot(s);
             if (!main_plot_proj_x || main_plot_proj_x.WIDTH === 0) init_proj_x_plot(s);
+            update_all_plot_axis_labels();
         }
 
         if (!spectrum_proj) {
@@ -5812,6 +5876,12 @@ async function handle_webass_3d_message(e) {
             update_global_noise_level();
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
+
+            // Sync projection view if checked
+            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
+            if (projChecked) {
+                toggle_visualize_proj(true);
+            }
         } else {
             append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
@@ -6197,6 +6267,8 @@ function init_proj_plot(s) {
     if (typeof main_plot_proj.allow_right_click === 'function') {
         main_plot_proj.allow_right_click(false);
     }
+
+    update_all_plot_axis_labels();
 }
 
 /**
@@ -6690,6 +6762,8 @@ function init_proj_y_plot(s) {
     if (typeof main_plot_proj_y.allow_right_click === 'function') {
         main_plot_proj_y.allow_right_click(false);
     }
+
+    update_all_plot_axis_labels();
 }
 
 /**
@@ -6837,6 +6911,8 @@ function init_proj_x_plot(s) {
     if (typeof main_plot_proj_x.allow_right_click === 'function') {
         main_plot_proj_x.allow_right_click(false);
     }
+
+    update_all_plot_axis_labels();
 }
 
 /**
