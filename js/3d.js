@@ -3538,6 +3538,7 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_x_svg');
     clear_1d_trace_svg('trace_proj_x_svg');
     clear_1d_trace_svg('trace_proj_y_x_svg');
+    clear_1d_trace_svg('trace_proj_z_svg');
 }
 
 /**
@@ -3647,7 +3648,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         .attr('d', line);
 
     // Pivot Line and Phase Labels Overlay
-    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg' || svgId === 'trace_proj_y_x_svg') {
         // Pivot Line
         if (trace_x_pivot !== null) {
             plotGroup.append('line')
@@ -3709,7 +3710,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         update_1d_traces_from_center();
     });
 
-    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg' || svgId === 'trace_proj_y_x_svg') {
         const set_pivot = function (event) {
             if (!spectra_3d || spectra_3d.length === 0) return;
             if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
@@ -3723,7 +3724,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
                 trace_x_pivot = null;
             }
 
-            let IDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val'];
+            let IDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'];
             IDs.forEach(id => {
                 let el = document.getElementById(id);
                 if (el) el.innerText = trace_x_pivot !== null ? trace_x_pivot.toFixed(2) + ' ppm' : 'not set';
@@ -3768,12 +3769,16 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
                 if (valSpan) valSpan.innerText = trace_x_ph0.toFixed(1);
                 let valProjSpan = document.getElementById('trace_proj_x_ph0_val');
                 if (valProjSpan) valProjSpan.innerText = trace_x_ph0.toFixed(1);
+                let valProjYSpan = document.getElementById('trace_proj_y_x_ph0_val');
+                if (valProjYSpan) valProjYSpan.innerText = trace_x_ph0.toFixed(1);
             } else {
                 trace_x_ph1 += direction * step;
                 let valSpan = document.getElementById('trace_x_ph1_val');
                 if (valSpan) valSpan.innerText = trace_x_ph1.toFixed(1);
                 let valProjSpan = document.getElementById('trace_proj_x_ph1_val');
                 if (valProjSpan) valProjSpan.innerText = trace_x_ph1.toFixed(1);
+                let valProjYSpan = document.getElementById('trace_proj_y_x_ph1_val');
+                if (valProjYSpan) valProjYSpan.innerText = trace_x_ph1.toFixed(1);
             }
             update_1d_traces_from_center();
         });
@@ -6075,7 +6080,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 update_1d_traces_from_center();
             }
         });
-        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
             const el = document.getElementById(id);
             if (el && el.parentElement) {
                 ro.observe(el.parentElement);
@@ -6195,7 +6200,7 @@ function setup_2d_plot_resizing() {
             update_1d_traces_from_center();
         }
     });
-    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg'].forEach(id => {
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentElement) {
             ro_1d.observe(el.parentElement);
