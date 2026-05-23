@@ -102,8 +102,9 @@
  * Y axis as indirect 1, F3 dimension,
  * Z axis as indirect 2, F1 dimension
  * All the variable names and comments are based on this definition.
+ * In spectral data, X is the most inner dimension, Y is intermediate dimension and Z is most out dimension.
  * 
- * However, in the UI, we display X as z, Y as x, Z as y for plot labels, titles, and sliders, etc.
+ * In the UI, we keep X as most inner dimension (displayed as x), Y as intermediate dimension (displayed as y), and Z as outer dimension (displayed as z).
  */
 
 
@@ -208,7 +209,7 @@ var last_fid_extract_ppm_range = null;
 /**
  * Capture nuclear names from worker logs for axis labeling
  * Internal Mapping: F2 -> x (Direct), F3 -> y (Indirect 1), F1 -> z (Indirect 2/Planes)
- * UI Display Names: F2 as z, F3 as x, F1 as y
+ * UI Display Names: F2 as x, F3 as y, F1 as z
  */
 window.last_fid_nuclei = { x: '', y: '', z: '' };
 
@@ -585,30 +586,30 @@ function update_all_plot_axis_labels() {
         return nuc ? `${prefix}${nuc} (ppm)` : `${prefix}Chemical Shift (ppm)`;
     };
 
-    // Update XY Plot (Main) -> now zy Plane
+    // Update XY Plot (Main) -> now xy Plane
     if (main_plot) {
-        main_plot.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
+        main_plot.set_labels(getLabel(nx, "x"), getLabel(ny, "y"));
     }
 
-    // Update XZ Plot -> now zx Plane
+    // Update XZ Plot -> now xz Plane
     if (main_plot_xz) {
-        main_plot_xz.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
+        main_plot_xz.set_labels(getLabel(nx, "x"), getLabel(nz, "z"));
     }
 
-    // Update YZ Plot -> now xy Plane
+    // Update YZ Plot -> now zy Plane
     if (main_plot_yz) {
-        main_plot_yz.set_labels(getLabel(nz, "x"), getLabel(ny, "y"));
+        main_plot_yz.set_labels(getLabel(nz, "z"), getLabel(ny, "y"));
     }
 
     // Update Projections
     if (main_plot_proj) {
-        main_plot_proj.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
+        main_plot_proj.set_labels(getLabel(nx, "x"), getLabel(ny, "y"));
     }
     if (main_plot_proj_y) {
-        main_plot_proj_y.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
+        main_plot_proj_y.set_labels(getLabel(nx, "x"), getLabel(nz, "z"));
     }
     if (main_plot_proj_x) {
-        main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "x"));
+        main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "z"));
     }
 
     // Update 1D trace labels based on the newly updated axes
@@ -873,123 +874,123 @@ async function load_theoretical_peaks() {
     set_loading_buttons_state(true);
     try {
         let file = fileInput.files[0];
-    let text = await file.text();
-    let lines = text.split('\n');
+        let text = await file.text();
+        let lines = text.split('\n');
 
-    let peaks = [];
-    let header_map = null;
-    partition_bounds_data = null; // Reset bounds
+        let peaks = [];
+        let header_map = null;
+        partition_bounds_data = null; // Reset bounds
 
-    // Parse file.
-    for (let line of lines) {
-        line = line.trim();
+        // Parse file.
+        for (let line of lines) {
+            line = line.trim();
 
-        if (line.startsWith("# Partition Bounds")) {
-            let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
-            if (match) {
-                partition_bounds_data = {
-                    x: [parseInt(match[1], 10), parseInt(match[2], 10)],
-                    y: [parseInt(match[3], 10), parseInt(match[4], 10)],
-                    z: [parseInt(match[5], 10), parseInt(match[6], 10)]
-                };
-                console.log("Parsed partition bounds:", partition_bounds_data);
+            if (line.startsWith("# Partition Bounds")) {
+                let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
+                if (match) {
+                    partition_bounds_data = {
+                        x: [parseInt(match[1], 10), parseInt(match[2], 10)],
+                        y: [parseInt(match[3], 10), parseInt(match[4], 10)],
+                        z: [parseInt(match[5], 10), parseInt(match[6], 10)]
+                    };
+                    console.log("Parsed partition bounds:", partition_bounds_data);
+                }
             }
-        }
 
-        if (!line || line.startsWith("#")) continue;
+            if (!line || line.startsWith("#")) continue;
 
-        let parts = line.split(/\s+/);
+            let parts = line.split(/\s+/);
 
-        // Check for header line
-        if (!header_map && parts.includes("Amplitude") && parts.includes("X_Center")) {
-            header_map = {};
-            parts.forEach((col, idx) => {
-                header_map[col] = idx;
-            });
-            continue;
-        }
+            // Check for header line
+            if (!header_map && parts.includes("Amplitude") && parts.includes("X_Center")) {
+                header_map = {};
+                parts.forEach((col, idx) => {
+                    header_map[col] = idx;
+                });
+                continue;
+            }
 
-        // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
-        if (line.startsWith("=") || line.startsWith("-")) continue;
-        // Skip explicitly known header starts if we are in legacy mode check or if they are redundant
-        if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
+            // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
+            if (line.startsWith("=") || line.startsWith("-")) continue;
+            // Skip explicitly known header starts if we are in legacy mode check or if they are redundant
+            if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
 
-        if (header_map) {
-            // Dynamic parsing based on header
-            let get_val = (key, default_val = 0.0) => {
-                let idx = header_map[key];
-                if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
-                return default_val;
-            };
+            if (header_map) {
+                // Dynamic parsing based on header
+                let get_val = (key, default_val = 0.0) => {
+                    let idx = header_map[key];
+                    if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
+                    return default_val;
+                };
 
-            // Basic validation: Amplitude must be a number
-            let amp = get_val("Amplitude");
-            if (isNaN(amp)) continue;
-
-            peaks.push({
-                amp: amp,
-                x: get_val("X_Center"),
-                y: get_val("Y_Center"),
-                z: get_val("Z_Center"),
-                x_ppm: get_val("X_Center_ppm", undefined),
-                y_ppm: get_val("Y_Center_ppm", undefined),
-                z_ppm: get_val("Z_Center_ppm", undefined),
-                fwhh_x: get_val("X_FWHH"),
-                fwhh_y: get_val("Y_FWHH"),
-                fwhh_z: get_val("Z_FWHH"),
-                lx: get_val("Lx"),
-                ly: get_val("Ly"),
-                lz: get_val("Lz")
-            });
-        } else {
-            // Legacy format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
-            // 11 columns expected.
-            if (parts.length >= 11) {
-                // Ensure it's data by checking if ID (0) or Amp (1) is a number
-                if (isNaN(parseFloat(parts[1]))) continue;
+                // Basic validation: Amplitude must be a number
+                let amp = get_val("Amplitude");
+                if (isNaN(amp)) continue;
 
                 peaks.push({
-                    amp: parseFloat(parts[1]),
-                    x: parseFloat(parts[2]),
-                    y: parseFloat(parts[3]),
-                    z: parseFloat(parts[4]),
-                    x_ppm: undefined,
-                    y_ppm: undefined,
-                    z_ppm: undefined,
-                    fwhh_x: parseFloat(parts[5]),
-                    fwhh_y: parseFloat(parts[6]),
-                    fwhh_z: parseFloat(parts[7]),
-                    lx: parseFloat(parts[8]),
-                    ly: parseFloat(parts[9]),
-                    lz: parseFloat(parts[10])
+                    amp: amp,
+                    x: get_val("X_Center"),
+                    y: get_val("Y_Center"),
+                    z: get_val("Z_Center"),
+                    x_ppm: get_val("X_Center_ppm", undefined),
+                    y_ppm: get_val("Y_Center_ppm", undefined),
+                    z_ppm: get_val("Z_Center_ppm", undefined),
+                    fwhh_x: get_val("X_FWHH"),
+                    fwhh_y: get_val("Y_FWHH"),
+                    fwhh_z: get_val("Z_FWHH"),
+                    lx: get_val("Lx"),
+                    ly: get_val("Ly"),
+                    lz: get_val("Lz")
                 });
+            } else {
+                // Legacy format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
+                // 11 columns expected.
+                if (parts.length >= 11) {
+                    // Ensure it's data by checking if ID (0) or Amp (1) is a number
+                    if (isNaN(parseFloat(parts[1]))) continue;
+
+                    peaks.push({
+                        amp: parseFloat(parts[1]),
+                        x: parseFloat(parts[2]),
+                        y: parseFloat(parts[3]),
+                        z: parseFloat(parts[4]),
+                        x_ppm: undefined,
+                        y_ppm: undefined,
+                        z_ppm: undefined,
+                        fwhh_x: parseFloat(parts[5]),
+                        fwhh_y: parseFloat(parts[6]),
+                        fwhh_z: parseFloat(parts[7]),
+                        lx: parseFloat(parts[8]),
+                        ly: parseFloat(parts[9]),
+                        lz: parseFloat(parts[10])
+                    });
+                }
             }
         }
-    }
 
-    if (peaks.length === 0) {
-        alert("No valid peaks found in file.");
-        return;
-    }
+        if (peaks.length === 0) {
+            alert("No valid peaks found in file.");
+            return;
+        }
 
-    console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
-    theoretical_peaks_data = peaks;
-    generate_theoretical_volume(peaks);
-    generate_projection_spectrum();
+        console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
+        theoretical_peaks_data = peaks;
+        generate_theoretical_volume(peaks);
+        generate_projection_spectrum();
 
-    // Refresh views to show overlay
-    if (current_slice_index >= 0) {
-        draw_slice(current_slice_index);
-        refresh_xz_view();
-        refresh_yz_view();
-        update_3d_crosshairs();
-    }
+        // Refresh views to show overlay
+        if (current_slice_index >= 0) {
+            draw_slice(current_slice_index);
+            refresh_xz_view();
+            refresh_yz_view();
+            update_3d_crosshairs();
+        }
 
-    // Refresh the 3D viewer to show the new peak spheres
-    update_3d_view();
+        // Refresh the 3D viewer to show the new peak spheres
+        update_3d_view();
 
-    // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
-    fileInput.value = '';
+        // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
+        fileInput.value = '';
     } finally {
         set_loading_buttons_state(false);
     }
@@ -1503,138 +1504,138 @@ async function load_ft3_file() {
     set_loading_buttons_state(true);
     try {
         let file = files[0];
-    document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
+        document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
 
-    // Reset state
-    reset_3d_dataset_state();
+        // Reset state
+        reset_3d_dataset_state();
 
-    let headerBlob = file.slice(0, 2048);
-    let headerBuffer;
-    try {
-        headerBuffer = await read_file_as_buffer(headerBlob);
-    } catch (err) {
-        console.error("Error reading file header " + file.name, err);
-        return;
-    }
-
-    if (headerBuffer.byteLength < 2048) {
-        alert("File is too small to be a valid .ft3 file.");
-        return;
-    }
-
-    // Parse header to understand plane sizes
-    let header = new Float32Array(headerBuffer, 0, 512);
-    let n_direct = header[99];
-    let n_indirect = header[219];
-    let data_types = [header[55], header[56], header[51], header[54]];
-    let dimorder1 = header[24];
-    let dimorder2 = header[25];
-    let datatype_direct = data_types[dimorder1 - 1];
-    let datatype_indirect = data_types[dimorder2 - 1];
-
-    let parts = 1;
-    if (datatype_direct === 0) parts++;
-    if (datatype_indirect === 0) parts++;
-    if (datatype_direct === 0 && datatype_indirect === 0) parts++;
-
-    let n_indirect_loops = n_indirect;
-    if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
-
-    let plane_float_count = n_indirect_loops * n_direct * parts;
-    let plane_byte_size = plane_float_count * 4;
-
-    if (plane_byte_size <= 0) {
-        alert("Could not derive plane size from .ft3 header.");
-        return;
-    }
-
-    let total_data_bytes = file.size - 2048;
-
-    // Prefer header-declared plane count when valid; fall back to payload-derived count.
-    let header_plane_count = Math.round(header[15]); // FDF3SIZE
-    let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
-        ? header_plane_count
-        : Math.floor(total_data_bytes / plane_byte_size);
-
-    if (!Number.isFinite(num_planes) || num_planes <= 0) {
-        alert("Could not determine the number of planes from .ft3 file.");
-        return;
-    }
-
-    // Some generated .ft3 files include an extra 2048-byte block before the first plane payload.
-    // If detected, shift the data start so plane 0 maps to the real first XY slice.
-    let data_start_offset = 2048;
-    let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
-    if (residual_bytes === 2048) {
-        data_start_offset += 2048;
-        console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
-    }
-
-    document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
-
-    let headerUint8 = new Uint8Array(headerBuffer);
-
-    for (let i = 0; i < num_planes; i++) {
+        let headerBlob = file.slice(0, 2048);
+        let headerBuffer;
         try {
-            let start_offset = data_start_offset + i * plane_byte_size;
-            let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
-            let planeDataBuffer = await read_file_as_buffer(planeBlob);
-
-            if (planeDataBuffer.byteLength < plane_byte_size) {
-                console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
-                continue;
-            }
-
-            let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
-            let dst = new Uint8Array(plane_buffer);
-
-            // Header
-            dst.set(headerUint8, 0);
-
-            // Data
-            dst.set(new Uint8Array(planeDataBuffer), 2048);
-
-            let s = new spectrum();
-            let plane_name = "plane_" + String(i + 1).padStart(3, '0');
-            s.process_ft_file(plane_buffer, plane_name, -1);
-
-            s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = "#ff0000";
-            s.visible = true;
-
-            spectra_3d.push(s);
+            headerBuffer = await read_file_as_buffer(headerBlob);
         } catch (err) {
-            console.error("Error creating plane " + i, err);
+            console.error("Error reading file header " + file.name, err);
+            return;
         }
-    }
 
-    if (spectra_3d.length > 0) {
-        let slider = document.getElementById('slice_slider');
-        slider.max = spectra_3d.length - 1;
-        slider.value = 0;
-        document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
-        document.getElementById('main_plot_area').style.display = 'flex';
-
-        // Clear projection state for new dataset
-        spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
-        main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
-
-        // Initialize the main plot now that we have data dimensions from the first slice
-        init_main_plot(spectra_3d[0]);
-
-        // Draw first slice
-        draw_slice(0);
-        update_global_noise_level();
-
-        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-            run_auto_phase_on_loaded_spectrum();
+        if (headerBuffer.byteLength < 2048) {
+            alert("File is too small to be a valid .ft3 file.");
+            return;
         }
-    }
 
-    document.getElementById("webassembly_message").innerText = "";
+        // Parse header to understand plane sizes
+        let header = new Float32Array(headerBuffer, 0, 512);
+        let n_direct = header[99];
+        let n_indirect = header[219];
+        let data_types = [header[55], header[56], header[51], header[54]];
+        let dimorder1 = header[24];
+        let dimorder2 = header[25];
+        let datatype_direct = data_types[dimorder1 - 1];
+        let datatype_indirect = data_types[dimorder2 - 1];
+
+        let parts = 1;
+        if (datatype_direct === 0) parts++;
+        if (datatype_indirect === 0) parts++;
+        if (datatype_direct === 0 && datatype_indirect === 0) parts++;
+
+        let n_indirect_loops = n_indirect;
+        if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
+
+        let plane_float_count = n_indirect_loops * n_direct * parts;
+        let plane_byte_size = plane_float_count * 4;
+
+        if (plane_byte_size <= 0) {
+            alert("Could not derive plane size from .ft3 header.");
+            return;
+        }
+
+        let total_data_bytes = file.size - 2048;
+
+        // Prefer header-declared plane count when valid; fall back to payload-derived count.
+        let header_plane_count = Math.round(header[15]); // FDF3SIZE
+        let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
+            ? header_plane_count
+            : Math.floor(total_data_bytes / plane_byte_size);
+
+        if (!Number.isFinite(num_planes) || num_planes <= 0) {
+            alert("Could not determine the number of planes from .ft3 file.");
+            return;
+        }
+
+        // Some generated .ft3 files include an extra 2048-byte block before the first plane payload.
+        // If detected, shift the data start so plane 0 maps to the real first XY slice.
+        let data_start_offset = 2048;
+        let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
+        if (residual_bytes === 2048) {
+            data_start_offset += 2048;
+            console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
+        }
+
+        document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
+
+        let headerUint8 = new Uint8Array(headerBuffer);
+
+        for (let i = 0; i < num_planes; i++) {
+            try {
+                let start_offset = data_start_offset + i * plane_byte_size;
+                let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
+                let planeDataBuffer = await read_file_as_buffer(planeBlob);
+
+                if (planeDataBuffer.byteLength < plane_byte_size) {
+                    console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
+                    continue;
+                }
+
+                let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+                let dst = new Uint8Array(plane_buffer);
+
+                // Header
+                dst.set(headerUint8, 0);
+
+                // Data
+                dst.set(new Uint8Array(planeDataBuffer), 2048);
+
+                let s = new spectrum();
+                let plane_name = "plane_" + String(i + 1).padStart(3, '0');
+                s.process_ft_file(plane_buffer, plane_name, -1);
+
+                s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+                s.spectrum_color = "#0000ff";
+                s.spectrum_color_negative = "#ff0000";
+                s.visible = true;
+
+                spectra_3d.push(s);
+            } catch (err) {
+                console.error("Error creating plane " + i, err);
+            }
+        }
+
+        if (spectra_3d.length > 0) {
+            let slider = document.getElementById('slice_slider');
+            slider.max = spectra_3d.length - 1;
+            slider.value = 0;
+            document.getElementById('slice_control_area').style.display = 'block';
+            document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
+            document.getElementById('main_plot_area').style.display = 'flex';
+
+            // Clear projection state for new dataset
+            spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
+            main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
+
+            // Initialize the main plot now that we have data dimensions from the first slice
+            init_main_plot(spectra_3d[0]);
+
+            // Draw first slice
+            draw_slice(0);
+            update_global_noise_level();
+
+            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+                run_auto_phase_on_loaded_spectrum();
+            }
+        }
+
+        document.getElementById("webassembly_message").innerText = "";
     } finally {
         set_loading_buttons_state(false);
     }
@@ -1654,131 +1655,131 @@ async function load_raw_3d_file() {
     set_loading_buttons_state(true);
     try {
         let file = fileInput.files[0];
-    document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
+        document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
 
-    // Reset state
-    reset_3d_dataset_state();
+        // Reset state
+        reset_3d_dataset_state();
 
-    let buffer = await read_file_as_buffer(file);
-    let floatData = new Float32Array(buffer);
+        let buffer = await read_file_as_buffer(file);
+        let floatData = new Float32Array(buffer);
 
-    if (floatData.length < 3) {
-        alert("File is too small to be a valid raw 3D file.");
-        return;
-    }
-
-    // Parse header
-    let n_direct = Math.round(floatData[0]);
-    let n_indirect1 = Math.round(floatData[1]);
-    let n_indirect2 = Math.round(floatData[2]);
-
-    console.log(`Raw 3D dimensions: ${n_direct} x ${n_indirect1} x ${n_indirect2}`);
-
-    // Payload starts after the 3-value header
-    let payload = floatData.subarray(3);
-
-    // Figure out if we have imaginary data (along direct dimension) by checking file size
-    let n_total_real = n_indirect2 * n_indirect1 * n_direct;
-    let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
-
-    let has_imaginary = (payload.length >= n_total_real_imag);
-    let stride = has_imaginary ? 2 * n_direct : n_direct;
-
-    console.log(`Payload length: ${payload.length}. Has imaginary: ${has_imaginary}`);
-
-    for (let p = 0; p < n_indirect2; p++) {
-        try {
-            let s = new spectrum();
-            s.n_direct = n_direct;
-            s.n_indirect = n_indirect1;
-            s.filename = `plane_${String(p).padStart(3, '0')}`;
-
-            // Extract data for this plane
-            // Payload layout: Plane-major, then Trace-major. 
-            // Each trace: n_direct real values, followed by n_direct imaginary values (if present).
-            let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
-            let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
-            let plane_offset = p * n_indirect1 * stride;
-
-            for (let t = 0; t < n_indirect1; t++) {
-                let trace_offset = plane_offset + t * stride;
-                if (trace_offset + n_direct <= payload.length) {
-                    let real_block = payload.subarray(trace_offset, trace_offset + n_direct);
-                    plane_raw_data.set(real_block, t * n_direct);
-                }
-                if (has_imaginary && (trace_offset + 2 * n_direct <= payload.length)) {
-                    let imag_block = payload.subarray(trace_offset + n_direct, trace_offset + 2 * n_direct);
-                    plane_raw_data_ri.set(imag_block, t * n_direct);
-                }
-            }
-
-            s.raw_data = plane_raw_data;
-            if (has_imaginary) {
-                s.raw_data_ri = plane_raw_data_ri;
-            }
-
-            // Use indices as PPM values
-            s.x_ppm_start = 0;
-            s.x_ppm_step = 1;
-            s.y_ppm_start = 0;
-            s.y_ppm_step = 1;
-            s.z_ppm_start = 0;
-            s.z_ppm_step = 1;
-
-            // Fill placeholder header values
-            s.header = new Float32Array(512);
-            s.header[99] = n_direct;   // FDSIZE
-            s.header[219] = n_indirect1; // FDSPECNUM
-            s.header[15] = n_indirect2; // FDF3SIZE
-
-            // Set data type: 0 for complex, 1 for real
-            // header[56] is FDF2QUADFLAG (direct dimension)
-            // header[55] is FDF1QUADFLAG (indirect dimension)
-            s.header[56] = has_imaginary ? 0 : 1;
-            s.header[55] = 1; // Assume real for indirect for now in raw format
-
-            // Dimension orders
-            s.header[24] = 2; // direct
-            s.header[25] = 1; // indirect 1
-            s.header[26] = 3; // indirect 2
-
-            // Common spectrum processing (noise estimation, max/min, projections)
-            s.process_spectrum_common_task();
-
-            // Set visual defaults
-            s.levels = calculate_levels(s.noise_level, 1.4, 30);
-            s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = "#ff0000";
-            s.visible = true;
-
-            spectra_3d.push(s);
-        } catch (err) {
-            console.error("Error processing raw plane " + p, err);
+        if (floatData.length < 3) {
+            alert("File is too small to be a valid raw 3D file.");
+            return;
         }
-    }
 
-    if (spectra_3d.length > 0) {
-        let slider = document.getElementById('slice_slider');
-        slider.max = spectra_3d.length - 1;
-        slider.value = 0;
-        document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('aux_buttons').style.display = 'block';
-        document.getElementById('main_plot_area').style.display = 'flex';
+        // Parse header
+        let n_direct = Math.round(floatData[0]);
+        let n_indirect1 = Math.round(floatData[1]);
+        let n_indirect2 = Math.round(floatData[2]);
 
-        // Initialize the main plot with dimensions from the first slice
-        init_main_plot(spectra_3d[0]);
+        console.log(`Raw 3D dimensions: ${n_direct} x ${n_indirect1} x ${n_indirect2}`);
 
-        // Draw first slice
-        draw_slice(0);
-        update_global_noise_level();
+        // Payload starts after the 3-value header
+        let payload = floatData.subarray(3);
 
-        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-            run_auto_phase_on_loaded_spectrum();
+        // Figure out if we have imaginary data (along direct dimension) by checking file size
+        let n_total_real = n_indirect2 * n_indirect1 * n_direct;
+        let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
+
+        let has_imaginary = (payload.length >= n_total_real_imag);
+        let stride = has_imaginary ? 2 * n_direct : n_direct;
+
+        console.log(`Payload length: ${payload.length}. Has imaginary: ${has_imaginary}`);
+
+        for (let p = 0; p < n_indirect2; p++) {
+            try {
+                let s = new spectrum();
+                s.n_direct = n_direct;
+                s.n_indirect = n_indirect1;
+                s.filename = `plane_${String(p).padStart(3, '0')}`;
+
+                // Extract data for this plane
+                // Payload layout: Plane-major, then Trace-major. 
+                // Each trace: n_direct real values, followed by n_direct imaginary values (if present).
+                let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
+                let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
+                let plane_offset = p * n_indirect1 * stride;
+
+                for (let t = 0; t < n_indirect1; t++) {
+                    let trace_offset = plane_offset + t * stride;
+                    if (trace_offset + n_direct <= payload.length) {
+                        let real_block = payload.subarray(trace_offset, trace_offset + n_direct);
+                        plane_raw_data.set(real_block, t * n_direct);
+                    }
+                    if (has_imaginary && (trace_offset + 2 * n_direct <= payload.length)) {
+                        let imag_block = payload.subarray(trace_offset + n_direct, trace_offset + 2 * n_direct);
+                        plane_raw_data_ri.set(imag_block, t * n_direct);
+                    }
+                }
+
+                s.raw_data = plane_raw_data;
+                if (has_imaginary) {
+                    s.raw_data_ri = plane_raw_data_ri;
+                }
+
+                // Use indices as PPM values
+                s.x_ppm_start = 0;
+                s.x_ppm_step = 1;
+                s.y_ppm_start = 0;
+                s.y_ppm_step = 1;
+                s.z_ppm_start = 0;
+                s.z_ppm_step = 1;
+
+                // Fill placeholder header values
+                s.header = new Float32Array(512);
+                s.header[99] = n_direct;   // FDSIZE
+                s.header[219] = n_indirect1; // FDSPECNUM
+                s.header[15] = n_indirect2; // FDF3SIZE
+
+                // Set data type: 0 for complex, 1 for real
+                // header[56] is FDF2QUADFLAG (direct dimension)
+                // header[55] is FDF1QUADFLAG (indirect dimension)
+                s.header[56] = has_imaginary ? 0 : 1;
+                s.header[55] = 1; // Assume real for indirect for now in raw format
+
+                // Dimension orders
+                s.header[24] = 2; // direct
+                s.header[25] = 1; // indirect 1
+                s.header[26] = 3; // indirect 2
+
+                // Common spectrum processing (noise estimation, max/min, projections)
+                s.process_spectrum_common_task();
+
+                // Set visual defaults
+                s.levels = calculate_levels(s.noise_level, 1.4, 30);
+                s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
+                s.spectrum_color = "#0000ff";
+                s.spectrum_color_negative = "#ff0000";
+                s.visible = true;
+
+                spectra_3d.push(s);
+            } catch (err) {
+                console.error("Error processing raw plane " + p, err);
+            }
         }
-    }
 
-    document.getElementById("webassembly_message").innerText = "";
+        if (spectra_3d.length > 0) {
+            let slider = document.getElementById('slice_slider');
+            slider.max = spectra_3d.length - 1;
+            slider.value = 0;
+            document.getElementById('slice_control_area').style.display = 'block';
+            document.getElementById('aux_buttons').style.display = 'block';
+            document.getElementById('main_plot_area').style.display = 'flex';
+
+            // Initialize the main plot with dimensions from the first slice
+            init_main_plot(spectra_3d[0]);
+
+            // Draw first slice
+            draw_slice(0);
+            update_global_noise_level();
+
+            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+                run_auto_phase_on_loaded_spectrum();
+            }
+        }
+
+        document.getElementById("webassembly_message").innerText = "";
     } finally {
         set_loading_buttons_state(false);
     }
@@ -1801,58 +1802,58 @@ async function load_files() {
     try {
         document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
 
-    // Reset state
-    reset_3d_dataset_state();
+        // Reset state
+        reset_3d_dataset_state();
 
-    // Sort files alphabetically by name to ensure correct Z ordering
-    files.sort((a, b) => a.name.localeCompare(b.name));
+        // Sort files alphabetically by name to ensure correct Z ordering
+        files.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Process each file
-    for (let i = 0; i < files.length; i++) {
-        let file = files[i];
-        try {
-            let buffer = await read_file_as_buffer(file);
-            let s = new spectrum();
-            // process_ft_file(buffer, filename, origin)
-            // origin usually -1 for experimental. We use i to track it temporarily or just arbitrary ID.
-            s.process_ft_file(buffer, file.name, -1);
+        // Process each file
+        for (let i = 0; i < files.length; i++) {
+            let file = files[i];
+            try {
+                let buffer = await read_file_as_buffer(file);
+                let s = new spectrum();
+                // process_ft_file(buffer, filename, origin)
+                // origin usually -1 for experimental. We use i to track it temporarily or just arbitrary ID.
+                s.process_ft_file(buffer, file.name, -1);
 
-            // Set some defaults
-            s.levels = calculate_levels(s.noise_level, 1.5, 30);
-            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-            s.spectrum_color = "#0000ff";
-            s.spectrum_color_negative = "#ff0000";
-            s.visible = true;
+                // Set some defaults
+                s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+                s.spectrum_color = "#0000ff";
+                s.spectrum_color_negative = "#ff0000";
+                s.visible = true;
 
-            spectra_3d.push(s);
-        } catch (err) {
-            console.error("Error reading file " + file.name, err);
+                spectra_3d.push(s);
+            } catch (err) {
+                console.error("Error reading file " + file.name, err);
+            }
         }
-    }
 
-    if (spectra_3d.length > 0) {
-        // Setup slider
-        let slider = document.getElementById('slice_slider');
-        slider.max = spectra_3d.length - 1;
-        slider.value = 0;
-        document.getElementById('slice_control_area').style.display = 'block';
-        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
-        document.getElementById('main_plot_area').style.display = 'flex';
+        if (spectra_3d.length > 0) {
+            // Setup slider
+            let slider = document.getElementById('slice_slider');
+            slider.max = spectra_3d.length - 1;
+            slider.value = 0;
+            document.getElementById('slice_control_area').style.display = 'block';
+            document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
+            document.getElementById('main_plot_area').style.display = 'flex';
 
-        // Initialize the main plot now that we have data dimensions from the first slice
-        init_main_plot(spectra_3d[0]);
+            // Initialize the main plot now that we have data dimensions from the first slice
+            init_main_plot(spectra_3d[0]);
 
-        // Draw first slice
-        draw_slice(0);
-        update_global_noise_level();
+            // Draw first slice
+            draw_slice(0);
+            update_global_noise_level();
 
-        // Trigger auto-phase if requested
-        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-            run_auto_phase_on_loaded_spectrum();
+            // Trigger auto-phase if requested
+            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+                run_auto_phase_on_loaded_spectrum();
+            }
         }
-    }
 
-    document.getElementById("webassembly_message").innerText = "";
+        document.getElementById("webassembly_message").innerText = "";
     } finally {
         set_loading_buttons_state(false);
     }
@@ -3754,7 +3755,7 @@ function update_1d_traces_from_center() {
     render_trace_3d('trace_y_svg', traceY, domainY, '#2ca02c');
     render_trace_3d('trace_x_svg', traceX, domainX, '#d62728');
 
-    // Get dynamic labels for axes using window.last_fid_nuclei (x -> z, y -> y, z -> x)
+    // Get dynamic labels for axes using window.last_fid_nuclei
     const nx = window.last_fid_nuclei.x;
     const ny = window.last_fid_nuclei.y;
     const nz = window.last_fid_nuclei.z;
@@ -3763,16 +3764,16 @@ function update_1d_traces_from_center() {
         return nuc ? `${axis} (${nuc})` : axis;
     };
 
-    const labelZ = getAxisName("z", nx); // direct dim, internal x
+    const labelX = getAxisName("x", nx); // direct dim, internal x
     const labelY = getAxisName("y", ny); // indirect 1, internal y
-    const labelX = getAxisName("x", nz); // indirect 2, internal z
+    const labelZ = getAxisName("z", nz); // indirect 2, internal z
 
-    // Update Trace Z label (internal z -> UI x)
+    // Update Trace Z label (internal z -> UI z)
     const labelZ_elem = document.getElementById('trace_z_label');
     if (labelZ_elem) {
         const span = labelZ_elem.querySelector('span');
         if (span) {
-            span.innerText = `1D Trace Along ${labelX} (at ${labelZ}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm)`;
+            span.innerText = `1D Trace Along ${labelZ} (at ${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm)`;
         }
     }
 
@@ -3781,16 +3782,16 @@ function update_1d_traces_from_center() {
     if (labelY_elem) {
         const span = labelY_elem.querySelector('span');
         if (span) {
-            span.innerText = `1D Trace Along ${labelY} (at ${labelZ}=${center.ppm_x.toFixed(3)} ppm, ${labelX}=${center.ppm_z.toFixed(3)} ppm)`;
+            span.innerText = `1D Trace Along ${labelY} (at ${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
         }
     }
 
-    // Update Trace X label (internal x -> UI z)
+    // Update Trace X label (internal x -> UI x)
     const labelX_elem = document.getElementById('trace_x_label');
     if (labelX_elem) {
         const span = labelX_elem.querySelector('span');
         if (span) {
-            span.innerText = `1D Trace Along ${labelZ} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelX}=${center.ppm_z.toFixed(3)} ppm)`;
+            span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
         }
     }
 
@@ -3844,7 +3845,7 @@ function update_1d_traces_from_center() {
             const span = label.querySelector('span');
             if (span) {
                 const ppm_str = target_y_ppm.toFixed(3);
-                span.innerText = `1D Trace Along ${labelZ} (at ${labelY}=${ppm_str} ppm)`;
+                span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${ppm_str} ppm)`;
             }
         }
     }
@@ -3896,7 +3897,7 @@ function update_1d_traces_from_center() {
         if (label) {
             const span = label.querySelector('span');
             if (span) {
-                span.innerText = `1D Trace Along ${labelZ} (at ${labelX}=${target_z_ppm.toFixed(3)} ppm)`;
+                span.innerText = `1D Trace Along ${labelX} (at ${labelZ}=${target_z_ppm.toFixed(3)} ppm)`;
             }
         }
     }
@@ -3931,7 +3932,7 @@ function update_1d_traces_from_center() {
         if (label) {
             const span = label.querySelector('span');
             if (span) {
-                span.innerText = `1D Trace Along ${labelY} (at ${labelX}=${target_y_ppm.toFixed(3)} ppm)`;
+                span.innerText = `1D Trace Along ${labelY} (at ${labelZ}=${target_y_ppm.toFixed(3)} ppm)`;
             }
         }
     }
@@ -5666,9 +5667,9 @@ async function handle_webass_3d_message(e) {
                         const phaseTextToUse = `${local_p0} ${local_p1} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
 
                         append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
-                        
+
                         document.getElementById("webassembly_message").innerText = "Running final baseline correction and phase application in C++...";
-                        
+
                         // Disable auto phase in config so it isn't run on final response
                         current_fid_config.normalDirectDimAutoPhase = false;
 
@@ -6033,7 +6034,7 @@ window.addEventListener('DOMContentLoaded', () => {
         });
 
         // Handle grey out for "show spectrum with artifact" based on auto phase correction
-        autoDirectNormal.addEventListener('change', function() {
+        autoDirectNormal.addEventListener('change', function () {
             const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
             const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
             if (artifactCheckbox && artifactLabel) {
@@ -6047,7 +6048,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-        
+
         // Trigger initial state
         autoDirectNormal.dispatchEvent(new Event('change'));
     }
