@@ -221,6 +221,25 @@ function evaluate_global_noise_redefinition() {
     }
 }
 
+function adjust_proj_noise(spec, display_id) {
+    if (!spec || !spec.raw_data) return;
+    let [p_max, p_min] = mathTool.find_max_min(spec.raw_data);
+    let max_val = Math.max(p_max, Math.abs(p_min));
+    let display_color = "#555";
+    if (spec.noise_level < 1e-5 * max_val) {
+        spec.noise_level = 5e-4 * max_val;
+        display_color = "red";
+    }
+    let display = document.getElementById(display_id);
+    if (display) {
+        let prefix = "Proj. Noise: ";
+        if (display_id === "proj_y_noise_level_display") prefix = "Proj Y Noise: ";
+        if (display_id === "proj_x_noise_level_display") prefix = "Proj X Noise: ";
+        display.innerText = prefix + spec.noise_level.toExponential(2);
+        display.style.color = display_color;
+    }
+}
+
 
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
@@ -6503,8 +6522,7 @@ function generate_projection_spectrum() {
 
     // Estimate noise level for the projected 2D spectrum separately
     spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    let display = document.getElementById("proj_noise_level_display");
-    if (display) display.innerText = "Proj. Noise: " + spec.noise_level.toExponential(2);
+    adjust_proj_noise(spec, "proj_noise_level_display");
 
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
@@ -6549,8 +6567,7 @@ function generate_projection_spectrum() {
     if (has_ri) specY.raw_data_ri = rawY_ri;
 
     specY.noise_level = mathTool.estimate_noise_level(nx, nz, rawY);
-    let displayY = document.getElementById("proj_y_noise_level_display");
-    if (displayY) displayY.innerText = "Proj Y Noise: " + specY.noise_level.toExponential(2);
+    adjust_proj_noise(specY, "proj_y_noise_level_display");
 
     let multiplierY = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
     let scaleY = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
@@ -6589,8 +6606,7 @@ function generate_projection_spectrum() {
     }
     specX.raw_data = rawX;
     specX.noise_level = mathTool.estimate_noise_level(ny, nz, rawX);
-    let displayX = document.getElementById("proj_x_noise_level_display");
-    if (displayX) displayX.innerText = "Proj X Noise: " + specX.noise_level.toExponential(2);
+    adjust_proj_noise(specX, "proj_x_noise_level_display");
 
     let multiplierX = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
     let scaleX = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
@@ -6711,8 +6727,7 @@ function estimate_proj_noise() {
     let ny = spectrum_proj.n_indirect;
 
     spectrum_proj.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    let display = document.getElementById("proj_noise_level_display");
-    if (display) display.innerText = "Proj. Noise: " + spectrum_proj.noise_level.toExponential(2);
+    adjust_proj_noise(spectrum_proj, "proj_noise_level_display");
 
     update_proj_contour_levels();
 }
@@ -6860,8 +6875,7 @@ function estimate_proj_y_noise() {
     let nz = spectrum_proj_y.n_indirect;
 
     spectrum_proj_y.noise_level = mathTool.estimate_noise_level(nx, nz, raw);
-    let display = document.getElementById("proj_y_noise_level_display");
-    if (display) display.innerText = "Proj Y Noise: " + spectrum_proj_y.noise_level.toExponential(2);
+    adjust_proj_noise(spectrum_proj_y, "proj_y_noise_level_display");
 
     update_proj_y_contour_levels();
 }
@@ -7009,8 +7023,7 @@ function estimate_proj_x_noise() {
     let ny = spectrum_proj_x.n_indirect;
 
     spectrum_proj_x.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    let display = document.getElementById("proj_x_noise_level_display");
-    if (display) display.innerText = "Proj X Noise: " + spectrum_proj_x.noise_level.toExponential(2);
+    adjust_proj_noise(spectrum_proj_x, "proj_x_noise_level_display");
 
     update_proj_x_contour_levels();
 }
