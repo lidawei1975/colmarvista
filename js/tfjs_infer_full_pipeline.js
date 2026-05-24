@@ -1,5 +1,5 @@
 /*
-Browser-first single-file pipeline for model21 tf.js inference.
+Browser-first single-file pipeline for model22 tf.js inference.
 
 This file exposes window.NUS3DPhasePipeline with functions to:
 
@@ -284,7 +284,8 @@ Intended use in webpage:
         const cubes = tf.cast(inputs, "float32");
         const batchSize = tf.shape(cubes)[0];
         const t = tf.shape(cubes)[1];
-        let flat = tf.reshape(cubes, [-1, this.cubeSizeXY, this.cubeSizeXY, this.extWidth, 2]);
+        const channels = cubes.shape[6] || 2;
+        let flat = tf.reshape(cubes, [-1, this.cubeSizeXY, this.cubeSizeXY, this.extWidth, channels]);
         let feat = this.conv1.apply(flat);
         feat = this.pool1.apply(feat);
         feat = this.conv2.apply(feat);
@@ -655,8 +656,9 @@ Intended use in webpage:
    *
    * @param {any} spectraObj - Spectra obj
    * @param {any} cfg - Configuration
+   * @param {number} [numChannels] - Number of channels (1 or 2)
    */
-  function extractTopNCubes(spectraObj, cfg) {
+  function extractTopNCubes(spectraObj, cfg, numChannels) {
     const { spectra, shape } = spectraObj;
     const bsz = shape[0];
     const ni1 = shape[1];
@@ -667,14 +669,15 @@ Intended use in webpage:
     const tokenWidth = cfg.tokenWidth;
     const cubeSizeXY = cfg.cubeSizeXY;
     const directExtend = cfg.directExtend;
+    const channels = numChannels !== undefined ? numChannels : (cfg.channels || 2);
 
     const tTotal = Math.max(Math.floor(nd / tokenWidth), 1);
     const ndUse = tTotal * tokenWidth;
     const extWidth = tokenWidth + 2 * directExtend;
     const half = Math.floor(cubeSizeXY / 2);
 
-    const cubesShape = [bsz, tTotal, topN, cubeSizeXY, cubeSizeXY, extWidth, 2];
-    const cubes = new Float32Array(bsz * tTotal * topN * cubeSizeXY * cubeSizeXY * extWidth * 2);
+    const cubesShape = [bsz, tTotal, topN, cubeSizeXY, cubeSizeXY, extWidth, channels];
+    const cubes = new Float32Array(bsz * tTotal * topN * cubeSizeXY * cubeSizeXY * extWidth * channels);
     const i1Idx = new Int32Array(bsz * tTotal * topN);
     const i2Idx = new Int32Array(bsz * tTotal * topN);
     const cubeScore = new Float32Array(bsz * tTotal * topN);
@@ -775,7 +778,9 @@ Intended use in webpage:
 
                 const outR = cubeIndex(cubesShape, b, t, k, x, y, dz, 0);
                 cubes[outR] = rr;
-                cubes[outR + 1] = ri;
+                if (channels === 2) {
+                  cubes[outR + 1] = ri;
+                }
               }
             }
           }
@@ -783,7 +788,7 @@ Intended use in webpage:
 
         // Per-token normalization (not per-cube)
         const off = tokenOffset(cubesShape, b, t);
-        const strideToken = topN * cubeSizeXY * cubeSizeXY * extWidth * 2;
+        const strideToken = topN * cubeSizeXY * cubeSizeXY * extWidth * channels;
         let maxAbs = 0.0;
         for (let q = 0; q < strideToken; q += 1) {
           const v = Math.abs(cubes[off + q]);
@@ -1020,9 +1025,9 @@ Intended use in webpage:
           tf.slice(cubesTensor, [0, start, 0, 0, 0, 0, 0], [-1, nb, -1, -1, -1, -1, -1])
         );
 
-        // Reshape [B, nb, topN, x, y, extW, 2] -> [B*nb, 1, topN, x, y, extW, 2]
+        // Reshape [B, nb, topN, x, y, extW, ch] -> [B*nb, 1, topN, x, y, extW, ch]
         const reshaped = tf.tidy(() =>
-          tf.reshape(slice, [bsz * nb, 1, topN, cubeXY, cubeXY, extWidth, 2])
+          tf.reshape(slice, [bsz * nb, 1, topN, cubeXY, cubeXY, extWidth, ext.cubesShape[6]])
         );
 
         const raw = model.execute(reshaped);
@@ -1159,7 +1164,21 @@ Intended use in webpage:
       shape: params.shape,
     };
 
-    const ext = extractTopNCubes(spectraObj, cfg);
+    let modelChannels = params.channels;
+    if (modelChannels === undefined && model) {
+      if (model.inputs && model.inputs[0] && model.inputs[0].shape) {
+        const shp = model.inputs[0].shape;
+        const lastDim = shp[shp.length - 1];
+        if (lastDim === 1 || lastDim === 2) {
+          modelChannels = lastDim;
+        }
+      }
+    }
+    if (modelChannels === undefined) {
+      modelChannels = 2; // default fallback
+    }
+
+    const ext = extractTopNCubes(spectraObj, cfg, modelChannels);
     const cubesTensor = tf.tensor(ext.cubes, ext.cubesShape, "float32");
 
     // Model outputs an array: [phase_output, local_preds_output, patch_local_output]
@@ -1281,7 +1300,7 @@ Intended use in webpage:
       spectra: spectraOriginal.spectra,
       shape: spectraOriginal.shape,
     };
-    const ext1 = extractTopNCubes(spectraWorking1, cfg);
+    const ext1 = extractTopNCubes(spectraWorking1, cfg, 2);
 
     // DEBUG: Inspect model architecture before inference
     console.log("[tfjs-debug] === Large Model Architecture ===");
@@ -1331,28 +1350,28 @@ Intended use in webpage:
     const largeOut = await runModelOnCubes(tf, largeModel, ext1, cfg, 'large_model');
     applyLeftRightToSpectra(spectraWorking1, largeOut.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    const ext2 = extractTopNCubes(spectraWorking1, cfg);
+    const ext2 = extractTopNCubes(spectraWorking1, cfg, 1);
 
     // Stage 2: run the normal model, apply its left/right to the full spectrum again
     console.log("[tfjs] Starting Stage 2: Normal Model (Iteration 1)");
     const normalOut1 = await runModelOnCubes(tf, normalModel, ext2, cfg, 'normal_1');
     applyLeftRightToSpectra(spectraWorking1, normalOut1.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    const ext3 = extractTopNCubes(spectraWorking1, cfg);
+    const ext3 = extractTopNCubes(spectraWorking1, cfg, 1);
 
     // Stage 3: run the normal model again
     console.log("[tfjs] Starting Stage 3: Normal Model (Iteration 2)");
     const normalOut2 = await runModelOnCubes(tf, normalModel, ext3, cfg, 'normal_2');
     applyLeftRightToSpectra(spectraWorking1, normalOut2.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    const ext4 = extractTopNCubes(spectraWorking1, cfg);
+    const ext4 = extractTopNCubes(spectraWorking1, cfg, 1);
 
     // Stage 4: run the normal model again
     console.log("[tfjs] Starting Stage 4: Normal Model (Iteration 3)");
     const normalOut3 = await runModelOnCubes(tf, normalModel, ext4, cfg, 'normal_3');
     applyLeftRightToSpectra(spectraWorking1, normalOut3.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    const ext5 = extractTopNCubes(spectraWorking1, cfg);
+    const ext5 = extractTopNCubes(spectraWorking1, cfg, 1);
 
     // Stage 5: run the normal model for the final time
     console.log("[tfjs] Starting Stage 5: Normal Model (Iteration 4)");
