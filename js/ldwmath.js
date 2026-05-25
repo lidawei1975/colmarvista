@@ -13,40 +13,39 @@ class ldwmath {
      * @param {*} lineEnd  array of 2 values
      * @returns null if no intersection, else the intersection point
      */
-    rayIntersectsLine(rayOrigin, rayDirection, lineStart, lineEnd)
-    {
+    rayIntersectsLine(rayOrigin, rayDirection, lineStart, lineEnd) {
 
         // Calculate the direction vector of the line
         const lineDirection = [
-          lineEnd[0] - lineStart[0],
-          lineEnd[1] - lineStart[1]
-    ];
-      
+            lineEnd[0] - lineStart[0],
+            lineEnd[1] - lineStart[1]
+        ];
+
         // Calculate the denominator for the intersection equations
         const denominator = rayDirection[0] * lineDirection[1] - rayDirection[1] * lineDirection[0];
-      
+
         // If the denominator is 0, the ray and line are parallel (or coincident)
         if (denominator === 0) {
-          return null;
+            return null;
         }
-      
+
         // Calculate the t and u parameters for the intersection equations
         const t = ((lineStart[0] - rayOrigin[0]) * lineDirection[1] - (lineStart[1] - rayOrigin[1]) * lineDirection[0]) / denominator;
         const u = ((lineStart[0] - rayOrigin[0]) * rayDirection[1] - (lineStart[1] - rayOrigin[1]) * rayDirection[0]) / denominator;
-      
+
         // Check if the intersection point lies on both the ray and the line segment
         if (t >= 0 && u >= 0 && u <= 1) {
-          // Calculate the intersection point
-          const intersectionPoint = [
-            rayOrigin[0] + t * rayDirection[0],
-            rayOrigin[1] + t * rayDirection[1]
-        ];
-          return intersectionPoint;
+            // Calculate the intersection point
+            const intersectionPoint = [
+                rayOrigin[0] + t * rayDirection[0],
+                rayOrigin[1] + t * rayDirection[1]
+            ];
+            return intersectionPoint;
         }
-      
+
         // No intersection
         return null;
-      }
+    }
 
     /**
      * This function calculate the left,right,top and bottom edges of a polygon and center point (mean of all points)
@@ -91,7 +90,7 @@ class ldwmath {
      * @param {Float32Array} spectrum: the spectrum data in 1D array
      * @returns 
      */
-    estimate_noise_level_1d(x_dim,spectrum){
+    estimate_noise_level_1d(x_dim, spectrum) {
         let n_segment_x = Math.floor(x_dim / 1024);
         let variances = [];      // variance of each segment
         let maximal_values = []; // maximal value of each segment
@@ -136,11 +135,11 @@ class ldwmath {
         let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
         console.log("Noise level is " + noise_level + " using variance estimation.");
 
-         /**
-         * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
-         * Also remove the corresponding variance as well
-         */
-         for (let i = maximal_values.length - 1; i >= 0; i--) {
+        /**
+        * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
+        * Also remove the corresponding variance as well
+        */
+        for (let i = maximal_values.length - 1; i >= 0; i--) {
             if (maximal_values[i] > 10.0 * noise_level) {
                 maximal_values.splice(i, 1);  // Remove the element at index i
                 variances.splice(i, 1);       // Remove corresponding variance
@@ -159,7 +158,131 @@ class ldwmath {
         return noise_level;
     }
 
-    
+
+    /**
+     * Estimate noise level of a spectrum.
+     * Calculate RMSD of each 16*16 segment after subtracting fitted 2D quadratic surface.
+     * @param {*} x_dim: x dimension of the spectrum
+     * @param {*} y_dim: y dimension of the spectrum
+     * @param {Float32Array} spectrum: the spectrum data, row major. y*x_dim + x to access the element at (x,y)
+     * @returns {number} estimated noise level
+     */
+    estimate_noise_level(x_dim, y_dim, spectrum) {
+        let n_segment_x = Math.floor(x_dim / 16);
+        let n_segment_y = Math.floor(y_dim / 16);
+
+        if (n_segment_x === 0 || n_segment_y === 0) {
+            // Fallback: calculate variance of the entire spectrum
+            let mean = 0.0;
+            for (let i = 0; i < spectrum.length; i++) {
+                mean += spectrum[i];
+            }
+            mean /= spectrum.length;
+            let variance = 0.0;
+            for (let i = 0; i < spectrum.length; i++) {
+                variance += (spectrum[i] - mean) * (spectrum[i] - mean);
+            }
+            variance /= spectrum.length;
+            return Math.sqrt(variance);
+        }
+
+        let variances = [];      // variance of each segment
+        let maximal_values = []; // maximal value of each segment
+
+        /**
+         * loop through each segment, and calculate variance after quadratic surface subtraction
+         */
+        for (let i = 0; i < n_segment_x; i++) {
+            for (let j = 0; j < n_segment_y; j++) {
+                let t = [];
+                let points = [];
+
+                for (let m = 0; m < 16; m++) {
+                    for (let n = 0; n < 16; n++) {
+                        const val = spectrum[(j * 16 + m) * x_dim + i * 16 + n];
+                        t.push(val);
+                        points.push({ x: n, y: m, z: val });
+                    }
+                }
+
+                // Run 2nd order polynomial fitting
+                const coeffs = this.fitQuadraticSurface2D(points);
+                let residuals = new Array(t.length);
+
+                if (coeffs) {
+                    const z_fitted = this.evaluateQuadraticSurface2D(points, coeffs);
+                    for (let k = 0; k < t.length; k++) {
+                        residuals[k] = t[k] - z_fitted[k];
+                    }
+                } else {
+                    // Fallback to subtracting the mean if fitting fails
+                    let mean_of_t = 0.0;
+                    for (let k = 0; k < t.length; k++) {
+                        mean_of_t += t[k];
+                    }
+                    mean_of_t /= t.length;
+                    for (let k = 0; k < t.length; k++) {
+                        residuals[k] = t[k] - mean_of_t;
+                    }
+                }
+
+                // Calculate maximum absolute residual for peak filtering
+                let max_of_t = 0.0;
+                for (let k = 0; k < residuals.length; k++) {
+                    if (Math.abs(residuals[k]) > max_of_t) {
+                        max_of_t = Math.abs(residuals[k]);
+                    }
+                }
+
+                // Calculate variance of the residuals
+                let mean_res = 0.0;
+                for (let k = 0; k < residuals.length; k++) {
+                    mean_res += residuals[k];
+                }
+                mean_res /= residuals.length;
+
+                let variance_of_t = 0.0;
+                for (let k = 0; k < residuals.length; k++) {
+                    variance_of_t += (residuals[k] - mean_res) * (residuals[k] - mean_res);
+                }
+                variance_of_t /= residuals.length;
+
+                variances.push(variance_of_t);
+                maximal_values.push(max_of_t);
+            }
+        }
+
+        /**
+         * Sort the variances and get the median value
+         */
+        let variances_sorted = [...variances]; // Copy of variances array
+        variances_sorted.sort((a, b) => a - b); // Sort in ascending order
+        let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
+        console.log("Noise level is " + noise_level + " using variance estimation (quadratic fit).");
+
+        /**
+         * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
+         * Also remove the corresponding variance as well
+         */
+        for (let i = maximal_values.length - 1; i >= 0; i--) {
+            if (maximal_values[i] > 10.0 * noise_level) {
+                maximal_values.splice(i, 1);  // Remove the element at index i
+                variances.splice(i, 1);       // Remove corresponding variance
+            }
+        }
+
+        /**
+         * Sort the variances again and get the new median value
+         */
+        variances_sorted = [...variances];  // Copy the updated variances array
+        variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
+        noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
+
+        console.log("Final noise level is estimated to be " + noise_level);
+
+        return noise_level;
+    }
+
     /**
      * Estimate noise level of a spectrum.
      * Calculate RMSD of each 32*32 segment, and get the median value
@@ -168,8 +291,7 @@ class ldwmath {
      * @param {Float32Array} spectrum: the spectrum data, row major. y*x_dim + x to access the element at (x,y)
      * @returns 
      */
-    estimate_noise_level(x_dim,y_dim,spectrum)
-    {
+    estimate_noise_level_old(x_dim, y_dim, spectrum) {
         let n_segment_x = Math.floor(x_dim / 32);
         let n_segment_y = Math.floor(y_dim / 32);
 
@@ -247,22 +369,18 @@ class ldwmath {
     /**
      * Find max and min of a Float32Array
      */
-    find_max_min(data)
-    {
+    find_max_min(data) {
         let max = data[0];
         let min = data[0];
-        for(let i=1;i<data.length;i++)
-        {
-            if(data[i] > max)
-            {
+        for (let i = 1; i < data.length; i++) {
+            if (data[i] > max) {
                 max = data[i];
             }
-            if(data[i] < min)
-            {
+            if (data[i] < min) {
                 min = data[i];
             }
         }
-        return [max,min];
+        return [max, min];
     }
 
 
@@ -270,10 +388,9 @@ class ldwmath {
      * Concat two float32 arrays into one
      * @returns the concatenated array
      */
-    Float32Concat(first, second)
-    {
+    Float32Concat(first, second) {
         var firstLength = first.length,
-        result = new Float32Array(firstLength + second.length);
+            result = new Float32Array(firstLength + second.length);
 
         result.set(first);
         result.set(second, firstLength);
@@ -281,10 +398,9 @@ class ldwmath {
         return result;
     }
 
-    Uint8Concat(first, second)
-    {
+    Uint8Concat(first, second) {
         var firstLength = first.length,
-        result = new Uint8Array(firstLength + second.length);
+            result = new Uint8Array(firstLength + second.length);
 
         result.set(first);
         result.set(second, firstLength);
@@ -324,5 +440,99 @@ class ldwmath {
         const sorted = [...arr].sort((a, b) => a - b);
         const mid = Math.floor(sorted.length / 2);
         return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    /**
+     * Solves a linear system A * x = B using Gaussian Elimination with partial pivoting.
+     * @param {number[][]} A - NxN coefficient matrix
+     * @param {number[]} B - N-dimensional right-hand side vector
+     * @returns {number[]|null} Solutions vector, or null if system is singular.
+    */
+    solveLinearSystem(A, B) {
+        const n = B.length;
+        for (let i = 0; i < n; i++) {
+            // Pivot selection
+            let maxRow = i;
+            for (let k = i + 1; k < n; k++) {
+                if (Math.abs(A[k][i]) > Math.abs(A[maxRow][i])) {
+                    maxRow = k;
+                }
+            }
+
+            // Swap rows
+            const tempA = A[i]; A[i] = A[maxRow]; A[maxRow] = tempA;
+            const tempB = B[i]; B[i] = B[maxRow]; B[maxRow] = tempB;
+
+            if (Math.abs(A[i][i]) < 1e-12) return null; // Singular matrix
+
+            // Elimination
+            for (let k = i + 1; k < n; k++) {
+                const factor = A[k][i] / A[i][i];
+                B[k] -= factor * B[i];
+                for (let j = i; j < n; j++) {
+                    A[k][j] -= factor * A[i][j];
+                }
+            }
+        }
+
+        // Back substitution
+        const x = new Array(n);
+        for (let i = n - 1; i >= 0; i--) {
+            let sum = 0;
+            for (let j = i + 1; j < n; j++) {
+                sum += A[i][j] * x[j];
+            }
+            x[i] = (B[i] - sum) / A[i][i];
+        }
+        return x;
+    }
+
+    /**
+     * Fits a 2D-domain quadratic surface: z = ax^2 + by^2 + cx + dy + e
+     * @param {Array<{x: number, y: number, z: number}>} points - Coordinate dataset
+     * @returns {array} - coefficients a,b,c,d,e
+     */
+    fitQuadraticSurface2D(points) {
+        const n = points.length;
+        if (n < 5) return null; // Needs at least 5 points to fit 5 coefficients
+
+        const size = 5;
+        const A = Array.from({ length: size }, () => new Array(size).fill(0));
+        const B = new Array(size).fill(0);
+
+        for (let i = 0; i < n; i++) {
+            const { x, y, z } = points[i];
+            const x2 = x * x;
+            const y2 = y * y;
+
+            // Term map corresponding to variables: [a, b, c, d, e]
+            const terms = [x2, y2, x, y, 1];
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    A[r][c] += terms[r] * terms[c];
+                }
+                B[r] += terms[r] * z;
+            }
+        }
+
+        const coeffs = this.solveLinearSystem(A, B);
+        if (!coeffs) return null;
+
+        return coeffs;
+    }
+
+    /**
+     * Calculates the z-coordinates of the quadratic surface at the given x,y coordinates.
+     * @param {Array<{x: number, y: number}>} points - Array of points to evaluate
+     * @param {number[]} coeffs - Coefficients [a, b, c, d, e]
+     * @returns {number[]} Array of z-coordinates
+     */
+    evaluateQuadraticSurface2D(points, coeffs) {
+        let z_values = new Array(points.length);
+        for (let i = 0; i < points.length; i++) {
+            z_values[i] = coeffs[0] * points[i].x * points[i].x + coeffs[1] * points[i].y * points[i].y + coeffs[2] * points[i].x + coeffs[3] * points[i].y + coeffs[4];
+        }
+        return z_values;
     }
 }
