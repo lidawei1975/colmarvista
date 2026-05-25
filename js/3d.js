@@ -491,7 +491,7 @@ async function run_auto_phase_on_loaded_spectrum() {
         if (!tfjs_normal_model || !tfjs_large_model) {
             append_3d_log("[tfjs] Pre-loading models...");
             if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
+            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
         }
 
         const buffer = create_ft3_buffer();
@@ -5723,7 +5723,7 @@ async function handle_webass_3d_message(e) {
                         model: tfjs_normal_model,
                         largeModel: tfjs_large_model,
                         modelUrl: 'js/model22_tfjs/model.json',
-                        largeModelUrl: 'js/model21_large_tfjs/model.json'
+                        largeModelUrl: 'js/model22_large_tfjs/model.json'
                     });
 
                     // Cache models if they were loaded inside the pipeline
@@ -6169,7 +6169,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     append_3d_log("[tfjs] Pre-loading models...");
                     try {
                         if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
+                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
                         append_3d_log("[tfjs] Models loaded successfully.");
                     } catch (err) {
                         append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);

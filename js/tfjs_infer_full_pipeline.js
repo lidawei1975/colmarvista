@@ -284,7 +284,7 @@ Intended use in webpage:
         const cubes = tf.cast(inputs, "float32");
         const batchSize = tf.shape(cubes)[0];
         const t = tf.shape(cubes)[1];
-        const channels = cubes.shape[6] || 2;
+        const channels = cubes.shape[6] || 1;
         let flat = tf.reshape(cubes, [-1, this.cubeSizeXY, this.cubeSizeXY, this.extWidth, channels]);
         let feat = this.conv1.apply(flat);
         feat = this.pool1.apply(feat);
@@ -1175,7 +1175,7 @@ Intended use in webpage:
       }
     }
     if (modelChannels === undefined) {
-      modelChannels = 2; // default fallback
+      modelChannels = 1; // default fallback
     }
 
     const ext = extractTopNCubes(spectraObj, cfg, modelChannels);
@@ -1300,7 +1300,7 @@ Intended use in webpage:
       spectra: spectraOriginal.spectra,
       shape: spectraOriginal.shape,
     };
-    const ext1 = extractTopNCubes(spectraWorking1, cfg, 2);
+    const ext1 = extractTopNCubes(spectraWorking1, cfg, 1);
 
     // DEBUG: Inspect model architecture before inference
     console.log("[tfjs-debug] === Large Model Architecture ===");
