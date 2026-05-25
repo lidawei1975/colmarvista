@@ -83,14 +83,167 @@ class ldwmath {
             center_y: sumY / polygon.length
         };
     }
+
     /**
-     * Estimate noise level of a spectrum.
-     * Calculate RMSD of 1024 segment, and get the median value
+     * Fits a 1D quadratic curve: y = ax^2 + bx + c
+     * @param {number[]} y_values - Array of y values, assumed to be at x = 0, 1, ..., n-1
+     * @returns {number[]|null} coefficients [a, b, c]
+     */
+    fitQuadratic1D(y_values) {
+        const n = y_values.length;
+        if (n < 3) return null; // Need at least 3 points for 3 coefficients
+
+        const size = 3;
+        const A = Array.from({ length: size }, () => new Array(size).fill(0));
+        const B = new Array(size).fill(0);
+
+        for (let x = 0; x < n; x++) {
+            const y = y_values[x];
+            const x2 = x * x;
+
+            // Term map corresponding to variables: [a, b, c] for a*x^2 + b*x + c
+            const terms = [x2, x, 1];
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    A[r][c] += terms[r] * terms[c];
+                }
+                B[r] += terms[r] * y;
+            }
+        }
+
+        return this.solveLinearSystem(A, B);
+    }
+
+    /**
+     * Evaluates a 1D quadratic curve: y = ax^2 + bx + c
+     * @param {number} n - Number of points (x = 0, 1, ..., n-1)
+     * @param {number[]} coeffs - Coefficients [a, b, c]
+     * @returns {number[]} Evaluated y values
+     */
+    evaluateQuadratic1D(n, coeffs) {
+        const y_fitted = new Array(n);
+        for (let x = 0; x < n; x++) {
+            y_fitted[x] = coeffs[0] * x * x + coeffs[1] * x + coeffs[2];
+        }
+        return y_fitted;
+    }
+
+    /**
+     * Estimate noise level of a 1D spectrum.
+     * Calculate RMSD of each 32-element segment after subtracting fitted 1D quadratic curve.
      * @param {*} x_dim: x dimension of the spectrum
      * @param {Float32Array} spectrum: the spectrum data in 1D array
-     * @returns 
+     * @returns {number} estimated noise level
      */
     estimate_noise_level_1d(x_dim, spectrum) {
+        let n_segment_x = Math.floor(x_dim / 32);
+
+        if (n_segment_x === 0) {
+            // Fallback: calculate variance of the entire spectrum
+            let mean = 0.0;
+            for (let i = 0; i < spectrum.length; i++) {
+                mean += spectrum[i];
+            }
+            mean /= spectrum.length;
+            let variance = 0.0;
+            for (let i = 0; i < spectrum.length; i++) {
+                variance += (spectrum[i] - mean) * (spectrum[i] - mean);
+            }
+            variance /= spectrum.length;
+            return Math.sqrt(variance);
+        }
+
+        let variances = [];      // variance of each segment
+        let maximal_values = []; // maximal value of each segment
+
+        /**
+         * loop through each segment, and calculate variance after quadratic curve subtraction
+         */
+        for (let i = 0; i < n_segment_x; i++) {
+            let t = [];
+            for (let m = 0; m < 32; m++) {
+                t.push(spectrum[i * 32 + m]);
+            }
+
+            // Run 2nd order polynomial fitting
+            const coeffs = this.fitQuadratic1D(t);
+            let residuals = new Array(t.length);
+
+            if (coeffs) {
+                const z_fitted = this.evaluateQuadratic1D(t.length, coeffs);
+                for (let k = 0; k < t.length; k++) {
+                    residuals[k] = t[k] - z_fitted[k];
+                }
+            } else {
+                // Fallback to subtracting the mean if fitting fails
+                let mean_of_t = 0.0;
+                for (let k = 0; k < t.length; k++) {
+                    mean_of_t += t[k];
+                }
+                mean_of_t /= t.length;
+                for (let k = 0; k < t.length; k++) {
+                    residuals[k] = t[k] - mean_of_t;
+                }
+            }
+
+            // Calculate maximum absolute residual for peak filtering
+            let max_of_t = 0.0;
+            for (let k = 0; k < residuals.length; k++) {
+                if (Math.abs(residuals[k]) > max_of_t) {
+                    max_of_t = Math.abs(residuals[k]);
+                }
+            }
+
+            // Calculate variance of the residuals
+            let mean_res = 0.0;
+            for (let k = 0; k < residuals.length; k++) {
+                mean_res += residuals[k];
+            }
+            mean_res /= residuals.length;
+
+            let variance_of_t = 0.0;
+            for (let k = 0; k < residuals.length; k++) {
+                variance_of_t += (residuals[k] - mean_res) * (residuals[k] - mean_res);
+            }
+            variance_of_t /= residuals.length;
+
+            variances.push(variance_of_t);
+            maximal_values.push(max_of_t);
+        }
+
+        /**
+         * Sort the variances and get the median value
+         */
+        let variances_sorted = [...variances]; // Copy of variances array
+        variances_sorted.sort((a, b) => a - b); // Sort in ascending order
+        let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
+        console.log("Noise level is " + noise_level + " using 1D variance estimation (quadratic fit).");
+
+        /**
+        * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
+        * Also remove the corresponding variance as well
+        */
+        for (let i = maximal_values.length - 1; i >= 0; i--) {
+            if (maximal_values[i] > 10.0 * noise_level) {
+                maximal_values.splice(i, 1);  // Remove the element at index i
+                variances.splice(i, 1);       // Remove corresponding variance
+            }
+        }
+
+        /**
+         * Sort the variances again and get the new median value
+         */
+        variances_sorted = [...variances];  // Copy the updated variances array
+        variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
+        noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
+
+        console.log("Final 1D noise level is estimated to be " + noise_level);
+
+        return noise_level;
+    }
+
+    estimate_noise_level_1d_old(x_dim, spectrum) {
         let n_segment_x = Math.floor(x_dim / 1024);
         let variances = [];      // variance of each segment
         let maximal_values = []; // maximal value of each segment
