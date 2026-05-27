@@ -1005,69 +1005,99 @@ async function load_theoretical_peaks() {
             let parts = line.split(/\s+/);
 
             // Check for header line
-            if (!header_map && parts.includes("Amplitude") && parts.includes("X_Center")) {
-                header_map = {};
-                parts.forEach((col, idx) => {
-                    header_map[col] = idx;
-                });
+            if (!header_map) {
+                let is_format1 = parts.includes("Partition") && parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center") && parts.includes("X_FWHH");
+                let is_format2 = parts.includes("X_Center") && parts.includes("Y_Center") && parts.includes("Z_Center") && parts.includes("X_Center_ppm") && parts.includes("Height");
+
+                if (is_format1 || is_format2) {
+                    header_map = {};
+                    parts.forEach((col, idx) => {
+                        header_map[col] = idx;
+                    });
+                }
                 continue;
             }
 
             // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
             if (line.startsWith("=") || line.startsWith("-")) continue;
-            // Skip explicitly known header starts if we are in legacy mode check or if they are redundant
+            // Skip explicitly known header starts if they are redundant
             if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
 
             if (header_map) {
                 // Dynamic parsing based on header
-                let get_val = (key, default_val = 0.0) => {
+                let get_val = (key, default_val = undefined) => {
                     let idx = header_map[key];
-                    if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
+                    if (idx !== undefined && idx < parts.length) {
+                        let val = parseFloat(parts[idx]);
+                        return isNaN(val) ? default_val : val;
+                    }
                     return default_val;
                 };
 
-                // Basic validation: Amplitude must be a number
-                let amp = get_val("Amplitude");
-                if (isNaN(amp)) continue;
+                // Basic validation: Amplitude/Height must be a number
+                let amp = get_val("Amplitude", undefined);
+                if (amp === undefined) amp = get_val("Height", undefined);
+                if (amp === undefined) continue;
+
+                let x_ppm = get_val("X_Center_ppm", undefined);
+                let y_ppm = get_val("Y_Center_ppm", undefined);
+                let z_ppm = get_val("Z_Center_ppm", undefined);
+
+                let x_val = get_val("X_Center", undefined);
+                let y_val = get_val("Y_Center", undefined);
+                let z_val = get_val("Z_Center", undefined);
+
+                let fwhh_x = get_val("X_FWHH", undefined);
+                let fwhh_y = get_val("Y_FWHH", undefined);
+                let fwhh_z = get_val("Z_FWHH", undefined);
+
+                let lx = get_val("Lx", undefined);
+                let ly = get_val("Ly", undefined);
+                let lz = get_val("Lz", undefined);
+
+                let has_shape = (fwhh_x !== undefined && fwhh_y !== undefined && fwhh_z !== undefined);
+
+                if (!has_shape) {
+                    // Set default parameters for symbol plotting/depth checking
+                    fwhh_x = 2.0;
+                    fwhh_y = 2.0;
+                    fwhh_z = 2.0;
+                    lx = 0.0;
+                    ly = 0.0;
+                    lz = 0.0;
+                }
+
+                let s0 = spectra_3d[0];
+                let p_x = x_val !== undefined ? x_val : 0;
+                let p_y = y_val !== undefined ? y_val : 0;
+                let p_z = z_val !== undefined ? z_val : 0;
+
+                if (x_ppm !== undefined && s0) {
+                    p_x = (x_ppm - s0.x_ppm_start) / s0.x_ppm_step;
+                }
+                if (y_ppm !== undefined && s0) {
+                    p_y = (y_ppm - s0.y_ppm_start) / s0.y_ppm_step;
+                }
+                if (z_ppm !== undefined && s0) {
+                    p_z = (z_ppm - s0.z_ppm_start) / s0.z_ppm_step;
+                }
 
                 peaks.push({
                     amp: amp,
-                    x: get_val("X_Center"),
-                    y: get_val("Y_Center"),
-                    z: get_val("Z_Center"),
-                    x_ppm: get_val("X_Center_ppm", undefined),
-                    y_ppm: get_val("Y_Center_ppm", undefined),
-                    z_ppm: get_val("Z_Center_ppm", undefined),
-                    fwhh_x: get_val("X_FWHH"),
-                    fwhh_y: get_val("Y_FWHH"),
-                    fwhh_z: get_val("Z_FWHH"),
-                    lx: get_val("Lx"),
-                    ly: get_val("Ly"),
-                    lz: get_val("Lz")
+                    x: p_x,
+                    y: p_y,
+                    z: p_z,
+                    x_ppm: x_ppm,
+                    y_ppm: y_ppm,
+                    z_ppm: z_ppm,
+                    fwhh_x: fwhh_x,
+                    fwhh_y: fwhh_y,
+                    fwhh_z: fwhh_z,
+                    lx: lx,
+                    ly: ly,
+                    lz: lz,
+                    has_shape: has_shape
                 });
-            } else {
-                // Legacy format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
-                // 11 columns expected.
-                if (parts.length >= 11) {
-                    // Ensure it's data by checking if ID (0) or Amp (1) is a number
-                    if (isNaN(parseFloat(parts[1]))) continue;
-
-                    peaks.push({
-                        amp: parseFloat(parts[1]),
-                        x: parseFloat(parts[2]),
-                        y: parseFloat(parts[3]),
-                        z: parseFloat(parts[4]),
-                        x_ppm: undefined,
-                        y_ppm: undefined,
-                        z_ppm: undefined,
-                        fwhh_x: parseFloat(parts[5]),
-                        fwhh_y: parseFloat(parts[6]),
-                        fwhh_z: parseFloat(parts[7]),
-                        lx: parseFloat(parts[8]),
-                        ly: parseFloat(parts[9]),
-                        lz: parseFloat(parts[10])
-                    });
-                }
             }
         }
 
@@ -1076,10 +1106,23 @@ async function load_theoretical_peaks() {
             return;
         }
 
-        console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
+        console.log("Loaded " + peaks.length + " theoretical peaks.");
         theoretical_peaks_data = peaks;
-        generate_theoretical_volume(peaks);
-        generate_projection_spectrum();
+
+        let has_any_shape = peaks.some(p => p.has_shape);
+        if (has_any_shape) {
+            console.log("Shape parameters found. Generating theoretical volume.");
+            generate_theoretical_volume(peaks);
+            generate_projection_spectrum();
+        } else {
+            console.log("No shape parameters found. Showing peak symbols only.");
+            theoretical_spectra_3d = [];
+            theoretical_spectrum_xz = null;
+            theoretical_spectrum_yz = null;
+            theoretical_spectrum_proj = null;
+            theoretical_spectrum_proj_y = null;
+            theoretical_spectrum_proj_x = null;
+        }
 
         // Refresh views to show overlay
         if (current_slice_index >= 0) {
