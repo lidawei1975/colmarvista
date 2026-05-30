@@ -83,8 +83,9 @@ let ModulePromise = webdp1d_cpp({
 });
 
 function vectorUCharToUint8Array(vector) {
-    const result = new Uint8Array(vector.size());
-    for (let i = 0; i < vector.size(); i++) {
+    const size = Number(vector.size());
+    const result = new Uint8Array(size);
+    for (let i = 0; i < size; i++) {
         result[i] = vector.get(i);
     }
     return result;
@@ -114,12 +115,12 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     console.log('[webass_3d] prepare_header_for_nmrpipe');
     fidInstance.prepare_header_for_nmrpipe();
 
-    const nx = fidInstance.get_ndata_direct();
-    const nz = fidInstance.get_ndata_indirect1();
-    const ny = fidInstance.get_ndata_indirect2();
+    const nx = Number(fidInstance.get_ndata_direct());
+    const nz = Number(fidInstance.get_ndata_indirect1());
+    const ny = Number(fidInstance.get_ndata_indirect2());
 
-    const headerPtr = fidInstance.get_nmrpipe_header_data();
-    const rrrPtr = fidInstance.get_data_of_rrr();
+    const headerPtr = Number(fidInstance.get_nmrpipe_header_data());
+    const rrrPtr = Number(fidInstance.get_data_of_rrr());
 
     const headerF32 = new Float32Array(Module.HEAPF32.subarray(headerPtr >> 2, (headerPtr >> 2) + 512));
 
@@ -146,8 +147,8 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     try {
         if (typeof fidInstance.serialize_ft3_to_internal_buffer === 'function') {
             if (fidInstance.serialize_ft3_to_internal_buffer()) {
-                const ptr = fidInstance.get_ft3_buffer_ptr();
-                const size = fidInstance.get_ft3_buffer_size();
+                const ptr = Number(fidInstance.get_ft3_buffer_ptr());
+                const size = Number(fidInstance.get_ft3_buffer_size());
                 ft3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
                 postMessage({ stdout: '[webass_3d] extracted ft3 file of ' + ft3Bytes.length + ' bytes (zero-copy).' });
             } else {
@@ -311,7 +312,7 @@ self.onmessage = async function (event) {
 
                 let ok_fid = false;
                 if (typeof fid.read_bruker_fid_data_bytes_raw === 'function') {
-                    const ptr = Module._malloc(fidBytes.length);
+                    const ptr = Number(Module._malloc(fidBytes.length));
                     Module.HEAPU8.set(fidBytes, ptr);
                     try {
                         console.log('[webass_3d] read_bruker_fid_data_bytes_raw with bytes:', fidBytes.length);
@@ -343,15 +344,15 @@ self.onmessage = async function (event) {
                     console.log('[webass_3d] direct_only_process for NUS step1');
                     postMessage({ stdout: '[webass_3d] NUS step1: direct_only_process()' });
                     fid.direct_only_process();
-                    const nIndirect1 = fid.get_ndata_indirect1();
-                    const nIndirect2 = fid.get_ndata_indirect2();
+                    const nIndirect1 = Number(fid.get_ndata_indirect1());
+                    const nIndirect2 = Number(fid.get_ndata_indirect2());
                     postMessage({ stdout: '[webass_3d] NUS step1 dims indirect1=' + nIndirect1 + ', indirect2=' + nIndirect2 });
 
                     let halfFt3Bytes;
                     if (typeof fid.serialize_ft3_to_internal_buffer === 'function') {
                         if (fid.serialize_ft3_to_internal_buffer()) {
-                            const ptr = fid.get_ft3_buffer_ptr();
-                            const size = fid.get_ft3_buffer_size();
+                            const ptr = Number(fid.get_ft3_buffer_ptr());
+                            const size = Number(fid.get_ft3_buffer_size());
                             halfFt3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
                         } else {
                             throw new Error("serialize_ft3_to_internal_buffer failed");
@@ -444,7 +445,7 @@ self.onmessage = async function (event) {
 
                 let read_ok = false;
                 if (typeof fidIndirect.read_ft3_from_buffer_raw === 'function') {
-                    const ptr = Module._malloc(smileFt3Bytes.length);
+                    const ptr = Number(Module._malloc(smileFt3Bytes.length));
                     Module.HEAPU8.set(smileFt3Bytes, ptr);
                     try {
                         read_ok = fidIndirect.read_ft3_from_buffer_raw(ptr, smileFt3Bytes.length);
@@ -474,8 +475,8 @@ self.onmessage = async function (event) {
 
                 if (typeof fidIndirect.serialize_ft3_to_internal_buffer === 'function') {
                     if (fidIndirect.serialize_ft3_to_internal_buffer()) {
-                        const ptr = fidIndirect.get_ft3_buffer_ptr();
-                        const size = fidIndirect.get_ft3_buffer_size();
+                        const ptr = Number(fidIndirect.get_ft3_buffer_ptr());
+                        const size = Number(fidIndirect.get_ft3_buffer_size());
                         finalFt3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
                     } else {
                         throw new Error('serialize_ft3_to_internal_buffer failed');
@@ -503,7 +504,7 @@ self.onmessage = async function (event) {
                 let final_ok = false;
                 const bytesToLoad = finalFt3Bytes || new Uint8Array();
                 if (typeof fidFinal.read_ft3_from_buffer_raw === 'function') {
-                    const ptr = Module._malloc(bytesToLoad.length);
+                    const ptr = Number(Module._malloc(bytesToLoad.length));
                     Module.HEAPU8.set(bytesToLoad, ptr);
                     try {
                         final_ok = fidFinal.read_ft3_from_buffer_raw(ptr, bytesToLoad.length);
@@ -573,7 +574,7 @@ self.onmessage = async function (event) {
 
                 let read_ok = false;
                 if (typeof fid.read_ft3_from_buffer_raw === 'function') {
-                    const ptr = Module._malloc(ft3Bytes.length);
+                    const ptr = Number(Module._malloc(ft3Bytes.length));
                     Module.HEAPU8.set(ft3Bytes, ptr);
                     try {
                         read_ok = fid.read_ft3_from_buffer_raw(ptr, ft3Bytes.length);
