@@ -3760,6 +3760,23 @@ function render_trace_3d(svgId, points, xDomain, lineColor) {
         .attr('stroke-width', 1.5)
         .attr('d', line);
 
+    if (visiblePoints.length < 64) {
+        plotGroup.selectAll('.trace-circle')
+            .data(visiblePoints.filter(function (d) {
+                return Number.isFinite(d.ppm) && Number.isFinite(d.value);
+            }))
+            .enter()
+            .append('circle')
+            .attr('class', 'trace-circle')
+            .attr('cx', function (d) { return xScale(d.ppm); })
+            .attr('cy', function (d) { return yScale(d.value); })
+            .attr('r', 3)
+            .attr('fill', lineColor || '#1f77b4')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1)
+            .style('pointer-events', 'none');
+    }
+
     // Pivot Line and Phase Labels Overlay
     if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg' || svgId === 'trace_proj_y_x_svg') {
         // Pivot Line
