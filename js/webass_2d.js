@@ -49,8 +49,8 @@ self.onmessage = async function (event) {
                 return new Uint8Array(input);
             };
             const convertVectorUCharToUint8Array = function (vector) {
-                const result = new Uint8Array(vector.size());
-                for (let i = 0; i < vector.size(); i++) {
+                const result = new Uint8Array(Number(vector.size()));
+                for (let i = 0; i < Number(vector.size()); i++) {
                     result[i] = vector.get(i);
                 }
                 return result;
@@ -147,8 +147,8 @@ self.onmessage = async function (event) {
                 return new Uint8Array(input);
             };
             const convertVectorUCharToUint8Array = function (vector) {
-                const result = new Uint8Array(vector.size());
-                for (let i = 0; i < vector.size(); i++) {
+                const result = new Uint8Array(Number(vector.size()));
+                for (let i = 0; i < Number(vector.size()); i++) {
                     result[i] = vector.get(i);
                 }
                 return result;
@@ -335,8 +335,8 @@ self.onmessage = async function (event) {
             };
 
             const convertVectorUCharToUint8Array = function (vector) {
-                const result = new Uint8Array(vector.size());
-                for (let i = 0; i < vector.size(); i++) {
+                const result = new Uint8Array(Number(vector.size()));
+                for (let i = 0; i < Number(vector.size()); i++) {
                     result[i] = vector.get(i);
                 }
                 return result;
@@ -823,10 +823,10 @@ self.onmessage = async function (event) {
             const xdim = event.data.xdim_local;
             const recon = new Float32Array(xdim * ydim);
 
-            let yLimit = Math.min(ydim, spectrum2d.size());
+            let yLimit = Math.min(ydim, Number(spectrum2d.size()));
             for (let y = 0; y < yLimit; y++) {
                 const row = spectrum2d.get(y);
-                const xLimit = Math.min(xdim, row.size());
+                const xLimit = Math.min(xdim, Number(row.size()));
                 for (let x = 0; x < xLimit; x++) {
                     recon[y * xdim + x] = row.get(x);
                 }
