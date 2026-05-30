@@ -56,7 +56,7 @@ self.onmessage = async function (event) {
              * Get profile as a float32 array
              */
             const profile_size = obj.get_size_of_profile();
-            const profile_ptr = obj.get_data_of_profile(0); // Get the pointer to the profile data
+            const profile_ptr = Number(obj.get_data_of_profile(0)); // Get the pointer to the profile data
             const profile_data = new Float32Array(Module.HEAPF32.buffer, profile_ptr, profile_size);
             /**
              * Because of symmetry, profile_size is always odd, so we can get the center index
@@ -196,7 +196,7 @@ self.onmessage = async function (event) {
 
         // get size of reconstructed spectrum in float32
         const size = obj.get_size_of_recon();
-        const ptr = obj.get_data_of_recon(0);
+        const ptr = Number(obj.get_data_of_recon(0));
         // const float32_recon = new Float32Array(Module.HEAPF32.buffer, ptr, size);
 
         const vec = obj.spe_recon; //exposed vector of float32
@@ -248,7 +248,11 @@ self.onmessage = async function (event) {
         const fid_data = new Module.VectorFloat();
         let js_fid_data = null; // Reference to the underlying JS TypedArray for signal processing
 
-        if (obj.get_fid_data_type() === 2) {
+        const fid_data_type = Number(obj.get_fid_data_type());
+        postMessage({ stdout: "[JS-debug] get_fid_data_type() = " + fid_data_type });
+        postMessage({ stdout: "[JS-debug] fid_buffer byteLength = " + (event.data.fid_buffer ? event.data.fid_buffer.byteLength : "undefined") });
+
+        if (fid_data_type === 2) {
             /**
              * Double (float64) data type in e.data.fid_data,
              * convert every 8 bytes to a float32 number.
@@ -256,33 +260,43 @@ self.onmessage = async function (event) {
              */
             const fid_data_double = new Float64Array(event.data.fid_buffer);
             js_fid_data = fid_data_double;
+            postMessage({ stdout: "[JS-debug] Float64Array length = " + fid_data_double.length });
             for (let i = 0; i < fid_data_double.length; ++i) {
                 fid_data.push_back(fid_data_double[i]);
             }
         }
-        else if (obj.get_fid_data_type() === 0) {
+        else if (fid_data_type === 0) {
             /**
              * Int (int32) data type in e.data.fid_data,
              * convert every 4 bytes to a int32 number.
              */
             const fid_data_int = new Int32Array(event.data.fid_buffer);
             js_fid_data = fid_data_int;
+            postMessage({ stdout: "[JS-debug] Int32Array length = " + fid_data_int.length });
             for (let i = 0; i < fid_data_int.length; ++i) {
                 fid_data.push_back(fid_data_int[i]);
             }
         }
+        else {
+            console.error("Unknown or unhandled FID data type: " + fid_data_type);
+            postMessage({ stdout: "[JS-debug] Unknown FID data type: " + fid_data_type });
+        }
 
+        postMessage({ stdout: "[JS-debug] VectorFloat (fid_data) size = " + fid_data.size() });
         obj.set_fid_data(fid_data);
         let reduced_fid_size = 0;
 
         if (event.data.reduced_fid_size > 0) {
-            console.log('Reducing FID size to ' + event.data.reduced_fid_size);
+            postMessage({ stdout: "[JS-debug] Reducing FID size to: " + event.data.reduced_fid_size });
             obj.reduce_fid_size(event.data.reduced_fid_size);
             reduced_fid_size = event.data.reduced_fid_size;
         }
 
+        postMessage({ stdout: "[JS-debug] zf_direct = " + event.data.zf_direct });
         obj.run_zf(event.data.zf_direct); // Zero filling
+        postMessage({ stdout: "[JS-debug] Calling run_fft_and_rm_bruker_filter()..." });
         obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
+        postMessage({ stdout: "[JS-debug] run_fft_and_rm_bruker_filter() succeeded!" });
 
         let p0 = event.data.phase_correction_direct_p0;
         let p1 = event.data.phase_correction_direct_p0 + event.data.phase_correction_direct_p1;
@@ -321,13 +335,13 @@ self.onmessage = async function (event) {
          * get_spectrum_header_data will return address of the header data in the heap
          * header_ptr, header_size, header_data are reinterpret_cast<uintptr_t> float * pointer.
          */
-        const header_ptr = obj.get_data_of_header();
+        const header_ptr = Number(obj.get_data_of_header());
         const header_size = 512; //nmrPipe header size is 512 float32.
         const header_data = new Float32Array(Module.HEAPF32.buffer, header_ptr, header_size);
-        const data_of_real_ptr = obj.get_data_of_real(); // Get the real part of the spectrum data
+        const data_of_real_ptr = Number(obj.get_data_of_real()); // Get the real part of the spectrum data
         const data_of_read_size = obj.get_ndata_frq(); // Get the size of the real part data, imaginary part has the same size
         const real_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_real_ptr, data_of_read_size);
-        const data_of_imag_ptr = obj.get_data_of_imag(); // Get the imaginary part of the spectrum data
+        const data_of_imag_ptr = Number(obj.get_data_of_imag()); // Get the imaginary part of the spectrum data
         const image_spectrum_data = new Float32Array(Module.HEAPF32.buffer, data_of_imag_ptr, data_of_read_size);
 
         self.postMessage({
@@ -351,7 +365,7 @@ self.onmessage = async function (event) {
         obj.delete(); // Clean up the object to free memory
     }
 
-    else if (webassembly_job === "baseline_correction_1d") {
+    else if (webassembly_job === "baseline_correction_1d" || webassembly_job === "baseline_correction") {
 
         console.log('Baseline correction job received');
         Module.shared_data_1d.n_verbose = 1;
@@ -390,11 +404,11 @@ self.onmessage = async function (event) {
         obj.work(event.data.a0, event.data.b0, event.data.n_water, 0 /** 0 only at this time */, "none" /** no file output */);
 
         const baseline_size = event.data.spectrum_data.length; //baseline has same size as original spectrum
-        const baseline_ptr = obj.get_data_of_baseline(0); // Get the pointer to the baseline data
+        const baseline_ptr = Number(obj.get_data_of_baseline()); // Get the pointer to the baseline data
         const baseline = new Float32Array(Module.HEAPF32.buffer, baseline_ptr, baseline_size);
 
         self.postMessage({
-            [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+            [WEBASSEMBLY_JOB_KEY]: "baseline_correction_1d",
             spectrum_index: event.data.spectrum_index,
             baseline: baseline,
         });
