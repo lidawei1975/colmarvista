@@ -310,6 +310,18 @@
                                 factor: </label>
                             <input type="number" id="contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
                             <button onclick="update_contour_levels()">Update Contours</button>
+                            <br>
+                            <span style="font-weight: bold; margin-left: 10px;">Contour Colors:</span>
+                            <label for="color_exp_pos" style="margin-left: 10px;">Positive Exp:</label>
+                            <input type="color" id="color_exp_pos" value="#0000ff" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_exp_neg" style="margin-left: 10px;">Negative Exp:</label>
+                            <input type="color" id="color_exp_neg" value="#00ff00" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_theo_pos" style="margin-left: 10px;">Positive Theo:</label>
+                            <input type="color" id="color_theo_pos" value="#ff0000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_theo_neg" style="margin-left: 10px;">Negative Theo:</label>
+                            <input type="color" id="color_theo_neg" value="#000000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_peak_symbol" style="margin-left: 10px;">Peak Symbol:</label>
+                            <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()" style="vertical-align: middle;">
                         </div>
 
                         <div

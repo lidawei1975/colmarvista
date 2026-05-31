@@ -1174,8 +1174,8 @@ function generate_theoretical_volume(peaks) {
         s.z_ppm_step = s0.z_ppm_step;
 
         s.raw_data = new Float32Array(nx * ny);
-        s.spectrum_color = "#ff0000"; // Red for theoretical
-        s.spectrum_color_negative = null; // Negative eliminated
+        s.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+        s.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
         s.negative_levels = [];
 
@@ -1449,13 +1449,14 @@ function draw_slice(index, update_ortho_views = true) {
             // Define a range of visibility. Maybe 2 * width? Or just width?
             // User said "within Z_width". Let's assume "distance <= width".
 
+            let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
             if (abs_diff <= 1.0) {
                 // Square
                 visible_peaks.push({
                     x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                     y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                     symbol: 'square',
-                    color: 'red', // Use Red as requested
+                    color: symbol_color,
                     size: 6,
                     fill: false
                 });
@@ -1466,7 +1467,7 @@ function draw_slice(index, update_ortho_views = true) {
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: 'circle',
-                        color: 'red',
+                        color: symbol_color,
                         size: 5,
                         fill: true
                     });
@@ -1476,7 +1477,7 @@ function draw_slice(index, update_ortho_views = true) {
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: 'cross',
-                        color: 'red',
+                        color: symbol_color,
                         size: 5,
                         fill: false
                     });
@@ -1747,8 +1748,8 @@ async function load_ft3_file() {
 
                 s.levels = calculate_levels(s.noise_level, 1.5, 30);
                 s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                s.spectrum_color = "#0000ff";
-                s.spectrum_color_negative = "#ff0000";
+                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
                 s.visible = true;
 
                 spectra_3d.push(s);
@@ -1902,8 +1903,8 @@ async function load_raw_3d_file() {
                 // Set visual defaults
                 s.levels = calculate_levels(s.noise_level, 1.4, 30);
                 s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
-                s.spectrum_color = "#0000ff";
-                s.spectrum_color_negative = "#ff0000";
+                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
                 s.visible = true;
 
                 spectra_3d.push(s);
@@ -1980,8 +1981,8 @@ async function load_files() {
                 // Set some defaults
                 s.levels = calculate_levels(s.noise_level, 1.5, 30);
                 s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                s.spectrum_color = "#0000ff";
-                s.spectrum_color_negative = "#ff0000";
+                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
                 s.visible = true;
 
                 spectra_3d.push(s);
@@ -2125,10 +2126,15 @@ function update_contour_levels() {
         return;
     }
 
+    let color_exp_pos = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    let color_exp_neg = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+    let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+    let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
+
     // Update all slices
     for (let s of spectra_3d) {
-        s.spectrum_color = "#0000ff";
-        s.spectrum_color_negative = "#ff0000";
+        s.spectrum_color = color_exp_pos;
+        s.spectrum_color_negative = color_exp_neg;
         s.levels = calculate_levels(global_3d_noise, scale, 30);
         s.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
         // Invalidate cache to force recalculation
@@ -2138,9 +2144,10 @@ function update_contour_levels() {
 
     if (theoretical_spectra_3d) {
         for (let s of theoretical_spectra_3d) {
-            s.spectrum_color = "#ff0000"; // Red for theoretical
+            s.spectrum_color = color_theo_pos;
+            s.spectrum_color_negative = color_theo_neg;
             s.levels = calculate_levels(global_3d_noise, scale, 30);
-            s.negative_levels = [];
+            s.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
             s.cached_contour_pos = null;
             s.cached_contour_neg = null;
         }
@@ -2148,28 +2155,34 @@ function update_contour_levels() {
 
     // Also update orthogonal spectra
     if (spectrum_xz) {
-        spectrum_xz.spectrum_color = "#0000ff";
+        spectrum_xz.spectrum_color = color_exp_pos;
+        spectrum_xz.spectrum_color_negative = color_exp_neg;
         spectrum_xz.levels = calculate_levels(global_3d_noise, scale, 30);
-        spectrum_xz.negative_levels = [];
+        spectrum_xz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
         spectrum_xz.cached_contour_pos = null;
         spectrum_xz.cached_contour_neg = null;
     }
     if (spectrum_yz) {
-        spectrum_yz.spectrum_color = "#0000ff";
+        spectrum_yz.spectrum_color = color_exp_pos;
+        spectrum_yz.spectrum_color_negative = color_exp_neg;
         spectrum_yz.levels = calculate_levels(global_3d_noise, scale, 30);
-        spectrum_yz.negative_levels = [];
+        spectrum_yz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
         spectrum_yz.cached_contour_pos = null;
         spectrum_yz.cached_contour_neg = null;
     }
     if (theoretical_spectrum_xz) {
+        theoretical_spectrum_xz.spectrum_color = color_theo_pos;
+        theoretical_spectrum_xz.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_xz.levels = calculate_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_xz.negative_levels = [];
+        theoretical_spectrum_xz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
         theoretical_spectrum_xz.cached_contour_pos = null;
         theoretical_spectrum_xz.cached_contour_neg = null;
     }
     if (theoretical_spectrum_yz) {
+        theoretical_spectrum_yz.spectrum_color = color_theo_pos;
+        theoretical_spectrum_yz.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_yz.levels = calculate_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_yz.negative_levels = [];
+        theoretical_spectrum_yz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
         theoretical_spectrum_yz.cached_contour_pos = null;
         theoretical_spectrum_yz.cached_contour_neg = null;
     }
@@ -2177,6 +2190,8 @@ function update_contour_levels() {
     if (spectrum_proj) {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+        spectrum_proj.spectrum_color = color_exp_pos;
+        spectrum_proj.spectrum_color_negative = color_exp_neg;
         spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj.cached_contour_pos = null;
@@ -2188,6 +2203,8 @@ function update_contour_levels() {
     if (spectrum_proj_y) {
         let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+        spectrum_proj_y.spectrum_color = color_exp_pos;
+        spectrum_proj_y.spectrum_color_negative = color_exp_neg;
         spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj_y.cached_contour_pos = null;
@@ -2196,9 +2213,24 @@ function update_contour_levels() {
         request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
     }
 
+    if (spectrum_proj_x) {
+        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
+        spectrum_proj_x.spectrum_color = color_exp_pos;
+        spectrum_proj_x.spectrum_color_negative = color_exp_neg;
+        spectrum_proj_x.levels = calculate_levels(spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
+        spectrum_proj_x.negative_levels = calculate_negative_levels(spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
+        spectrum_proj_x.cached_contour_pos = null;
+        spectrum_proj_x.cached_contour_neg = null;
+        request_contour_calculation(spectrum_proj_x, 0, 0, "proj_x");
+        request_contour_calculation(spectrum_proj_x, 0, 1, "proj_x");
+    }
+
     if (theoretical_spectrum_proj) {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
+        theoretical_spectrum_proj.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_proj.levels = calculate_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj.negative_levels = calculate_negative_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj.cached_contour_pos = null;
@@ -2210,6 +2242,8 @@ function update_contour_levels() {
     if (theoretical_spectrum_proj_y) {
         let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
+        theoretical_spectrum_proj_y.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj_y.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_proj_y.levels = calculate_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj_y.negative_levels = calculate_negative_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj_y.cached_contour_pos = null;
@@ -2218,7 +2252,28 @@ function update_contour_levels() {
         request_contour_calculation(theoretical_spectrum_proj_y, 0, 1, "proj_y_theo");
     }
 
+    if (theoretical_spectrum_proj_x) {
+        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+        let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
+        theoretical_spectrum_proj_x.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj_x.spectrum_color_negative = color_theo_neg;
+        theoretical_spectrum_proj_x.levels = calculate_levels(theoretical_spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
+        theoretical_spectrum_proj_x.negative_levels = calculate_negative_levels(theoretical_spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
+        theoretical_spectrum_proj_x.cached_contour_pos = null;
+        theoretical_spectrum_proj_x.cached_contour_neg = null;
+        request_contour_calculation(theoretical_spectrum_proj_x, 0, 0, "proj_x_theo");
+        request_contour_calculation(theoretical_spectrum_proj_x, 0, 1, "proj_x_theo");
+    }
+
     // Refresh views
+    if (current_slice_index >= 0) {
+        draw_slice(current_slice_index);
+    }
+    refresh_xz_view();
+    refresh_yz_view();
+}
+
+function redraw_peak_symbols() {
     if (current_slice_index >= 0) {
         draw_slice(current_slice_index);
     }
@@ -3129,6 +3184,7 @@ function refresh_xz_view() {
                         fill_flag = false;
                     }
 
+                    let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
                     // Map coordinates for XZ plot
                     // X-axis: X PPM
                     // Y-axis: Z PPM
@@ -3136,7 +3192,7 @@ function refresh_xz_view() {
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
                         symbol: symbol_type,
-                        color: 'red',
+                        color: symbol_color,
                         size: (symbol_type === 'square') ? 6 : 5,
                         fill: fill_flag
                     });
@@ -3301,6 +3357,7 @@ function refresh_yz_view() {
                         fill_flag = false;
                     }
 
+                    let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
                     // Map coordinates for YZ plot
                     // X-axis: Z PPM
                     // Y-axis: Y PPM
@@ -3308,7 +3365,7 @@ function refresh_yz_view() {
                         x: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: symbol_type,
-                        color: 'red',
+                        color: symbol_color,
                         size: (symbol_type === 'square') ? 6 : 5,
                         fill: fill_flag
                     });
@@ -5970,8 +6027,8 @@ async function handle_webass_3d_message(e) {
                     let plane_name = "plane_" + String(i + 1).padStart(3, '0');
                     s.process_ft_file(plane_buffer, plane_name, -1);
 
-                    s.spectrum_color = "#0000ff";
-                    s.spectrum_color_negative = "#ff0000";
+                    s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                    s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
                     s.levels = calculate_levels(s.noise_level, 1.5, 30);
                     s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
                     s.visible = true;
@@ -6589,8 +6646,8 @@ function generate_projection_spectrum() {
 
     spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier, scale);
     spec.negative_levels = calculate_negative_levels(spec.noise_level, scale, 30, multiplier, scale);
-    spec.spectrum_color = "#0000ff";
-    spec.spectrum_color_negative = "#ff0000";
+    spec.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    spec.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
 
     spectrum_proj = spec;
     request_contour_calculation(spec, 0, 0, "proj");
@@ -6634,8 +6691,8 @@ function generate_projection_spectrum() {
 
     specY.levels = calculate_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
     specY.negative_levels = calculate_negative_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
-    specY.spectrum_color = "#0000ff";
-    specY.spectrum_color_negative = "#ff0000";
+    specY.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    specY.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
 
     spectrum_proj_y = specY;
     request_contour_calculation(specY, 0, 0, "proj_y");
@@ -6673,8 +6730,8 @@ function generate_projection_spectrum() {
 
     specX.levels = calculate_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
     specX.negative_levels = calculate_negative_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
-    specX.spectrum_color = "#0000ff";
-    specX.spectrum_color_negative = "#ff0000";
+    specX.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    specX.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
 
     spectrum_proj_x = specX;
     request_contour_calculation(specX, 0, 0, "proj_x");
@@ -6707,7 +6764,8 @@ function generate_projection_spectrum() {
         spec_theo.noise_level = st0.noise_level;
         spec_theo.levels = st0.levels;
         spec_theo.negative_levels = st0.negative_levels;
-        spec_theo.spectrum_color = "#ff0000";
+        spec_theo.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+        spec_theo.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
 
         theoretical_spectrum_proj = spec_theo;
         request_contour_calculation(spec_theo, 0, 0, "proj_theo");
@@ -6738,7 +6796,8 @@ function generate_projection_spectrum() {
         spec_theo_y.noise_level = st0.noise_level;
         spec_theo_y.levels = specY.levels;
         spec_theo_y.negative_levels = specY.negative_levels;
-        spec_theo_y.spectrum_color = "#ff0000";
+        spec_theo_y.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+        spec_theo_y.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
 
         theoretical_spectrum_proj_y = spec_theo_y;
         request_contour_calculation(spec_theo_y, 0, 0, "proj_y_theo");
@@ -6768,7 +6827,8 @@ function generate_projection_spectrum() {
         spec_theo_x.noise_level = st0.noise_level;
         spec_theo_x.levels = specX.levels;
         spec_theo_x.negative_levels = specX.negative_levels;
-        spec_theo_x.spectrum_color = "#ff0000";
+        spec_theo_x.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+        spec_theo_x.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
 
         theoretical_spectrum_proj_x = spec_theo_x;
         request_contour_calculation(spec_theo_x, 0, 0, "proj_x_theo");
@@ -6801,6 +6861,13 @@ function update_proj_contour_levels() {
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
 
+    let color_exp_pos = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    let color_exp_neg = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+    let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+    let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
+
+    spectrum_proj.spectrum_color = color_exp_pos;
+    spectrum_proj.spectrum_color_negative = color_exp_neg;
     spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.cached_contour_pos = null;
@@ -6810,6 +6877,8 @@ function update_proj_contour_levels() {
     request_contour_calculation(spectrum_proj, 0, 1, "proj");
 
     if (theoretical_spectrum_proj) {
+        theoretical_spectrum_proj.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_proj.levels = spectrum_proj.levels;
         theoretical_spectrum_proj.negative_levels = spectrum_proj.negative_levels;
         theoretical_spectrum_proj.cached_contour_pos = null;
@@ -6949,6 +7018,13 @@ function update_proj_y_contour_levels() {
     let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
 
+    let color_exp_pos = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    let color_exp_neg = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+    let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+    let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
+
+    spectrum_proj_y.spectrum_color = color_exp_pos;
+    spectrum_proj_y.spectrum_color_negative = color_exp_neg;
     spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.cached_contour_pos = null;
@@ -6958,6 +7034,8 @@ function update_proj_y_contour_levels() {
     request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
 
     if (theoretical_spectrum_proj_y) {
+        theoretical_spectrum_proj_y.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj_y.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_proj_y.levels = spectrum_proj_y.levels;
         theoretical_spectrum_proj_y.negative_levels = spectrum_proj_y.negative_levels;
         theoretical_spectrum_proj_y.cached_contour_pos = null;
@@ -7097,6 +7175,13 @@ function update_proj_x_contour_levels() {
     let multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
 
+    let color_exp_pos = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+    let color_exp_neg = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+    let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
+    let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
+
+    spectrum_proj_x.spectrum_color = color_exp_pos;
+    spectrum_proj_x.spectrum_color_negative = color_exp_neg;
     spectrum_proj_x.levels = calculate_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_x.negative_levels = calculate_negative_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_x.cached_contour_pos = null;
@@ -7106,6 +7191,8 @@ function update_proj_x_contour_levels() {
     request_contour_calculation(spectrum_proj_x, 0, 1, "proj_x");
 
     if (theoretical_spectrum_proj_x) {
+        theoretical_spectrum_proj_x.spectrum_color = color_theo_pos;
+        theoretical_spectrum_proj_x.spectrum_color_negative = color_theo_neg;
         theoretical_spectrum_proj_x.levels = spectrum_proj_x.levels;
         theoretical_spectrum_proj_x.negative_levels = spectrum_proj_x.negative_levels;
         theoretical_spectrum_proj_x.cached_contour_pos = null;
