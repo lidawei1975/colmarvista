@@ -526,6 +526,44 @@ async function run_auto_phase_on_loaded_spectrum() {
     }
 }
 
+/**
+ * Runs 3D peak picking and fitting workflow on the currently loaded spectrum.
+ * @returns {Promise<void>}
+ */
+async function run_peak_fit_3d_workflow() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectrum loaded to run peak picking/fitting.");
+        return;
+    }
+
+    append_3d_log("[main] Preparing spectrum buffer for peak picking & fitting...");
+    
+    // Disable loading buttons to prevent concurrent actions
+    set_loading_buttons_state(true);
+
+    try {
+        const buffer = create_ft3_buffer();
+        if (!buffer) {
+            throw new Error("Failed to compile currently loaded spectrum to an FT3 buffer.");
+        }
+
+        const ft3Bytes = new Uint8Array(buffer);
+        append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
+        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting top-50 partitions)...";
+
+        web_worker_3d.postMessage({
+            "#sym:webassembly_job ": "pick_and_fit_3d",
+            ft3Bytes: ft3Bytes
+        }, [ft3Bytes.buffer]);
+        
+    } catch (err) {
+        console.error(err);
+        append_3d_log("[main-error] Peak picking/fitting startup failed: " + err.message);
+        document.getElementById("webassembly_message").innerText = "Peak picking/fitting failed: " + err.message;
+        set_loading_buttons_state(false);
+    }
+}
+
 
 /**
  * Appends 3D log.
@@ -830,7 +868,8 @@ function set_loading_buttons_state(disabled) {
         'button_ft2_process',
         'button_ft3_process',
         'button_raw_process',
-        'btn_load_theoretical'
+        'btn_load_theoretical',
+        'button_peak_fit_3d'
     ];
     ids.forEach(id => {
         let el = document.getElementById(id);
@@ -959,6 +998,131 @@ var theoretical_peaks_data = []; // Store raw peak data
 var partition_bounds_data = null; // Store global partition bounds
 
 /**
+ * Parses peak text data.
+ * @param {string} text - The peak list text.
+ * @returns {Array} List of parsed peaks.
+ */
+function parse_peaks_text(text) {
+    let lines = text.split('\n');
+    let peaks = [];
+    let header_map = null;
+    partition_bounds_data = null; // Reset bounds
+
+    for (let line of lines) {
+        line = line.trim();
+
+        if (line.startsWith("# Partition Bounds")) {
+            let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
+            if (match) {
+                partition_bounds_data = {
+                    x: [parseInt(match[1], 10), parseInt(match[2], 10)],
+                    y: [parseInt(match[3], 10), parseInt(match[4], 10)],
+                    z: [parseInt(match[5], 10), parseInt(match[6], 10)]
+                };
+                console.log("Parsed partition bounds:", partition_bounds_data);
+            }
+        }
+
+        if (!line || line.startsWith("#")) continue;
+
+        let parts = line.split(/\s+/);
+
+        // Check for header line
+        if (!header_map) {
+            let is_format1 = parts.includes("Partition") && parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center") && parts.includes("X_FWHH");
+            let is_format2 = parts.includes("X_Center") && parts.includes("Y_Center") && parts.includes("Z_Center") && parts.includes("X_Center_ppm") && parts.includes("Height");
+
+            if (is_format1 || is_format2) {
+                header_map = {};
+                parts.forEach((col, idx) => {
+                    header_map[col] = idx;
+                });
+            }
+            continue;
+        }
+
+        // Skip separator lines or other header-like lines
+        if (line.startsWith("=") || line.startsWith("-")) continue;
+        if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
+
+        if (header_map) {
+            let get_val = (key, default_val = undefined) => {
+                let idx = header_map[key];
+                if (idx !== undefined && idx < parts.length) {
+                    let val = parseFloat(parts[idx]);
+                    return isNaN(val) ? default_val : val;
+                }
+                return default_val;
+            };
+
+            let amp = get_val("Amplitude", undefined);
+            if (amp === undefined) amp = get_val("Height", undefined);
+            if (amp === undefined) continue;
+
+            let x_ppm = get_val("X_Center_ppm", undefined);
+            let y_ppm = get_val("Y_Center_ppm", undefined);
+            let z_ppm = get_val("Z_Center_ppm", undefined);
+
+            let x_val = get_val("X_Center", undefined);
+            let y_val = get_val("Y_Center", undefined);
+            let z_val = get_val("Z_Center", undefined);
+
+            let fwhh_x = get_val("X_FWHH", undefined);
+            let fwhh_y = get_val("Y_FWHH", undefined);
+            let fwhh_z = get_val("Z_FWHH", undefined);
+
+            let lx = get_val("Lx", undefined);
+            let ly = get_val("Ly", undefined);
+            let lz = get_val("Lz", undefined);
+
+            let has_shape = (fwhh_x !== undefined && fwhh_y !== undefined && fwhh_z !== undefined);
+
+            if (!has_shape) {
+                fwhh_x = 2.0;
+                fwhh_y = 2.0;
+                fwhh_z = 2.0;
+                lx = 0.0;
+                ly = 0.0;
+                lz = 0.0;
+            }
+
+            let s0 = spectra_3d[0];
+            let p_x = x_val !== undefined ? x_val : 0;
+            let p_y = y_val !== undefined ? y_val : 0;
+            let p_z = z_val !== undefined ? z_val : 0;
+
+            if (x_ppm !== undefined && s0) {
+                p_x = (x_ppm - s0.x_ppm_start) / s0.x_ppm_step;
+            }
+            if (y_ppm !== undefined && s0) {
+                p_y = (y_ppm - s0.y_ppm_start) / s0.y_ppm_step;
+            }
+            if (z_ppm !== undefined && s0) {
+                p_z = (z_ppm - s0.z_ppm_start) / s0.z_ppm_step;
+            }
+
+            peaks.push({
+                amp: amp,
+                x: p_x,
+                y: p_y,
+                z: p_z,
+                x_ppm: x_ppm,
+                y_ppm: y_ppm,
+                z_ppm: z_ppm,
+                fwhh_x: fwhh_x,
+                fwhh_y: fwhh_y,
+                fwhh_z: fwhh_z,
+                lx: lx,
+                ly: ly,
+                lz: lz,
+                has_shape: has_shape
+            });
+        }
+    }
+    return peaks;
+}
+
+/**
  * Loads theoretical peaks.
  * @returns {Promise<void>}
  */
@@ -978,128 +1142,7 @@ async function load_theoretical_peaks() {
     try {
         let file = fileInput.files[0];
         let text = await file.text();
-        let lines = text.split('\n');
-
-        let peaks = [];
-        let header_map = null;
-        partition_bounds_data = null; // Reset bounds
-
-        // Parse file.
-        for (let line of lines) {
-            line = line.trim();
-
-            if (line.startsWith("# Partition Bounds")) {
-                let match = line.match(/X\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Y\[\s*(\d+)\s*,\s*(\d+)\s*\],\s*Z\[\s*(\d+)\s*,\s*(\d+)\s*\]/i);
-                if (match) {
-                    partition_bounds_data = {
-                        x: [parseInt(match[1], 10), parseInt(match[2], 10)],
-                        y: [parseInt(match[3], 10), parseInt(match[4], 10)],
-                        z: [parseInt(match[5], 10), parseInt(match[6], 10)]
-                    };
-                    console.log("Parsed partition bounds:", partition_bounds_data);
-                }
-            }
-
-            if (!line || line.startsWith("#")) continue;
-
-            let parts = line.split(/\s+/);
-
-            // Check for header line
-            if (!header_map) {
-                let is_format1 = parts.includes("Partition") && parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center") && parts.includes("X_FWHH");
-                let is_format2 = parts.includes("X_Center") && parts.includes("Y_Center") && parts.includes("Z_Center") && parts.includes("X_Center_ppm") && parts.includes("Height");
-
-                if (is_format1 || is_format2) {
-                    header_map = {};
-                    parts.forEach((col, idx) => {
-                        header_map[col] = idx;
-                    });
-                }
-                continue;
-            }
-
-            // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
-            if (line.startsWith("=") || line.startsWith("-")) continue;
-            // Skip explicitly known header starts if they are redundant
-            if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
-
-            if (header_map) {
-                // Dynamic parsing based on header
-                let get_val = (key, default_val = undefined) => {
-                    let idx = header_map[key];
-                    if (idx !== undefined && idx < parts.length) {
-                        let val = parseFloat(parts[idx]);
-                        return isNaN(val) ? default_val : val;
-                    }
-                    return default_val;
-                };
-
-                // Basic validation: Amplitude/Height must be a number
-                let amp = get_val("Amplitude", undefined);
-                if (amp === undefined) amp = get_val("Height", undefined);
-                if (amp === undefined) continue;
-
-                let x_ppm = get_val("X_Center_ppm", undefined);
-                let y_ppm = get_val("Y_Center_ppm", undefined);
-                let z_ppm = get_val("Z_Center_ppm", undefined);
-
-                let x_val = get_val("X_Center", undefined);
-                let y_val = get_val("Y_Center", undefined);
-                let z_val = get_val("Z_Center", undefined);
-
-                let fwhh_x = get_val("X_FWHH", undefined);
-                let fwhh_y = get_val("Y_FWHH", undefined);
-                let fwhh_z = get_val("Z_FWHH", undefined);
-
-                let lx = get_val("Lx", undefined);
-                let ly = get_val("Ly", undefined);
-                let lz = get_val("Lz", undefined);
-
-                let has_shape = (fwhh_x !== undefined && fwhh_y !== undefined && fwhh_z !== undefined);
-
-                if (!has_shape) {
-                    // Set default parameters for symbol plotting/depth checking
-                    fwhh_x = 2.0;
-                    fwhh_y = 2.0;
-                    fwhh_z = 2.0;
-                    lx = 0.0;
-                    ly = 0.0;
-                    lz = 0.0;
-                }
-
-                let s0 = spectra_3d[0];
-                let p_x = x_val !== undefined ? x_val : 0;
-                let p_y = y_val !== undefined ? y_val : 0;
-                let p_z = z_val !== undefined ? z_val : 0;
-
-                if (x_ppm !== undefined && s0) {
-                    p_x = (x_ppm - s0.x_ppm_start) / s0.x_ppm_step;
-                }
-                if (y_ppm !== undefined && s0) {
-                    p_y = (y_ppm - s0.y_ppm_start) / s0.y_ppm_step;
-                }
-                if (z_ppm !== undefined && s0) {
-                    p_z = (z_ppm - s0.z_ppm_start) / s0.z_ppm_step;
-                }
-
-                peaks.push({
-                    amp: amp,
-                    x: p_x,
-                    y: p_y,
-                    z: p_z,
-                    x_ppm: x_ppm,
-                    y_ppm: y_ppm,
-                    z_ppm: z_ppm,
-                    fwhh_x: fwhh_x,
-                    fwhh_y: fwhh_y,
-                    fwhh_z: fwhh_z,
-                    lx: lx,
-                    ly: ly,
-                    lz: lz,
-                    has_shape: has_shape
-                });
-            }
-        }
+        let peaks = parse_peaks_text(text);
 
         if (peaks.length === 0) {
             alert("No valid peaks found in file.");
@@ -5795,6 +5838,62 @@ async function handle_webass_3d_message(e) {
             nuslist_as_string: e.data.nuslistText || '',
             smile_command: smileCommand
         }, [halfBytes.buffer]);
+        return;
+    }
+    if (e.data["#sym:webassembly_job "] === 'pick_and_fit_3d') {
+        append_3d_log('[main] Received pick_and_fit_3d result');
+        document.getElementById("webassembly_message").innerText = "Peak picking & fitting complete.";
+        set_loading_buttons_state(false);
+
+        if (e.data.success && e.data.resultString) {
+            let resultString = e.data.resultString;
+            console.log("Fitted Peaks Output:\n", resultString);
+
+            try {
+                let peaks = parse_peaks_text(resultString);
+                if (peaks.length === 0) {
+                    alert("No valid peaks found in peak pick & fit output.");
+                    return;
+                }
+
+                console.log("Loaded " + peaks.length + " fitted peaks.");
+                theoretical_peaks_data = peaks;
+
+                let has_any_shape = peaks.some(p => p.has_shape);
+                if (has_any_shape) {
+                    console.log("Shape parameters found. Generating theoretical volume.");
+                    generate_theoretical_volume(peaks);
+                    generate_projection_spectrum();
+                } else {
+                    console.log("No shape parameters found. Showing peak symbols only.");
+                    theoretical_spectra_3d = [];
+                    theoretical_spectrum_xz = null;
+                    theoretical_spectrum_yz = null;
+                    theoretical_spectrum_proj = null;
+                    theoretical_spectrum_proj_y = null;
+                    theoretical_spectrum_proj_x = null;
+                }
+
+                // Refresh views to show overlay
+                if (current_slice_index >= 0) {
+                    draw_slice(current_slice_index);
+                    refresh_xz_view();
+                    refresh_yz_view();
+                    update_3d_crosshairs();
+                }
+
+                // Refresh the 3D viewer to show the new peak spheres
+                update_3d_view();
+
+                append_3d_log(`[main] Successfully merged ${peaks.length} fitted peaks to 3D visualization workflow.`);
+            } catch (err) {
+                console.error("Error processing fitted peaks:", err);
+                append_3d_log("[main-error] Failed to process fitted peaks: " + err.message);
+                alert("Failed to process fitted peaks: " + err.message);
+            }
+        } else {
+            alert("Peak picking & fitting failed: " + (e.data.error || "Unknown error"));
+        }
         return;
     }
     if (e.data["#sym:webassembly_job "] === "process_fid_3d" || e.data["#sym:webassembly_job "] === "postprocess_ft3") {

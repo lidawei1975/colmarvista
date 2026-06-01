@@ -231,6 +231,7 @@
                 <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj"
                         onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
                 <button onclick="run_auto_phase_on_loaded_spectrum()">Auto Phase</button>
+                <button id="button_peak_fit_3d" onclick="run_peak_fit_3d_workflow()">Peak Picking & Fitting</button>
                 <!-- Hidden list, used by myplot if needed, or we might not use it -->
                 <ol id="spectra_list_ol" type="1"></ol>
             </div>

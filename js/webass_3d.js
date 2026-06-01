@@ -563,7 +563,7 @@ self.onmessage = async function (event) {
                 }
 
                 // Baseline orders: set final baseline correction to userFrqPolyOrder
-                
+
                 const userFrqPolyOrder = cfg.userFrqPolyOrder || [-1, -1, -1];
                 console.log('[webass_3d] postprocess_ft3: set_final_frq_polynorminal_order:', userFrqPolyOrder);
                 fid.set_final_frq_polynorminal_order(
@@ -608,6 +608,57 @@ self.onmessage = async function (event) {
             }
         } catch (err) {
             console.error('[webass_3d] postprocess_ft3 failed', err);
+            postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
+        }
+    }
+    else if (job === 'pick_and_fit_3d') {
+        try {
+            const ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
+            if (ft3Bytes.length === 0) {
+                throw new Error("No FT3 bytes provided for peak picking/fitting.");
+            }
+            console.log('[webass_3d] pick_and_fit_3d starting, size:', ft3Bytes.length);
+            postMessage({ stdout: '[webass_3d] pick_and_fit_3d starting' });
+
+            const app = new Module.spectrum_fit_3d();
+            app.set_noise_scales(0.0, 6.0, 3.5);
+            app.set_noise_level_for_nus(false);
+            app.set_verbose(1); //minimal verbose output (default is 2, which is more verbose)
+
+            const size = ft3Bytes.length;
+            const ptr = Module._malloc(size);
+            Module.HEAPU8.set(ft3Bytes, ptr);
+
+            let readOk = false;
+            try {
+                readOk = app.read_ft3_from_buffer_raw(ptr, size);
+            } finally {
+                Module._free(ptr);
+            }
+
+            if (!readOk) {
+                throw new Error("Failed to read spectrum data");
+            }
+
+            postMessage({ stdout: '[webass_3d] Running peak_picking...' });
+            app.peak_picking(""); //empty string means no output of peaks to file
+
+            postMessage({ stdout: '[webass_3d] Running partition_signal_regions...' });
+            app.partition_signal_regions(""); //empty string means no output of regions to file
+
+            postMessage({ stdout: '[webass_3d] Running iterative_fit_all_partitions...' });
+            app.iterative_fit_all_partitions(500000); //an arbitrary large number of partitions to make sure all peaks are fitted
+
+            const resultString = app.get_fitted_peaks_string();
+            app.delete();
+
+            postMessage({
+                [WEBASSEMBLY_JOB_KEY]: 'pick_and_fit_3d',
+                success: true,
+                resultString: resultString
+            });
+        } catch (err) {
+            console.error('[webass_3d] pick_and_fit_3d failed', err);
             postMessage({ [WEBASSEMBLY_JOB_KEY]: job, error: err.toString() });
         }
     }
