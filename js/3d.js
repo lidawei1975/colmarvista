@@ -4835,11 +4835,17 @@ function update_3d_view() {
             iso_renderer.onCameraChange = function (cam) {
                 if (iso_renderer_recon) iso_renderer_recon.setCameraState(cam);
             };
+            iso_renderer.onPeakPicked = function (intersectionPoint) {
+                handle3DPeakPicked(intersectionPoint, "Experimental");
+            };
         }
         if (!iso_renderer_recon) {
             iso_renderer_recon = new IsoSurfaceRenderer("canvas_3d_recon");
             iso_renderer_recon.onCameraChange = function (cam) {
                 if (iso_renderer) iso_renderer.setCameraState(cam);
+            };
+            iso_renderer_recon.onPeakPicked = function (intersectionPoint) {
+                handle3DPeakPicked(intersectionPoint, "Reconstructed");
             };
         }
 
@@ -4876,7 +4882,8 @@ function update_3d_view() {
                     vertices: meshSolid.vertices,
                     normals: meshSolid.normals,
                     color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
-                    mode: 'TRIANGLES'
+                    mode: 'TRIANGLES',
+                    name: 'solid_red'
                 },
                 {
                     vertices: meshWire.vertices,
@@ -4919,7 +4926,8 @@ function update_3d_view() {
                         vertices: meshSolid_recon.vertices,
                         normals: meshSolid_recon.normals,
                         color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
-                        mode: 'TRIANGLES'
+                        mode: 'TRIANGLES',
+                        name: 'solid_red'
                     },
                     {
                         vertices: meshWire_recon.vertices,
@@ -4950,6 +4958,98 @@ function reset_3d_view() {
     if (iso_renderer_recon) {
         iso_renderer_recon.resetView();
     }
+}
+
+/**
+ * Handles mouse peak picking on the 3D surface.
+ */
+function handle3DPeakPicked(pt, type = "Experimental") {
+    if (!current_volume_data || !spectra_3d || spectra_3d.length === 0) return;
+    let s0 = spectra_3d[0];
+    let d = current_volume_data.dims;
+
+    let cx = d.x / 2;
+    let cy = d.y / 2;
+    let cz = d.z / 2;
+    let maxDim = Math.max(d.x, d.y, d.z);
+    let scale = 2.0 / maxDim;
+
+    // Convert from mesh space back to grid index coordinates
+    let x_grid = pt[0] / scale + cx;
+    let y_grid = pt[1] / scale + cy;
+    let z_grid = pt[2] / scale + cz;
+
+    // Calculate PPM values
+    let ppm_x = s0.x_ppm_start + x_grid * s0.x_ppm_step;
+    let ppm_y = s0.y_ppm_start + y_grid * s0.y_ppm_step;
+    let ppm_z = s0.z_ppm_start + z_grid * s0.z_ppm_step;
+
+    // Update UI on index_3d.html
+    let peakInfoContainer = document.getElementById("picked_peak_container");
+    let peakInfoSpan = document.getElementById("picked_peak_info");
+    if (peakInfoSpan) {
+        peakInfoSpan.innerHTML = `
+            [${type}] X: ${ppm_x.toFixed(3)} ppm (${x_grid.toFixed(1)}), 
+            Y: ${ppm_y.toFixed(3)} ppm (${y_grid.toFixed(1)}), 
+            Z: ${ppm_z.toFixed(3)} ppm (${z_grid.toFixed(1)})
+        `;
+        if (peakInfoContainer) {
+            peakInfoContainer.style.display = "flex";
+        }
+    }
+
+    // Update active slice indices (clamped)
+    let new_z = Math.max(0, Math.min(spectra_3d.length - 1, Math.round(z_grid)));
+    let new_y = Math.max(0, Math.min(s0.n_indirect - 1, Math.round(y_grid)));
+    let new_x = Math.max(0, Math.min(s0.n_direct - 1, Math.round(x_grid)));
+
+    current_slice_index = new_z;
+    current_y_index = new_y;
+    current_x_index = new_x;
+
+    // 1. Update XY slice
+    draw_slice(current_slice_index, false);
+
+    // 2. Update XZ slice slider & label, then refresh
+    let slider_xz = document.getElementById("slider_xz");
+    let val_xz = document.getElementById("val_xz");
+    if (slider_xz) {
+        slider_xz.value = current_y_index;
+    }
+    if (val_xz) {
+        let ppm_y_slice = s0.y_ppm_start + (current_y_index * s0.y_ppm_step);
+        val_xz.innerText = (current_y_index + 1) + "/" + s0.n_indirect + " (" + ppm_y_slice.toFixed(3) + " ppm)";
+    }
+    refresh_xz_view();
+
+    // 3. Update YZ slice slider & label, then refresh
+    let slider_yz = document.getElementById("slider_yz");
+    let val_yz = document.getElementById("val_yz");
+    if (slider_yz) {
+        slider_yz.value = current_x_index;
+    }
+    if (val_yz) {
+        let ppm_x_slice = s0.x_ppm_start + (current_x_index * s0.x_ppm_step);
+        val_yz.innerText = (current_x_index + 1) + "/" + s0.n_direct + " (" + ppm_x_slice.toFixed(3) + " ppm)";
+    }
+    refresh_yz_view();
+
+    // 4. Pan all three 2D plots to center on the picked coordinate
+    if (main_plot) {
+        main_plot.pan_to_center_ppm('x', ppm_x);
+        main_plot.pan_to_center_ppm('y', ppm_y);
+    }
+    if (main_plot_xz) {
+        main_plot_xz.pan_to_center_ppm('x', ppm_x);
+        main_plot_xz.pan_to_center_ppm('y', ppm_z);
+    }
+    if (main_plot_yz) {
+        main_plot_yz.pan_to_center_ppm('x', ppm_z);
+        main_plot_yz.pan_to_center_ppm('y', ppm_y);
+    }
+
+    // 5. Sync crosshairs across views
+    update_3d_crosshairs();
 }
 
 /**

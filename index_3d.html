@@ -607,6 +607,15 @@
                                 style="font-weight: bold; border: 1px solid #ccc; padding: 2px 2px; border-radius: 4px; background: #fff;">
                                 Center: <span id="center_info">-</span></div>
 
+                            <div id="picked_peak_container"
+                                style="font-weight: bold; border: 1px solid rgba(217, 83, 79, 0.3); padding: 2px 6px; border-radius: 4px; background: rgba(255, 245, 245, 0.9); box-shadow: 0 4px 12px rgba(217, 83, 79, 0.15); display: none; align-items: center; gap: 8px; backdrop-filter: blur(4px); transition: all 0.3s ease;">
+                                <span style="color: #d9534f; font-size: 14px;">📍 Picked Peak:</span>
+                                <span id="picked_peak_info" style="color: #333; font-size: 13px;">-</span>
+                                <button type="button" onclick="document.getElementById('picked_peak_container').style.display='none'"
+                                    style="background: transparent; border: none; color: #999; cursor: pointer; font-size: 14px; font-weight: bold; padding: 0 4px; margin-left: 5px; line-height: 1;"
+                                    onmouseover="this.style.color='#d9534f'" onmouseout="this.style.color='#999'">×</button>
+                            </div>
+
                             <div
                                 style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 20px;">
                                 <label style="font-weight: bold;">Solid (Red):</label><input type="number"
