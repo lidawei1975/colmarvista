@@ -551,9 +551,21 @@ async function run_peak_fit_3d_workflow() {
         append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
         document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting top-50 partitions)...";
 
+        let s0 = spectra_3d[0];
+        let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
+        let scale2 = 10.0;
+        let multiplier_input = document.getElementById("contour_start_multiplier");
+        if (multiplier_input) {
+            scale2 = parseFloat(multiplier_input.value) || 10.0;
+        }
+        let scale1 = 1.5 * scale2;
+
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "pick_and_fit_3d",
-            ft3Bytes: ft3Bytes
+            ft3Bytes: ft3Bytes,
+            noiseLevel: noiseLevel,
+            scale1: scale1,
+            scale2: scale2
         }, [ft3Bytes.buffer]);
         
     } catch (err) {
@@ -996,6 +1008,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 var theoretical_peaks_data = []; // Store raw peak data
 var partition_bounds_data = null; // Store global partition bounds
+var fitted_peaks_text_data = null; // Store raw text of the peak list for download
 
 /**
  * Parses peak text data.
@@ -1151,6 +1164,9 @@ async function load_theoretical_peaks() {
 
         console.log("Loaded " + peaks.length + " theoretical peaks.");
         theoretical_peaks_data = peaks;
+        fitted_peaks_text_data = text;
+        let dl_btn = document.getElementById("button_download_peaks_list");
+        if (dl_btn) dl_btn.disabled = false;
 
         let has_any_shape = peaks.some(p => p.has_shape);
         if (has_any_shape) {
@@ -5053,6 +5069,22 @@ function handle3DPeakPicked(pt, type = "Experimental") {
 }
 
 /**
+ * Downloads the current peak list as a .txt file.
+ */
+function download_fitted_peaks_list() {
+    if (!fitted_peaks_text_data) {
+        alert("No peak list available to download.");
+        return;
+    }
+
+    let blob = new Blob([fitted_peaks_text_data], { type: "text/plain;charset=utf-8" });
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "peaks_list.txt";
+    a.click();
+}
+
+/**
  * Centers 3D on crosshair.
  */
 function center_3d_on_crosshair() {
@@ -5943,10 +5975,18 @@ async function handle_webass_3d_message(e) {
     if (e.data["#sym:webassembly_job "] === 'pick_and_fit_3d') {
         append_3d_log('[main] Received pick_and_fit_3d result');
         document.getElementById("webassembly_message").innerText = "Peak picking & fitting complete.";
+        setTimeout(() => {
+            if (document.getElementById("webassembly_message").innerText === "Peak picking & fitting complete.") {
+                document.getElementById("webassembly_message").innerText = "";
+            }
+        }, 5000);
         set_loading_buttons_state(false);
 
         if (e.data.success && e.data.resultString) {
             let resultString = e.data.resultString;
+            fitted_peaks_text_data = resultString;
+            let dl_btn = document.getElementById("button_download_peaks_list");
+            if (dl_btn) dl_btn.disabled = false;
             console.log("Fitted Peaks Output:\n", resultString);
 
             try {
