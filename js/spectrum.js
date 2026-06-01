@@ -559,22 +559,8 @@ class spectrum {
          * this.datatype_indirect: 1 means real, 0 means complex
          */
         if (this.datatype_direct == 0 && this.datatype_indirect == 0) {
-            console.log("Complex data along both dimensions.");
             this.n_indirect /= 2; //complex data along both dimensions, per nmrPipe format, so we divide by 2
         }
-        else if (this.datatype_direct == 0 && this.datatype_indirect == 1) {
-            console.log("Complex data along direct dimension, real data along indirect dimension.");
-        }
-        else if (this.datatype_direct == 1 && this.datatype_indirect == 0) {
-            console.log("Complex data along indirect dimension, real data along direct dimension.");
-        }
-        else if (this.datatype_direct == 1 && this.datatype_indirect == 1) {
-            console.log("Real data along both dimensions.");
-        }
-
-        console.log("n_direct: ", this.n_direct);
-        console.log("n_indirect: ", this.n_indirect);
-        console.log("n_indirect2: ", this.n_indirect2);
 
         this.direct_ndx = this.dimorder1;
         this.indirect_ndx = this.dimorder2;
@@ -663,7 +649,6 @@ class spectrum {
             data_size_per_point = 4;
         }
 
-        console.log("data_size: ", data_size, "n_direct: ", this.n_direct, "n_indirect: ", this.n_indirect, "data_size_per_point: ", data_size_per_point);
         if (data_size !== this.n_direct * this.n_indirect * data_size_per_point) {
             this.error = "Data size does not match the size of the spectrum";
         }
@@ -742,7 +727,6 @@ class spectrum {
          * Make sure n_dim is 2 and n_complicity is 1 (real)
          */
         if (n_dim !== 2 || n_complicity !== 1) {
-            console.log('n_dim: ', n_dim, 'n_complicity: ', n_complicity, 'n_version: ', n_version, ' . Only 2D real data is supported');
             return;
         }
 

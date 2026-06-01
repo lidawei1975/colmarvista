@@ -218,7 +218,6 @@ class ldwmath {
         let variances_sorted = [...variances]; // Copy of variances array
         variances_sorted.sort((a, b) => a - b); // Sort in ascending order
         let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-        console.log("Noise level is " + noise_level + " using 1D variance estimation (quadratic fit).");
 
         /**
         * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
@@ -237,8 +236,6 @@ class ldwmath {
         variances_sorted = [...variances];  // Copy the updated variances array
         variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
         noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-
-        console.log("Final 1D noise level is estimated to be " + noise_level);
 
         return noise_level;
     }
@@ -286,7 +283,6 @@ class ldwmath {
         let variances_sorted = [...variances]; // Copy of variances array
         variances_sorted.sort((a, b) => a - b); // Sort in ascending order
         let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-        console.log("Noise level is " + noise_level + " using variance estimation.");
 
         /**
         * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
@@ -305,8 +301,6 @@ class ldwmath {
         variances_sorted = [...variances];  // Copy the updated variances array
         variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
         noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-
-        console.log("Final noise level is estimated to be " + noise_level);
 
         return noise_level;
     }
@@ -411,7 +405,6 @@ class ldwmath {
         let variances_sorted = [...variances]; // Copy of variances array
         variances_sorted.sort((a, b) => a - b); // Sort in ascending order
         let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-        console.log("Noise level is " + noise_level + " using variance estimation (quadratic fit).");
 
         /**
          * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
@@ -430,8 +423,6 @@ class ldwmath {
         variances_sorted = [...variances];  // Copy the updated variances array
         variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
         noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-
-        console.log("Final noise level is estimated to be " + noise_level);
 
         return noise_level;
     }
@@ -493,7 +484,6 @@ class ldwmath {
         let variances_sorted = [...variances]; // Copy of variances array
         variances_sorted.sort((a, b) => a - b); // Sort in ascending order
         let noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-        console.log("Noise level is " + noise_level + " using variance estimation.");
 
         /**
          * Loop through maximal_values and remove the ones that are larger than 10.0 * noise_level
@@ -512,8 +502,6 @@ class ldwmath {
         variances_sorted = [...variances];  // Copy the updated variances array
         variances_sorted.sort((a, b) => a - b);  // Sort in ascending order
         noise_level = Math.sqrt(variances_sorted[Math.floor(variances_sorted.length / 2)]);
-
-        console.log("Final noise level is estimated to be " + noise_level);
 
         return noise_level;
 
