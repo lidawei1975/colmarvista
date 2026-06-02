@@ -119,29 +119,6 @@ function finalizeAndPostResult(Module, fidInstance, job) {
     const nz = Number(fidInstance.get_ndata_indirect1());
     const ny = Number(fidInstance.get_ndata_indirect2());
 
-    const headerPtr = Number(fidInstance.get_nmrpipe_header_data());
-    const rrrPtr = Number(fidInstance.get_data_of_rrr());
-
-    const headerF32 = new Float32Array(Module.HEAPF32.subarray(headerPtr >> 2, (headerPtr >> 2) + 512));
-
-    const dimorder1 = headerF32[24] || 2;
-    const dimorder2 = headerF32[25] || 1;
-    const data_types = [headerF32[55], headerF32[51], headerF32[52], headerF32[53]];
-    const datatype_direct = data_types[dimorder1 - 1];
-    const datatype_indirect = data_types[dimorder2 - 1];
-
-    let data_size_per_point = 1;
-    if (datatype_direct === 0 && datatype_indirect === 1) {
-        data_size_per_point = 2;
-    } else if (datatype_direct === 1 && datatype_indirect === 0) {
-        data_size_per_point = 2;
-    } else if (datatype_direct === 0 && datatype_indirect === 0) {
-        data_size_per_point = 4;
-    }
-
-    const n = nx * ny * nz * data_size_per_point;
-    const rrrF32 = new Float32Array(Module.HEAPF32.subarray(rrrPtr >> 2, (rrrPtr >> 2) + n));
-
     postMessage({ stdout: '[webass_3d] extracting ft3 file...' });
     let ft3Bytes = null;
     try {
@@ -170,9 +147,9 @@ function finalizeAndPostResult(Module, fidInstance, job) {
         postMessage({ stdout: '[webass_3d] error extracting ft3: ' + e.message });
     }
 
-    postMessage({ stdout: '[webass_3d] posting result payload header=' + headerF32.length + ', rrr=' + rrrF32.length });
+    postMessage({ stdout: '[webass_3d] posting result payload...' });
 
-    const transferables = [headerF32.buffer, rrrF32.buffer];
+    const transferables = [];
     if (ft3Bytes) {
         transferables.push(ft3Bytes.buffer);
     }
@@ -181,8 +158,6 @@ function finalizeAndPostResult(Module, fidInstance, job) {
         [WEBASSEMBLY_JOB_KEY]: job,
         success: true,
         dims: { nx, ny, nz },
-        headerF32: headerF32,
-        rrrF32: rrrF32,
         ft3Bytes: ft3Bytes
     }, transferables);
     console.log('[webass_3d] process_fid_3d finished successfully');
@@ -199,7 +174,7 @@ self.onmessage = async function (event) {
         try {
             const cfg = event.data.cfg;
             const textInputs = event.data.textInputs;
-            const fidBytes = new Uint8Array(event.data.fidBytes);
+            let fidBytes = new Uint8Array(event.data.fidBytes);
             const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
             const forceNusFullProcess = !!(cfg && (cfg.debugNusRunFullProcess || cfg.nusDirectDimAutoPhase));
             const useNusStepPipeline = isNus && !forceNusFullProcess;
@@ -320,6 +295,7 @@ self.onmessage = async function (event) {
                         ok_fid = fid.read_bruker_fid_data_bytes_raw(ptr, fidBytes.length);
                     } finally {
                         Module._free(ptr);
+                        fidBytes = null; // Free early!
                     }
                 } else {
                     const v = bytesToVectorUChar(Module, fidBytes);
@@ -329,6 +305,7 @@ self.onmessage = async function (event) {
                         ok_fid = fid.read_bruker_fid_data_bytes(v);
                     } finally {
                         v.delete();
+                        fidBytes = null; // Free early!
                     }
                 }
                 if (!ok_fid) {
@@ -392,7 +369,7 @@ self.onmessage = async function (event) {
     else if (job === 'process_fid_3d_nus_step3') {
         try {
             const cfg = event.data.cfg || {};
-            const smileFt3Bytes = new Uint8Array(event.data.smileFt3Bytes || []);
+            let smileFt3Bytes = new Uint8Array(event.data.smileFt3Bytes || []);
 
             const applyCommonConfig = function (fidInstance, phaseTextToUse) {
                 fidInstance.run_zf(1, cfg.zfIndirect1, cfg.zfIndirect2);
@@ -451,6 +428,7 @@ self.onmessage = async function (event) {
                         read_ok = fidIndirect.read_ft3_from_buffer_raw(ptr, smileFt3Bytes.length);
                     } finally {
                         Module._free(ptr);
+                        smileFt3Bytes = null; // Free early!
                     }
                 } else {
                     if (typeof fidIndirect.read_ft3_from_buffer !== 'function') {
@@ -461,6 +439,7 @@ self.onmessage = async function (event) {
                         read_ok = fidIndirect.read_ft3_from_buffer(inVec);
                     } finally {
                         inVec.delete();
+                        smileFt3Bytes = null; // Free early!
                     }
                 }
                 if (!read_ok) {
@@ -510,6 +489,7 @@ self.onmessage = async function (event) {
                         final_ok = fidFinal.read_ft3_from_buffer_raw(ptr, bytesToLoad.length);
                     } finally {
                         Module._free(ptr);
+                        finalFt3Bytes = null; // Free early!
                     }
                 } else {
                     const finalVec = bytesToVectorUChar(Module, bytesToLoad);
@@ -517,6 +497,7 @@ self.onmessage = async function (event) {
                         final_ok = fidFinal.read_ft3_from_buffer(finalVec);
                     } finally {
                         finalVec.delete();
+                        finalFt3Bytes = null; // Free early!
                     }
                 }
                 if (!final_ok) {
@@ -535,7 +516,7 @@ self.onmessage = async function (event) {
         try {
             const cfg = event.data.cfg || {};
             const phaseTextToUse = event.data.phaseTextToUse;
-            const ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
+            let ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
 
             console.log('[webass_3d] Running job postprocess_ft3, bytes:', ft3Bytes.length, 'phase:', phaseTextToUse);
             postMessage({ stdout: '[webass_3d] postprocess_ft3 starting' });
@@ -580,6 +561,7 @@ self.onmessage = async function (event) {
                         read_ok = fid.read_ft3_from_buffer_raw(ptr, ft3Bytes.length);
                     } finally {
                         Module._free(ptr);
+                        ft3Bytes = null; // Free early!
                     }
                 } else {
                     if (typeof fid.read_ft3_from_buffer !== 'function') {
@@ -590,6 +572,7 @@ self.onmessage = async function (event) {
                         read_ok = fid.read_ft3_from_buffer(inVec);
                     } finally {
                         inVec.delete();
+                        ft3Bytes = null; // Free early!
                     }
                 }
                 if (!read_ok) {
@@ -613,7 +596,7 @@ self.onmessage = async function (event) {
     }
     else if (job === 'pick_and_fit_3d') {
         try {
-            const ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
+            let ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
             const noiseLevel = typeof event.data.noiseLevel !== 'undefined' ? parseFloat(event.data.noiseLevel) : 0.0;
             const scale1 = typeof event.data.scale1 !== 'undefined' ? parseFloat(event.data.scale1) : 6.0;
             const scale2 = typeof event.data.scale2 !== 'undefined' ? parseFloat(event.data.scale2) : 3.5;
@@ -625,36 +608,41 @@ self.onmessage = async function (event) {
             postMessage({ stdout: '[webass_3d] pick_and_fit_3d starting' });
 
             const app = new Module.spectrum_fit_3d();
-            app.set_noise_scales(noiseLevel, scale1, scale2);
-            app.set_noise_level_for_nus(false);
-            app.set_verbose(1); //minimal verbose output (default is 2, which is more verbose)
-
-            const size = ft3Bytes.length;
-            const ptr = Module._malloc(size);
-            Module.HEAPU8.set(ft3Bytes, ptr);
-
-            let readOk = false;
+            let resultString = "";
             try {
-                readOk = app.read_ft3_from_buffer_raw(ptr, size);
+                app.set_noise_scales(noiseLevel, scale1, scale2);
+                app.set_noise_level_for_nus(false);
+                app.set_verbose(1); //minimal verbose output (default is 2, which is more verbose)
+
+                const size = ft3Bytes.length;
+                const ptr = Module._malloc(size);
+                Module.HEAPU8.set(ft3Bytes, ptr);
+
+                let readOk = false;
+                try {
+                    readOk = app.read_ft3_from_buffer_raw(ptr, size);
+                } finally {
+                    Module._free(ptr);
+                    ft3Bytes = null; // Free early!
+                }
+
+                if (!readOk) {
+                    throw new Error("Failed to read spectrum data");
+                }
+
+                postMessage({ stdout: '[webass_3d] Running peak_picking...' });
+                app.peak_picking(""); //empty string means no output of peaks to file
+
+                postMessage({ stdout: '[webass_3d] Running partition_signal_regions...' });
+                app.partition_signal_regions(""); //empty string means no output of regions to file
+
+                postMessage({ stdout: '[webass_3d] Running iterative_fit_all_partitions...' });
+                app.iterative_fit_all_partitions(500000); //an arbitrary large number of partitions to make sure all peaks are fitted
+
+                resultString = app.get_fitted_peaks_string();
             } finally {
-                Module._free(ptr);
+                app.delete();
             }
-
-            if (!readOk) {
-                throw new Error("Failed to read spectrum data");
-            }
-
-            postMessage({ stdout: '[webass_3d] Running peak_picking...' });
-            app.peak_picking(""); //empty string means no output of peaks to file
-
-            postMessage({ stdout: '[webass_3d] Running partition_signal_regions...' });
-            app.partition_signal_regions(""); //empty string means no output of regions to file
-
-            postMessage({ stdout: '[webass_3d] Running iterative_fit_all_partitions...' });
-            app.iterative_fit_all_partitions(500000); //an arbitrary large number of partitions to make sure all peaks are fitted
-
-            const resultString = app.get_fitted_peaks_string();
-            app.delete();
 
             postMessage({
                 [WEBASSEMBLY_JOB_KEY]: 'pick_and_fit_3d',

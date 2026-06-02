@@ -190,6 +190,7 @@ var spectrum_proj_x = null;
 var theoretical_spectrum_proj_x = null;
 
 var global_3d_noise = 0.0;
+var show_peak_symbols = true;
 
 function evaluate_global_noise_redefinition() {
 
@@ -277,6 +278,12 @@ function reset_3d_dataset_state(keepNuclei = false) {
     current_slice_index = -1;
     theoretical_peaks_data = [];
     theoretical_spectra_3d = [];
+    let toggle_btn = document.getElementById("button_toggle_peak_symbols");
+    if (toggle_btn) {
+        toggle_btn.disabled = true;
+        toggle_btn.innerText = "Hide Peak Symbols";
+    }
+    show_peak_symbols = true;
 
     spectrum_xz = null;
     spectrum_yz = null;
@@ -307,6 +314,13 @@ function reset_3d_dataset_state(keepNuclei = false) {
     main_plot_proj = null;
     main_plot_proj_y = null;
     main_plot_proj_x = null;
+
+    window.last_processed_ft3_blob = null;
+    let ft3_processed_btn = document.getElementById('button_download_ft3_processed');
+    if (ft3_processed_btn) {
+        ft3_processed_btn.style.display = 'none';
+        ft3_processed_btn.onclick = null;
+    }
 
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
@@ -537,7 +551,7 @@ async function run_peak_fit_3d_workflow() {
     }
 
     append_3d_log("[main] Preparing spectrum buffer for peak picking & fitting...");
-    
+
     // Disable loading buttons to prevent concurrent actions
     set_loading_buttons_state(true);
 
@@ -567,7 +581,7 @@ async function run_peak_fit_3d_workflow() {
             scale1: scale1,
             scale2: scale2
         }, [ft3Bytes.buffer]);
-        
+
     } catch (err) {
         console.error(err);
         append_3d_log("[main-error] Peak picking/fitting startup failed: " + err.message);
@@ -1167,6 +1181,8 @@ async function load_theoretical_peaks() {
         fitted_peaks_text_data = text;
         let dl_btn = document.getElementById("button_download_peaks_list");
         if (dl_btn) dl_btn.disabled = false;
+        let toggle_btn = document.getElementById("button_toggle_peak_symbols");
+        if (toggle_btn) toggle_btn.disabled = false;
 
         let has_any_shape = peaks.some(p => p.has_shape);
         if (has_any_shape) {
@@ -1479,88 +1495,93 @@ function draw_slice(index, update_ortho_views = true) {
     }
 
     // Visualize Theoretical Peaks on 2D Plot
-    if (main_plot && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
-        let visible_peaks = [];
-        // Z-Index is 'index'. 
-        // Peak.z is in index units (if parsed as such? No, it seemed to be index/ppm mixed in user's file...)
-        // In the parsing logic: 'z' was parsed from 'Z_Center'. 
-        // User file: "Z_Center" = 24.047615. "Partition_Index" = 7. 
-        // Wait, is Z_Center index or ppm? 
-        // In `generate_theoretical_volume`: `let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));`
-        // This implies p.z is treated as index coordinate for the volume generation loop `for (let z = 0; z < nz; z++)`.
-        // So p.z IS index-based coordinate (or at least used directly against slice index).
-        // Let's assume p.z explains the slice index.
+    if (main_plot) {
+        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+            let visible_peaks = [];
+            // Z-Index is 'index'. 
+            // Peak.z is in index units (if parsed as such? No, it seemed to be index/ppm mixed in user's file...)
+            // In the parsing logic: 'z' was parsed from 'Z_Center'. 
+            // User file: "Z_Center" = 24.047615. "Partition_Index" = 7. 
+            // Wait, is Z_Center index or ppm? 
+            // In `generate_theoretical_volume`: `let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));`
+            // This implies p.z is treated as index coordinate for the volume generation loop `for (let z = 0; z < nz; z++)`.
+            // So p.z IS index-based coordinate (or at least used directly against slice index).
+            // Let's assume p.z explains the slice index.
 
-        // Also note: we need Z Width for the condition.
-        // User said: "show filled circle if peak Z < current Z but within Z_width"
-        // "show square if Z within +-1 of current Z"
-        // "show cross if peak Z > current Z but within Z_width"
+            // Also note: we need Z Width for the condition.
+            // User said: "show filled circle if peak Z < current Z but within Z_width"
+            // "show square if Z within +-1 of current Z"
+            // "show cross if peak Z > current Z but within Z_width"
 
-        let current_z = index;
+            let current_z = index;
 
-        for (let p of theoretical_peaks_data) {
-            let diff = p.z - current_z;
-            let abs_diff = Math.abs(diff);
+            for (let p of theoretical_peaks_data) {
+                let diff = p.z - current_z;
+                let abs_diff = Math.abs(diff);
 
-            // Width. Using FWHH_Z (in index units?)
-            // If z is index, fwhh_z should be too.
-            let width = p.fwhh_z; // Z_FWHH
-            // Define a range of visibility. Maybe 2 * width? Or just width?
-            // User said "within Z_width". Let's assume "distance <= width".
+                // Width. Using FWHH_Z (in index units?)
+                // If z is index, fwhh_z should be too.
+                let width = p.fwhh_z; // Z_FWHH
+                // Define a range of visibility. Maybe 2 * width? Or just width?
+                // User said "within Z_width". Let's assume "distance <= width".
 
-            let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
-            if (abs_diff <= 1.0) {
-                // Square
-                visible_peaks.push({
-                    x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
-                    y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                    symbol: 'square',
-                    color: symbol_color,
-                    size: 6,
-                    fill: false
-                });
-            } else if (Math.abs(diff) <= width) {
-                if (diff < 0) {
-                    // Peak Z < Current Z -> Filled Circle
+                let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
+                if (abs_diff <= 1.0) {
+                    // Square
                     visible_peaks.push({
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                        symbol: 'circle',
+                        symbol: 'square',
                         color: symbol_color,
-                        size: 5,
-                        fill: true
-                    });
-                } else {
-                    // Peak Z > Current Z -> Cross
-                    visible_peaks.push({
-                        x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
-                        y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                        symbol: 'cross',
-                        color: symbol_color,
-                        size: 5,
+                        size: 6,
                         fill: false
                     });
+                } else if (Math.abs(diff) <= width) {
+                    if (diff < 0) {
+                        // Peak Z < Current Z -> Filled Circle
+                        visible_peaks.push({
+                            x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                            y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
+                            symbol: 'circle',
+                            color: symbol_color,
+                            size: 5,
+                            fill: true
+                        });
+                    } else {
+                        // Peak Z > Current Z -> Cross
+                        visible_peaks.push({
+                            x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                            y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
+                            symbol: 'cross',
+                            color: symbol_color,
+                            size: 5,
+                            fill: false
+                        });
+                    }
                 }
             }
-        }
-        main_plot.add_extra_peaks(visible_peaks);
-
-        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-            let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
-            let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
-            let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
-            let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
-
-            if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
-                main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
-            } else {
-                main_plot.draw_bounding_box(); // Clear
-            }
+            main_plot.add_extra_peaks(visible_peaks);
         } else {
-            if (main_plot.draw_bounding_box) main_plot.draw_bounding_box();
+            main_plot.add_extra_peaks([]);
         }
     }
+
+    if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+        let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+        let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+        let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+        let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+
+        if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
+            main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
+        } else {
+            main_plot.draw_bounding_box(); // Clear
+        }
+    } else {
+        if (main_plot.draw_bounding_box) main_plot.draw_bounding_box();
+    }
 }
+
 
 /**
  * Handles orthogonal response.
@@ -3218,7 +3239,7 @@ function refresh_xz_view() {
         // Horizontal (X-axis): Direct Dimension (X)
         // Vertical (Y-axis): Z Dimension
         // Slice Dimension: Indirect Dimension (Y) -> current_y_index
-        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
             let visible_peaks_xz = [];
             let current_slice_y = current_y_index;
             let s = spectra_3d[0];
@@ -3261,22 +3282,26 @@ function refresh_xz_view() {
                 }
             }
             main_plot_xz.add_extra_peaks(visible_peaks_xz);
-
-            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-                let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
-                let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
-                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
-                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
-
-                if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
-                    // X-axis is X PPM, Y-axis is Z PPM
-                    main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
-                } else {
-                    main_plot_xz.draw_bounding_box();
-                }
-            } else {
-                if (main_plot_xz.draw_bounding_box) main_plot_xz.draw_bounding_box();
+        } else {
+            if (main_plot_xz) {
+                main_plot_xz.add_extra_peaks([]);
             }
+        }
+
+        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+            let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+            let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+            let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+            let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+
+            if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
+                // X-axis is X PPM, Y-axis is Z PPM
+                main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
+            } else {
+                main_plot_xz.draw_bounding_box();
+            }
+        } else {
+            if (main_plot_xz.draw_bounding_box) main_plot_xz.draw_bounding_box();
         }
     }
 }
@@ -3391,7 +3416,7 @@ function refresh_yz_view() {
         // Horizontal (X-axis): Z Dimension
         // Vertical (Y-axis): Indirect Dimension (Y)
         // Slice Dimension: Direct Dimension (X) -> current_x_index
-        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
             let visible_peaks_yz = [];
             let current_slice_x = current_x_index;
             let s = spectra_3d[0];
@@ -3434,22 +3459,26 @@ function refresh_yz_view() {
                 }
             }
             main_plot_yz.add_extra_peaks(visible_peaks_yz);
-
-            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
-                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
-                let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
-                let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
-
-                if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
-                    // X-axis is Z PPM, Y-axis is Y PPM
-                    main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
-                } else {
-                    main_plot_yz.draw_bounding_box();
-                }
-            } else {
-                if (main_plot_yz.draw_bounding_box) main_plot_yz.draw_bounding_box();
+        } else {
+            if (main_plot_yz) {
+                main_plot_yz.add_extra_peaks([]);
             }
+        }
+
+        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+            let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+            let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+            let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+            let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+
+            if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
+                // X-axis is Z PPM, Y-axis is Y PPM
+                main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
+            } else {
+                main_plot_yz.draw_bounding_box();
+            }
+        } else {
+            if (main_plot_yz.draw_bounding_box) main_plot_yz.draw_bounding_box();
         }
     }
 }
@@ -4553,6 +4582,31 @@ function build_reconstructed_volume_data(dims) {
     }
 
     return recon;
+}
+
+/**
+ * Toggles visibility of peak symbols in the 3 2D plots.
+ */
+function toggle_peak_symbols() {
+    show_peak_symbols = !show_peak_symbols;
+
+    let btn = document.getElementById("button_toggle_peak_symbols");
+    if (btn) {
+        btn.innerText = show_peak_symbols ? "Hide Peak Symbols" : "Show Peak Symbols";
+    }
+
+    // Redraw slice to update main plot peaks
+    if (current_slice_index >= 0) {
+        draw_slice(current_slice_index, false); // Do not center/pan ortho plots
+    }
+
+    // Redraw orthogonal views to update their peaks
+    if (main_plot_xz) {
+        refresh_xz_view();
+    }
+    if (main_plot_yz) {
+        refresh_yz_view();
+    }
 }
 
 /**
@@ -6076,7 +6130,7 @@ async function handle_webass_3d_message(e) {
         return;
     }
     if (e.data["#sym:webassembly_job "] === 'process_fid_3d_nus_half_ready') {
-        const halfBytes = e.data.halfFt3Bytes instanceof Uint8Array
+        let halfBytes = e.data.halfFt3Bytes instanceof Uint8Array
             ? e.data.halfFt3Bytes
             : new Uint8Array(e.data.halfFt3Bytes);
         pending_nus_cfg_3d = e.data.cfg || null;
@@ -6099,6 +6153,8 @@ async function handle_webass_3d_message(e) {
                 cfg: pending_nus_cfg_3d,
                 smileFt3Bytes: halfBytes
             }, [halfBytes.buffer]);
+            halfBytes = null;
+            e.data.halfFt3Bytes = null;
             return;
         }
 
@@ -6111,6 +6167,8 @@ async function handle_webass_3d_message(e) {
             nuslist_as_string: e.data.nuslistText || '',
             smile_command: smileCommand
         }, [halfBytes.buffer]);
+        halfBytes = null;
+        e.data.halfFt3Bytes = null;
         return;
     }
     if (e.data["#sym:webassembly_job "] === 'pick_and_fit_3d') {
@@ -6128,6 +6186,8 @@ async function handle_webass_3d_message(e) {
             fitted_peaks_text_data = resultString;
             let dl_btn = document.getElementById("button_download_peaks_list");
             if (dl_btn) dl_btn.disabled = false;
+            let toggle_btn = document.getElementById("button_toggle_peak_symbols");
+            if (toggle_btn) toggle_btn.disabled = false;
             console.log("Fitted Peaks Output:\n", resultString);
 
             try {
@@ -6184,15 +6244,23 @@ async function handle_webass_3d_message(e) {
             ? "3D post-processing complete. Rendering planes..."
             : "3D processing complete. Rendering planes...";
         const dims = e.data.dims;
-        const header = e.data.headerF32; // Float32Array 512 elements
-        const rrr = e.data.rrrF32; // Float32Array
 
         if (e.data.ft3Bytes) {
+            window.last_processed_ft3_blob = new Blob([e.data.ft3Bytes], { type: 'application/octet-stream' });
             let btn = document.getElementById('button_download_ft3_processed');
             if (btn) {
                 btn.style.display = 'inline-block';
                 btn.onclick = function () {
-                    download_binary_file(e.data.ft3Bytes, 'processed.ft3');
+                    if (window.last_processed_ft3_blob) {
+                        const url = URL.createObjectURL(window.last_processed_ft3_blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'processed.ft3';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                    }
                 };
             }
         }
@@ -6213,10 +6281,9 @@ async function handle_webass_3d_message(e) {
             if (e.data["#sym:webassembly_job "] !== "postprocess_ft3" && current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
                 append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
                 try {
-                    const slicedBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + ft3Data.byteLength);
                     const result = await NUS3DPhasePipeline.runFromFt3({
                         tf: window.tf,
-                        ft3ArrayBuffer: slicedBuffer,
+                        ft3ArrayBuffer: ft3Data.buffer,
                         model: tfjs_normal_model,
                         largeModel: tfjs_large_model,
                         modelUrl: 'js/model22_tfjs/model.json',
@@ -6235,9 +6302,8 @@ async function handle_webass_3d_message(e) {
                     const leftEdge = lr[0];
                     const rightEdge = lr[1];
 
-                    // Read header to get spectral parameters for local scaling
-                    const headerBufForPhase = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
-                    const h = new Float32Array(headerBufForPhase, 0, 512);
+                    // Read header to get spectral parameters for local scaling (construct Float32Array directly from offset)
+                    const h = new Float32Array(ft3Data.buffer, ft3Data.byteOffset, 512);
                     const sw = h[100];
                     const frq = h[119];
                     const ref = h[101];
@@ -6316,6 +6382,8 @@ async function handle_webass_3d_message(e) {
                             ft3Bytes: ft3Data
                         }, [ft3Data.buffer]);
 
+                        ft3Data = null;
+                        e.data.ft3Bytes = null;
                         return;
                     }
 
@@ -6343,6 +6411,8 @@ async function handle_webass_3d_message(e) {
                             load_fid_3d_file();
                         }, 100);
 
+                        ft3Data = null;
+                        e.data.ft3Bytes = null;
                         return;
                     }
 
@@ -6352,8 +6422,7 @@ async function handle_webass_3d_message(e) {
                 }
             }
 
-            let headerBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
-            let header = new Float32Array(headerBuffer, 0, 512);
+            let header = new Float32Array(ft3Data.buffer, ft3Data.byteOffset, 512);
 
             let n_direct = header[99];
             let n_indirect = header[219];
@@ -6387,7 +6456,7 @@ async function handle_webass_3d_message(e) {
                 data_start_offset += 2048;
             }
 
-            let headerUint8 = new Uint8Array(headerBuffer);
+            let headerUint8 = new Uint8Array(ft3Data.buffer, ft3Data.byteOffset, 2048);
 
             for (let i = 0; i < num_planes; i++) {
                 try {
@@ -6419,6 +6488,8 @@ async function handle_webass_3d_message(e) {
                     append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
                 }
             }
+            ft3Data = null;
+            e.data.ft3Bytes = null;
         } else {
             console.error("Missing ft3Bytes in process_fid_3d result.");
         }

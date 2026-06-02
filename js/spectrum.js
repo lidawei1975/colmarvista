@@ -494,7 +494,7 @@ class spectrum {
 
         this.spectrum_origin = spectrum_origin;
 
-        this.header = new Float32Array(arrayBuffer, 0, 512);
+        this.header = new Float32Array(arrayBuffer.slice(0, 2048), 0, 512);
 
         this.dimorder1 = this.header[nmrpipe_dictionary.FDDIMORDER1];
         this.dimorder2 = this.header[nmrpipe_dictionary.FDDIMORDER2];
