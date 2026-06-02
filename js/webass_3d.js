@@ -356,6 +356,7 @@ self.onmessage = async function (event) {
                         cfg: cfg,
                         nuslistText: textInputs.nuslist || ''
                     }, [halfFt3Bytes.buffer]);
+                    halfFt3Bytes = null;
                 }
             } finally {
                 fid.delete();
@@ -408,7 +409,6 @@ self.onmessage = async function (event) {
             };
 
             const fidIndirect = new Module.fid_3d();
-            let finalFt3Bytes;
             try {
                 const indirectPhaseText = parseIndirectPhaseText(cfg.phaseText);
                 applyCommonConfig(fidIndirect, indirectPhaseText);
@@ -452,60 +452,9 @@ self.onmessage = async function (event) {
                     throw new Error('indirect_only_process failed');
                 }
 
-                if (typeof fidIndirect.serialize_ft3_to_internal_buffer === 'function') {
-                    if (fidIndirect.serialize_ft3_to_internal_buffer()) {
-                        const ptr = Number(fidIndirect.get_ft3_buffer_ptr());
-                        const size = Number(fidIndirect.get_ft3_buffer_size());
-                        finalFt3Bytes = new Uint8Array(Module.HEAPU8.slice(ptr, ptr + size));
-                    } else {
-                        throw new Error('serialize_ft3_to_internal_buffer failed');
-                    }
-                } else {
-                    if (typeof fidIndirect.write_ft3_to_buffer !== 'function') {
-                        throw new Error('fid_3d.write_ft3_to_buffer is not available in this WebAssembly build');
-                    }
-                    const outVec = new Module.VectorUChar();
-                    try {
-                        if (!fidIndirect.write_ft3_to_buffer(outVec)) {
-                            throw new Error('write_ft3_to_buffer failed');
-                        }
-                        finalFt3Bytes = vectorUCharToUint8Array(outVec);
-                    } finally {
-                        outVec.delete();
-                    }
-                }
+                finalizeAndPostResult(Module, fidIndirect, 'process_fid_3d');
             } finally {
                 fidIndirect.delete();
-            }
-
-            const fidFinal = new Module.fid_3d();
-            try {
-                let final_ok = false;
-                const bytesToLoad = finalFt3Bytes || new Uint8Array();
-                if (typeof fidFinal.read_ft3_from_buffer_raw === 'function') {
-                    const ptr = Number(Module._malloc(bytesToLoad.length));
-                    Module.HEAPU8.set(bytesToLoad, ptr);
-                    try {
-                        final_ok = fidFinal.read_ft3_from_buffer_raw(ptr, bytesToLoad.length);
-                    } finally {
-                        Module._free(ptr);
-                        finalFt3Bytes = null; // Free early!
-                    }
-                } else {
-                    const finalVec = bytesToVectorUChar(Module, bytesToLoad);
-                    try {
-                        final_ok = fidFinal.read_ft3_from_buffer(finalVec);
-                    } finally {
-                        finalVec.delete();
-                        finalFt3Bytes = null; // Free early!
-                    }
-                }
-                if (!final_ok) {
-                    throw new Error('read_ft3_from_buffer failed for final output');
-                }
-                finalizeAndPostResult(Module, fidFinal, 'process_fid_3d');
-            } finally {
-                fidFinal.delete();
             }
         } catch (err) {
             console.error('[webass_3d] process_fid_3d_nus_step3 failed', err);

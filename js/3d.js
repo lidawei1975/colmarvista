@@ -6564,6 +6564,8 @@ function handle_webass_smile_3d_message(e) {
             cfg: pending_nus_cfg_3d,
             smileFt3Bytes: smileBytes
         }, [smileBytes.buffer]);
+        smileBytes = null;
+        e.data.spectrum_data = null;
         return;
     }
 
