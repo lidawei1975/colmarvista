@@ -712,6 +712,12 @@ Intended use in webpage:
         for (const flatIdx of order) {
           const r = Math.floor(flatIdx / ni2);
           const c = flatIdx % ni2;
+          
+          // Exclude all edges (<=16 distance to edge)
+          if (r <= 16 || r >= ni1 - 1 - 16 || c <= 16 || c >= ni2 - 1 - 16) {
+            continue;
+          }
+
           let ok = true;
           for (const pair of selected) {
             const sr = pair[0];
@@ -729,6 +735,12 @@ Intended use in webpage:
           for (const flatIdx of order) {
             const r = Math.floor(flatIdx / ni2);
             const c = flatIdx % ni2;
+            
+            // Exclude all edges (<=16 distance to edge)
+            if (r <= 16 || r >= ni1 - 1 - 16 || c <= 16 || c >= ni2 - 1 - 16) {
+              continue;
+            }
+
             let exists = false;
             for (const pair of selected) {
               if (pair[0] === r && pair[1] === c) {
@@ -742,7 +754,9 @@ Intended use in webpage:
         }
 
         if (selected.length === 0) {
-          for (let k = 0; k < topN; k += 1) selected.push([0, 0]);
+          const midR = Math.floor(ni1 / 2);
+          const midC = Math.floor(ni2 / 2);
+          for (let k = 0; k < topN; k += 1) selected.push([midR, midC]);
         } else if (selected.length < topN) {
           const last = selected[selected.length - 1];
           while (selected.length < topN) selected.push(last);
