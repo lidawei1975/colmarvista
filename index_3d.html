@@ -47,8 +47,8 @@
 
         <div id="section1" style=" Padding: 10px; width: 100%">
             <div>
-                <h1>COLMARvista 3D: 3D NMR Viewer</h1>
-                <h2>Load a 3D spectrum from a series of 2D .ft2 files (planes).</h2>
+                <h1>COLMARvista 3D</h1>
+                <h2>3D NMR Spect Viewer and Processing, including NUS</h2>
             </div>
         </div>
 
@@ -57,8 +57,12 @@
             <div id="fid_file_area" class="drop-area-neighbor"
                 style="width: 98%; box-sizing: border-box; overflow: clip; height: auto;">
                 <span>
-                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
-                        domain data for processing (3D)</p>
+                    <p
+                        style="margin: 0; display: flex; align-items: center; gap: 8px; font-weight: bold; font-family: sans-serif;">
+                        <button id="button_minimize_fid_area" style="margin: 0; padding: 2px 8px;"
+                            onclick="minimize_fid_area(this)">+</button>
+                        Bruker time domain data for processing (3D)
+                    </p>
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
@@ -101,6 +105,9 @@
                                 value="59.1" step="any" style="width: 60px;">
                             <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox"
                                     id="normal_direct_dim_auto_phase_3d"> Automatic phase correction</label>
+                            <label id="label_show_spectrum_artifact_3d"
+                                style="margin-left: 10px; cursor: pointer; color: gray;"><input type="checkbox"
+                                    id="show_spectrum_artifact_3d" disabled> Show spectrum with artifact</label>
                             <br>
                             <label for="extract_direct_from">Extract(ppm): from </label>
                             <input type="number" name="extract_direct_from" id="extract_direct_from" value="11.3"
@@ -157,7 +164,7 @@
                             <input type="text" id="td_polynomial_order_3d" value="4 -1 -1" size="14">
                             &nbsp;&nbsp;
                             <label for="frq_polynomial_order_3d">Poly f2 (f2 f1 f3): </label>
-                            <input type="text" id="frq_polynomial_order_3d" value="2 2 2" size="14">
+                            <input type="text" id="frq_polynomial_order_3d" value="4 1 1" size="14">
                         </span>
                         <br>
                         <br>
@@ -193,7 +200,7 @@
                         <form id="ft3_file_form" action="" enctype="multipart/form-data">
                             <label for="userfile_ft3">Select a single 3D spectral file (.ft3): </label>
                             <input type="file" id="userfile_ft3" accept=".ft3"><br>
-                            <span class="information"> The file must contain a single 2D header followed by concatenated
+                            <span class="information"> The file must contain a single header followed by concatenated
                                 planes.</span><br>
                             <input type="submit" id="button_ft3_process" value="Upload and Process .ft3 Spectrum"></br>
                         </form>
@@ -224,6 +231,9 @@
                 <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj"
                         onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
                 <button onclick="run_auto_phase_on_loaded_spectrum()">Auto Phase</button>
+                <button id="button_peak_fit_3d" onclick="run_peak_fit_3d_workflow()">Peak Picking & Fitting</button>
+                <button id="button_download_peaks_list" onclick="download_fitted_peaks_list()" disabled>Download Peaks List</button>
+                <button id="button_toggle_peak_symbols" onclick="toggle_peak_symbols()" disabled>Hide Peak Symbols</button>
                 <!-- Hidden list, used by myplot if needed, or we might not use it -->
                 <ol id="spectra_list_ol" type="1"></ol>
             </div>
@@ -246,27 +256,27 @@
                         <!-- Trace Z -->
                         <div
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div
+                            <div id="trace_z_label"
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                                1D Trace Along Z (at XY center)
+                                <span>1D Trace Along z (at xy center)</span>
                             </div>
                             <svg id="trace_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
                         <!-- Trace Y -->
                         <div
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div
+                            <div id="trace_y_label"
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                                1D Trace Along Y (at XZ center)
+                                <span>1D Trace Along y (at xz center)</span>
                             </div>
                             <svg id="trace_y_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
                         </div>
                         <!-- Trace X -->
                         <div
                             style="width: 400px; height: 160px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column;">
-                            <div
+                            <div id="trace_x_label"
                                 style="font-size: 13px; font-weight: bold; padding: 4px 8px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
-                                <span>1D Trace Along X (at YZ center)</span>
+                                <span>1D Trace Along x (at yz center)</span>
                                 <span style="font-weight: normal; font-size: 11px;">
                                     P0: <span id="trace_x_ph0_val">0.0</span>,
                                     P1: <span id="trace_x_ph1_val">0.0</span>,
@@ -303,6 +313,18 @@
                                 factor: </label>
                             <input type="number" id="contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
                             <button onclick="update_contour_levels()">Update Contours</button>
+                            <br>
+                            <span style="font-weight: bold; margin-left: 10px;">Contour Colors:</span>
+                            <label for="color_exp_pos" style="margin-left: 10px;">Positive Exp:</label>
+                            <input type="color" id="color_exp_pos" value="#0000ff" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_exp_neg" style="margin-left: 10px;">Negative Exp:</label>
+                            <input type="color" id="color_exp_neg" value="#00ff00" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_theo_pos" style="margin-left: 10px;">Positive Theo:</label>
+                            <input type="color" id="color_theo_pos" value="#ff0000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_theo_neg" style="margin-left: 10px;">Negative Theo:</label>
+                            <input type="color" id="color_theo_neg" value="#000000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <label for="color_peak_symbol" style="margin-left: 10px;">Peak Symbol:</label>
+                            <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()" style="vertical-align: middle;">
                         </div>
 
                         <div
@@ -310,10 +332,10 @@
                             <!-- XY Plane -->
                             <div
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>XY Plane</h4>
+                                <h4>xy Plane</h4>
                                 <div id="slice_control_area"
                                     style="width: 100%; padding: 5px; display: none; margin-bottom: 5px; text-align: center;">
-                                    <label for="slice_slider" style="font-weight: bold;">Z-Plane: </label>
+                                    <label for="slice_slider" style="font-weight: bold;">z-Plane: </label>
                                     <button id="prev_slice">&lt;</button>
                                     <input type="range" id="slice_slider" min="0" max="0" value="0"
                                         style="width: 200px; vertical-align: middle;">
@@ -337,9 +359,9 @@
                             <!-- XZ Plane -->
                             <div id="main_plot_area_xz"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>XZ Plane</h4>
+                                <h4>xz Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <label for="slider_xz" style="font-weight: bold;">Y Slice: </label>
+                                    <label for="slider_xz" style="font-weight: bold;">y Slice: </label>
                                     <button id="prev_slice_xz">&lt;</button>
                                     <input type="range" id="slider_xz" style="width: 200px; vertical-align: middle;">
                                     <button id="next_slice_xz">&gt;</button>
@@ -362,9 +384,9 @@
                             <!-- YZ Plane -->
                             <div id="main_plot_area_yz"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                                <h4>YZ Plane</h4>
+                                <h4>zy Plane</h4>
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <label for="slider_yz" style="font-weight: bold;">X Slice: </label>
+                                    <label for="slider_yz" style="font-weight: bold;">x Slice: </label>
                                     <button id="prev_slice_yz">&lt;</button>
                                     <input type="range" id="slider_yz" style="width: 200px; vertical-align: middle;">
                                     <button id="next_slice_yz">&gt;</button>
@@ -393,7 +415,7 @@
                     style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
                     <h2
                         style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
-                        Z-Projection (Averaged) View</h2>
+                        z-Projection (Averaged) View</h2>
 
                     <div
                         style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
@@ -403,7 +425,7 @@
                                 style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
                                 <div id="trace_proj_x_label"
                                     style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>1D Trace Along X (at Projection center)</span>
+                                    <span>1D Trace Along x (at y-Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
                                         P0: <span id="trace_proj_x_ph0_val">0.0</span>,
                                         P1: <span id="trace_proj_x_ph1_val">0.0</span>,
@@ -418,10 +440,7 @@
 
                             <div id="main_plot_area_proj"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
-                                <h4>XY Projection</h4>
-                                <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <span style="font-weight: bold;">Full Z-Range Average</span>
-                                </div>
+
                                 <div id="proj_contour_controls"
                                     style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
                                     <span id="proj_noise_level_display" style="font-weight: bold;">Proj. Noise: -</span>
@@ -459,7 +478,7 @@
                     style="width: 98%; box-sizing: border-box; border: 2px solid #2a9d8f; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: 30px; display: none;">
                     <h2
                         style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #e9c46a; padding-bottom: 10px;">
-                        Y-Projection (Averaged) View</h2>
+                        y-Projection (Averaged) View</h2>
 
                     <div
                         style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
@@ -469,7 +488,7 @@
                                 style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
                                 <div id="trace_proj_y_x_label"
                                     style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>1D Trace Along X (at Y-Projection center)</span>
+                                    <span>1D Trace Along x (at z-Projection center)</span>
                                     <span style="font-weight: normal; font-size: 12px;">
                                         P0: <span id="trace_proj_y_x_ph0_val">0.0</span>,
                                         P1: <span id="trace_proj_y_x_ph1_val">0.0</span>,
@@ -484,10 +503,7 @@
 
                             <div id="main_plot_area_proj_y"
                                 style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
-                                <h4>XZ Projection</h4>
-                                <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
-                                    <span style="font-weight: bold;">Full Y-Range Average</span>
-                                </div>
+
                                 <div id="proj_y_contour_controls"
                                     style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
                                     <span id="proj_y_noise_level_display" style="font-weight: bold;">Proj Y Noise:
@@ -522,6 +538,60 @@
                     </div>
                 </div>
 
+                <!-- Section 3: Projected 2D View (x-Projection, sum over direct) -->
+                <div id="container_projection_x_view"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #e9c46a; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #264653; border-bottom: 2px solid #2a9d8f; padding-bottom: 10px;">
+                        x-Projection (Averaged) View</h2>
+
+                    <div
+                        style="display: flex; flex-direction: row; gap: 20px; justify-content: center; align-items: flex-start;">
+                        <!-- Trace for Projection -->
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div
+                                style="width: 600px; height: 200px; resize: both; overflow: hidden; min-height: 120px; border: 1px solid #ccc; background: #fafafa; display: flex; flex-direction: column; border-radius: 6px;">
+                                <div id="trace_proj_z_label"
+                                    style="font-size: 14px; font-weight: bold; padding: 6px 10px; border-bottom: 1px solid #e0e0e0; background: #eee; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>1D Trace Along y (at z-Projection center)</span>
+                                </div>
+                                <svg id="trace_proj_z_svg" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                            </div>
+
+                            <div id="main_plot_area_proj_x"
+                                style="display:flex; flex-direction:column; align-items: center; border: 1px solid #ddd; padding: 15px; border-radius: 8px;">
+
+                                <div id="proj_x_contour_controls"
+                                    style="width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; text-align: center;">
+                                    <span id="proj_x_noise_level_display" style="font-weight: bold;">Proj. X Noise:
+                                        -</span>
+                                    <button onclick="estimate_proj_x_noise()">Estimate Noise</button>
+                                    <label>Start (x noise): </label><input type="number"
+                                        id="proj_x_contour_start_multiplier" value="10.0" step="0.5"
+                                        style="width: 50px;">
+                                    <label>Scale: </label><input type="number" id="proj_x_contour_scale_factor"
+                                        value="1.4" step="0.05" style="width: 50px;">
+                                    <button onclick="update_proj_x_contour_levels()">Update</button>
+                                    <button onclick="reset_proj_x_zoom()" style="margin-left: 10px;">Reset Zoom</button>
+                                </div>
+                                <div id="vis_parent_proj_x" class="resizable"
+                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                    <div class="plot-info-bar"
+                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                        <span id="infor_proj_x">Information</span>
+                                    </div>
+                                    <div id="canvas_parent_proj_x"
+                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                            id="canvas_proj_x"></canvas></div>
+                                    <div id="svg_parent_proj_x"
+                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                            id="visualization_proj_x"></svg></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Section 4: 3D Visualization -->
                 <div id="container_3d_view"
                     style="width: 98%; box-sizing: border-box; border: 2px solid #e76f51; padding: 2px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;">
@@ -538,6 +608,15 @@
                             <div
                                 style="font-weight: bold; border: 1px solid #ccc; padding: 2px 2px; border-radius: 4px; background: #fff;">
                                 Center: <span id="center_info">-</span></div>
+
+                            <div id="picked_peak_container"
+                                style="font-weight: bold; border: 1px solid rgba(217, 83, 79, 0.3); padding: 2px 6px; border-radius: 4px; background: rgba(255, 245, 245, 0.9); box-shadow: 0 4px 12px rgba(217, 83, 79, 0.15); display: none; align-items: center; gap: 8px; backdrop-filter: blur(4px); transition: all 0.3s ease;">
+                                <span style="color: #d9534f; font-size: 14px;">📍 Picked Peak:</span>
+                                <span id="picked_peak_info" style="color: #333; font-size: 13px;">-</span>
+                                <button type="button" onclick="document.getElementById('picked_peak_container').style.display='none'"
+                                    style="background: transparent; border: none; color: #999; cursor: pointer; font-size: 14px; font-weight: bold; padding: 0 4px; margin-left: 5px; line-height: 1;"
+                                    onmouseover="this.style.color='#d9534f'" onmouseout="this.style.color='#999'">×</button>
+                            </div>
 
                             <div
                                 style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 20px;">

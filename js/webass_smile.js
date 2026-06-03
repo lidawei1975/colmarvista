@@ -52,6 +52,7 @@ onmessage = function (e) {
 
         Module['FS_createDataFile']('/', 'nuslist', e.data.nuslist_as_string || '', true, true, true);
         Module['FS_createDataFile']('/', 'half.ft3', e.data.spectrum_data, true, true, true);
+        e.data.spectrum_data = null;
 
         const default3dCommand = "-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread 1  -maxMem 2.0 -xApod SP -xQ1 0.50 -xQ2 0.896 -xQ3 3.684 -xELB 0.0 -xGLB 0.0 -yApod SP -yQ1 0.50 -yQ2 0.896 -yQ3 3.684 -yELB 0.0 -yGLB 0.0 -xT 100 -xP0 90.0 -xP1 0. -yT 90 -yP0 0.0 -yP1 0.0 -yAlt -out smile.ft3 -ov";
         const command = (typeof e.data.smile_command === 'string' && e.data.smile_command.trim().length > 0)
@@ -91,7 +92,7 @@ onmessage = function (e) {
         postMessage({
             spectrum_data: output,
             file_type: 'smile_3d'
-        });
+        }, [output.buffer]);
 
         console.log('Smile worker finished processing the 3D spectrum data');
         return;
@@ -142,6 +143,7 @@ onmessage = function (e) {
          *  spectrum_data: arrayBuffer,
         */
         Module['FS_createDataFile']('/', 'test_direct.ft2', e.data.spectrum_data, true, true, true);
+        e.data.spectrum_data = null;
 
 
         /**
@@ -186,7 +188,7 @@ onmessage = function (e) {
              */
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
-        });
+        }, [output.buffer]);
     }
 
     console.log('Smile worker finished processing the spectrum data');

@@ -1,135 +1,3 @@
-/**
- * =========================================================================================
- * COLMARVIEW 3D FID PROCESSING WORKFLOW DOCUMENTATION
- * =========================================================================================
- * 
- * This file handles the main-thread orchestration of the 3D NMR processing pipeline.
- * It manages the coordination between the user interface, the WebAssembly C++ worker
- * (`webass_3d.js`), the SMILE worker (`webass_smile.js`), and the TensorFlow.js
- * auto-phasing models.
- * 
- * Depending on the dataset type (NUS vs. Non-NUS) and whether "Automatic Phase Correction"
- * is checked in the UI, the pipeline takes one of the four paths outlined below:
- * 
- * -----------------------------------------------------------------------------------------
- * PATH 1: Non-NUS, Automatic Phase Correction DISABLED (Manual Phasing)
- * -----------------------------------------------------------------------------------------
- *   1. User clicks "Process FID" with Auto-Phase unchecked.
- *   2. `load_fid_3d_file()` builds the configuration object `cfg` using UI values.
- *   3. It posts a `process_fid_3d` job to `web_worker_3d` (the main WASM worker).
- *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is false:
- *      - It calls C++ `set_final_frq_polynorminal_order` with the UI baseline orders.
- *      - It calls C++ `full_process()` to perform a single-pass 3D Fourier Transform.
- *      - It extracts the phased/baseline-corrected spectrum and posts the result back.
- *   5. The main thread receives the final spectrum and renders it immediately.
- * 
- * -----------------------------------------------------------------------------------------
- * PATH 2: Non-NUS, Automatic Phase Correction ENABLED
- * -----------------------------------------------------------------------------------------
- *   1. User clicks "Process FID" with Auto-Phase checked.
- *   2. `load_fid_3d_file()` prepares the first-pass (Phase-Check Pass) config:
- *      - Caches the UI baseline orders in `cfg.userFrqPolyOrder`.
- *      - Overrides `cfg.frqPolyOrder` to `[-1, -1, -1]` to bypass baseline correction.
- *      - Forces imaginary data retention in the direct dimension (to allow phasing).
- *   3. It posts the `process_fid_3d` job to `web_worker_3d`.
- *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is false:
- *      - It calls C++ `set_final_frq_polynorminal_order(-1, -1, -1)` (no baseline applied).
- *      - It calls C++ `full_process()` and returns the unbaselined spectrum.
- *   5. The main thread receives the result and runs TF.js on the unbaselined buffer:
- *      - Auto-phase model calculates the local direct-dimension phase angles (local p0/p1).
- *      - Extrapolates local values to global full-spectrum values (`ui_p0`, `ui_p1`).
- *      - Updates the UI manual phase boxes with the extrapolated values.
- *      - Unchecks the UI Auto-Phase checkbox.
- *   6. The main thread immediately launches a post-processing pass (`postprocess_ft3` job):
- *      - Sends the unbaselined spectrum buffer, the calculated local phase angles, and `cfg.userFrqPolyOrder`.
- *   7. Inside the worker (`webass_3d.js`) for job `postprocess_ft3`:
- *      - It loads the unbaselined extracted spectrum.
- *      - Calls C++ `set_final_frq_polynorminal_order` with the cached user baseline orders.
- *      - Applies the calculated local phase correction in C++.
- *      - Calls C++ `postprocess_loaded_ft3()` to run the final baseline correction.
- *      - Discards direct imaginary data (if required) and returns the final spectrum.
- *   8. The main thread receives the final processed spectrum and renders it.
- * 
- * -----------------------------------------------------------------------------------------
- * PATH 3: NUS, Automatic Phase Correction DISABLED (Manual Phasing)
- * -----------------------------------------------------------------------------------------
- *   1. User clicks "Process FID" with Auto-Phase unchecked.
- *   2. `load_fid_3d_file()` builds `cfg` from the UI.
- *   3. It posts a `process_fid_3d` job to `web_worker_3d`.
- *   4. Inside the worker (`webass_3d.js`), since `useNusStepPipeline` is true (isNus && no force full):
- *      - It calls C++ `set_frq_domain_polynorminal_order` with the UI baseline orders.
- *      - It calls C++ `direct_only_process()` (Step 2 of NUS pipeline).
- *      - Posts back a `process_fid_3d_nus_half_ready` job containing the direct-phased half-spectrum.
- *   5. The main thread receives the half-processed spectrum and sends it to the SMILE worker (`webass_smile.js`).
- *   6. The SMILE worker performs reconstruction on the missing data points and returns a `smile.ft3` buffer.
- *   7. The main thread receives the SMILE result and posts a `process_fid_3d_nus_step3` job to the WASM worker.
- *   8. Inside the worker (`webass_3d.js`) for job `process_fid_3d_nus_step3`:
- *      - It loads the SMILE reconstructed buffer.
- *      - Calls C++ `set_final_frq_polynorminal_order` with the UI baseline orders.
- *      - Calls C++ `indirect_only_process()`.
- *      - Finalizes and posts back the completed spectrum.
- *   9. The main thread receives the final spectrum and renders it.
- * 
- * -----------------------------------------------------------------------------------------
- * PATH 4: NUS, Automatic Phase Correction ENABLED
- * -----------------------------------------------------------------------------------------
- *   1. User clicks "Process FID" with Auto-Phase checked.
- *   2. `load_fid_3d_file()` prepares the first-pass (Phase-Check Pass) config:
- *      - Caches the UI baseline orders in `cfg.userFrqPolyOrder`.
- *      - Overrides `cfg.frqPolyOrder` to `[-1, -1, -1]` to bypass baseline correction.
- *      - Overrides `cfg.debugNusRunFullProcess = true` and `cfg.nusDirectDimAutoPhase = true`.
- *        This forces the worker to run the full-process route (skipping SMILE) so the resulting spectrum
- *        contains the expected sampling artifacts for the TF.js model to recognize.
- *   3. It posts the `process_fid_3d` job to `web_worker_3d`.
- *   4. Inside the worker (`webass_3d.js`), because `forceNusFullProcess` is true:
- *      - It calls C++ `set_final_frq_polynorminal_order(-1, -1, -1)` (no baseline applied).
- *      - It calls C++ `full_process()`, which generates a fast reconstruction with artifacts.
- *      - It finalizes and returns the unbaselined spectrum.
- *   5. The main thread receives the result and runs TF.js:
- *      - Model calculates the local direct-dimension phase angles (local p0/p1).
- *      - Extrapolates local values to global full-spectrum values (`ui_p0`, `ui_p1`).
- *      - Updates the UI manual phase boxes with the extrapolated values.
- *      - Unchecks the UI Auto-Phase checkbox.
- *   6. The main thread automatically triggers a fresh re-run of `load_fid_3d_file()` after a 100ms delay.
- *      Since Auto-Phase is now unchecked, this re-run falls back to **Path 3** (the standard multi-step NUS pipeline)
- *      and processes the spectrum from scratch using the newly calculated phase values.
- * =========================================================================================
- * 
- * IMPORTANT NOTE
- * 
- * Internally, we define:
- * X axis as     direct, F2 dimension,
- * Y axis as indirect 1, F3 dimension,
- * Z axis as indirect 2, F1 dimension
- * All the variable names and comments are based on this definition.
- * In spectral data, X is the most inner dimension, Y is intermediate dimension and Z is most out dimension.
- * 
- * In the UI, we keep X as most inner dimension (displayed as x), Y as intermediate dimension (displayed as y), and Z as outer dimension (displayed as z).
- */
-
-
-/**
- * This is the mermaid diagram when we load ft3 (or raw, or group of ft2) file(s) or when we processing fid data
- 
-flowchart TD
-    subgraph Direct Loading Route
-        L1[load_ft3_file]
-        L2[load_raw_3d_file]
-    end
-    subgraph FID Processing Route
-        P1[Run WebAss 3D / SMILE Workers] --> P2[Worker returns process_fid_3d complete]
-        P2 --> P3[Optional: Run TensorFlow.js Auto-Phase Pipeline]
-    end
-    L1 & L2 --> CONV[CONVERGENCE POINT: spectra_3d is fully populated]
-    P3 & P2 --> CONV
-    CONV --> S1[Update UI Slider Limits & Show Containers]
-    S1 --> S2[Call init_main_plot spectra_3d 0]
-    S2 --> S3[Call draw_slice 0]
-    S3 --> S4[Call init_ortho_plots spectra_3d 0]
-    S4 --> S5[Call update_global_noise_level]
-
- */
-
 
 /**
  * Global variables required by myplot1_new.js and others
@@ -139,7 +7,7 @@ var spectra_3d = [];   // Stores all loaded 3D planes (spectrum objects)
 var theoretical_spectra_3d = []; // Stores theoretical 3D volume
 var theoretical_spectrum_xz = null;
 var theoretical_spectrum_yz = null;
-
+var main_plot = null;
 var my_contour_worker = null;
 var tooldiv = document.getElementById("information_bar");
 var zoom_on_call_function = null;
@@ -153,30 +21,6 @@ var trace_zoom_domains = {
     'trace_z_svg': null
 };
 
-/**
- * The 3 2D plots
- * XZ and YZ Plot Logic
- */
-var main_plot = null;
-var main_plot_xz = null;
-var main_plot_yz = null;
-
-/**
- * 2D spectrum objects. spectra_3d is for main_plot. 
- * spectrum_xz and spectrum_yz are for orthogonal views.
- */
-var spectrum_xz = null;
-var spectrum_yz = null;
-
-// Temporary Fixed positions (Center of the cube)
-// Ideally updated by crosshair interaction
-var current_y_index = -1; // Set during init, For Y axis, indirect1, F3
-var current_x_index = -1; // Set during init. For X axis, direct F2
-var current_slice_index = -1; // Set during init, For Z axis, indirect2, F1
-
-var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
-
-
 var main_plot_proj = null;
 var spectrum_proj = null;
 var theoretical_spectrum_proj = null;
@@ -188,59 +32,6 @@ var theoretical_spectrum_proj_y = null;
 var main_plot_proj_x = null;
 var spectrum_proj_x = null;
 var theoretical_spectrum_proj_x = null;
-
-var global_3d_noise = 0.0;
-var show_peak_symbols = true;
-
-function evaluate_global_noise_redefinition() {
-
-    let max_pos = 0;
-    let max_neg_abs = 0;
-    if (spectra_3d && spectra_3d.length > 0) {
-        for (let s of spectra_3d) {
-            if (s.spectral_max && s.spectral_max > max_pos) {
-                max_pos = s.spectral_max;
-            }
-            if (s.spectral_min && Math.abs(s.spectral_min) > max_neg_abs) {
-                max_neg_abs = Math.abs(s.spectral_min);
-            }
-        }
-    }
-
-    let max_val = Math.max(max_pos, max_neg_abs);
-    let display_color = "#555"; // Default color
-
-    if (global_3d_noise < 1e-6 * max_val) {
-        global_3d_noise = 1e-6 * max_val;
-        display_color = "red";
-    }
-
-    let display = document.getElementById('global_noise_level_display');
-    if (display) {
-        display.innerText = "Estimated 3D Noise: " + global_3d_noise.toExponential(3);
-        display.style.color = display_color;
-    }
-}
-
-function adjust_proj_noise(spec, display_id) {
-    if (!spec || !spec.raw_data) return;
-    let [p_max, p_min] = mathTool.find_max_min(spec.raw_data);
-    let max_val = Math.max(p_max, Math.abs(p_min));
-    let display_color = "#555";
-    if (spec.noise_level < 1e-5 * max_val) {
-        spec.noise_level = 5e-4 * max_val;
-        display_color = "red";
-    }
-    let display = document.getElementById(display_id);
-    if (display) {
-        let prefix = "Proj. Noise: ";
-        if (display_id === "proj_y_noise_level_display") prefix = "Proj Y Noise: ";
-        if (display_id === "proj_x_noise_level_display") prefix = "Proj X Noise: ";
-        display.innerText = prefix + spec.noise_level.toExponential(2);
-        display.style.color = display_color;
-    }
-}
-
 
 // Phase correction variables for Trace X
 var trace_x_ph0 = 0.0;
@@ -262,28 +53,17 @@ var last_fid_extract_ppm_range = null;
 /**
  * Capture nuclear names from worker logs for axis labeling
  * Internal Mapping: F2 -> x (Direct), F3 -> y (Indirect 1), F1 -> z (Indirect 2/Planes)
- * UI Display Names: F2 as x, F3 as y, F1 as z
+ * UI Display Names: F2 as z, F3 as x, F1 as y
  */
 window.last_fid_nuclei = { x: '', y: '', z: '' };
 
 
-/**
- * Resets 3D dataset state.
- *
- * @param {boolean} [keepNuclei] - Keep nuclei Default is false.
- */
 function reset_3d_dataset_state(keepNuclei = false) {
     spectra_3d = [];
     hsqc_spectra = [];
     current_slice_index = -1;
     theoretical_peaks_data = [];
     theoretical_spectra_3d = [];
-    let toggle_btn = document.getElementById("button_toggle_peak_symbols");
-    if (toggle_btn) {
-        toggle_btn.disabled = true;
-        toggle_btn.innerText = "Hide Peak Symbols";
-    }
-    show_peak_symbols = true;
 
     spectrum_xz = null;
     spectrum_yz = null;
@@ -292,14 +72,6 @@ function reset_3d_dataset_state(keepNuclei = false) {
 
     auto_p0_3d = null;
     auto_p1_3d = null;
-
-    global_3d_noise = 0.0;
-    raw_3d_noise_level = 0.0;
-    let display = document.getElementById('global_noise_level_display');
-    if (display) {
-        display.style.color = "#555";
-        display.innerText = "Noise: -";
-    }
 
     // Release large contiguous visualization buffers from previous dataset.
     current_volume_data = null;
@@ -315,26 +87,12 @@ function reset_3d_dataset_state(keepNuclei = false) {
     main_plot_proj_y = null;
     main_plot_proj_x = null;
 
-    window.last_processed_ft3_blob = null;
-    let ft3_processed_btn = document.getElementById('button_download_ft3_processed');
-    if (ft3_processed_btn) {
-        ft3_processed_btn.style.display = 'none';
-        ft3_processed_btn.onclick = null;
-    }
-
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
         update_all_plot_axis_labels();
     }
 }
 
-/**
- * Sets status message.
- *
- * @param {any} element_id - Element id
- * @param {any} text - Text
- * @param {number} [auto_clear_ms] - Auto clear ms Default is 0.
- */
 function set_status_message(element_id, text, auto_clear_ms = 0) {
     let elem = document.getElementById(element_id);
     if (!elem) return;
@@ -357,11 +115,6 @@ function set_status_message(element_id, text, auto_clear_ms = 0) {
     }
 }
 
-/**
- * Clears status message.
- *
- * @param {any} element_id - Element id
- */
 function clear_status_message(element_id) {
     set_status_message(element_id, "", 0);
 }
@@ -484,10 +237,6 @@ function create_ft3_buffer() {
     return buffer;
 }
 
-/**
- * Runs auto phase on loaded spectrum.
- * @returns {Promise<void>}
- */
 async function run_auto_phase_on_loaded_spectrum() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectra loaded.");
@@ -504,8 +253,8 @@ async function run_auto_phase_on_loaded_spectrum() {
     try {
         if (!tfjs_normal_model || !tfjs_large_model) {
             append_3d_log("[tfjs] Pre-loading models...");
-            if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
+            if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
+            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
         }
 
         const buffer = create_ft3_buffer();
@@ -540,62 +289,9 @@ async function run_auto_phase_on_loaded_spectrum() {
     }
 }
 
-/**
- * Runs 3D peak picking and fitting workflow on the currently loaded spectrum.
- * @returns {Promise<void>}
- */
-async function run_peak_fit_3d_workflow() {
-    if (!spectra_3d || spectra_3d.length === 0) {
-        alert("No spectrum loaded to run peak picking/fitting.");
-        return;
-    }
+var current_reprocess_spectrum_index = -1; // Not used but required by global var comment in myplot1_new.js
+var current_slice_index = -1;
 
-    append_3d_log("[main] Preparing spectrum buffer for peak picking & fitting...");
-
-    // Disable loading buttons to prevent concurrent actions
-    set_loading_buttons_state(true);
-
-    try {
-        const buffer = create_ft3_buffer();
-        if (!buffer) {
-            throw new Error("Failed to compile currently loaded spectrum to an FT3 buffer.");
-        }
-
-        const ft3Bytes = new Uint8Array(buffer);
-        append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
-        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting top-50 partitions)...";
-
-        let s0 = spectra_3d[0];
-        let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
-        let scale2 = 10.0;
-        let multiplier_input = document.getElementById("contour_start_multiplier");
-        if (multiplier_input) {
-            scale2 = parseFloat(multiplier_input.value) || 10.0;
-        }
-        let scale1 = 1.5 * scale2;
-
-        web_worker_3d.postMessage({
-            "#sym:webassembly_job ": "pick_and_fit_3d",
-            ft3Bytes: ft3Bytes,
-            noiseLevel: noiseLevel,
-            scale1: scale1,
-            scale2: scale2
-        }, [ft3Bytes.buffer]);
-
-    } catch (err) {
-        console.error(err);
-        append_3d_log("[main-error] Peak picking/fitting startup failed: " + err.message);
-        document.getElementById("webassembly_message").innerText = "Peak picking/fitting failed: " + err.message;
-        set_loading_buttons_state(false);
-    }
-}
-
-
-/**
- * Appends 3D log.
- *
- * @param {any} message - Message
- */
 function append_3d_log(message) {
     const area = document.getElementById("log_area_3d");
     if (area && area.style.display === 'none') {
@@ -642,11 +338,6 @@ function get_full_spectrum_phase_correction(leftEdge, rightEdge, fullPpmRange, e
     };
 }
 
-/**
- * Appends 3D worker stdout.
- *
- * @param {any} stdoutText - Stdout text
- */
 function append_3d_worker_stdout(stdoutText) {
     const area = document.getElementById("log_area_3d");
     if (area && area.style.display === 'none') {
@@ -697,52 +388,6 @@ function append_3d_worker_stdout(stdoutText) {
     logElem.scrollTop = logElem.scrollHeight;
 }
 
-/**
- * Extract nuclei names from spectrum header.
- * @param {spectrum} s - Spectrum object
- */
-function extract_nuclei_from_spectrum(s) {
-    if (!s || !s.header) return;
-    const header = s.header;
-    const dimorder1 = header[24];
-    const dimorder2 = header[25];
-    const dimorder3 = header[26];
-
-    const getLabelIndex = (dim) => {
-        if (dim === 1) return 18;
-        if (dim === 2) return 16;
-        if (dim === 3) return 20;
-        return null;
-    };
-
-    const readLabel = (dim) => {
-        const idx = getLabelIndex(dim);
-        if (idx === null) return "";
-        try {
-            const uint8 = new Uint8Array(header.buffer, s.header.byteOffset + idx * 4, 8);
-            let str = "";
-            for (let i = 0; i < 8; i++) {
-                if (uint8[i] === 0) break;
-                str += String.fromCharCode(uint8[i]);
-            }
-            return str.trim();
-        } catch (e) {
-            console.error("Error reading NMRPipe label for dimension " + dim, e);
-            return "";
-        }
-    };
-
-    window.last_fid_nuclei = {
-        x: readLabel(dimorder1),
-        y: readLabel(dimorder2),
-        z: readLabel(dimorder3)
-    };
-    update_all_plot_axis_labels();
-}
-
-/**
- * Updates all plot axis labels.
- */
 function update_all_plot_axis_labels() {
     const nx = window.last_fid_nuclei.x;
     const ny = window.last_fid_nuclei.y;
@@ -753,39 +398,33 @@ function update_all_plot_axis_labels() {
         return nuc ? `${prefix}${nuc} (ppm)` : `${prefix}Chemical Shift (ppm)`;
     };
 
-    // Update XY Plot (Main) -> now xy Plane
+    // Update XY Plot (Main) -> now zy Plane
     if (main_plot) {
-        main_plot.set_labels(getLabel(nx, "x"), getLabel(ny, "y"));
+        main_plot.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
     }
 
-    // Update XZ Plot -> now xz Plane
+    // Update XZ Plot -> now zx Plane
     if (main_plot_xz) {
-        main_plot_xz.set_labels(getLabel(nx, "x"), getLabel(nz, "z"));
+        main_plot_xz.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
     }
 
-    // Update YZ Plot -> now zy Plane
+    // Update YZ Plot -> now xy Plane
     if (main_plot_yz) {
-        main_plot_yz.set_labels(getLabel(nz, "z"), getLabel(ny, "y"));
+        main_plot_yz.set_labels(getLabel(nz, "x"), getLabel(ny, "y"));
     }
 
     // Update Projections
     if (main_plot_proj) {
-        main_plot_proj.set_labels(getLabel(nx, "x"), getLabel(ny, "y"));
+        main_plot_proj.set_labels(getLabel(nx, "z"), getLabel(nz, "x"));
     }
     if (main_plot_proj_y) {
-        main_plot_proj_y.set_labels(getLabel(nx, "x"), getLabel(nz, "z"));
+        main_plot_proj_y.set_labels(getLabel(nx, "z"), getLabel(ny, "y"));
     }
     if (main_plot_proj_x) {
-        main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "z"));
+        main_plot_proj_x.set_labels(getLabel(ny, "y"), getLabel(nz, "x"));
     }
-
-    // Update 1D trace labels based on the newly updated axes
-    update_1d_traces_from_center();
 }
 
-/**
- * Clears 3D log.
- */
 function clear_3d_log() {
     const logElem = document.getElementById("log");
     if (!logElem) {
@@ -794,9 +433,6 @@ function clear_3d_log() {
     logElem.value = "";
 }
 
-/**
- * Toggles log minimize.
- */
 function toggle_log_minimize() {
     const log_area = document.getElementById('log_area_3d');
     const log_textarea = document.getElementById('log');
@@ -821,9 +457,6 @@ function toggle_log_minimize() {
     }
 }
 
-/**
- * Makes log movable.
- */
 function make_log_movable() {
     const log_area = document.getElementById("log_area_3d");
     const header = document.getElementById("log_area_3d_header");
@@ -888,20 +521,6 @@ var zf_indirect = 0;
 
 var mathTool = new ldwmath();
 
-function set_loading_buttons_state(disabled) {
-    const ids = [
-        'button_fid_process_3d',
-        'button_ft2_process',
-        'button_ft3_process',
-        'button_raw_process',
-        'btn_load_theoretical',
-        'button_peak_fit_3d'
-    ];
-    ids.forEach(id => {
-        let el = document.getElementById(id);
-        if (el) el.disabled = disabled;
-    });
-}
 
 document.addEventListener('DOMContentLoaded', function () {
 
@@ -918,7 +537,6 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
         alert("Your browser doesn't support Web Workers. The viewer will not work.");
     }
-
 
     // Initialize Plot on window resize
     window.addEventListener('resize', function () {
@@ -1022,19 +640,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
 var theoretical_peaks_data = []; // Store raw peak data
 var partition_bounds_data = null; // Store global partition bounds
-var fitted_peaks_text_data = null; // Store raw text of the peak list for download
 
-/**
- * Parses peak text data.
- * @param {string} text - The peak list text.
- * @returns {Array} List of parsed peaks.
- */
-function parse_peaks_text(text) {
+async function load_theoretical_peaks() {
+    let fileInput = document.getElementById('theoretical_peaks_file');
+    if (fileInput.files.length === 0) {
+        alert("Please select a .txt file first.");
+        return;
+    }
+
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("Please load experimental 3D spectrum first to define dimensions.");
+        return;
+    }
+
+    let file = fileInput.files[0];
+    let text = await file.text();
     let lines = text.split('\n');
+
     let peaks = [];
     let header_map = null;
     partition_bounds_data = null; // Reset bounds
 
+    // Parse file.
     for (let line of lines) {
         line = line.trim();
 
@@ -1055,173 +682,97 @@ function parse_peaks_text(text) {
         let parts = line.split(/\s+/);
 
         // Check for header line
-        if (!header_map) {
-            let is_format1 = parts.includes("Partition") && parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center") && parts.includes("X_FWHH");
-            let is_format2 = parts.includes("X_Center") && parts.includes("Y_Center") && parts.includes("Z_Center") && parts.includes("X_Center_ppm") && parts.includes("Height");
-
-            if (is_format1 || is_format2) {
-                header_map = {};
-                parts.forEach((col, idx) => {
-                    header_map[col] = idx;
-                });
-            }
+        if (!header_map && parts.includes("Amplitude") && parts.includes("X_Center")) {
+            header_map = {};
+            parts.forEach((col, idx) => {
+                header_map[col] = idx;
+            });
             continue;
         }
 
-        // Skip separator lines or other header-like lines
+        // Skip separator lines or other header-like lines if we haven't found our map yet or if they are just separators
         if (line.startsWith("=") || line.startsWith("-")) continue;
+        // Skip explicitly known header starts if we are in legacy mode check or if they are redundant
         if (line.startsWith("Rank") || line.startsWith("Peak")) continue;
 
         if (header_map) {
-            let get_val = (key, default_val = undefined) => {
+            // Dynamic parsing based on header
+            let get_val = (key, default_val = 0.0) => {
                 let idx = header_map[key];
-                if (idx !== undefined && idx < parts.length) {
-                    let val = parseFloat(parts[idx]);
-                    return isNaN(val) ? default_val : val;
-                }
+                if (idx !== undefined && idx < parts.length) return parseFloat(parts[idx]);
                 return default_val;
             };
 
-            let amp = get_val("Amplitude", undefined);
-            if (amp === undefined) amp = get_val("Height", undefined);
-            if (amp === undefined) continue;
-
-            let x_ppm = get_val("X_Center_ppm", undefined);
-            let y_ppm = get_val("Y_Center_ppm", undefined);
-            let z_ppm = get_val("Z_Center_ppm", undefined);
-
-            let x_val = get_val("X_Center", undefined);
-            let y_val = get_val("Y_Center", undefined);
-            let z_val = get_val("Z_Center", undefined);
-
-            let fwhh_x = get_val("X_FWHH", undefined);
-            let fwhh_y = get_val("Y_FWHH", undefined);
-            let fwhh_z = get_val("Z_FWHH", undefined);
-
-            let lx = get_val("Lx", undefined);
-            let ly = get_val("Ly", undefined);
-            let lz = get_val("Lz", undefined);
-
-            let has_shape = (fwhh_x !== undefined && fwhh_y !== undefined && fwhh_z !== undefined);
-
-            if (!has_shape) {
-                fwhh_x = 2.0;
-                fwhh_y = 2.0;
-                fwhh_z = 2.0;
-                lx = 0.0;
-                ly = 0.0;
-                lz = 0.0;
-            }
-
-            let s0 = spectra_3d[0];
-            let p_x = x_val !== undefined ? x_val : 0;
-            let p_y = y_val !== undefined ? y_val : 0;
-            let p_z = z_val !== undefined ? z_val : 0;
-
-            if (x_ppm !== undefined && s0) {
-                p_x = (x_ppm - s0.x_ppm_start) / s0.x_ppm_step;
-            }
-            if (y_ppm !== undefined && s0) {
-                p_y = (y_ppm - s0.y_ppm_start) / s0.y_ppm_step;
-            }
-            if (z_ppm !== undefined && s0) {
-                p_z = (z_ppm - s0.z_ppm_start) / s0.z_ppm_step;
-            }
+            // Basic validation: Amplitude must be a number
+            let amp = get_val("Amplitude");
+            if (isNaN(amp)) continue;
 
             peaks.push({
                 amp: amp,
-                x: p_x,
-                y: p_y,
-                z: p_z,
-                x_ppm: x_ppm,
-                y_ppm: y_ppm,
-                z_ppm: z_ppm,
-                fwhh_x: fwhh_x,
-                fwhh_y: fwhh_y,
-                fwhh_z: fwhh_z,
-                lx: lx,
-                ly: ly,
-                lz: lz,
-                has_shape: has_shape
+                x: get_val("X_Center"),
+                y: get_val("Y_Center"),
+                z: get_val("Z_Center"),
+                x_ppm: get_val("X_Center_ppm", undefined),
+                y_ppm: get_val("Y_Center_ppm", undefined),
+                z_ppm: get_val("Z_Center_ppm", undefined),
+                fwhh_x: get_val("X_FWHH"),
+                fwhh_y: get_val("Y_FWHH"),
+                fwhh_z: get_val("Z_FWHH"),
+                lx: get_val("Lx"),
+                ly: get_val("Ly"),
+                lz: get_val("Lz")
             });
-        }
-    }
-    return peaks;
-}
-
-/**
- * Loads theoretical peaks.
- * @returns {Promise<void>}
- */
-async function load_theoretical_peaks() {
-    let fileInput = document.getElementById('theoretical_peaks_file');
-    if (fileInput.files.length === 0) {
-        alert("Please select a .txt file first.");
-        return;
-    }
-
-    if (!spectra_3d || spectra_3d.length === 0) {
-        alert("Please load experimental 3D spectrum first to define dimensions.");
-        return;
-    }
-
-    set_loading_buttons_state(true);
-    try {
-        let file = fileInput.files[0];
-        let text = await file.text();
-        let peaks = parse_peaks_text(text);
-
-        if (peaks.length === 0) {
-            alert("No valid peaks found in file.");
-            return;
-        }
-
-        console.log("Loaded " + peaks.length + " theoretical peaks.");
-        theoretical_peaks_data = peaks;
-        fitted_peaks_text_data = text;
-        let dl_btn = document.getElementById("button_download_peaks_list");
-        if (dl_btn) dl_btn.disabled = false;
-        let toggle_btn = document.getElementById("button_toggle_peak_symbols");
-        if (toggle_btn) toggle_btn.disabled = false;
-
-        let has_any_shape = peaks.some(p => p.has_shape);
-        if (has_any_shape) {
-            console.log("Shape parameters found. Generating theoretical volume.");
-            generate_theoretical_volume(peaks);
-            generate_projection_spectrum();
         } else {
-            console.log("No shape parameters found. Showing peak symbols only.");
-            theoretical_spectra_3d = [];
-            theoretical_spectrum_xz = null;
-            theoretical_spectrum_yz = null;
-            theoretical_spectrum_proj = null;
-            theoretical_spectrum_proj_y = null;
-            theoretical_spectrum_proj_x = null;
+            // Legacy format: ID Amp X Y Z X_FWHH Y_FWHH Z_FWHH Lx Ly Lz
+            // 11 columns expected.
+            if (parts.length >= 11) {
+                // Ensure it's data by checking if ID (0) or Amp (1) is a number
+                if (isNaN(parseFloat(parts[1]))) continue;
+
+                peaks.push({
+                    amp: parseFloat(parts[1]),
+                    x: parseFloat(parts[2]),
+                    y: parseFloat(parts[3]),
+                    z: parseFloat(parts[4]),
+                    x_ppm: undefined,
+                    y_ppm: undefined,
+                    z_ppm: undefined,
+                    fwhh_x: parseFloat(parts[5]),
+                    fwhh_y: parseFloat(parts[6]),
+                    fwhh_z: parseFloat(parts[7]),
+                    lx: parseFloat(parts[8]),
+                    ly: parseFloat(parts[9]),
+                    lz: parseFloat(parts[10])
+                });
+            }
         }
-
-        // Refresh views to show overlay
-        if (current_slice_index >= 0) {
-            draw_slice(current_slice_index);
-            refresh_xz_view();
-            refresh_yz_view();
-            update_3d_crosshairs();
-        }
-
-        // Refresh the 3D viewer to show the new peak spheres
-        update_3d_view();
-
-        // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
-        fileInput.value = '';
-    } finally {
-        set_loading_buttons_state(false);
     }
+
+    if (peaks.length === 0) {
+        alert("No valid peaks found in file.");
+        return;
+    }
+
+    console.log("Loaded " + peaks.length + " theoretical peaks (Pseudo-Voigt).");
+    theoretical_peaks_data = peaks;
+    generate_theoretical_volume(peaks);
+    generate_projection_spectrum();
+
+    // Refresh views to show overlay
+    if (current_slice_index >= 0) {
+        draw_slice(current_slice_index);
+        refresh_xz_view();
+        refresh_yz_view();
+        update_3d_crosshairs();
+    }
+
+    // Refresh the 3D viewer to show the new peak spheres
+    update_3d_view();
+
+    // Clear input to allow re-selecting the same file if needed (triggers change event if used, but also good for UI feedback)
+    fileInput.value = '';
 }
 
-/**
- * Generates theoretical volume.
- *
- * @param {any} peaks - Peaks
- */
 function generate_theoretical_volume(peaks) {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -1249,8 +800,8 @@ function generate_theoretical_volume(peaks) {
         s.z_ppm_step = s0.z_ppm_step;
 
         s.raw_data = new Float32Array(nx * ny);
-        s.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
-        s.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
+        s.spectrum_color = "#ff0000"; // Red for theoretical
+        s.spectrum_color_negative = null; // Negative eliminated
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
         s.negative_levels = [];
 
@@ -1426,12 +977,6 @@ function handle_worker_message(e) {
     }
 }
 
-/**
- * Draws slice.
- *
- * @param {any} index - Index
- * @param {boolean} [update_ortho_views] - Update orthogonal views Default is true.
- */
 function draw_slice(index, update_ortho_views = true) {
     current_slice_index = index;
     let s = spectra_3d[index];
@@ -1495,100 +1040,88 @@ function draw_slice(index, update_ortho_views = true) {
     }
 
     // Visualize Theoretical Peaks on 2D Plot
-    if (main_plot) {
-        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
-            let visible_peaks = [];
-            // Z-Index is 'index'. 
-            // Peak.z is in index units (if parsed as such? No, it seemed to be index/ppm mixed in user's file...)
-            // In the parsing logic: 'z' was parsed from 'Z_Center'. 
-            // User file: "Z_Center" = 24.047615. "Partition_Index" = 7. 
-            // Wait, is Z_Center index or ppm? 
-            // In `generate_theoretical_volume`: `let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));`
-            // This implies p.z is treated as index coordinate for the volume generation loop `for (let z = 0; z < nz; z++)`.
-            // So p.z IS index-based coordinate (or at least used directly against slice index).
-            // Let's assume p.z explains the slice index.
+    if (main_plot && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        let visible_peaks = [];
+        // Z-Index is 'index'. 
+        // Peak.z is in index units (if parsed as such? No, it seemed to be index/ppm mixed in user's file...)
+        // In the parsing logic: 'z' was parsed from 'Z_Center'. 
+        // User file: "Z_Center" = 24.047615. "Partition_Index" = 7. 
+        // Wait, is Z_Center index or ppm? 
+        // In `generate_theoretical_volume`: `let z_start = Math.max(0, Math.floor(p.z - bound_mult * wz));`
+        // This implies p.z is treated as index coordinate for the volume generation loop `for (let z = 0; z < nz; z++)`.
+        // So p.z IS index-based coordinate (or at least used directly against slice index).
+        // Let's assume p.z explains the slice index.
 
-            // Also note: we need Z Width for the condition.
-            // User said: "show filled circle if peak Z < current Z but within Z_width"
-            // "show square if Z within +-1 of current Z"
-            // "show cross if peak Z > current Z but within Z_width"
+        // Also note: we need Z Width for the condition.
+        // User said: "show filled circle if peak Z < current Z but within Z_width"
+        // "show square if Z within +-1 of current Z"
+        // "show cross if peak Z > current Z but within Z_width"
 
-            let current_z = index;
+        let current_z = index;
 
-            for (let p of theoretical_peaks_data) {
-                let diff = p.z - current_z;
-                let abs_diff = Math.abs(diff);
+        for (let p of theoretical_peaks_data) {
+            let diff = p.z - current_z;
+            let abs_diff = Math.abs(diff);
 
-                // Width. Using FWHH_Z (in index units?)
-                // If z is index, fwhh_z should be too.
-                let width = p.fwhh_z; // Z_FWHH
-                // Define a range of visibility. Maybe 2 * width? Or just width?
-                // User said "within Z_width". Let's assume "distance <= width".
+            // Width. Using FWHH_Z (in index units?)
+            // If z is index, fwhh_z should be too.
+            let width = p.fwhh_z; // Z_FWHH
+            // Define a range of visibility. Maybe 2 * width? Or just width?
+            // User said "within Z_width". Let's assume "distance <= width".
 
-                let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
-                if (abs_diff <= 1.0) {
-                    // Square
+            if (abs_diff <= 1.0) {
+                // Square
+                visible_peaks.push({
+                    x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                    y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
+                    symbol: 'square',
+                    color: 'red', // Use Red as requested
+                    size: 6,
+                    fill: false
+                });
+            } else if (Math.abs(diff) <= width) {
+                if (diff < 0) {
+                    // Peak Z < Current Z -> Filled Circle
                     visible_peaks.push({
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                        symbol: 'square',
-                        color: symbol_color,
-                        size: 6,
+                        symbol: 'circle',
+                        color: 'red',
+                        size: 5,
+                        fill: true
+                    });
+                } else {
+                    // Peak Z > Current Z -> Cross
+                    visible_peaks.push({
+                        x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
+                        y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
+                        symbol: 'cross',
+                        color: 'red',
+                        size: 5,
                         fill: false
                     });
-                } else if (Math.abs(diff) <= width) {
-                    if (diff < 0) {
-                        // Peak Z < Current Z -> Filled Circle
-                        visible_peaks.push({
-                            x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
-                            y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                            symbol: 'circle',
-                            color: symbol_color,
-                            size: 5,
-                            fill: true
-                        });
-                    } else {
-                        // Peak Z > Current Z -> Cross
-                        visible_peaks.push({
-                            x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
-                            y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
-                            symbol: 'cross',
-                            color: symbol_color,
-                            size: 5,
-                            fill: false
-                        });
-                    }
                 }
             }
-            main_plot.add_extra_peaks(visible_peaks);
-        } else {
-            main_plot.add_extra_peaks([]);
         }
-    }
+        main_plot.add_extra_peaks(visible_peaks);
 
-    if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-        let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
-        let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
-        let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
-        let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+            let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+            let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+            let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+            let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
 
-        if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
-            main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
+            if (current_z >= partition_bounds_data.z[0] && current_z <= partition_bounds_data.z[1]) {
+                main_plot.draw_bounding_box(x0, x1, y0, y1, 'red');
+            } else {
+                main_plot.draw_bounding_box(); // Clear
+            }
         } else {
-            main_plot.draw_bounding_box(); // Clear
+            if (main_plot.draw_bounding_box) main_plot.draw_bounding_box();
         }
-    } else {
-        if (main_plot.draw_bounding_box) main_plot.draw_bounding_box();
     }
 }
 
-
-/**
- * Handles orthogonal response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_ortho_response(data, type) {
     let spec = (type === "xz") ? spectrum_xz :
         (type === "yz") ? spectrum_yz :
@@ -1610,12 +1143,6 @@ function handle_ortho_response(data, type) {
     else refresh_ortho_plot(type);
 }
 
-/**
- * Refreshes orthogonal plot for xz and yz slices.
- * Function draw_slice  draw xy slice of the 3D spectrum
- *
- * @param {any} type - Type
- */
 function refresh_ortho_plot(type) {
     let plot = (type === "xz") ? main_plot_xz : main_plot_yz;
     let spec = (type === "xz") ? spectrum_xz : spectrum_yz;
@@ -1715,10 +1242,6 @@ function refresh_ortho_plot(type) {
     }
 }
 
-/**
- * Loads FT3 file.
- * @returns {Promise<void>}
- */
 async function load_ft3_file() {
     let fileInput = document.getElementById('userfile_ft3');
     let files = Array.from(fileInput.files);
@@ -1728,157 +1251,142 @@ async function load_ft3_file() {
         return;
     }
 
-    set_loading_buttons_state(true);
+    let file = files[0];
+    document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
+
+    // Reset state
+    reset_3d_dataset_state();
+
+    let headerBlob = file.slice(0, 2048);
+    let headerBuffer;
     try {
-        let file = files[0];
-        document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
-
-        // Reset state
-        reset_3d_dataset_state();
-
-        let headerBlob = file.slice(0, 2048);
-        let headerBuffer;
-        try {
-            headerBuffer = await read_file_as_buffer(headerBlob);
-        } catch (err) {
-            console.error("Error reading file header " + file.name, err);
-            return;
-        }
-
-        if (headerBuffer.byteLength < 2048) {
-            alert("File is too small to be a valid .ft3 file.");
-            return;
-        }
-
-        // Parse header to understand plane sizes
-        let header = new Float32Array(headerBuffer, 0, 512);
-        let n_direct = header[99];
-        let n_indirect = header[219];
-        let data_types = [header[55], header[56], header[51], header[54]];
-        let dimorder1 = header[24];
-        let dimorder2 = header[25];
-        let datatype_direct = data_types[dimorder1 - 1];
-        let datatype_indirect = data_types[dimorder2 - 1];
-
-        let parts = 1;
-        if (datatype_direct === 0) parts++;
-        if (datatype_indirect === 0) parts++;
-        if (datatype_direct === 0 && datatype_indirect === 0) parts++;
-
-        let n_indirect_loops = n_indirect;
-        if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
-
-        let plane_float_count = n_indirect_loops * n_direct * parts;
-        let plane_byte_size = plane_float_count * 4;
-
-        if (plane_byte_size <= 0) {
-            alert("Could not derive plane size from .ft3 header.");
-            return;
-        }
-
-        let total_data_bytes = file.size - 2048;
-
-        // Prefer header-declared plane count when valid; fall back to payload-derived count.
-        let header_plane_count = Math.round(header[15]); // FDF3SIZE
-        let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
-            ? header_plane_count
-            : Math.floor(total_data_bytes / plane_byte_size);
-
-        if (!Number.isFinite(num_planes) || num_planes <= 0) {
-            alert("Could not determine the number of planes from .ft3 file.");
-            return;
-        }
-
-        // Some generated .ft3 files include an extra 2048-byte block before the first plane payload.
-        // If detected, shift the data start so plane 0 maps to the real first XY slice.
-        let data_start_offset = 2048;
-        let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
-        if (residual_bytes === 2048) {
-            data_start_offset += 2048;
-            console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
-        }
-
-        document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
-
-        let headerUint8 = new Uint8Array(headerBuffer);
-
-        for (let i = 0; i < num_planes; i++) {
-            try {
-                let start_offset = data_start_offset + i * plane_byte_size;
-                let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
-                let planeDataBuffer = await read_file_as_buffer(planeBlob);
-
-                if (planeDataBuffer.byteLength < plane_byte_size) {
-                    console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
-                    continue;
-                }
-
-                let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
-                let dst = new Uint8Array(plane_buffer);
-
-                // Header
-                dst.set(headerUint8, 0);
-
-                // Data
-                dst.set(new Uint8Array(planeDataBuffer), 2048);
-
-                let s = new spectrum();
-                let plane_name = "plane_" + String(i + 1).padStart(3, '0');
-                s.process_ft_file(plane_buffer, plane_name, -1);
-
-                s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-                s.visible = true;
-
-                spectra_3d.push(s);
-            } catch (err) {
-                console.error("Error creating plane " + i, err);
-            }
-        }
-
-        if (spectra_3d.length > 0) {
-            let slider = document.getElementById('slice_slider');
-            slider.max = spectra_3d.length - 1;
-            slider.value = 0;
-            document.getElementById('slice_control_area').style.display = 'block';
-            document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
-            document.getElementById('main_plot_area').style.display = 'flex';
-
-            // Clear projection state for new dataset
-            spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
-            main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
-
-            extract_nuclei_from_spectrum(spectra_3d[0]);
-            // Initialize the main plot now that we have data dimensions from the first slice
-            init_main_plot(spectra_3d[0]);
-
-            update_global_noise_level();
-            // Draw first slice
-            draw_slice(0);
-
-            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-                run_auto_phase_on_loaded_spectrum();
-            }
-
-            // Sync projection view if checked
-            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
-            if (projChecked) {
-                toggle_visualize_proj(true);
-            }
-        }
-
-        document.getElementById("webassembly_message").innerText = "";
-    } finally {
-        set_loading_buttons_state(false);
+        headerBuffer = await read_file_as_buffer(headerBlob);
+    } catch (err) {
+        console.error("Error reading file header " + file.name, err);
+        return;
     }
+
+    if (headerBuffer.byteLength < 2048) {
+        alert("File is too small to be a valid .ft3 file.");
+        return;
+    }
+
+    // Parse header to understand plane sizes
+    let header = new Float32Array(headerBuffer, 0, 512);
+    let n_direct = header[99];
+    let n_indirect = header[219];
+    let data_types = [header[55], header[56], header[51], header[54]];
+    let dimorder1 = header[24];
+    let dimorder2 = header[25];
+    let datatype_direct = data_types[dimorder1 - 1];
+    let datatype_indirect = data_types[dimorder2 - 1];
+
+    let parts = 1;
+    if (datatype_direct === 0) parts++;
+    if (datatype_indirect === 0) parts++;
+    if (datatype_direct === 0 && datatype_indirect === 0) parts++;
+
+    let n_indirect_loops = n_indirect;
+    if (datatype_direct === 0 && datatype_indirect === 0) n_indirect_loops /= 2;
+
+    let plane_float_count = n_indirect_loops * n_direct * parts;
+    let plane_byte_size = plane_float_count * 4;
+
+    if (plane_byte_size <= 0) {
+        alert("Could not derive plane size from .ft3 header.");
+        return;
+    }
+
+    let total_data_bytes = file.size - 2048;
+
+    // Prefer header-declared plane count when valid; fall back to payload-derived count.
+    let header_plane_count = Math.round(header[15]); // FDF3SIZE
+    let num_planes = (Number.isFinite(header_plane_count) && header_plane_count > 0)
+        ? header_plane_count
+        : Math.floor(total_data_bytes / plane_byte_size);
+
+    if (!Number.isFinite(num_planes) || num_planes <= 0) {
+        alert("Could not determine the number of planes from .ft3 file.");
+        return;
+    }
+
+    // Some generated .ft3 files include an extra 2048-byte block before the first plane payload.
+    // If detected, shift the data start so plane 0 maps to the real first XY slice.
+    let data_start_offset = 2048;
+    let residual_bytes = total_data_bytes - num_planes * plane_byte_size;
+    if (residual_bytes === 2048) {
+        data_start_offset += 2048;
+        console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
+    }
+
+    document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
+
+    let headerUint8 = new Uint8Array(headerBuffer);
+
+    for (let i = 0; i < num_planes; i++) {
+        try {
+            let start_offset = data_start_offset + i * plane_byte_size;
+            let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
+            let planeDataBuffer = await read_file_as_buffer(planeBlob);
+
+            if (planeDataBuffer.byteLength < plane_byte_size) {
+                console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
+                continue;
+            }
+
+            let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+            let dst = new Uint8Array(plane_buffer);
+
+            // Header
+            dst.set(headerUint8, 0);
+
+            // Data
+            dst.set(new Uint8Array(planeDataBuffer), 2048);
+
+            let s = new spectrum();
+            let plane_name = "plane_" + String(i + 1).padStart(3, '0');
+            s.process_ft_file(plane_buffer, plane_name, -1);
+
+            s.levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
+            s.visible = true;
+
+            spectra_3d.push(s);
+        } catch (err) {
+            console.error("Error creating plane " + i, err);
+        }
+    }
+
+    if (spectra_3d.length > 0) {
+        let slider = document.getElementById('slice_slider');
+        slider.max = spectra_3d.length - 1;
+        slider.value = 0;
+        document.getElementById('slice_control_area').style.display = 'block';
+        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
+        document.getElementById('main_plot_area').style.display = 'flex';
+
+        // Clear projection state for new dataset
+        spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
+        main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
+
+        // Initialize the main plot now that we have data dimensions from the first slice
+        init_main_plot(spectra_3d[0]);
+
+        // Draw first slice
+        draw_slice(0);
+        update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
+    }
+
+    document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Loads raw 3D file.
- * @returns {Promise<void>}
- */
 async function load_raw_3d_file() {
     let fileInput = document.getElementById('userfile_raw');
     if (fileInput.files.length === 0) {
@@ -1886,149 +1394,135 @@ async function load_raw_3d_file() {
         return;
     }
 
-    set_loading_buttons_state(true);
-    try {
-        let file = fileInput.files[0];
-        document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
+    let file = fileInput.files[0];
+    document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
 
-        // Reset state
-        reset_3d_dataset_state();
+    // Reset state
+    reset_3d_dataset_state();
 
-        let buffer = await read_file_as_buffer(file);
-        let floatData = new Float32Array(buffer);
+    let buffer = await read_file_as_buffer(file);
+    let floatData = new Float32Array(buffer);
 
-        if (floatData.length < 3) {
-            alert("File is too small to be a valid raw 3D file.");
-            return;
-        }
-
-        // Parse header
-        let n_direct = Math.round(floatData[0]);
-        let n_indirect1 = Math.round(floatData[1]);
-        let n_indirect2 = Math.round(floatData[2]);
-
-        console.log(`Raw 3D dimensions: ${n_direct} x ${n_indirect1} x ${n_indirect2}`);
-
-        // Payload starts after the 3-value header
-        let payload = floatData.subarray(3);
-
-        // Figure out if we have imaginary data (along direct dimension) by checking file size
-        let n_total_real = n_indirect2 * n_indirect1 * n_direct;
-        let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
-
-        let has_imaginary = (payload.length >= n_total_real_imag);
-        let stride = has_imaginary ? 2 * n_direct : n_direct;
-
-        console.log(`Payload length: ${payload.length}. Has imaginary: ${has_imaginary}`);
-
-        for (let p = 0; p < n_indirect2; p++) {
-            try {
-                let s = new spectrum();
-                s.n_direct = n_direct;
-                s.n_indirect = n_indirect1;
-                s.filename = `plane_${String(p).padStart(3, '0')}`;
-
-                // Extract data for this plane
-                // Payload layout: Plane-major, then Trace-major. 
-                // Each trace: n_direct real values, followed by n_direct imaginary values (if present).
-                let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
-                let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
-                let plane_offset = p * n_indirect1 * stride;
-
-                for (let t = 0; t < n_indirect1; t++) {
-                    let trace_offset = plane_offset + t * stride;
-                    if (trace_offset + n_direct <= payload.length) {
-                        let real_block = payload.subarray(trace_offset, trace_offset + n_direct);
-                        plane_raw_data.set(real_block, t * n_direct);
-                    }
-                    if (has_imaginary && (trace_offset + 2 * n_direct <= payload.length)) {
-                        let imag_block = payload.subarray(trace_offset + n_direct, trace_offset + 2 * n_direct);
-                        plane_raw_data_ri.set(imag_block, t * n_direct);
-                    }
-                }
-
-                s.raw_data = plane_raw_data;
-                if (has_imaginary) {
-                    s.raw_data_ri = plane_raw_data_ri;
-                }
-
-                // Use indices as PPM values
-                s.x_ppm_start = 0;
-                s.x_ppm_step = 1;
-                s.y_ppm_start = 0;
-                s.y_ppm_step = 1;
-                s.z_ppm_start = 0;
-                s.z_ppm_step = 1;
-
-                // Fill placeholder header values
-                s.header = new Float32Array(512);
-                s.header[99] = n_direct;   // FDSIZE
-                s.header[219] = n_indirect1; // FDSPECNUM
-                s.header[15] = n_indirect2; // FDF3SIZE
-
-                // Set data type: 0 for complex, 1 for real
-                // header[56] is FDF2QUADFLAG (direct dimension)
-                // header[55] is FDF1QUADFLAG (indirect dimension)
-                s.header[56] = has_imaginary ? 0 : 1;
-                s.header[55] = 1; // Assume real for indirect for now in raw format
-
-                // Dimension orders
-                s.header[24] = 2; // direct
-                s.header[25] = 1; // indirect 1
-                s.header[26] = 3; // indirect 2
-
-                // Common spectrum processing (noise estimation, max/min, projections)
-                s.process_spectrum_common_task();
-
-                // Set visual defaults
-                s.levels = calculate_levels(s.noise_level, 1.4, 30);
-                s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
-                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-                s.visible = true;
-
-                spectra_3d.push(s);
-            } catch (err) {
-                console.error("Error processing raw plane " + p, err);
-            }
-        }
-
-        if (spectra_3d.length > 0) {
-            let slider = document.getElementById('slice_slider');
-            slider.max = spectra_3d.length - 1;
-            slider.value = 0;
-            document.getElementById('slice_control_area').style.display = 'block';
-            document.getElementById('aux_buttons').style.display = 'block';
-            document.getElementById('main_plot_area').style.display = 'flex';
-
-            // Initialize the main plot with dimensions from the first slice
-            init_main_plot(spectra_3d[0]);
-
-            update_global_noise_level();
-            // Draw first slice
-            draw_slice(0);
-
-            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-                run_auto_phase_on_loaded_spectrum();
-            }
-
-            // Sync projection view if checked
-            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
-            if (projChecked) {
-                toggle_visualize_proj(true);
-            }
-        }
-
-        document.getElementById("webassembly_message").innerText = "";
-    } finally {
-        set_loading_buttons_state(false);
+    if (floatData.length < 3) {
+        alert("File is too small to be a valid raw 3D file.");
+        return;
     }
+
+    // Parse header
+    let n_direct = Math.round(floatData[0]);
+    let n_indirect1 = Math.round(floatData[1]);
+    let n_indirect2 = Math.round(floatData[2]);
+
+    console.log(`Raw 3D dimensions: ${n_direct} x ${n_indirect1} x ${n_indirect2}`);
+
+    // Payload starts after the 3-value header
+    let payload = floatData.subarray(3);
+
+    // Figure out if we have imaginary data (along direct dimension) by checking file size
+    let n_total_real = n_indirect2 * n_indirect1 * n_direct;
+    let n_total_real_imag = n_indirect2 * n_indirect1 * (2 * n_direct);
+
+    let has_imaginary = (payload.length >= n_total_real_imag);
+    let stride = has_imaginary ? 2 * n_direct : n_direct;
+
+    console.log(`Payload length: ${payload.length}. Has imaginary: ${has_imaginary}`);
+
+    for (let p = 0; p < n_indirect2; p++) {
+        try {
+            let s = new spectrum();
+            s.n_direct = n_direct;
+            s.n_indirect = n_indirect1;
+            s.filename = `plane_${String(p).padStart(3, '0')}`;
+
+            // Extract data for this plane
+            // Payload layout: Plane-major, then Trace-major. 
+            // Each trace: n_direct real values, followed by n_direct imaginary values (if present).
+            let plane_raw_data = new Float32Array(n_indirect1 * n_direct);
+            let plane_raw_data_ri = has_imaginary ? new Float32Array(n_indirect1 * n_direct) : null;
+            let plane_offset = p * n_indirect1 * stride;
+
+            for (let t = 0; t < n_indirect1; t++) {
+                let trace_offset = plane_offset + t * stride;
+                if (trace_offset + n_direct <= payload.length) {
+                    let real_block = payload.subarray(trace_offset, trace_offset + n_direct);
+                    plane_raw_data.set(real_block, t * n_direct);
+                }
+                if (has_imaginary && (trace_offset + 2 * n_direct <= payload.length)) {
+                    let imag_block = payload.subarray(trace_offset + n_direct, trace_offset + 2 * n_direct);
+                    plane_raw_data_ri.set(imag_block, t * n_direct);
+                }
+            }
+
+            s.raw_data = plane_raw_data;
+            if (has_imaginary) {
+                s.raw_data_ri = plane_raw_data_ri;
+            }
+
+            // Use indices as PPM values
+            s.x_ppm_start = 0;
+            s.x_ppm_step = 1;
+            s.y_ppm_start = 0;
+            s.y_ppm_step = 1;
+            s.z_ppm_start = 0;
+            s.z_ppm_step = 1;
+
+            // Fill placeholder header values
+            s.header = new Float32Array(512);
+            s.header[99] = n_direct;   // FDSIZE
+            s.header[219] = n_indirect1; // FDSPECNUM
+            s.header[15] = n_indirect2; // FDF3SIZE
+
+            // Set data type: 0 for complex, 1 for real
+            // header[56] is FDF2QUADFLAG (direct dimension)
+            // header[55] is FDF1QUADFLAG (indirect dimension)
+            s.header[56] = has_imaginary ? 0 : 1;
+            s.header[55] = 1; // Assume real for indirect for now in raw format
+
+            // Dimension orders
+            s.header[24] = 2; // direct
+            s.header[25] = 1; // indirect 1
+            s.header[26] = 3; // indirect 2
+
+            // Common spectrum processing (noise estimation, max/min, projections)
+            s.process_spectrum_common_task();
+
+            // Set visual defaults
+            s.levels = calculate_levels(s.noise_level, 1.4, 30);
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
+            s.visible = true;
+
+            spectra_3d.push(s);
+        } catch (err) {
+            console.error("Error processing raw plane " + p, err);
+        }
+    }
+
+    if (spectra_3d.length > 0) {
+        let slider = document.getElementById('slice_slider');
+        slider.max = spectra_3d.length - 1;
+        slider.value = 0;
+        document.getElementById('slice_control_area').style.display = 'block';
+        document.getElementById('aux_buttons').style.display = 'block';
+        document.getElementById('main_plot_area').style.display = 'flex';
+
+        // Initialize the main plot with dimensions from the first slice
+        init_main_plot(spectra_3d[0]);
+
+        // Draw first slice
+        draw_slice(0);
+        update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
+    }
+
+    document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Loads files.
- * @returns {Promise<void>}
- */
 async function load_files() {
     let fileInput = document.getElementById('userfile');
     let files = Array.from(fileInput.files);
@@ -2038,79 +1532,62 @@ async function load_files() {
         return;
     }
 
-    set_loading_buttons_state(true);
-    try {
-        document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
+    document.getElementById("webassembly_message").innerText = "Loading and sorting " + files.length + " files...";
 
-        // Reset state
-        reset_3d_dataset_state();
+    // Reset state
+    reset_3d_dataset_state();
 
-        // Sort files alphabetically by name to ensure correct Z ordering
-        files.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort files alphabetically by name to ensure correct Z ordering
+    files.sort((a, b) => a.name.localeCompare(b.name));
 
-        // Process each file
-        for (let i = 0; i < files.length; i++) {
-            let file = files[i];
-            try {
-                let buffer = await read_file_as_buffer(file);
-                let s = new spectrum();
-                // process_ft_file(buffer, filename, origin)
-                // origin usually -1 for experimental. We use i to track it temporarily or just arbitrary ID.
-                s.process_ft_file(buffer, file.name, -1);
+    // Process each file
+    for (let i = 0; i < files.length; i++) {
+        let file = files[i];
+        try {
+            let buffer = await read_file_as_buffer(file);
+            let s = new spectrum();
+            // process_ft_file(buffer, filename, origin)
+            // origin usually -1 for experimental. We use i to track it temporarily or just arbitrary ID.
+            s.process_ft_file(buffer, file.name, -1);
 
-                // Set some defaults
-                s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-                s.visible = true;
+            // Set some defaults
+            s.levels = calculate_levels(s.noise_level, 1.5, 30);
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+            s.spectrum_color = "#0000ff";
+            s.spectrum_color_negative = "#ff0000";
+            s.visible = true;
 
-                spectra_3d.push(s);
-            } catch (err) {
-                console.error("Error reading file " + file.name, err);
-            }
+            spectra_3d.push(s);
+        } catch (err) {
+            console.error("Error reading file " + file.name, err);
         }
-
-        if (spectra_3d.length > 0) {
-            // Setup slider
-            let slider = document.getElementById('slice_slider');
-            slider.max = spectra_3d.length - 1;
-            slider.value = 0;
-            document.getElementById('slice_control_area').style.display = 'block';
-            document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
-            document.getElementById('main_plot_area').style.display = 'flex';
-
-            extract_nuclei_from_spectrum(spectra_3d[0]);
-            // Initialize the main plot now that we have data dimensions from the first slice
-            init_main_plot(spectra_3d[0]);
-
-            update_global_noise_level();
-            // Draw first slice
-            draw_slice(0);
-
-            // Trigger auto-phase if requested
-            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
-                run_auto_phase_on_loaded_spectrum();
-            }
-
-            // Sync projection view if checked
-            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
-            if (projChecked) {
-                toggle_visualize_proj(true);
-            }
-        }
-
-        document.getElementById("webassembly_message").innerText = "";
-    } finally {
-        set_loading_buttons_state(false);
     }
+
+    if (spectra_3d.length > 0) {
+        // Setup slider
+        let slider = document.getElementById('slice_slider');
+        slider.max = spectra_3d.length - 1;
+        slider.value = 0;
+        document.getElementById('slice_control_area').style.display = 'block';
+        document.getElementById('aux_buttons').style.display = 'block'; // Or hide if not needed
+        document.getElementById('main_plot_area').style.display = 'flex';
+
+        // Initialize the main plot now that we have data dimensions from the first slice
+        init_main_plot(spectra_3d[0]);
+
+        // Draw first slice
+        draw_slice(0);
+        update_global_noise_level();
+
+        // Trigger auto-phase if requested
+        if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+            run_auto_phase_on_loaded_spectrum();
+        }
+    }
+
+    document.getElementById("webassembly_message").innerText = "";
 }
 
-/**
- * Reads file as buffer.
- *
- * @param {any} file - File
- */
 function read_file_as_buffer(file) {
     return new Promise((resolve, reject) => {
         let reader = new FileReader();
@@ -2120,15 +1597,6 @@ function read_file_as_buffer(file) {
     });
 }
 
-/**
- * Calculates levels.
- *
- * @param {any} noise - Noise
- * @param {any} scale - Scale
- * @param {any} count - Count
- * @param {any} [multiplier_val] - Multiplier value Default is null.
- * @param {any} [scale_val] - Scale value Default is null.
- */
 function calculate_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
     let levels = [];
     let multiplier = 10.0;
@@ -2158,15 +1626,6 @@ function calculate_levels(noise, scale, count, multiplier_val = null, scale_val 
     return levels;
 }
 
-/**
- * Calculates negative levels.
- *
- * @param {any} noise - Noise
- * @param {any} scale - Scale
- * @param {any} count - Count
- * @param {any} [multiplier_val] - Multiplier value Default is null.
- * @param {any} [scale_val] - Scale value Default is null.
- */
 function calculate_negative_levels(noise, scale, count, multiplier_val = null, scale_val = null) {
     let levels = calculate_levels(noise, scale, count, multiplier_val, scale_val);
     for (let i = 0; i < levels.length; i++) {
@@ -2175,28 +1634,24 @@ function calculate_negative_levels(noise, scale, count, multiplier_val = null, s
     return levels;
 }
 
-/**
- * Updates global noise level.
- */
 function update_global_noise_level() {
     if (!spectra_3d || spectra_3d.length === 0) return;
-    let noise_levels = [];
+    let sum = 0;
+    let count = 0;
     for (let s of spectra_3d) {
         if (s.noise_level) {
-            noise_levels.push(s.noise_level);
+            sum += s.noise_level;
+            count++;
         }
     }
-    if (noise_levels.length === 0) return;
-    const sorted = [...noise_levels].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    global_3d_noise = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    evaluate_global_noise_redefinition();
-    update_contour_levels();
+    if (count === 0) return;
+    let global_noise = sum / count;
+    let display = document.getElementById('global_noise_level_display');
+    if (display) {
+        display.innerText = "Estimated 3D Noise: " + global_noise.toExponential(3);
+    }
 }
 
-/**
- * Updates contour levels.
- */
 function update_contour_levels() {
     let multiplier = parseFloat(document.getElementById('contour_start_multiplier').value);
     let scale = parseFloat(document.getElementById('contour_scale_factor').value);
@@ -2206,17 +1661,12 @@ function update_contour_levels() {
         return;
     }
 
-    let color_exp_pos = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-    let color_exp_neg = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-    let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
-    let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
-
     // Update all slices
     for (let s of spectra_3d) {
-        s.spectrum_color = color_exp_pos;
-        s.spectrum_color_negative = color_exp_neg;
-        s.levels = calculate_levels(global_3d_noise, scale, 30);
-        s.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
+        s.spectrum_color = "#0000ff";
+        s.spectrum_color_negative = "#ff0000";
+        s.levels = calculate_levels(s.noise_level, scale, 30);
+        s.negative_levels = calculate_negative_levels(s.noise_level, scale, 30);
         // Invalidate cache to force recalculation
         s.cached_contour_pos = null;
         s.cached_contour_neg = null;
@@ -2224,10 +1674,9 @@ function update_contour_levels() {
 
     if (theoretical_spectra_3d) {
         for (let s of theoretical_spectra_3d) {
-            s.spectrum_color = color_theo_pos;
-            s.spectrum_color_negative = color_theo_neg;
-            s.levels = calculate_levels(global_3d_noise, scale, 30);
-            s.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
+            s.spectrum_color = "#ff0000"; // Red for theoretical
+            s.levels = calculate_levels(s.noise_level, scale, 30);
+            s.negative_levels = [];
             s.cached_contour_pos = null;
             s.cached_contour_neg = null;
         }
@@ -2235,43 +1684,23 @@ function update_contour_levels() {
 
     // Also update orthogonal spectra
     if (spectrum_xz) {
-        spectrum_xz.spectrum_color = color_exp_pos;
-        spectrum_xz.spectrum_color_negative = color_exp_neg;
-        spectrum_xz.levels = calculate_levels(global_3d_noise, scale, 30);
-        spectrum_xz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
+        spectrum_xz.spectrum_color = "#0000ff";
+        spectrum_xz.levels = calculate_levels(spectrum_xz.noise_level, scale, 30);
+        spectrum_xz.negative_levels = [];
         spectrum_xz.cached_contour_pos = null;
         spectrum_xz.cached_contour_neg = null;
     }
     if (spectrum_yz) {
-        spectrum_yz.spectrum_color = color_exp_pos;
-        spectrum_yz.spectrum_color_negative = color_exp_neg;
-        spectrum_yz.levels = calculate_levels(global_3d_noise, scale, 30);
-        spectrum_yz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
+        spectrum_yz.spectrum_color = "#0000ff";
+        spectrum_yz.levels = calculate_levels(spectrum_yz.noise_level, scale, 30);
+        spectrum_yz.negative_levels = [];
         spectrum_yz.cached_contour_pos = null;
         spectrum_yz.cached_contour_neg = null;
-    }
-    if (theoretical_spectrum_xz) {
-        theoretical_spectrum_xz.spectrum_color = color_theo_pos;
-        theoretical_spectrum_xz.spectrum_color_negative = color_theo_neg;
-        theoretical_spectrum_xz.levels = calculate_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_xz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_xz.cached_contour_pos = null;
-        theoretical_spectrum_xz.cached_contour_neg = null;
-    }
-    if (theoretical_spectrum_yz) {
-        theoretical_spectrum_yz.spectrum_color = color_theo_pos;
-        theoretical_spectrum_yz.spectrum_color_negative = color_theo_neg;
-        theoretical_spectrum_yz.levels = calculate_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_yz.negative_levels = calculate_negative_levels(global_3d_noise, scale, 30);
-        theoretical_spectrum_yz.cached_contour_pos = null;
-        theoretical_spectrum_yz.cached_contour_neg = null;
     }
 
     if (spectrum_proj) {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
-        spectrum_proj.spectrum_color = "#0000ff";
-        spectrum_proj.spectrum_color_negative = "#0000ff";
         spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj.cached_contour_pos = null;
@@ -2283,8 +1712,6 @@ function update_contour_levels() {
     if (spectrum_proj_y) {
         let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
-        spectrum_proj_y.spectrum_color = "#0000ff";
-        spectrum_proj_y.spectrum_color_negative = "#0000ff";
         spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         spectrum_proj_y.cached_contour_pos = null;
@@ -2293,25 +1720,9 @@ function update_contour_levels() {
         request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
     }
 
-    if (spectrum_proj_x) {
-        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
-        let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
-        spectrum_proj_x.spectrum_color = "#0000ff";
-        spectrum_proj_x.spectrum_color_negative = "#0000ff";
-        spectrum_proj_x.levels = calculate_levels(spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
-        spectrum_proj_x.negative_levels = calculate_negative_levels(spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
-        spectrum_proj_x.cached_contour_pos = null;
-        spectrum_proj_x.cached_contour_neg = null;
-        request_contour_calculation(spectrum_proj_x, 0, 0, "proj_x");
-        request_contour_calculation(spectrum_proj_x, 0, 1, "proj_x");
-    }
-
     if (theoretical_spectrum_proj) {
         let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
-        theoretical_spectrum_proj.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj.spectrum_color_negative = "#ff0000";
-        theoretical_spectrum_proj.noise_level = spectrum_proj.noise_level;
         theoretical_spectrum_proj.levels = calculate_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj.negative_levels = calculate_negative_levels(theoretical_spectrum_proj.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj.cached_contour_pos = null;
@@ -2323,9 +1734,6 @@ function update_contour_levels() {
     if (theoretical_spectrum_proj_y) {
         let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
-        theoretical_spectrum_proj_y.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj_y.spectrum_color_negative = "#ff0000";
-        theoretical_spectrum_proj_y.noise_level = spectrum_proj_y.noise_level;
         theoretical_spectrum_proj_y.levels = calculate_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj_y.negative_levels = calculate_negative_levels(theoretical_spectrum_proj_y.noise_level, p_scale, 30, p_multiplier, p_scale);
         theoretical_spectrum_proj_y.cached_contour_pos = null;
@@ -2334,29 +1742,7 @@ function update_contour_levels() {
         request_contour_calculation(theoretical_spectrum_proj_y, 0, 1, "proj_y_theo");
     }
 
-    if (theoretical_spectrum_proj_x) {
-        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
-        let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
-        theoretical_spectrum_proj_x.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj_x.spectrum_color_negative = "#ff0000";
-        theoretical_spectrum_proj_x.noise_level = spectrum_proj_x.noise_level;
-        theoretical_spectrum_proj_x.levels = calculate_levels(theoretical_spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
-        theoretical_spectrum_proj_x.negative_levels = calculate_negative_levels(theoretical_spectrum_proj_x.noise_level, p_scale, 30, p_multiplier, p_scale);
-        theoretical_spectrum_proj_x.cached_contour_pos = null;
-        theoretical_spectrum_proj_x.cached_contour_neg = null;
-        request_contour_calculation(theoretical_spectrum_proj_x, 0, 0, "proj_x_theo");
-        request_contour_calculation(theoretical_spectrum_proj_x, 0, 1, "proj_x_theo");
-    }
-
     // Refresh views
-    if (current_slice_index >= 0) {
-        draw_slice(current_slice_index);
-    }
-    refresh_xz_view();
-    refresh_yz_view();
-}
-
-function redraw_peak_symbols() {
     if (current_slice_index >= 0) {
         draw_slice(current_slice_index);
     }
@@ -2380,20 +1766,12 @@ function resetzoom() {
     }
 }
 
-/**
- * Pops zoom.
- */
 function popzoom() {
     if (main_plot) {
         main_plot.popzoom();
     }
 }
 
-/**
- * Initializes main plot.
- *
- * @param {any} first_spectrum - First spectrum
- */
 function init_main_plot(first_spectrum) {
     let cr = get_content_size("vis_parent");
 
@@ -2497,14 +1875,6 @@ function init_main_plot(first_spectrum) {
 
 
 
-/**
- * Requests contour calculation.
- *
- * @param {any} spectrum - Spectrum
- * @param {any} index - Index
- * @param {any} sign - Sign
- * @param {string} [spectrum_type] - Spectrum type Default is "full".
- */
 function request_contour_calculation(spectrum, index, sign, spectrum_type = "full") {
     // Mimic the message structure expected by contour.js
     // contour.js reads: e.data.spectrum.levels, etc.
@@ -2529,12 +1899,6 @@ function request_contour_calculation(spectrum, index, sign, spectrum_type = "ful
 }
 
 
-/**
- * Float32s concat.
- *
- * @param {any} first - First
- * @param {any} second - Second
- */
 function Float32Concat(first, second) {
     var firstLength = first.length,
         result = new Float32Array(firstLength + second.length);
@@ -2543,11 +1907,6 @@ function Float32Concat(first, second) {
     return result;
 }
 
-/**
- * Refreshes current view.
- *
- * @param {any} spectrum_in - Spectrum in
- */
 function refresh_current_view(spectrum_in) {
     if (!main_plot) return;
 
@@ -2936,10 +2295,19 @@ function sync_from_yz_plot(is_end = true) {
 }
 
 /**
- * Initializes orthogonal plots.
- *
- * @param {any} s - S
+ * XZ and YZ Plot Logic
  */
+var main_plot_xz = null;
+var main_plot_yz = null;
+
+var spectrum_xz = null;
+var spectrum_yz = null;
+
+// Temporary Fixed positions (Center of the cube)
+// Ideally updated by crosshair interaction
+var current_y_index = -1; // Set during init
+var current_x_index = -1; // Set during init
+
 function init_ortho_plots(s) {
     if (!s) return;
 
@@ -3137,10 +2505,6 @@ function init_ortho_plots(s) {
     refresh_yz_view();
 }
 
-/**
- * Refreshes XZ view.
- * This function also construct spectrum_xz from spectra_3d if it is null.
- */
 function refresh_xz_view() {
     if (!main_plot_xz || spectra_3d.length === 0) return;
 
@@ -3239,7 +2603,7 @@ function refresh_xz_view() {
         // Horizontal (X-axis): Direct Dimension (X)
         // Vertical (Y-axis): Z Dimension
         // Slice Dimension: Indirect Dimension (Y) -> current_y_index
-        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
             let visible_peaks_xz = [];
             let current_slice_y = current_y_index;
             let s = spectra_3d[0];
@@ -3267,7 +2631,6 @@ function refresh_xz_view() {
                         fill_flag = false;
                     }
 
-                    let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
                     // Map coordinates for XZ plot
                     // X-axis: X PPM
                     // Y-axis: Z PPM
@@ -3275,41 +2638,33 @@ function refresh_xz_view() {
                         x: p.x_ppm !== undefined ? p.x_ppm : (s.x_ppm_start + p.x * s.x_ppm_step),
                         y: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
                         symbol: symbol_type,
-                        color: symbol_color,
+                        color: 'red',
                         size: (symbol_type === 'square') ? 6 : 5,
                         fill: fill_flag
                     });
                 }
             }
             main_plot_xz.add_extra_peaks(visible_peaks_xz);
-        } else {
-            if (main_plot_xz) {
-                main_plot_xz.add_extra_peaks([]);
-            }
-        }
 
-        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-            let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
-            let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
-            let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
-            let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+                let x0 = s.x_ppm_start + partition_bounds_data.x[0] * s.x_ppm_step;
+                let x1 = s.x_ppm_start + partition_bounds_data.x[1] * s.x_ppm_step;
+                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
 
-            if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
-                // X-axis is X PPM, Y-axis is Z PPM
-                main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
+                if (current_slice_y >= partition_bounds_data.y[0] && current_slice_y <= partition_bounds_data.y[1]) {
+                    // X-axis is X PPM, Y-axis is Z PPM
+                    main_plot_xz.draw_bounding_box(x0, x1, z0, z1, 'red');
+                } else {
+                    main_plot_xz.draw_bounding_box();
+                }
             } else {
-                main_plot_xz.draw_bounding_box();
+                if (main_plot_xz.draw_bounding_box) main_plot_xz.draw_bounding_box();
             }
-        } else {
-            if (main_plot_xz.draw_bounding_box) main_plot_xz.draw_bounding_box();
         }
     }
 }
 
-/**
- * Refreshes YZ view.
- * This function also construct spectrum_yz from spectra_3d if it is null.
- */
 function refresh_yz_view() {
     if (!main_plot_yz || spectra_3d.length === 0) return;
 
@@ -3416,7 +2771,7 @@ function refresh_yz_view() {
         // Horizontal (X-axis): Z Dimension
         // Vertical (Y-axis): Indirect Dimension (Y)
         // Slice Dimension: Direct Dimension (X) -> current_x_index
-        if (show_peak_symbols && typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
+        if (typeof theoretical_peaks_data !== 'undefined' && theoretical_peaks_data.length > 0) {
             let visible_peaks_yz = [];
             let current_slice_x = current_x_index;
             let s = spectra_3d[0];
@@ -3444,7 +2799,6 @@ function refresh_yz_view() {
                         fill_flag = false;
                     }
 
-                    let symbol_color = document.getElementById('color_peak_symbol') ? document.getElementById('color_peak_symbol').value : 'cyan';
                     // Map coordinates for YZ plot
                     // X-axis: Z PPM
                     // Y-axis: Y PPM
@@ -3452,42 +2806,33 @@ function refresh_yz_view() {
                         x: p.z_ppm !== undefined ? p.z_ppm : (s.z_ppm_start + p.z * s.z_ppm_step),
                         y: p.y_ppm !== undefined ? p.y_ppm : (s.y_ppm_start + p.y * s.y_ppm_step),
                         symbol: symbol_type,
-                        color: symbol_color,
+                        color: 'red',
                         size: (symbol_type === 'square') ? 6 : 5,
                         fill: fill_flag
                     });
                 }
             }
             main_plot_yz.add_extra_peaks(visible_peaks_yz);
-        } else {
-            if (main_plot_yz) {
-                main_plot_yz.add_extra_peaks([]);
-            }
-        }
 
-        if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
-            let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
-            let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
-            let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
-            let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
+            if (typeof partition_bounds_data !== "undefined" && partition_bounds_data !== null) {
+                let z0 = s.z_ppm_start + partition_bounds_data.z[0] * s.z_ppm_step;
+                let z1 = s.z_ppm_start + partition_bounds_data.z[1] * s.z_ppm_step;
+                let y0 = s.y_ppm_start + partition_bounds_data.y[0] * s.y_ppm_step;
+                let y1 = s.y_ppm_start + partition_bounds_data.y[1] * s.y_ppm_step;
 
-            if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
-                // X-axis is Z PPM, Y-axis is Y PPM
-                main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
+                if (current_slice_x >= partition_bounds_data.x[0] && current_slice_x <= partition_bounds_data.x[1]) {
+                    // X-axis is Z PPM, Y-axis is Y PPM
+                    main_plot_yz.draw_bounding_box(z0, z1, y0, y1, 'red');
+                } else {
+                    main_plot_yz.draw_bounding_box();
+                }
             } else {
-                main_plot_yz.draw_bounding_box();
+                if (main_plot_yz.draw_bounding_box) main_plot_yz.draw_bounding_box();
             }
-        } else {
-            if (main_plot_yz.draw_bounding_box) main_plot_yz.draw_bounding_box();
         }
     }
 }
 
-/**
- * Refreshes orthogonal plot.
- *
- * @param {any} type - Type
- */
 function refresh_ortho_plot(type) {
     let plot = (type === "xz") ? main_plot_xz : main_plot_yz;
     let spec = (type === "xz") ? spectrum_xz : spectrum_yz;
@@ -3627,12 +2972,6 @@ function refresh_ortho_plot(type) {
     plot.contour_plot.drawScene();
 }
 
-/**
- * Clamps index 3D.
- *
- * @param {any} value - Value
- * @param {any} maxExclusive - Max exclusive
- */
 function clamp_index_3d(value, maxExclusive) {
     if (!Number.isFinite(value) || maxExclusive <= 0) {
         return 0;
@@ -3640,9 +2979,6 @@ function clamp_index_3d(value, maxExclusive) {
     return Math.max(0, Math.min(maxExclusive - 1, Math.round(value)));
 }
 
-/**
- * Gets crosshair center PPM 3D.
- */
 function get_crosshair_center_ppm_3d() {
     if (!spectra_3d || spectra_3d.length === 0) {
         return null;
@@ -3680,12 +3016,6 @@ function get_crosshair_center_ppm_3d() {
     };
 }
 
-/**
- * Gets trace domain 3D.
- *
- * @param {any} dim - Dimension
- * @param {any} s0 - S0
- */
 function get_trace_domain_3d(dim, s0) {
     if (!s0) {
         return [0, 1];
@@ -3701,29 +3031,19 @@ function get_trace_domain_3d(dim, s0) {
 }
 
 
-/**
- * Extracts trace 3D.
- *
- * @param {any} dim - Dimension
- * @param {any} xIndex - X index
- * @param {any} yIndex - Y index
- * @param {any} zIndex - Z index
- * @param {any} s0 - S0
- */
-function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0, spectra_source_list) {
-    let source_list = spectra_source_list || spectra_3d;
+function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0) {
     let points = [];
-    if (!s0 || !source_list || source_list.length === 0) {
+    if (!s0 || !spectra_3d || spectra_3d.length === 0) {
         return points;
     }
 
     const nx = s0.n_direct;
     const ny = s0.n_indirect;
-    const nz = source_list.length;
+    const nz = spectra_3d.length;
 
     if (dim === 'z') {
         for (let z = 0; z < nz; z++) {
-            let slice = source_list[z];
+            let slice = spectra_3d[z];
             let val = 0;
             if (slice && slice.raw_data) {
                 val = slice.raw_data[yIndex * nx + xIndex] || 0;
@@ -3733,7 +3053,7 @@ function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0, spectra_source_list) 
         return points;
     }
 
-    let slice = source_list[zIndex];
+    let slice = spectra_3d[zIndex];
     if (!slice || !slice.raw_data) {
         return points;
     }
@@ -3749,7 +3069,7 @@ function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0, spectra_source_list) 
     }
 
     if (dim === 'x') {
-        let has_ri = source_list.every(s => s.raw_data_ri && s.raw_data_ri.length > 0);
+        let has_ri = spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0);
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
         let p1_rad = trace_x_ph1 * Math.PI / 180.0;
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - s0.x_ppm_start) / s0.x_ppm_step) : 0;
@@ -3778,11 +3098,6 @@ function extract_trace_3d(dim, xIndex, yIndex, zIndex, s0, spectra_source_list) 
     return points;
 }
 
-/**
- * Clears 1d trace SVG.
- *
- * @param {any} svgId - SVG id
- */
 function clear_1d_trace_svg(svgId) {
     const svgEl = document.getElementById(svgId);
     if (!svgEl) {
@@ -3791,27 +3106,15 @@ function clear_1d_trace_svg(svgId) {
     d3.select(svgEl).selectAll('*').remove();
 }
 
-/**
- * Clears all 1d traces.
- */
 function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_z_svg');
     clear_1d_trace_svg('trace_y_svg');
     clear_1d_trace_svg('trace_x_svg');
     clear_1d_trace_svg('trace_proj_x_svg');
     clear_1d_trace_svg('trace_proj_y_x_svg');
-    clear_1d_trace_svg('trace_proj_z_svg');
 }
 
-/**
- * Renders trace 3D.
- *
- * @param {any} svgId - SVG id
- * @param {any} points - Points
- * @param {any} xDomain - X domain
- * @param {any} lineColor - Line color
- */
-function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null) {
+function render_trace_3d(svgId, points, xDomain, lineColor) {
     const svgEl = document.getElementById(svgId);
     if (!svgEl) {
         return;
@@ -3841,27 +3144,8 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
     });
     const ySource = visiblePoints.length > 0 ? visiblePoints : points;
 
-    let visiblePointsRecon = [];
-    if (points_recon && points_recon.length > 0) {
-        visiblePointsRecon = points_recon.filter(function (p) {
-            return p.ppm >= xMin && p.ppm <= xMax;
-        });
-    }
-
     let yMin = d3.min(ySource, function (d) { return d.value; });
     let yMax = d3.max(ySource, function (d) { return d.value; });
-
-    if (points_recon && points_recon.length > 0) {
-        let ySourceRecon = visiblePointsRecon.length > 0 ? visiblePointsRecon : points_recon;
-        let yMinRecon = d3.min(ySourceRecon, function (d) { return d.value; });
-        let yMaxRecon = d3.max(ySourceRecon, function (d) { return d.value; });
-        if (Number.isFinite(yMinRecon)) {
-            yMin = Math.min(yMin, yMinRecon);
-        }
-        if (Number.isFinite(yMaxRecon)) {
-            yMax = Math.max(yMax, yMaxRecon);
-        }
-    }
 
     if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
         yMin = -1;
@@ -3921,62 +3205,15 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
             .attr('stroke-dasharray', '3,2');
     }
 
-    // Experimental Line (Blue)
     plotGroup.append('path')
         .datum(points)
         .attr('fill', 'none')
-        .attr('stroke', '#0000ff')
+        .attr('stroke', lineColor || '#1f77b4')
         .attr('stroke-width', 1.5)
         .attr('d', line);
 
-    // Reconstructed Line (Red)
-    if (points_recon && points_recon.length > 0) {
-        plotGroup.append('path')
-            .datum(points_recon)
-            .attr('fill', 'none')
-            .attr('stroke', '#ff0000')
-            .attr('stroke-width', 1.5)
-            .attr('d', line);
-    }
-
-    // Circles for Experimental
-    if (visiblePoints.length < 64) {
-        plotGroup.selectAll('.trace-circle-exp')
-            .data(visiblePoints.filter(function (d) {
-                return Number.isFinite(d.ppm) && Number.isFinite(d.value);
-            }))
-            .enter()
-            .append('circle')
-            .attr('class', 'trace-circle-exp')
-            .attr('cx', function (d) { return xScale(d.ppm); })
-            .attr('cy', function (d) { return yScale(d.value); })
-            .attr('r', 3)
-            .attr('fill', '#0000ff')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 1)
-            .style('pointer-events', 'none');
-    }
-
-    // Circles for Reconstructed
-    if (points_recon && points_recon.length > 0 && visiblePointsRecon.length < 64) {
-        plotGroup.selectAll('.trace-circle-recon')
-            .data(visiblePointsRecon.filter(function (d) {
-                return Number.isFinite(d.ppm) && Number.isFinite(d.value);
-            }))
-            .enter()
-            .append('circle')
-            .attr('class', 'trace-circle-recon')
-            .attr('cx', function (d) { return xScale(d.ppm); })
-            .attr('cy', function (d) { return yScale(d.value); })
-            .attr('r', 3)
-            .attr('fill', '#ff0000')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 1)
-            .style('pointer-events', 'none');
-    }
-
     // Pivot Line and Phase Labels Overlay
-    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg' || svgId === 'trace_proj_y_x_svg') {
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
         // Pivot Line
         if (trace_x_pivot !== null) {
             plotGroup.append('line')
@@ -4038,7 +3275,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
         update_1d_traces_from_center();
     });
 
-    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg' || svgId === 'trace_proj_y_x_svg') {
+    if (svgId === 'trace_x_svg' || svgId === 'trace_proj_x_svg') {
         const set_pivot = function (event) {
             if (!spectra_3d || spectra_3d.length === 0) return;
             if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) return;
@@ -4052,7 +3289,7 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
                 trace_x_pivot = null;
             }
 
-            let IDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'];
+            let IDs = ['trace_x_pivot_val', 'trace_proj_x_pivot_val'];
             IDs.forEach(id => {
                 let el = document.getElementById(id);
                 if (el) el.innerText = trace_x_pivot !== null ? trace_x_pivot.toFixed(2) + ' ppm' : 'not set';
@@ -4097,16 +3334,12 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
                 if (valSpan) valSpan.innerText = trace_x_ph0.toFixed(1);
                 let valProjSpan = document.getElementById('trace_proj_x_ph0_val');
                 if (valProjSpan) valProjSpan.innerText = trace_x_ph0.toFixed(1);
-                let valProjYSpan = document.getElementById('trace_proj_y_x_ph0_val');
-                if (valProjYSpan) valProjYSpan.innerText = trace_x_ph0.toFixed(1);
             } else {
                 trace_x_ph1 += direction * step;
                 let valSpan = document.getElementById('trace_x_ph1_val');
                 if (valSpan) valSpan.innerText = trace_x_ph1.toFixed(1);
                 let valProjSpan = document.getElementById('trace_proj_x_ph1_val');
                 if (valProjSpan) valProjSpan.innerText = trace_x_ph1.toFixed(1);
-                let valProjYSpan = document.getElementById('trace_proj_y_x_ph1_val');
-                if (valProjYSpan) valProjYSpan.innerText = trace_x_ph1.toFixed(1);
             }
             update_1d_traces_from_center();
         });
@@ -4114,9 +3347,6 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
 }
 
 
-/**
- * Updates 1d traces from center.
- */
 function update_1d_traces_from_center() {
     if (!spectra_3d || spectra_3d.length === 0) {
         clear_all_1d_traces();
@@ -4143,69 +3373,19 @@ function update_1d_traces_from_center() {
     const traceY = extract_trace_3d('y', xIndex, yIndex, zIndex, s0);
     const traceX = extract_trace_3d('x', xIndex, yIndex, zIndex, s0);
 
-    let traceZ_recon = null;
-    let traceY_recon = null;
-    let traceX_recon = null;
-
-    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
-        traceZ_recon = extract_trace_3d('z', xIndex, yIndex, zIndex, s0, theoretical_spectra_3d);
-        traceY_recon = extract_trace_3d('y', xIndex, yIndex, zIndex, s0, theoretical_spectra_3d);
-        traceX_recon = extract_trace_3d('x', xIndex, yIndex, zIndex, s0, theoretical_spectra_3d);
-    }
-
     const domainZ = trace_zoom_domains['trace_z_svg'] || get_trace_domain_3d('z', s0);
     const domainY = trace_zoom_domains['trace_y_svg'] || get_trace_domain_3d('y', s0);
     const domainX = trace_zoom_domains['trace_x_svg'] || get_trace_domain_3d('x', s0);
 
-    render_trace_3d('trace_z_svg', traceZ, domainZ, '#0000ff', traceZ_recon);
-    render_trace_3d('trace_y_svg', traceY, domainY, '#0000ff', traceY_recon);
-    render_trace_3d('trace_x_svg', traceX, domainX, '#0000ff', traceX_recon);
-
-    // Get dynamic labels for axes using window.last_fid_nuclei
-    const nx = window.last_fid_nuclei.x;
-    const ny = window.last_fid_nuclei.y;
-    const nz = window.last_fid_nuclei.z;
-
-    const getAxisName = (axis, nuc) => {
-        return nuc ? `${axis} (${nuc})` : axis;
-    };
-
-    const labelX = getAxisName("x", nx); // direct dim, internal x
-    const labelY = getAxisName("y", ny); // indirect 1, internal y
-    const labelZ = getAxisName("z", nz); // indirect 2, internal z
-
-    // Update Trace Z label (internal z -> UI z)
-    const labelZ_elem = document.getElementById('trace_z_label');
-    if (labelZ_elem) {
-        const span = labelZ_elem.querySelector('span');
-        if (span) {
-            span.innerText = `1D Trace Along ${labelZ} (at ${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm)`;
-        }
-    }
-
-    // Update Trace Y label (internal y -> UI y)
-    const labelY_elem = document.getElementById('trace_y_label');
-    if (labelY_elem) {
-        const span = labelY_elem.querySelector('span');
-        if (span) {
-            span.innerText = `1D Trace Along ${labelY} (at ${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
-        }
-    }
-
-    // Update Trace X label (internal x -> UI x)
-    const labelX_elem = document.getElementById('trace_x_label');
-    if (labelX_elem) {
-        const span = labelX_elem.querySelector('span');
-        if (span) {
-            span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
-        }
-    }
+    render_trace_3d('trace_z_svg', traceZ, domainZ, '#1f77b4');
+    render_trace_3d('trace_y_svg', traceY, domainY, '#2ca02c');
+    render_trace_3d('trace_x_svg', traceX, domainX, '#d62728');
 
     // Update Projection 1D Trace
     if (spectrum_proj && spectrum_proj.raw_data) {
         const traceProjX = [];
-        const nx_proj = spectrum_proj.n_direct;
-        const ny_proj = spectrum_proj.n_indirect;
+        const nx = spectrum_proj.n_direct;
+        const ny = spectrum_proj.n_indirect;
 
         // Use projection view center for the projection 1D trace
         let target_y_ppm;
@@ -4216,23 +3396,23 @@ function update_1d_traces_from_center() {
             target_y_ppm = center.ppm_y;
         }
 
-        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny_proj);
+        const pyIndex = clamp_index_3d((target_y_ppm - spectrum_proj.y_ppm_start) / spectrum_proj.y_ppm_step, ny);
 
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
         let p1_rad = trace_x_ph1 * Math.PI / 180.0;
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj.x_ppm_start) / spectrum_proj.x_ppm_step) : 0;
         let has_ri = spectrum_proj.raw_data_ri && spectrum_proj.raw_data_ri.length > 0;
 
-        for (let x = 0; x < nx_proj; x++) {
-            let re = spectrum_proj.raw_data[pyIndex * nx_proj + x] || 0;
+        for (let x = 0; x < nx; x++) {
+            let re = spectrum_proj.raw_data[pyIndex * nx + x] || 0;
             let val = re;
             if (has_ri) {
-                let im = spectrum_proj.raw_data_ri[pyIndex * nx_proj + x] || 0;
+                let im = spectrum_proj.raw_data_ri[pyIndex * nx + x] || 0;
                 let phase_rad;
                 if (trace_x_pivot === null) {
                     phase_rad = p0_rad;
                 } else {
-                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_proj;
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
                 }
                 val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
             }
@@ -4241,56 +3421,23 @@ function update_1d_traces_from_center() {
                 value: val
             });
         }
-
-        // Extract Reconstruction Projection Trace if available
-        let traceProjX_recon = null;
-        if (theoretical_spectrum_proj && theoretical_spectrum_proj.raw_data) {
-            traceProjX_recon = [];
-            let nx_theo = theoretical_spectrum_proj.n_direct;
-            let ny_theo = theoretical_spectrum_proj.n_indirect;
-            let pyIndex_theo = clamp_index_3d((target_y_ppm - theoretical_spectrum_proj.y_ppm_start) / theoretical_spectrum_proj.y_ppm_step, ny_theo);
-            let has_ri_theo = theoretical_spectrum_proj.raw_data_ri && theoretical_spectrum_proj.raw_data_ri.length > 0;
-
-            for (let x = 0; x < nx_theo; x++) {
-                let re = theoretical_spectrum_proj.raw_data[pyIndex_theo * nx_theo + x] || 0;
-                let val = re;
-                if (has_ri_theo) {
-                    let im = theoretical_spectrum_proj.raw_data_ri[pyIndex_theo * nx_theo + x] || 0;
-                    let phase_rad;
-                    if (trace_x_pivot === null) {
-                        phase_rad = p0_rad;
-                    } else {
-                        phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_theo;
-                    }
-                    val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
-                }
-                traceProjX_recon.push({
-                    ppm: theoretical_spectrum_proj.x_ppm_start + x * theoretical_spectrum_proj.x_ppm_step,
-                    value: val
-                });
-            }
-        }
-
         // Always show independent range for 1D trace (can be zoomed by its own brush)
-        const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx_proj - 1) * spectrum_proj.x_ppm_step];
-        render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#0000ff', traceProjX_recon);
+        const domainProjX = trace_zoom_domains['trace_proj_x_svg'] || [spectrum_proj.x_ppm_start, spectrum_proj.x_ppm_start + (nx - 1) * spectrum_proj.x_ppm_step];
+        render_trace_3d('trace_proj_x_svg', traceProjX, domainProjX, '#2a9d8f');
 
         // Update label to indicate if it's a cross-section or center
         const label = document.getElementById('trace_proj_x_label');
         if (label) {
-            const span = label.querySelector('span');
-            if (span) {
-                const ppm_str = target_y_ppm.toFixed(3);
-                span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${ppm_str} ppm)`;
-            }
+            const ppm_str = target_y_ppm.toFixed(3);
+            label.innerText = `1D Trace Along z (at x=${ppm_str} ppm)`;
         }
     }
 
     // Update Y-Projection 1D Trace (Trace along Z at some Y)
     if (spectrum_proj_y && spectrum_proj_y.raw_data) {
         const traceProjYX = [];
-        const nx_proj = spectrum_proj_y.n_direct;
-        const nz_proj = spectrum_proj_y.n_indirect;
+        const nx = spectrum_proj_y.n_direct;
+        const nz = spectrum_proj_y.n_indirect;
 
         let target_z_ppm;
         if (main_plot_proj_y && main_plot_proj_y.yRange) {
@@ -4300,7 +3447,7 @@ function update_1d_traces_from_center() {
             target_z_ppm = center.ppm_z;
         }
 
-        const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz_proj);
+        const pzIndex = clamp_index_3d((target_z_ppm - spectrum_proj_y.y_ppm_start) / spectrum_proj_y.y_ppm_step, nz);
 
         // Use same phase as other X-traces
         let p0_rad = trace_x_ph0 * Math.PI / 180.0;
@@ -4308,16 +3455,16 @@ function update_1d_traces_from_center() {
         let pivot_idx = trace_x_pivot !== null ? Math.round((trace_x_pivot - spectrum_proj_y.x_ppm_start) / spectrum_proj_y.x_ppm_step) : 0;
         let has_ri = spectrum_proj_y.raw_data_ri && spectrum_proj_y.raw_data_ri.length > 0;
 
-        for (let x = 0; x < nx_proj; x++) {
-            let re = spectrum_proj_y.raw_data[pzIndex * nx_proj + x] || 0;
+        for (let x = 0; x < nx; x++) {
+            let re = spectrum_proj_y.raw_data[pzIndex * nx + x] || 0;
             let val = re;
             if (has_ri) {
-                let im = spectrum_proj_y.raw_data_ri[pzIndex * nx_proj + x] || 0;
+                let im = spectrum_proj_y.raw_data_ri[pzIndex * nx + x] || 0;
                 let phase_rad;
                 if (trace_x_pivot === null) {
                     phase_rad = p0_rad;
                 } else {
-                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_proj;
+                    phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx;
                 }
                 val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
             }
@@ -4326,45 +3473,12 @@ function update_1d_traces_from_center() {
                 value: val
             });
         }
-
-        // Extract Reconstruction Projection Trace if available
-        let traceProjYX_recon = null;
-        if (theoretical_spectrum_proj_y && theoretical_spectrum_proj_y.raw_data) {
-            traceProjYX_recon = [];
-            let nx_theo = theoretical_spectrum_proj_y.n_direct;
-            let nz_theo = theoretical_spectrum_proj_y.n_indirect;
-            let pzIndex_theo = clamp_index_3d((target_z_ppm - theoretical_spectrum_proj_y.y_ppm_start) / theoretical_spectrum_proj_y.y_ppm_step, nz_theo);
-            let has_ri_theo = theoretical_spectrum_proj_y.raw_data_ri && theoretical_spectrum_proj_y.raw_data_ri.length > 0;
-
-            for (let x = 0; x < nx_theo; x++) {
-                let re = theoretical_spectrum_proj_y.raw_data[pzIndex_theo * nx_theo + x] || 0;
-                let val = re;
-                if (has_ri_theo) {
-                    let im = theoretical_spectrum_proj_y.raw_data_ri[pzIndex_theo * nx_theo + x] || 0;
-                    let phase_rad;
-                    if (trace_x_pivot === null) {
-                        phase_rad = p0_rad;
-                    } else {
-                        phase_rad = p0_rad + p1_rad * (x - pivot_idx) / nx_theo;
-                    }
-                    val = re * Math.cos(phase_rad) - im * Math.sin(phase_rad);
-                }
-                traceProjYX_recon.push({
-                    ppm: theoretical_spectrum_proj_y.x_ppm_start + x * theoretical_spectrum_proj_y.x_ppm_step,
-                    value: val
-                });
-            }
-        }
-
-        const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx_proj - 1) * spectrum_proj_y.x_ppm_step];
-        render_trace_3d('trace_proj_y_x_svg', traceProjYX, domainProjYX, '#0000ff', traceProjYX_recon);
+        const domainProjYX = trace_zoom_domains['trace_proj_y_x_svg'] || [spectrum_proj_y.x_ppm_start, spectrum_proj_y.x_ppm_start + (nx - 1) * spectrum_proj_y.x_ppm_step];
+        render_trace_3d('trace_proj_y_x_svg', traceProjYX, domainProjYX, '#2a9d8f');
 
         const label = document.getElementById('trace_proj_y_x_label');
         if (label) {
-            const span = label.querySelector('span');
-            if (span) {
-                span.innerText = `1D Trace Along ${labelX} (at ${labelZ}=${target_z_ppm.toFixed(3)} ppm)`;
-            }
+            label.innerText = `1D Trace Along z (at y=${target_z_ppm.toFixed(3)} ppm)`;
         }
     }
 
@@ -4391,41 +3505,17 @@ function update_1d_traces_from_center() {
                 value: val
             });
         }
-
-        // Extract Reconstruction Projection Trace if available
-        let traceProjZX_recon = null;
-        if (theoretical_spectrum_proj_x && theoretical_spectrum_proj_x.raw_data) {
-            traceProjZX_recon = [];
-            let n_direct_theo = theoretical_spectrum_proj_x.n_direct;
-            let n_indirect_theo = theoretical_spectrum_proj_x.n_indirect;
-            let pyIndex_theo = clamp_index_3d((target_y_ppm - theoretical_spectrum_proj_x.y_ppm_start) / theoretical_spectrum_proj_x.y_ppm_step, n_indirect_theo);
-
-            for (let x = 0; x < n_direct_theo; x++) {
-                let val = theoretical_spectrum_proj_x.raw_data[pyIndex_theo * n_direct_theo + x] || 0;
-                traceProjZX_recon.push({
-                    ppm: theoretical_spectrum_proj_x.x_ppm_start + x * theoretical_spectrum_proj_x.x_ppm_step,
-                    value: val
-                });
-            }
-        }
-
         const domainProjZX = trace_zoom_domains['trace_proj_z_svg'] || [spectrum_proj_x.x_ppm_start, spectrum_proj_x.x_ppm_start + (n_direct - 1) * spectrum_proj_x.x_ppm_step];
-        render_trace_3d('trace_proj_z_svg', traceProjZX, domainProjZX, '#0000ff', traceProjZX_recon);
+        render_trace_3d('trace_proj_z_svg', traceProjZX, domainProjZX, '#e9c46a');
 
         const label = document.getElementById('trace_proj_z_label');
         if (label) {
-            const span = label.querySelector('span');
-            if (span) {
-                span.innerText = `1D Trace Along ${labelY} (at ${labelZ}=${target_y_ppm.toFixed(3)} ppm)`;
-            }
+            label.innerText = `1D Trace Along x (at y=${target_y_ppm.toFixed(3)} ppm)`;
         }
     }
 }
 
 
-/**
- * Updates 3D crosshairs.
- */
 function update_3d_crosshairs() {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -4511,13 +3601,6 @@ function update_3d_crosshairs() {
     update_1d_traces_from_center();
 }
 
-/**
- * Requests orthogonal contour.
- *
- * @param {any} spectrum - Spectrum
- * @param {any} sign - Sign
- * @param {any} type - Type
- */
 function request_orthogonal_contour(spectrum, sign, type) {
     let spec_data = {
         levels: (sign === 0) ? spectrum.levels : spectrum.negative_levels,
@@ -4535,21 +3618,9 @@ function request_orthogonal_contour(spectrum, sign, type) {
     });
 }
 
-/**
- * Shows cross section.
- */
 function show_cross_section() { }
-/**
- * Shows peak table.
- */
 function show_peak_table() { }
-/**
- * Removes peak table.
- */
 function remove_peak_table() { }
-/**
- * Draws spectrum.
- */
 function draw_spectrum() { }
 
 // -- 3D Visualization Integration --
@@ -4558,11 +3629,6 @@ var iso_renderer = null;
 
 var current_volume_data = null; // Stores { data, dims, min, max, noise }
 
-/**
- * Builds reconstructed volume data.
- *
- * @param {any} dims - Dims
- */
 function build_reconstructed_volume_data(dims) {
     if (!theoretical_spectra_3d || theoretical_spectra_3d.length === 0) {
         return null;
@@ -4584,36 +3650,6 @@ function build_reconstructed_volume_data(dims) {
     return recon;
 }
 
-/**
- * Toggles visibility of peak symbols in the 3 2D plots.
- */
-function toggle_peak_symbols() {
-    show_peak_symbols = !show_peak_symbols;
-
-    let btn = document.getElementById("button_toggle_peak_symbols");
-    if (btn) {
-        btn.innerText = show_peak_symbols ? "Hide Peak Symbols" : "Show Peak Symbols";
-    }
-
-    // Redraw slice to update main plot peaks
-    if (current_slice_index >= 0) {
-        draw_slice(current_slice_index, false); // Do not center/pan ortho plots
-    }
-
-    // Redraw orthogonal views to update their peaks
-    if (main_plot_xz) {
-        refresh_xz_view();
-    }
-    if (main_plot_yz) {
-        refresh_yz_view();
-    }
-}
-
-/**
- * Toggles visualize 3D.
- *
- * @param {any} show - Show
- */
 function toggle_visualize_3d(show) {
     let container = document.getElementById('container_3d_view');
     if (!container) return;
@@ -4629,11 +3665,6 @@ function toggle_visualize_3d(show) {
     }
 }
 
-/**
- * Toggles visualize projection.
- *
- * @param {any} show - Show
- */
 function toggle_visualize_proj(show) {
     let c1 = document.getElementById('container_projection_view');
     let c2 = document.getElementById('container_projection_y_view');
@@ -4649,7 +3680,6 @@ function toggle_visualize_proj(show) {
             if (!main_plot_proj || main_plot_proj.WIDTH === 0) init_proj_plot(s);
             if (!main_plot_proj_y || main_plot_proj_y.WIDTH === 0) init_proj_y_plot(s);
             if (!main_plot_proj_x || main_plot_proj_x.WIDTH === 0) init_proj_x_plot(s);
-            update_all_plot_axis_labels();
         }
 
         if (!spectrum_proj) {
@@ -4666,9 +3696,6 @@ function toggle_visualize_proj(show) {
     }
 }
 
-/**
- * Visualizes 3D.
- */
 function visualize_3d() {
     let cb = document.getElementById('check_visualize_3d');
     if (cb && cb.checked) {
@@ -4681,9 +3708,6 @@ function visualize_3d() {
     }
 }
 
-/**
- * Visualizes projection.
- */
 function visualize_proj() {
     let cb = document.getElementById('check_visualize_proj');
     if (cb && cb.checked) {
@@ -4698,9 +3722,6 @@ function visualize_proj() {
     }
 }
 
-/**
- * Extracts 3D data.
- */
 function extract_3d_data() {
     if (!spectra_3d || spectra_3d.length === 0) {
         console.warn("visualize_3d called but no spectra loaded.");
@@ -4799,9 +3820,6 @@ function extract_3d_data() {
     }, 50);
 }
 
-/**
- * Setups sliders.
- */
 function setup_sliders() {
     if (!current_volume_data) return;
 
@@ -4872,9 +3890,6 @@ function setup_sliders() {
     }
 }
 
-/**
- * Updates 3D view.
- */
 function update_3d_view() {
     if (!current_volume_data) return;
 
@@ -5046,17 +4061,11 @@ function update_3d_view() {
             iso_renderer.onCameraChange = function (cam) {
                 if (iso_renderer_recon) iso_renderer_recon.setCameraState(cam);
             };
-            iso_renderer.onPeakPicked = function (intersectionPoint) {
-                handle3DPeakPicked(intersectionPoint, "Experimental");
-            };
         }
         if (!iso_renderer_recon) {
             iso_renderer_recon = new IsoSurfaceRenderer("canvas_3d_recon");
             iso_renderer_recon.onCameraChange = function (cam) {
                 if (iso_renderer) iso_renderer.setCameraState(cam);
-            };
-            iso_renderer_recon.onPeakPicked = function (intersectionPoint) {
-                handle3DPeakPicked(intersectionPoint, "Reconstructed");
             };
         }
 
@@ -5093,8 +4102,7 @@ function update_3d_view() {
                     vertices: meshSolid.vertices,
                     normals: meshSolid.normals,
                     color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
-                    mode: 'TRIANGLES',
-                    name: 'solid_red'
+                    mode: 'TRIANGLES'
                 },
                 {
                     vertices: meshWire.vertices,
@@ -5137,8 +4145,7 @@ function update_3d_view() {
                         vertices: meshSolid_recon.vertices,
                         normals: meshSolid_recon.normals,
                         color: [1.0, 0.0, 0.0, 0.1], // Red Solid (50% transparent)
-                        mode: 'TRIANGLES',
-                        name: 'solid_red'
+                        mode: 'TRIANGLES'
                     },
                     {
                         vertices: meshWire_recon.vertices,
@@ -5159,9 +4166,6 @@ function update_3d_view() {
 }
 
 
-/**
- * Resets 3D view.
- */
 function reset_3d_view() {
     if (iso_renderer) {
         iso_renderer.resetView();
@@ -5171,117 +4175,6 @@ function reset_3d_view() {
     }
 }
 
-/**
- * Handles mouse peak picking on the 3D surface.
- */
-function handle3DPeakPicked(pt, type = "Experimental") {
-    if (!current_volume_data || !spectra_3d || spectra_3d.length === 0) return;
-    let s0 = spectra_3d[0];
-    let d = current_volume_data.dims;
-
-    let cx = d.x / 2;
-    let cy = d.y / 2;
-    let cz = d.z / 2;
-    let maxDim = Math.max(d.x, d.y, d.z);
-    let scale = 2.0 / maxDim;
-
-    // Convert from mesh space back to grid index coordinates
-    let x_grid = pt[0] / scale + cx;
-    let y_grid = pt[1] / scale + cy;
-    let z_grid = pt[2] / scale + cz;
-
-    // Calculate PPM values
-    let ppm_x = s0.x_ppm_start + x_grid * s0.x_ppm_step;
-    let ppm_y = s0.y_ppm_start + y_grid * s0.y_ppm_step;
-    let ppm_z = s0.z_ppm_start + z_grid * s0.z_ppm_step;
-
-    // Update UI on index_3d.html
-    let peakInfoContainer = document.getElementById("picked_peak_container");
-    let peakInfoSpan = document.getElementById("picked_peak_info");
-    if (peakInfoSpan) {
-        peakInfoSpan.innerHTML = `
-            [${type}] X: ${ppm_x.toFixed(3)} ppm (${x_grid.toFixed(1)}), 
-            Y: ${ppm_y.toFixed(3)} ppm (${y_grid.toFixed(1)}), 
-            Z: ${ppm_z.toFixed(3)} ppm (${z_grid.toFixed(1)})
-        `;
-        if (peakInfoContainer) {
-            peakInfoContainer.style.display = "flex";
-        }
-    }
-
-    // Update active slice indices (clamped)
-    let new_z = Math.max(0, Math.min(spectra_3d.length - 1, Math.round(z_grid)));
-    let new_y = Math.max(0, Math.min(s0.n_indirect - 1, Math.round(y_grid)));
-    let new_x = Math.max(0, Math.min(s0.n_direct - 1, Math.round(x_grid)));
-
-    current_slice_index = new_z;
-    current_y_index = new_y;
-    current_x_index = new_x;
-
-    // 1. Update XY slice
-    draw_slice(current_slice_index, false);
-
-    // 2. Update XZ slice slider & label, then refresh
-    let slider_xz = document.getElementById("slider_xz");
-    let val_xz = document.getElementById("val_xz");
-    if (slider_xz) {
-        slider_xz.value = current_y_index;
-    }
-    if (val_xz) {
-        let ppm_y_slice = s0.y_ppm_start + (current_y_index * s0.y_ppm_step);
-        val_xz.innerText = (current_y_index + 1) + "/" + s0.n_indirect + " (" + ppm_y_slice.toFixed(3) + " ppm)";
-    }
-    refresh_xz_view();
-
-    // 3. Update YZ slice slider & label, then refresh
-    let slider_yz = document.getElementById("slider_yz");
-    let val_yz = document.getElementById("val_yz");
-    if (slider_yz) {
-        slider_yz.value = current_x_index;
-    }
-    if (val_yz) {
-        let ppm_x_slice = s0.x_ppm_start + (current_x_index * s0.x_ppm_step);
-        val_yz.innerText = (current_x_index + 1) + "/" + s0.n_direct + " (" + ppm_x_slice.toFixed(3) + " ppm)";
-    }
-    refresh_yz_view();
-
-    // 4. Pan all three 2D plots to center on the picked coordinate
-    if (main_plot) {
-        main_plot.pan_to_center_ppm('x', ppm_x);
-        main_plot.pan_to_center_ppm('y', ppm_y);
-    }
-    if (main_plot_xz) {
-        main_plot_xz.pan_to_center_ppm('x', ppm_x);
-        main_plot_xz.pan_to_center_ppm('y', ppm_z);
-    }
-    if (main_plot_yz) {
-        main_plot_yz.pan_to_center_ppm('x', ppm_z);
-        main_plot_yz.pan_to_center_ppm('y', ppm_y);
-    }
-
-    // 5. Sync crosshairs across views
-    update_3d_crosshairs();
-}
-
-/**
- * Downloads the current peak list as a .txt file.
- */
-function download_fitted_peaks_list() {
-    if (!fitted_peaks_text_data) {
-        alert("No peak list available to download.");
-        return;
-    }
-
-    let blob = new Blob([fitted_peaks_text_data], { type: "text/plain;charset=utf-8" });
-    let a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "peaks_list.txt";
-    a.click();
-}
-
-/**
- * Centers 3D on crosshair.
- */
 function center_3d_on_crosshair() {
     if (!iso_renderer || !current_volume_data) return;
 
@@ -5347,9 +4240,6 @@ function center_3d_on_crosshair() {
     if (iso_renderer_recon) iso_renderer_recon.centerView(meshX, meshY, meshZ);
 }
 
-/**
- * Centers 3D on slices.
- */
 function center_3d_on_slices() {
     if (!iso_renderer || !current_volume_data) return;
 
@@ -5616,12 +4506,6 @@ var pending_nus_cfg_3d = null;
 // Debug-only mode flag kept for future use.
 var debug2_smile_only_3d = false;
 
-/**
- * Downloads binary file.
- *
- * @param {any} dataBytes - Data bytes
- * @param {any} filename - Filename
- */
 function download_binary_file(dataBytes, filename) {
     const bytes = dataBytes instanceof Uint8Array ? dataBytes : new Uint8Array(dataBytes);
     const blob = new Blob([bytes], { type: 'application/octet-stream' });
@@ -5642,7 +4526,6 @@ document.addEventListener('DOMContentLoaded', function () {
         web_worker_3d.onerror = function (err) {
             console.error('[3D][worker] error', err);
             append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
-            set_loading_buttons_state(false);
         };
 
         web_worker_smile_3d = new Worker('./js/webass_smile.js');
@@ -5651,7 +4534,6 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('[3D][smile-worker] error', err);
             append_3d_log('[smile-worker-error] ' + (err && err.message ? err.message : String(err)));
             document.getElementById("webassembly_message").innerText = 'SMILE worker error: ' + (err && err.message ? err.message : String(err));
-            set_loading_buttons_state(false);
         };
     }
 
@@ -5673,20 +4555,6 @@ document.addEventListener('DOMContentLoaded', function () {
             .init();
     }
 
-    const fid_area = document.getElementById("fid_file_area");
-    if (fid_area) {
-        fid_area.addEventListener("dragenter", (e) => {
-            e.preventDefault();
-            const btn = document.getElementById("button_minimize_fid_area");
-            if (btn && btn.innerText === "+") {
-                minimize_fid_area(btn);
-            }
-        });
-        fid_area.addEventListener("dragover", (e) => {
-            e.preventDefault();
-        });
-    }
-
     let fid3dForm = document.getElementById('fid_file_form');
     if (fid3dForm) {
         fid3dForm.addEventListener('submit', function (e) {
@@ -5695,22 +4563,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
-
-function minimize_fid_area(self) {
-    let button_text = self.innerText;
-    if (button_text === "-") {
-        self.innerText = "+";
-        document.getElementById("fid_file_area").style.height = "3rem";
-        document.getElementById("fid_file_area").style.padding = "5px 10px";
-        document.getElementById("fid_file_area").style.overflow = "clip";
-    }
-    else {
-        self.innerText = "-";
-        document.getElementById("fid_file_area").style.height = "auto";
-        document.getElementById("fid_file_area").style.padding = "10px";
-        document.getElementById("fid_file_area").style.overflow = "visible";
-    }
-}
 
 const read_file_as_array_buffer = (file) => {
     return new Promise((resolve, reject) => {
@@ -5725,9 +4577,6 @@ const read_file_as_array_buffer = (file) => {
     });
 };
 
-/**
- * Builds 3D worker configuration from UI.
- */
 function build_3d_worker_cfg_from_ui() {
     const parseTdPolynomialOrder = function () {
         const raw = document.getElementById('td_polynomial_order_3d').value || '';
@@ -5787,11 +4636,6 @@ function build_3d_worker_cfg_from_ui() {
     };
 }
 
-/**
- * Parses indirect phase from configuration.
- *
- * @param {any} cfg - Configuration
- */
 function parse_indirect_phase_from_cfg(cfg) {
     const parts = String((cfg && cfg.phaseText) || '').trim().split(/\s+/).map(function (v) {
         const n = parseFloat(v);
@@ -5805,12 +4649,6 @@ function parse_indirect_phase_from_cfg(cfg) {
     };
 }
 
-/**
- * Parses apod string to smile axis args.
- *
- * @param {any} apodText - Apod text
- * @param {any} axisPrefix - Axis prefix
- */
 function parse_apod_string_to_smile_axis_args(apodText, axisPrefix) {
     const tokens = String(apodText || '').trim().split(/\s+/).filter(Boolean);
     const fallback = {
@@ -5862,11 +4700,6 @@ function parse_apod_string_to_smile_axis_args(apodText, axisPrefix) {
         ' -' + axisPrefix + 'GLB ' + glb;
 }
 
-/**
- * Reads FT3 FN modes from header.
- *
- * @param {any} ft3Bytes - FT3 bytes
- */
 function read_ft3_fnmodes_from_header(ft3Bytes) {
     try {
         const bytes = ft3Bytes instanceof Uint8Array ? ft3Bytes : new Uint8Array(ft3Bytes || []);
@@ -5882,12 +4715,6 @@ function read_ft3_fnmodes_from_header(ft3Bytes) {
     }
 }
 
-/**
- * Builds NUS 3D smile command.
- *
- * @param {any} cfg - Configuration
- * @param {any} options - Options
- */
 function build_nus_3d_smile_command(cfg, options) {
     const opt = options || {};
     const xT = Number.isFinite(opt.ndataIndirect1) ? opt.ndataIndirect1 : 100;
@@ -5920,10 +4747,6 @@ function build_nus_3d_smile_command(cfg, options) {
     ].filter(Boolean).join(' ');
 }
 
-/**
- * Loads FID 3D file.
- * @returns {Promise<void>}
- */
 async function load_fid_3d_file() {
     // Debug UI is removed; keep debug code path commented for future use.
     // const debug2Only = !!(document.getElementById('debug_load_intermediate_webass2_3d') && document.getElementById('debug_load_intermediate_webass2_3d').checked);
@@ -6011,7 +4834,6 @@ async function load_fid_3d_file() {
         return;
     }
 
-    set_loading_buttons_state(true);
     console.log('[3D][fid] Starting 3D FID processing request');
     append_3d_log('[main] Starting 3D FID processing request');
 
@@ -6064,28 +4886,16 @@ async function load_fid_3d_file() {
         append_3d_log('[main] textInputs length: acqus=' + textInputs.acqus.length + ', acqu2s=' + textInputs.acqu2s.length + ', acqu3s=' + textInputs.acqu3s.length + ', nuslist=' + textInputs.nuslist.length);
 
         const isNus = !!(textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-        cfg.isNus = isNus;
 
         // Consolidate auto-phase logic
         const autoPhaseChecked = !!cfg.normalDirectDimAutoPhase;
         const nusDirectDimAutoPhase = isNus && autoPhaseChecked;
-
-        const showArtifactChecked = !!(document.getElementById('show_spectrum_artifact_3d') && document.getElementById('show_spectrum_artifact_3d').checked);
-        cfg.showArtifact = showArtifactChecked;
 
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
         if (isNus && autoPhaseChecked) {
             cfg.debugNusRunFullProcess = true;
             cfg.nusDirectDimAutoPhase = true;
-            cfg.userFrqPolyOrder = [...cfg.frqPolyOrder];
-            cfg.frqPolyOrder = [-1, -1, -1];
-            append_3d_log('[main] NUS AutoPhase: setting frqPolyOrder to -1 -1 -1 for first-pass, caching user frqPolyOrder: ' + cfg.userFrqPolyOrder);
-        } else if (!isNus && autoPhaseChecked) {
-            // For non-NUS automatic phase correction, bypass baseline correction on the first pass
-            cfg.userFrqPolyOrder = [...cfg.frqPolyOrder];
-            cfg.frqPolyOrder = [-1, -1, -1];
-            append_3d_log('[main] Non-NUS AutoPhase: setting frqPolyOrder to -1 -1 -1 for first-pass, caching user frqPolyOrder: ' + cfg.userFrqPolyOrder);
         }
 
         console.log('[3D][fid] Sending worker message. NUS mode=', isNus, 'AutoPhase=', nusDirectDimAutoPhase);
@@ -6107,22 +4917,14 @@ async function load_fid_3d_file() {
         console.error('[3D][fid] Error while reading/posting input', err);
         append_3d_log('[main-error] ' + (err && err.toString ? err.toString() : String(err)));
         document.getElementById("webassembly_message").innerText = "Error reading files: " + err.toString();
-        set_loading_buttons_state(false);
     }
 }
 
-/**
- * Handles webass 3D message.
- *
- * @param {any} e - E
- * @returns {Promise<void>}
- */
 async function handle_webass_3d_message(e) {
     console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
-        set_loading_buttons_state(false);
         return;
     }
     if (Object.prototype.hasOwnProperty.call(e.data, 'stdout')) {
@@ -6130,7 +4932,7 @@ async function handle_webass_3d_message(e) {
         return;
     }
     if (e.data["#sym:webassembly_job "] === 'process_fid_3d_nus_half_ready') {
-        let halfBytes = e.data.halfFt3Bytes instanceof Uint8Array
+        const halfBytes = e.data.halfFt3Bytes instanceof Uint8Array
             ? e.data.halfFt3Bytes
             : new Uint8Array(e.data.halfFt3Bytes);
         pending_nus_cfg_3d = e.data.cfg || null;
@@ -6153,8 +4955,6 @@ async function handle_webass_3d_message(e) {
                 cfg: pending_nus_cfg_3d,
                 smileFt3Bytes: halfBytes
             }, [halfBytes.buffer]);
-            halfBytes = null;
-            e.data.halfFt3Bytes = null;
             return;
         }
 
@@ -6167,100 +4967,21 @@ async function handle_webass_3d_message(e) {
             nuslist_as_string: e.data.nuslistText || '',
             smile_command: smileCommand
         }, [halfBytes.buffer]);
-        halfBytes = null;
-        e.data.halfFt3Bytes = null;
         return;
     }
-    if (e.data["#sym:webassembly_job "] === 'pick_and_fit_3d') {
-        append_3d_log('[main] Received pick_and_fit_3d result');
-        document.getElementById("webassembly_message").innerText = "Peak picking & fitting complete.";
-        setTimeout(() => {
-            if (document.getElementById("webassembly_message").innerText === "Peak picking & fitting complete.") {
-                document.getElementById("webassembly_message").innerText = "";
-            }
-        }, 5000);
-        set_loading_buttons_state(false);
-
-        if (e.data.success && e.data.resultString) {
-            let resultString = e.data.resultString;
-            fitted_peaks_text_data = resultString;
-            let dl_btn = document.getElementById("button_download_peaks_list");
-            if (dl_btn) dl_btn.disabled = false;
-            let toggle_btn = document.getElementById("button_toggle_peak_symbols");
-            if (toggle_btn) toggle_btn.disabled = false;
-            console.log("Fitted Peaks Output:\n", resultString);
-
-            try {
-                let peaks = parse_peaks_text(resultString);
-                if (peaks.length === 0) {
-                    alert("No valid peaks found in peak pick & fit output.");
-                    return;
-                }
-
-                console.log("Loaded " + peaks.length + " fitted peaks.");
-                theoretical_peaks_data = peaks;
-
-                let has_any_shape = peaks.some(p => p.has_shape);
-                if (has_any_shape) {
-                    console.log("Shape parameters found. Generating theoretical volume.");
-                    generate_theoretical_volume(peaks);
-                    generate_projection_spectrum();
-                } else {
-                    console.log("No shape parameters found. Showing peak symbols only.");
-                    theoretical_spectra_3d = [];
-                    theoretical_spectrum_xz = null;
-                    theoretical_spectrum_yz = null;
-                    theoretical_spectrum_proj = null;
-                    theoretical_spectrum_proj_y = null;
-                    theoretical_spectrum_proj_x = null;
-                }
-
-                // Refresh views to show overlay
-                if (current_slice_index >= 0) {
-                    draw_slice(current_slice_index);
-                    refresh_xz_view();
-                    refresh_yz_view();
-                    update_3d_crosshairs();
-                }
-
-                // Refresh the 3D viewer to show the new peak spheres
-                update_3d_view();
-
-                append_3d_log(`[main] Successfully merged ${peaks.length} fitted peaks to 3D visualization workflow.`);
-            } catch (err) {
-                console.error("Error processing fitted peaks:", err);
-                append_3d_log("[main-error] Failed to process fitted peaks: " + err.message);
-                alert("Failed to process fitted peaks: " + err.message);
-            }
-        } else {
-            alert("Peak picking & fitting failed: " + (e.data.error || "Unknown error"));
-        }
-        return;
-    }
-    if (e.data["#sym:webassembly_job "] === "process_fid_3d" || e.data["#sym:webassembly_job "] === "postprocess_ft3") {
-        const jobType = e.data["#sym:webassembly_job "];
-        append_3d_log('[main] Received ' + jobType + ' result');
-        document.getElementById("webassembly_message").innerText = jobType === "postprocess_ft3"
-            ? "3D post-processing complete. Rendering planes..."
-            : "3D processing complete. Rendering planes...";
+    if (e.data["#sym:webassembly_job "] === "process_fid_3d") {
+        append_3d_log('[main] Received process_fid_3d result');
+        document.getElementById("webassembly_message").innerText = "3D processing complete. Rendering planes...";
         const dims = e.data.dims;
+        const header = e.data.headerF32; // Float32Array 512 elements
+        const rrr = e.data.rrrF32; // Float32Array
 
         if (e.data.ft3Bytes) {
-            window.last_processed_ft3_blob = new Blob([e.data.ft3Bytes], { type: 'application/octet-stream' });
             let btn = document.getElementById('button_download_ft3_processed');
             if (btn) {
                 btn.style.display = 'inline-block';
                 btn.onclick = function () {
-                    if (window.last_processed_ft3_blob) {
-                        const url = URL.createObjectURL(window.last_processed_ft3_blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'processed.ft3';
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        URL.revokeObjectURL(url);
-                    }
+                    download_binary_file(e.data.ft3Bytes, 'processed.ft3');
                 };
             }
         }
@@ -6278,16 +4999,17 @@ async function handle_webass_3d_message(e) {
             let ft3Data = e.data.ft3Bytes;
 
             // Auto phase correction for normal workflow (or NUS phase check mode)
-            if (e.data["#sym:webassembly_job "] !== "postprocess_ft3" && current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
+            if (current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
                 append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
                 try {
+                    const slicedBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + ft3Data.byteLength);
                     const result = await NUS3DPhasePipeline.runFromFt3({
                         tf: window.tf,
-                        ft3ArrayBuffer: ft3Data.buffer,
+                        ft3ArrayBuffer: slicedBuffer,
                         model: tfjs_normal_model,
                         largeModel: tfjs_large_model,
-                        modelUrl: 'js/model22_tfjs/model.json',
-                        largeModelUrl: 'js/model22_large_tfjs/model.json'
+                        modelUrl: 'js/model21_tfjs/model.json',
+                        largeModelUrl: 'js/model21_large_tfjs/model.json'
                     });
 
                     // Cache models if they were loaded inside the pipeline
@@ -6302,8 +5024,9 @@ async function handle_webass_3d_message(e) {
                     const leftEdge = lr[0];
                     const rightEdge = lr[1];
 
-                    // Read header to get spectral parameters for local scaling (construct Float32Array directly from offset)
-                    const h = new Float32Array(ft3Data.buffer, ft3Data.byteOffset, 512);
+                    // Read header to get spectral parameters for local scaling
+                    const headerBufForPhase = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
+                    const h = new Float32Array(headerBufForPhase, 0, 512);
                     const sw = h[100];
                     const frq = h[119];
                     const ref = h[101];
@@ -6339,90 +5062,14 @@ async function handle_webass_3d_message(e) {
                     // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
                     auto_p0_3d = local_p0;
                     auto_p1_3d = local_p1;
-
-                    if (current_fid_config && !current_fid_config.isNus && current_fid_config.normalDirectDimAutoPhase) {
-                        append_3d_log("[main] Automatically running final baseline correction and phase correction in C++ post-processing...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
-
-                        const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
-                        if (autoCheckbox) {
-                            autoCheckbox.checked = false;
-                            autoCheckbox.dispatchEvent(new Event('change'));
-                        }
-
-                        // Reset JS phase variables so that the phase isn't double-applied on rendering/drawing
-                        auto_p0_3d = null;
-                        auto_p1_3d = null;
-                        trace_x_ph0 = 0.0;
-                        trace_x_ph1 = 0.0;
-                        trace_x_pivot = null;
-
-                        // Phase text to send: construct using calculated local_p0, local_p1 and current UI values for indirect dimensions
-                        const ind1_p0 = document.getElementById('phase_correction_indirect1_p0').value || "0.0";
-                        const ind1_p1 = document.getElementById('phase_correction_indirect1_p1').value || "0.0";
-                        const ind2_p0 = document.getElementById('phase_correction_indirect2_p0').value || "0.0";
-                        const ind2_p1 = document.getElementById('phase_correction_indirect2_p1').value || "0.0";
-                        const phaseTextToUse = `${local_p0} ${local_p1} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
-
-                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
-
-                        document.getElementById("webassembly_message").innerText = "Running final baseline correction and phase application in C++...";
-
-                        // Disable auto phase in config so it isn't run on final response
-                        current_fid_config.normalDirectDimAutoPhase = false;
-
-                        web_worker_3d.postMessage({
-                            "#sym:webassembly_job ": "postprocess_ft3",
-                            cfg: current_fid_config,
-                            phaseTextToUse: phaseTextToUse,
-                            ft3Bytes: ft3Data
-                        }, [ft3Data.buffer]);
-
-                        ft3Data = null;
-                        e.data.ft3Bytes = null;
-                        return;
-                    }
-
-                    if (current_fid_config && current_fid_config.nusDirectDimAutoPhase && !current_fid_config.showArtifact) {
-                        append_3d_log("[main] Automatically re-running NUS processing with calculated phase values...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
-
-                        const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
-                        if (autoCheckbox) {
-                            autoCheckbox.checked = false;
-                            autoCheckbox.dispatchEvent(new Event('change'));
-                        }
-
-                        auto_p0_3d = null;
-                        auto_p1_3d = null;
-                        trace_x_ph0 = 0.0;
-                        trace_x_ph1 = 0.0;
-                        trace_x_pivot = null;
-
-                        setTimeout(() => {
-                            load_fid_3d_file();
-                        }, 100);
-
-                        ft3Data = null;
-                        e.data.ft3Bytes = null;
-                        return;
-                    }
-
                 } catch (err) {
                     append_3d_log("[tfjs-error] " + err.message);
                     console.error(err);
                 }
             }
 
-            let header = new Float32Array(ft3Data.buffer, ft3Data.byteOffset, 512);
+            let headerBuffer = ft3Data.buffer.slice(ft3Data.byteOffset, ft3Data.byteOffset + 2048);
+            let header = new Float32Array(headerBuffer, 0, 512);
 
             let n_direct = header[99];
             let n_indirect = header[219];
@@ -6456,7 +5103,7 @@ async function handle_webass_3d_message(e) {
                 data_start_offset += 2048;
             }
 
-            let headerUint8 = new Uint8Array(ft3Data.buffer, ft3Data.byteOffset, 2048);
+            let headerUint8 = new Uint8Array(headerBuffer);
 
             for (let i = 0; i < num_planes; i++) {
                 try {
@@ -6476,8 +5123,8 @@ async function handle_webass_3d_message(e) {
                     let plane_name = "plane_" + String(i + 1).padStart(3, '0');
                     s.process_ft_file(plane_buffer, plane_name, -1);
 
-                    s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                    s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+                    s.spectrum_color = "#0000ff";
+                    s.spectrum_color_negative = "#ff0000";
                     s.levels = calculate_levels(s.noise_level, 1.5, 30);
                     s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
                     s.visible = true;
@@ -6488,8 +5135,6 @@ async function handle_webass_3d_message(e) {
                     append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
                 }
             }
-            ft3Data = null;
-            e.data.ft3Bytes = null;
         } else {
             console.error("Missing ft3Bytes in process_fid_3d result.");
         }
@@ -6507,7 +5152,7 @@ async function handle_webass_3d_message(e) {
             // Keep initialization behavior consistent with .ft2/.ft3 file loaders.
             init_main_plot(spectra_3d[0]);
 
-            update_global_noise_level();
+            draw_slice(0);
 
             // Auto-apply direct phase correction if it was calculated (Normal or NUS)
             if (auto_p0_3d !== null && auto_p1_3d !== null) {
@@ -6516,28 +5161,18 @@ async function handle_webass_3d_message(e) {
                 apply_trace_x_phase(trace_x_ph0, trace_x_ph1, trace_x_pivot);
             }
 
-            draw_slice(0);
+            let s0 = spectra_3d[0];
+            init_ortho_plots(s0);
+            update_global_noise_level();
             append_3d_log('[main] 3D render initialized successfully');
             set_status_message("webassembly_message", "3D FID processing and rendering finished successfully.", 5000);
-
-            // Sync projection view if checked
-            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
-            if (projChecked) {
-                toggle_visualize_proj(true);
-            }
         } else {
             append_3d_log('[main] no planes generated from worker output');
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
         }
-        set_loading_buttons_state(false);
     }
 }
 
-/**
- * Handles webass smile 3D message.
- *
- * @param {any} e - E
- */
 function handle_webass_smile_3d_message(e) {
     if (e.data && e.data.stdout) {
         append_3d_worker_stdout('[smile] ' + e.data.stdout);
@@ -6564,8 +5199,6 @@ function handle_webass_smile_3d_message(e) {
             cfg: pending_nus_cfg_3d,
             smileFt3Bytes: smileBytes
         }, [smileBytes.buffer]);
-        smileBytes = null;
-        e.data.spectrum_data = null;
         return;
     }
 
@@ -6574,17 +5207,9 @@ function handle_webass_smile_3d_message(e) {
         // debug2_smile_only_3d = false;
         append_3d_log('[smile-worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = 'SMILE error: ' + e.data.error;
-        set_loading_buttons_state(false);
     }
 }
 
-/**
- * Applies trace X phase.
- *
- * @param {any} p0 - P0
- * @param {any} p1 - P1
- * @param {any} pivot - Pivot
- */
 function apply_trace_x_phase(p0, p1, pivot) {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
@@ -6703,10 +5328,6 @@ function apply_trace_x_phase(p0, p1, pivot) {
 
     visualize_3d();
     draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
-
-    // Update 2D orthogonal views with new phased contours
-    if (main_plot_xz) refresh_xz_view();
-    if (main_plot_yz) refresh_yz_view();
 }
 window.addEventListener('DOMContentLoaded', () => {
     let btn = document.getElementById('btn_apply_trace_x_phase');
@@ -6720,7 +5341,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 update_1d_traces_from_center();
             }
         });
-        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg'].forEach(id => {
             const el = document.getElementById(id);
             if (el && el.parentElement) {
                 ro.observe(el.parentElement);
@@ -6738,8 +5359,8 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (!tfjs_normal_model || !tfjs_large_model) {
                     append_3d_log("[tfjs] Pre-loading models...");
                     try {
-                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
+                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_tfjs/model.json');
+                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model21_large_tfjs/model.json');
                         append_3d_log("[tfjs] Models loaded successfully.");
                     } catch (err) {
                         append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
@@ -6747,32 +5368,10 @@ window.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-
-        // Handle grey out for "show spectrum with artifact" based on auto phase correction
-        autoDirectNormal.addEventListener('change', function () {
-            const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
-            const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
-            if (artifactCheckbox && artifactLabel) {
-                if (this.checked) {
-                    artifactCheckbox.disabled = false;
-                    artifactLabel.style.color = '';
-                } else {
-                    artifactCheckbox.disabled = true;
-                    artifactCheckbox.checked = false; // Reset to unchecked when disabled
-                    artifactLabel.style.color = 'gray';
-                }
-            }
-        });
-
-        // Trigger initial state
-        autoDirectNormal.dispatchEvent(new Event('change'));
     }
 
 });
 
-/**
- * Setups 2D plot resizing.
- */
 function setup_2d_plot_resizing() {
     if (typeof ResizeObserver === 'undefined') return;
 
@@ -6781,8 +5380,7 @@ function setup_2d_plot_resizing() {
         { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
         { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
         { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
-        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
-        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
+        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null }
     ];
 
     const ro = new ResizeObserver((entries) => {
@@ -6825,8 +5423,10 @@ function setup_2d_plot_resizing() {
             // Important: update the plot scales and visuals
             plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
 
-            // Redraw/move all crosshairs with updated scales
-            update_3d_crosshairs();
+            // Draw center lines specifically
+            if (typeof plot_instance.draw_center_lines === 'function') {
+                plot_instance.draw_center_lines();
+            }
         }
     });
 
@@ -6840,7 +5440,7 @@ function setup_2d_plot_resizing() {
             update_1d_traces_from_center();
         }
     });
-    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentElement) {
             ro_1d.observe(el.parentElement);
@@ -6912,16 +5512,8 @@ function init_proj_plot(s) {
     if (typeof main_plot_proj.allow_right_click === 'function') {
         main_plot_proj.allow_right_click(false);
     }
-
-    update_all_plot_axis_labels();
 }
 
-/**
- * Handles projection response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_response(data, type) {
     let spec = (type === "proj") ? spectrum_proj : theoretical_spectrum_proj;
     if (!spec) return;
@@ -6932,9 +5524,6 @@ function handle_proj_response(data, type) {
     refresh_proj_plot();
 }
 
-/**
- * Refreshes projection plot.
- */
 function refresh_proj_plot() {
     if (!main_plot_proj || !spectrum_proj) return;
 
@@ -6944,16 +5533,8 @@ function refresh_proj_plot() {
     render_to_plot(main_plot_proj, spectra_list);
 }
 
-/**
- * Renders to plot.
- *
- * @param {any} plot - Plot
- * @param {any} spectra_list - Spectra list
- */
 function render_to_plot(plot, spectra_list) {
     if (!plot) return;
-
-    plot.local_spectra = spectra_list;
 
     let points_pos_list = [];
     let len_pos_list = [];
@@ -7045,9 +5626,6 @@ function render_to_plot(plot, spectra_list) {
     plot.contour_plot.drawScene();
 }
 
-/**
- * Generates projection spectrum.
- */
 function generate_projection_spectrum() {
     if (!spectra_3d || spectra_3d.length === 0) return;
 
@@ -7092,7 +5670,8 @@ function generate_projection_spectrum() {
 
     // Estimate noise level for the projected 2D spectrum separately
     spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    adjust_proj_noise(spec, "proj_noise_level_display");
+    let display = document.getElementById("proj_noise_level_display");
+    if (display) display.innerText = "Proj. Noise: " + spec.noise_level.toExponential(2);
 
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
@@ -7100,7 +5679,7 @@ function generate_projection_spectrum() {
     spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier, scale);
     spec.negative_levels = calculate_negative_levels(spec.noise_level, scale, 30, multiplier, scale);
     spec.spectrum_color = "#0000ff";
-    spec.spectrum_color_negative = "#0000ff";
+    spec.spectrum_color_negative = "#ff0000";
 
     spectrum_proj = spec;
     request_contour_calculation(spec, 0, 0, "proj");
@@ -7137,7 +5716,8 @@ function generate_projection_spectrum() {
     if (has_ri) specY.raw_data_ri = rawY_ri;
 
     specY.noise_level = mathTool.estimate_noise_level(nx, nz, rawY);
-    adjust_proj_noise(specY, "proj_y_noise_level_display");
+    let displayY = document.getElementById("proj_y_noise_level_display");
+    if (displayY) displayY.innerText = "Proj Y Noise: " + specY.noise_level.toExponential(2);
 
     let multiplierY = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
     let scaleY = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
@@ -7145,7 +5725,7 @@ function generate_projection_spectrum() {
     specY.levels = calculate_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
     specY.negative_levels = calculate_negative_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
     specY.spectrum_color = "#0000ff";
-    specY.spectrum_color_negative = "#0000ff";
+    specY.spectrum_color_negative = "#ff0000";
 
     spectrum_proj_y = specY;
     request_contour_calculation(specY, 0, 0, "proj_y");
@@ -7176,7 +5756,8 @@ function generate_projection_spectrum() {
     }
     specX.raw_data = rawX;
     specX.noise_level = mathTool.estimate_noise_level(ny, nz, rawX);
-    adjust_proj_noise(specX, "proj_x_noise_level_display");
+    let displayX = document.getElementById("proj_x_noise_level_display");
+    if (displayX) displayX.innerText = "Proj X Noise: " + specX.noise_level.toExponential(2);
 
     let multiplierX = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
     let scaleX = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
@@ -7184,7 +5765,7 @@ function generate_projection_spectrum() {
     specX.levels = calculate_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
     specX.negative_levels = calculate_negative_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
     specX.spectrum_color = "#0000ff";
-    specX.spectrum_color_negative = "#0000ff";
+    specX.spectrum_color_negative = "#ff0000";
 
     spectrum_proj_x = specX;
     request_contour_calculation(specX, 0, 0, "proj_x");
@@ -7214,11 +5795,10 @@ function generate_projection_spectrum() {
             raw_theo[i] /= theoretical_spectra_3d.length;
         }
         spec_theo.raw_data = raw_theo;
-        spec_theo.noise_level = spec.noise_level;
-        spec_theo.levels = spec.levels;
-        spec_theo.negative_levels = spec.negative_levels;
+        spec_theo.noise_level = st0.noise_level;
+        spec_theo.levels = st0.levels;
+        spec_theo.negative_levels = st0.negative_levels;
         spec_theo.spectrum_color = "#ff0000";
-        spec_theo.spectrum_color_negative = "#ff0000";
 
         theoretical_spectrum_proj = spec_theo;
         request_contour_calculation(spec_theo, 0, 0, "proj_theo");
@@ -7246,11 +5826,10 @@ function generate_projection_spectrum() {
             raw_theo_y[i] /= ny;
         }
         spec_theo_y.raw_data = raw_theo_y;
-        spec_theo_y.noise_level = specY.noise_level;
+        spec_theo_y.noise_level = st0.noise_level;
         spec_theo_y.levels = specY.levels;
         spec_theo_y.negative_levels = specY.negative_levels;
         spec_theo_y.spectrum_color = "#ff0000";
-        spec_theo_y.spectrum_color_negative = "#ff0000";
 
         theoretical_spectrum_proj_y = spec_theo_y;
         request_contour_calculation(spec_theo_y, 0, 0, "proj_y_theo");
@@ -7277,11 +5856,10 @@ function generate_projection_spectrum() {
             }
         }
         spec_theo_x.raw_data = raw_theo_x;
-        spec_theo_x.noise_level = specX.noise_level;
+        spec_theo_x.noise_level = st0.noise_level;
         spec_theo_x.levels = specX.levels;
         spec_theo_x.negative_levels = specX.negative_levels;
         spec_theo_x.spectrum_color = "#ff0000";
-        spec_theo_x.spectrum_color_negative = "#ff0000";
 
         theoretical_spectrum_proj_x = spec_theo_x;
         request_contour_calculation(spec_theo_x, 0, 0, "proj_x_theo");
@@ -7290,9 +5868,6 @@ function generate_projection_spectrum() {
     update_1d_traces_from_center();
 }
 
-/**
- * Estimates projection noise.
- */
 function estimate_proj_noise() {
     if (!spectrum_proj) return;
     let raw = spectrum_proj.raw_data;
@@ -7300,22 +5875,18 @@ function estimate_proj_noise() {
     let ny = spectrum_proj.n_indirect;
 
     spectrum_proj.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    adjust_proj_noise(spectrum_proj, "proj_noise_level_display");
+    let display = document.getElementById("proj_noise_level_display");
+    if (display) display.innerText = "Proj. Noise: " + spectrum_proj.noise_level.toExponential(2);
 
     update_proj_contour_levels();
 }
 
-/**
- * Updates projection contour levels.
- */
 function update_proj_contour_levels() {
     if (!spectrum_proj) return;
 
     let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
 
-    spectrum_proj.spectrum_color = "#0000ff";
-    spectrum_proj.spectrum_color_negative = "#0000ff";
     spectrum_proj.levels = calculate_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.negative_levels = calculate_negative_levels(spectrum_proj.noise_level, scale, 30, multiplier, scale);
     spectrum_proj.cached_contour_pos = null;
@@ -7325,8 +5896,6 @@ function update_proj_contour_levels() {
     request_contour_calculation(spectrum_proj, 0, 1, "proj");
 
     if (theoretical_spectrum_proj) {
-        theoretical_spectrum_proj.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj.spectrum_color_negative = "#ff0000";
         theoretical_spectrum_proj.levels = spectrum_proj.levels;
         theoretical_spectrum_proj.negative_levels = spectrum_proj.negative_levels;
         theoretical_spectrum_proj.cached_contour_pos = null;
@@ -7336,9 +5905,6 @@ function update_proj_contour_levels() {
     }
 }
 
-/**
- * Resets projection zoom.
- */
 function reset_proj_zoom() {
     if (!main_plot_proj || !spectrum_proj) return;
     let s = spectrum_proj;
@@ -7410,16 +5976,8 @@ function init_proj_y_plot(s) {
     if (typeof main_plot_proj_y.allow_right_click === 'function') {
         main_plot_proj_y.allow_right_click(false);
     }
-
-    update_all_plot_axis_labels();
 }
 
-/**
- * Handles projection Y response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_y_response(data, type) {
     let spec = (type === "proj_y") ? spectrum_proj_y : theoretical_spectrum_proj_y;
     if (!spec) return;
@@ -7430,9 +5988,6 @@ function handle_proj_y_response(data, type) {
     refresh_proj_y_plot();
 }
 
-/**
- * Refreshes projection Y plot.
- */
 function refresh_proj_y_plot() {
     if (!main_plot_proj_y || !spectrum_proj_y) return;
 
@@ -7442,9 +5997,6 @@ function refresh_proj_y_plot() {
     render_to_plot(main_plot_proj_y, spectra_list);
 }
 
-/**
- * Estimates projection Y noise.
- */
 function estimate_proj_y_noise() {
     if (!spectrum_proj_y) return;
     let raw = spectrum_proj_y.raw_data;
@@ -7452,22 +6004,18 @@ function estimate_proj_y_noise() {
     let nz = spectrum_proj_y.n_indirect;
 
     spectrum_proj_y.noise_level = mathTool.estimate_noise_level(nx, nz, raw);
-    adjust_proj_noise(spectrum_proj_y, "proj_y_noise_level_display");
+    let display = document.getElementById("proj_y_noise_level_display");
+    if (display) display.innerText = "Proj Y Noise: " + spectrum_proj_y.noise_level.toExponential(2);
 
     update_proj_y_contour_levels();
 }
 
-/**
- * Updates projection Y contour levels.
- */
 function update_proj_y_contour_levels() {
     if (!spectrum_proj_y) return;
 
     let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
 
-    spectrum_proj_y.spectrum_color = "#0000ff";
-    spectrum_proj_y.spectrum_color_negative = "#0000ff";
     spectrum_proj_y.levels = calculate_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.negative_levels = calculate_negative_levels(spectrum_proj_y.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_y.cached_contour_pos = null;
@@ -7477,8 +6025,6 @@ function update_proj_y_contour_levels() {
     request_contour_calculation(spectrum_proj_y, 0, 1, "proj_y");
 
     if (theoretical_spectrum_proj_y) {
-        theoretical_spectrum_proj_y.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj_y.spectrum_color_negative = "#ff0000";
         theoretical_spectrum_proj_y.levels = spectrum_proj_y.levels;
         theoretical_spectrum_proj_y.negative_levels = spectrum_proj_y.negative_levels;
         theoretical_spectrum_proj_y.cached_contour_pos = null;
@@ -7488,9 +6034,6 @@ function update_proj_y_contour_levels() {
     }
 }
 
-/**
- * Resets projection Y zoom.
- */
 function reset_proj_y_zoom() {
     if (!main_plot_proj_y || !spectrum_proj_y) return;
     let s = spectrum_proj_y;
@@ -7562,16 +6105,8 @@ function init_proj_x_plot(s) {
     if (typeof main_plot_proj_x.allow_right_click === 'function') {
         main_plot_proj_x.allow_right_click(false);
     }
-
-    update_all_plot_axis_labels();
 }
 
-/**
- * Handles projection X response.
- *
- * @param {any} data - Data
- * @param {any} type - Type
- */
 function handle_proj_x_response(data, type) {
     let spec = (type === "proj_x") ? spectrum_proj_x : theoretical_spectrum_proj_x;
     if (!spec) return;
@@ -7582,9 +6117,6 @@ function handle_proj_x_response(data, type) {
     refresh_proj_x_plot();
 }
 
-/**
- * Refreshes projection X plot.
- */
 function refresh_proj_x_plot() {
     if (!main_plot_proj_x || !spectrum_proj_x) return;
 
@@ -7594,9 +6126,6 @@ function refresh_proj_x_plot() {
     render_to_plot(main_plot_proj_x, spectra_list);
 }
 
-/**
- * Estimates projection X noise.
- */
 function estimate_proj_x_noise() {
     if (!spectrum_proj_x) return;
     let raw = spectrum_proj_x.raw_data;
@@ -7604,22 +6133,18 @@ function estimate_proj_x_noise() {
     let ny = spectrum_proj_x.n_indirect;
 
     spectrum_proj_x.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
-    adjust_proj_noise(spectrum_proj_x, "proj_x_noise_level_display");
+    let display = document.getElementById("proj_x_noise_level_display");
+    if (display) display.innerText = "Proj X Noise: " + spectrum_proj_x.noise_level.toExponential(2);
 
     update_proj_x_contour_levels();
 }
 
-/**
- * Updates projection X contour levels.
- */
 function update_proj_x_contour_levels() {
     if (!spectrum_proj_x) return;
 
     let multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
     let scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
 
-    spectrum_proj_x.spectrum_color = "#0000ff";
-    spectrum_proj_x.spectrum_color_negative = "#0000ff";
     spectrum_proj_x.levels = calculate_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_x.negative_levels = calculate_negative_levels(spectrum_proj_x.noise_level, scale, 30, multiplier, scale);
     spectrum_proj_x.cached_contour_pos = null;
@@ -7629,8 +6154,6 @@ function update_proj_x_contour_levels() {
     request_contour_calculation(spectrum_proj_x, 0, 1, "proj_x");
 
     if (theoretical_spectrum_proj_x) {
-        theoretical_spectrum_proj_x.spectrum_color = "#ff0000";
-        theoretical_spectrum_proj_x.spectrum_color_negative = "#ff0000";
         theoretical_spectrum_proj_x.levels = spectrum_proj_x.levels;
         theoretical_spectrum_proj_x.negative_levels = spectrum_proj_x.negative_levels;
         theoretical_spectrum_proj_x.cached_contour_pos = null;
@@ -7640,9 +6163,6 @@ function update_proj_x_contour_levels() {
     }
 }
 
-/**
- * Resets projection X zoom.
- */
 function reset_proj_x_zoom() {
     if (!main_plot_proj_x || !spectrum_proj_x) return;
     let s = spectrum_proj_x;
@@ -7651,31 +6171,16 @@ function reset_proj_x_zoom() {
     main_plot_proj_x.resetzoom(x_dom, y_dom);
 }
 
-/**
- * Synchronizes from projection X plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_x_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
 
-/**
- * Synchronizes from projection plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
 
-/**
- * Synchronizes from projection Y plot.
- *
- * @param {boolean} [is_end] - Is end Default is true.
- */
 function sync_from_proj_y_plot(is_end = true) {
     update_1d_traces_from_center();
     update_3d_crosshairs();
@@ -7701,9 +6206,6 @@ function sync_3d_views(plot_instance, is_end) {
         sync_from_yz_plot(is_end);
     }
 }
-/**
- * Applies trace phase.
- */
 function apply_trace_phase() {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {

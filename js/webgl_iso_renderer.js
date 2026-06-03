@@ -37,6 +37,12 @@ class IsoSurfaceRenderer {
         // Target (Pivot Point)
         this.target = { x: 0, y: 0, z: 0 };
 
+        // Click gesture recognition
+        this.startX = 0;
+        this.startY = 0;
+
+        // Callback for peak picking
+        this.onPeakPicked = null;
 
         this.setupInteraction();
 
@@ -121,6 +127,8 @@ class IsoSurfaceRenderer {
 
         this.canvas.addEventListener('mousedown', (e) => {
             this.isDragging = true;
+            this.startX = e.clientX;
+            this.startY = e.clientY;
             this.lastMouseX = e.clientX;
             this.lastMouseY = e.clientY;
             this.mouseButton = e.button; // 0: Left, 2: Right
@@ -129,6 +137,16 @@ class IsoSurfaceRenderer {
         window.addEventListener('mouseup', () => {
             this.isDragging = false;
             this.mouseButton = -1;
+        });
+
+        this.canvas.addEventListener('click', (e) => {
+            if (e.button !== 0) return; // Only left click
+            const dx = Math.abs(e.clientX - this.startX);
+            const dy = Math.abs(e.clientY - this.startY);
+            // Click threshold: 5 pixels
+            if (dx < 5 && dy < 5) {
+                this.handlePick(e.clientX, e.clientY);
+            }
         });
 
         window.addEventListener('mousemove', (e) => {
@@ -345,7 +363,9 @@ class IsoSurfaceRenderer {
                 normalBuffer: normBuffer,
                 vertexCount: mesh.vertices.length / 3,
                 color: mesh.color,
-                mode: mesh.mode === 'LINES' ? this.gl.LINES : this.gl.TRIANGLES
+                mode: mesh.mode === 'LINES' ? this.gl.LINES : this.gl.TRIANGLES,
+                vertices: mesh.vertices, // Save raw vertices for raycasting
+                name: mesh.name          // Save name for identifying solid red surface
             });
         });
 
@@ -442,6 +462,10 @@ class IsoSurfaceRenderer {
         // This ensures rotation happens around the target
         view = m4.translate(view, -this.target.x, -this.target.y, -this.target.z);
 
+        // Cache matrices for raycast picking
+        this.lastProjection = projection;
+        this.lastView = view;
+
 
 
         console.log("View Matrix:", view);
@@ -507,6 +531,108 @@ class IsoSurfaceRenderer {
         });
 
         console.log("Render complete");
+    }
+
+    handlePick(clientX, clientY) {
+        if (!this.lastProjection || !this.lastView) return;
+
+        // Get relative coordinates on canvas
+        const rect = this.canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        // Convert to Normalized Device Coordinates (NDC)
+        const ndcX = (x / this.canvas.clientWidth) * 2 - 1;
+        const ndcY = 1 - (y / this.canvas.clientHeight) * 2;
+
+        // Unproject near and far plane coordinates to get a world space ray
+        const viewProj = m4.multiply(this.lastProjection, this.lastView);
+        const invViewProj = m4.inverse(viewProj);
+
+        const nearPoint = this.unproject(ndcX, ndcY, -1.0, invViewProj);
+        const farPoint = this.unproject(ndcX, ndcY, 1.0, invViewProj);
+
+        const dir = [
+            farPoint[0] - nearPoint[0],
+            farPoint[1] - nearPoint[1],
+            farPoint[2] - nearPoint[2]
+        ];
+        const len = Math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
+        if (len > 0) {
+            dir[0] /= len;
+            dir[1] /= len;
+            dir[2] /= len;
+        }
+
+        let closestT = Infinity;
+        let closestIntersection = null;
+
+        // Ray-triangle intersection on the 'solid_red' surface
+        const solidObj = this.objectData.find(obj => obj.name === 'solid_red');
+        if (solidObj && solidObj.vertices) {
+            const verts = solidObj.vertices;
+            for (let i = 0; i < verts.length; i += 9) {
+                const v0 = [verts[i], verts[i+1], verts[i+2]];
+                const v1 = [verts[i+3], verts[i+4], verts[i+5]];
+                const v2 = [verts[i+6], verts[i+7], verts[i+8]];
+
+                const t = this.rayTriangleIntersect(nearPoint, dir, v0, v1, v2);
+                if (t !== null && t < closestT) {
+                    closestT = t;
+                    closestIntersection = [
+                        nearPoint[0] + t * dir[0],
+                        nearPoint[1] + t * dir[1],
+                        nearPoint[2] + t * dir[2]
+                    ];
+                }
+            }
+        }
+
+        if (closestIntersection && this.onPeakPicked) {
+            this.onPeakPicked(closestIntersection);
+        }
+    }
+
+    unproject(ndcX, ndcY, ndcZ, invViewProj) {
+        const v = [ndcX, ndcY, ndcZ, 1.0];
+        const x = invViewProj[0] * v[0] + invViewProj[4] * v[1] + invViewProj[8] * v[2] + invViewProj[12] * v[3];
+        const y = invViewProj[1] * v[0] + invViewProj[5] * v[1] + invViewProj[9] * v[2] + invViewProj[13] * v[3];
+        const z = invViewProj[2] * v[0] + invViewProj[6] * v[1] + invViewProj[10] * v[2] + invViewProj[14] * v[3];
+        const w = invViewProj[3] * v[0] + invViewProj[7] * v[1] + invViewProj[11] * v[2] + invViewProj[15] * v[3];
+        return [x / w, y / w, z / w];
+    }
+
+    rayTriangleIntersect(orig, dir, v0, v1, v2) {
+        const edge1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        const edge2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+
+        const pvec = [
+            dir[1] * edge2[2] - dir[2] * edge2[1],
+            dir[2] * edge2[0] - dir[0] * edge2[2],
+            dir[0] * edge2[1] - dir[1] * edge2[0]
+        ];
+
+        const det = edge1[0] * pvec[0] + edge1[1] * pvec[1] + edge1[2] * pvec[2];
+        if (Math.abs(det) < 1e-8) return null;
+
+        const invDet = 1.0 / det;
+        const tvec = [orig[0] - v0[0], orig[1] - v0[1], orig[2] - v0[2]];
+
+        const u = (tvec[0] * pvec[0] + tvec[1] * pvec[1] + tvec[2] * pvec[2]) * invDet;
+        if (u < 0.0 || u > 1.0) return null;
+
+        const qvec = [
+            tvec[1] * edge1[2] - tvec[2] * edge1[1],
+            tvec[2] * edge1[0] - tvec[0] * edge1[2],
+            tvec[0] * edge1[1] - tvec[1] * edge1[0]
+        ];
+
+        const v = (dir[0] * qvec[0] + dir[1] * qvec[1] + dir[2] * qvec[2]) * invDet;
+        if (v < 0.0 || u + v > 1.0) return null;
+
+        const t = (edge2[0] * qvec[0] + edge2[1] * qvec[1] + edge2[2] * qvec[2]) * invDet;
+        if (t > 1e-5) return t;
+        return null;
     }
 
     requestRender() {

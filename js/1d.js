@@ -22,7 +22,7 @@ function get_webassembly_job_flag(data) {
     return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
 }
 try {
-    webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
+    webassembly_1d_worker_2 = new Worker('./js/webass_1d.js');
 }
 catch (err) {
     console.log(err);

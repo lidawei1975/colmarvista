@@ -1,4 +1,8 @@
 {
+    "git.ignoredRepositories": [
+        "d:/orapps/aws/exec/deep-picker",
+        "d:\\orapps\\aws\\exec\\deep-picker"
+    ],
     "cSpell.words": [
         "acqu",
         "acqus",

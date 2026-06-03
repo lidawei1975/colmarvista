@@ -141,25 +141,12 @@ function plotit(input) {
     this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
 };
 
-/**
- * Enables magnifying glass.
- *
- * @param {any} flag - Flag
- * @param {any} ratio - Ratio
- * @param {any} size - Size
- */
 plotit.prototype.enable_magnifying_glass = function (flag, ratio, size) {
     this.magnifying_glass = flag ? flag : false; //default is false
     this.magnifying_glass_ratio = ratio ? ratio : 4.0; //default is 4.0
     this.magnifying_glass_size = size ? size : 10; //default is 10% of the plot size
 };
 
-/**
- * Sets labels.
- *
- * @param {any} xlabel - Xlabel
- * @param {any} ylabel - Ylabel
- */
 plotit.prototype.set_labels = function (xlabel, ylabel) {
     if (xlabel !== undefined) this.xlabel_text = xlabel;
     if (ylabel !== undefined) this.ylabel_text = ylabel;
@@ -551,16 +538,9 @@ plotit.prototype.sync_3d_views = function (is_end = true) {
         if (typeof sync_from_proj_y_plot === 'function') {
             sync_from_proj_y_plot(is_end);
         }
-    } else if (this.drawto === '#visualization_proj_x') {
-        if (typeof sync_from_proj_x_plot === 'function') {
-            sync_from_proj_x_plot(is_end);
-        }
     }
 };
 
-/**
- * Sends scales to other window.
- */
 plotit.prototype.send_scales_to_other_window = function () {
 
     /**
@@ -582,12 +562,6 @@ plotit.prototype.send_scales_to_other_window = function () {
     }
 }
 
-/**
- * Zooms to.
- *
- * @param {any} x_scale - X scale
- * @param {any} y_scale - Y scale
- */
 plotit.prototype.zoom_to = function (x_scale, y_scale) {
     this.xscales.push(this.xscale);
     this.yscales.push(this.yscale);
@@ -605,11 +579,6 @@ plotit.prototype.zoom_to = function (x_scale, y_scale) {
      */
 }
 
-/**
- * Zooms X.
- *
- * @param {any} x_ppm - X PPM
- */
 plotit.prototype.zoom_x = function (x_ppm) {
 
     let self = this;
@@ -629,11 +598,6 @@ plotit.prototype.zoom_x = function (x_ppm) {
     this.send_scales_to_other_window();
 };
 
-/**
- * Zooms Y.
- *
- * @param {any} y_ppm - Y PPM
- */
 plotit.prototype.zoom_y = function (y_ppm) {
     let self = this;
     this.yscale = y_ppm;
@@ -654,9 +618,6 @@ plotit.prototype.zoom_y = function (y_ppm) {
 
 
 
-/**
- * Pops zoom.
- */
 plotit.prototype.popzoom = function () {
 
     if (this.xscales.length > 0) {
@@ -680,12 +641,6 @@ plotit.prototype.popzoom = function () {
     }
 };
 
-/**
- * Resets zoom.
- *
- * @param {any} x - X
- * @param {any} y - Y
- */
 plotit.prototype.resetzoom = function (x, y) {
     /**
      * Clear the zoom stack
@@ -698,9 +653,6 @@ plotit.prototype.resetzoom = function (x, y) {
 };
 
 
-/**
- * Zooms out.
- */
 plotit.prototype.zoomout = function () {
     this.xscales.push(this.xscale);
     this.yscales.push(this.yscale);
@@ -994,11 +946,6 @@ plotit.prototype.draw = function () {
     }
 };
 
-/**
- * Setups cross line.
- *
- * @param {any} event - Event
- */
 plotit.prototype.setup_cross_line = function (event) {
     let self = this;
     let coordinates = [event.offsetX, event.offsetY];
@@ -1087,14 +1034,6 @@ plotit.prototype.setup_cross_line = function (event) {
 };
 
 
-/**
- * Setups cross line from PPM.
- *
- * @param {any} x_ppm - X PPM
- * @param {any} y_ppm - Y PPM
- * @param {any} spectrum_index - Spectrum index
- * @param {any} flag_manual_phase_correction - Flag manual phase correction
- */
 plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction) {
     let self = this;
     let spectra_source = self.local_spectra || hsqc_spectra;
@@ -1256,9 +1195,6 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
     } //end of show cross section
 } //end of cross section
 
-/**
- * Gets phase correction.
- */
 plotit.prototype.get_phase_correction = function () {
     let self = this;
     let phase_direct = self.x_cross_section_plot.get_phase_correction();
@@ -1268,9 +1204,6 @@ plotit.prototype.get_phase_correction = function () {
     return [phase_direct, phase_indirect];
 }
 
-/**
- * Shows projection.
- */
 plotit.prototype.show_projection = function () {
 
     let self = this;
@@ -1314,9 +1247,6 @@ plotit.prototype.show_projection = function () {
     }
 }
 
-/**
- * Redraws 1d.
- */
 plotit.prototype.redraw_1d = function () {
     if (this.x_cross_section_plot !== null) {
         this.x_cross_section_plot.redraw();
@@ -1326,9 +1256,6 @@ plotit.prototype.redraw_1d = function () {
     }
 }
 
-/**
- * Redraws contour.
- */
 plotit.prototype.redraw_contour = function () {
     /**
      * Update webgl contour data.
@@ -1360,12 +1287,6 @@ plotit.prototype.redraw_contour = function () {
     this.contour_plot.drawScene();
 }
 
-/**
- * Updates cross section.
- *
- * @param {any} spe_index - Spe index
- * @param {any} flag - Flag
- */
 plotit.prototype.update_cross_section = function (spe_index, flag) {
     /**
      * Only need to update when current cross section is the same as the spectral_index
@@ -1403,11 +1324,6 @@ plotit.prototype.set_peak_level = function (level) {
     this.peak_level = level;
 }
 
-/**
- * Sets peak level negative.
- *
- * @param {any} level - Level
- */
 plotit.prototype.set_peak_level_negative = function (level) {
     this.peak_level_negative = level;
 }
@@ -1510,11 +1426,6 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
     function text_force() {
         var strength = 0.1;
 
-        /**
-         * Forces.
-         *
-         * @param {any} alpha - Alpha
-         */
         function force(alpha) {
             for (var i = 0; i < nodes.length; ++i) {
                 let node = nodes[i];
@@ -1544,9 +1455,6 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
     };
 
 
-    /**
-     * Avoids peaks.
-     */
     function avoid_peaks() {
         let nodes;
         var strength = repulsive_force;
@@ -1583,9 +1491,6 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         return force;
     }
 
-    /**
-     * Boundarys force.
-     */
     function boundary_force() {
         let nodes;
         var strength = 10.0;
@@ -1617,22 +1522,12 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
             }
         }
 
-        /**
-         * Strengths.
-         *
-         * @param {any} _ - Parameter.
-         */
         function strength(_) {
             if (!arguments.length) return strength;
             strength = _;
             return force;
         }
 
-        /**
-         * Buffers.
-         *
-         * @param {any} _ - Parameter.
-         */
         function buffer(_) {
             if (!arguments.length) return buffer;
             buffer = _;
@@ -2456,13 +2351,6 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
         .attr('stroke-width', 3);
 }
 
-/**
- * Handles label click.
- *
- * @param {any} event - Event
- * @param {any} target - Target
- * @param {any} isRotated - Is rotated
- */
 plotit.prototype.handleLabelClick = function (event, target, isRotated) {
     // Prevent event bubbling so dragging doesn't start immediately or cause issues
     if (event && event.stopPropagation) event.stopPropagation();
@@ -2548,9 +2436,6 @@ plotit.prototype.handleLabelClick = function (event, target, isRotated) {
     });
 };
 
-/**
- * Setups axis pan.
- */
 plotit.prototype.setup_axis_pan = function () {
     let self = this;
     let mode = ""; // "x", "y", or ""
@@ -2640,9 +2525,6 @@ plotit.prototype.setup_axis_pan = function () {
 };
 
 
-/**
- * Setups axis wheel.
- */
 plotit.prototype.setup_axis_wheel = function () {
     let self = this;
 

@@ -1,9 +1,4 @@
 class cross_section_plot {
-    /**
-     * Constructor for class.
-     *
-     * @param {any} parent_plot - Parent plot
-     */
     constructor(parent_plot) {
 
         // test d3 exist
@@ -377,32 +372,16 @@ class cross_section_plot {
         this.redraw();
     }
 
-    /**
-     * Zooms X.
-     *
-     * @param {any} x_domain - X domain
-     */
     zoom_x(x_domain) {
         this.x.domain(x_domain);
         this.redraw();
     }
 
-    /**
-     * Zooms Y.
-     *
-     * @param {any} y_domain - Y domain
-     */
     zoom_y(y_domain) {
         this.y.domain(y_domain);
         this.redraw();
     }
 
-    /**
-     * Resizes X.
-     *
-     * @param {any} width - Width
-     * @param {any} margin - Margin
-     */
     resize_x(width,margin) {
         this.width = width;
         this.margin = margin;
@@ -433,12 +412,6 @@ class cross_section_plot {
         this.redraw();
     }
 
-    /**
-     * Resizes Y.
-     *
-     * @param {any} height - Height
-     * @param {any} margin - Margin
-     */
     resize_y(height,margin) {
         this.height = height;
         this.margin = margin;
@@ -494,9 +467,6 @@ class cross_section_plot {
         this.redraw();
     }
 
-    /**
-     * Clears data.
-     */
     clear_data() {
 
         this.vis.selectAll(".line_exp").remove();
@@ -668,9 +638,6 @@ class cross_section_plot {
         this.redraw();
     };
 
-    /**
-     * Clears.
-     */
     clear() {
         /**
          * Clear this.data
@@ -687,9 +654,6 @@ class cross_section_plot {
     }
 
 
-    /**
-     * Gets phase correction.
-     */
     get_phase_correction() {
         /**
          * Need to get phase_correction at index 0
@@ -702,9 +666,6 @@ class cross_section_plot {
         return [phase_correction_at_0, this.phase_correction_p1];
     }
 
-    /**
-     * Clears phase correction.
-     */
     clear_phase_correction() {
         this.phase_correction = 0.0;
         this.phase_correction_p1 = 0.0;
@@ -856,11 +817,6 @@ class cross_section_plot {
         e.preventDefault();
     }
 
-    /**
-     * Handles mouse up.
-     *
-     * @param {any} e - E
-     */
     handleMouseUp(e) {
         e.preventDefault();
         var self = this;
@@ -908,11 +864,6 @@ class cross_section_plot {
         return;
     }
 
-    /**
-     * Medians.
-     *
-     * @param {any} values - Values
-     */
     median(values) {
 
         if (values.length === 0) {

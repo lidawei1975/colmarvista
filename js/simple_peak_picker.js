@@ -212,7 +212,7 @@ function peaksToNmrPipeTab(peaks) {
 
 /**
  * Worker-friendly wrapper for peak picking
- * Called from webass1d_2.js peak_picker_2d handler
+ * Called from webass_2d.js peak_picker_2d handler
  * @param {Uint8Array} spectrumDataUint8 - full spectrum as bytes (header + data)
  * @param {number} noiseLevel - noise level threshold
  * @param {number} scale - scale factor to multiply with noise level
