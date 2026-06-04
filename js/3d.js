@@ -5086,7 +5086,8 @@ function update_3d_view() {
                     vertices: meshWire.vertices,
                     normals: meshWire.normals,
                     color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
-                    mode: 'LINES'
+                    mode: 'LINES',
+                    name: 'wire_blue'
                 }
             );
 
@@ -5130,7 +5131,8 @@ function update_3d_view() {
                         vertices: meshWire_recon.vertices,
                         normals: meshWire_recon.normals,
                         color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
-                        mode: 'LINES'
+                        mode: 'LINES',
+                        name: 'wire_blue'
                     }
                 );
             }
