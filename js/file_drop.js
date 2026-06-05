@@ -213,10 +213,19 @@ class file_drop_processor {
          * Only if the dropped file's extension is as predefined, we will attach it to the corresponding file input
          * this.file_extension is an array of file extensions
          */
-        let file_extension = file.name.split('.').pop();
+        let file_extension = file.name.split('.').pop().toLowerCase();
         if (this.file_extension.includes(file_extension)) {
             this.container.items.add(file);
             let file_id = this.files_id[this.file_extension.indexOf(file_extension)];
+            document.getElementById(file_id).files = this.container.files;
+            /**
+             * Simulate the change event
+             */
+            document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        else if (this.file_extension.includes('*')) {
+            this.container.items.add(file);
+            let file_id = this.files_id[this.file_extension.indexOf('*')];
             document.getElementById(file_id).files = this.container.files;
             /**
              * Simulate the change event

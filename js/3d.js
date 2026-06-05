@@ -563,23 +563,31 @@ async function run_peak_fit_3d_workflow() {
 
         const ft3Bytes = new Uint8Array(buffer);
         append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
-        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting top-50 partitions)...";
+        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting partitions)...";
 
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
-        let scale2 = 10.0;
+        let scale2 = 6.0;
         let multiplier_input = document.getElementById("contour_start_multiplier");
         if (multiplier_input) {
-            scale2 = parseFloat(multiplier_input.value) || 10.0;
+            scale2 = parseFloat(multiplier_input.value) || 6.0;
         }
         let scale1 = 1.5 * scale2;
+
+        let newPeakCutoff = 0.4;
+        let cutoff_input = document.getElementById("input_new_peak_cutoff");
+        if (cutoff_input) {
+            newPeakCutoff = parseFloat(cutoff_input.value);
+            if (isNaN(newPeakCutoff)) newPeakCutoff = 0.4;
+        }
 
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "pick_and_fit_3d",
             ft3Bytes: ft3Bytes,
             noiseLevel: noiseLevel,
             scale1: scale1,
-            scale2: scale2
+            scale2: scale2,
+            newPeakCutoff: newPeakCutoff
         }, [ft3Bytes.buffer]);
 
     } catch (err) {
@@ -943,13 +951,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    let rawForm = document.getElementById('raw_file_form');
-    if (rawForm) {
-        rawForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            load_raw_3d_file();
-        });
-    }
+
 
     // Slider Handler
     document.getElementById('slice_slider').addEventListener('input', function (e) {
@@ -1724,13 +1726,30 @@ async function load_ft3_file() {
     let files = Array.from(fileInput.files);
 
     if (files.length === 0) {
-        alert("Please select a .ft3 file.");
+        alert("Please select a file.");
         return;
     }
 
+    let file = files[0];
+    let ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === 'ucsf') {
+        alert("not implemented yet");
+        return;
+    }
+
+    let isNmrPipe = ext.match(/^ft[a-z0-9]?$/i);
+
+    if (isNmrPipe) {
+        await load_ft3_file_impl(file);
+    } else {
+        await load_raw_3d_file_impl(file);
+    }
+}
+
+async function load_ft3_file_impl(file) {
     set_loading_buttons_state(true);
     try {
-        let file = files[0];
         document.getElementById("webassembly_message").innerText = "Loading " + file.name + "...";
 
         // Reset state
@@ -1879,16 +1898,9 @@ async function load_ft3_file() {
  * Loads raw 3D file.
  * @returns {Promise<void>}
  */
-async function load_raw_3d_file() {
-    let fileInput = document.getElementById('userfile_raw');
-    if (fileInput.files.length === 0) {
-        alert("Please select a raw binary 3D file.");
-        return;
-    }
-
+async function load_raw_3d_file_impl(file) {
     set_loading_buttons_state(true);
     try {
-        let file = fileInput.files[0];
         document.getElementById("webassembly_message").innerText = "Loading raw " + file.name + "...";
 
         // Reset state
@@ -2268,7 +2280,7 @@ function update_contour_levels() {
     }
 
     if (spectrum_proj) {
-        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
         spectrum_proj.spectrum_color = "#0000ff";
         spectrum_proj.spectrum_color_negative = "#0000ff";
@@ -2281,7 +2293,7 @@ function update_contour_levels() {
     }
 
     if (spectrum_proj_y) {
-        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
         spectrum_proj_y.spectrum_color = "#0000ff";
         spectrum_proj_y.spectrum_color_negative = "#0000ff";
@@ -2294,7 +2306,7 @@ function update_contour_levels() {
     }
 
     if (spectrum_proj_x) {
-        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
         spectrum_proj_x.spectrum_color = "#0000ff";
         spectrum_proj_x.spectrum_color_negative = "#0000ff";
@@ -2307,7 +2319,7 @@ function update_contour_levels() {
     }
 
     if (theoretical_spectrum_proj) {
-        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
         theoretical_spectrum_proj.spectrum_color = "#ff0000";
         theoretical_spectrum_proj.spectrum_color_negative = "#ff0000";
@@ -2321,7 +2333,7 @@ function update_contour_levels() {
     }
 
     if (theoretical_spectrum_proj_y) {
-        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
         theoretical_spectrum_proj_y.spectrum_color = "#ff0000";
         theoretical_spectrum_proj_y.spectrum_color_negative = "#ff0000";
@@ -2335,7 +2347,7 @@ function update_contour_levels() {
     }
 
     if (theoretical_spectrum_proj_x) {
-        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+        let p_multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 6.0;
         let p_scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
         theoretical_spectrum_proj_x.spectrum_color = "#ff0000";
         theoretical_spectrum_proj_x.spectrum_color_negative = "#ff0000";
@@ -4830,24 +4842,6 @@ function setup_sliders() {
         inputWire.max = maxRange;
         inputWire.step = step;
         inputWire.value = (10.0 * noise).toExponential(4);
-
-        inputSolid.onchange = function () {
-            let val = parseFloat(this.value);
-            let wireVal = parseFloat(inputWire.value);
-            if (val <= wireVal) {
-                inputWire.value = (val - step).toFixed(1);
-            }
-            update_3d_view();
-        };
-
-        inputWire.onchange = function () {
-            let val = parseFloat(this.value);
-            let solidVal = parseFloat(inputSolid.value);
-            if (val >= solidVal) {
-                this.value = (solidVal - step).toFixed(1);
-            }
-            update_3d_view();
-        }
     }
 
     const sliderPeak = document.getElementById("iso_peak_slider");
@@ -5100,7 +5094,8 @@ function update_3d_view() {
                     vertices: meshWire.vertices,
                     normals: meshWire.normals,
                     color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
-                    mode: 'LINES'
+                    mode: 'LINES',
+                    name: 'wire_blue'
                 }
             );
 
@@ -5144,7 +5139,8 @@ function update_3d_view() {
                         vertices: meshWire_recon.vertices,
                         normals: meshWire_recon.normals,
                         color: [0.0, 0.0, 1.0, 0.3], // Blue Wireframe (Requested)
-                        mode: 'LINES'
+                        mode: 'LINES',
+                        name: 'wire_blue'
                     }
                 );
             }
@@ -5612,6 +5608,7 @@ function createPyramid(size) {
 var web_worker_3d = null;
 var web_worker_smile_3d = null;
 var fid_drop_process_3d = null;
+var ft3_drop_process_3d = null;
 var pending_nus_cfg_3d = null;
 // Debug-only mode flag kept for future use.
 var debug2_smile_only_3d = false;
@@ -5670,6 +5667,13 @@ document.addEventListener('DOMContentLoaded', function () {
             .file_extension([])
             .required_files([0, 2, 3])
             .click_to_select_folder()
+            .init();
+
+        ft3_drop_process_3d = new file_drop_processor()
+            .drop_area('drop_area_ft3')
+            .files_name([])
+            .files_id(["userfile_ft3"])
+            .file_extension(["*"])
             .init();
     }
 
@@ -7094,7 +7098,7 @@ function generate_projection_spectrum() {
     spec.noise_level = mathTool.estimate_noise_level(nx, ny, raw);
     adjust_proj_noise(spec, "proj_noise_level_display");
 
-    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 6.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
 
     spec.levels = calculate_levels(spec.noise_level, scale, 30, multiplier, scale);
@@ -7139,7 +7143,7 @@ function generate_projection_spectrum() {
     specY.noise_level = mathTool.estimate_noise_level(nx, nz, rawY);
     adjust_proj_noise(specY, "proj_y_noise_level_display");
 
-    let multiplierY = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+    let multiplierY = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 6.0;
     let scaleY = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
 
     specY.levels = calculate_levels(specY.noise_level, scaleY, 30, multiplierY, scaleY);
@@ -7178,7 +7182,7 @@ function generate_projection_spectrum() {
     specX.noise_level = mathTool.estimate_noise_level(ny, nz, rawX);
     adjust_proj_noise(specX, "proj_x_noise_level_display");
 
-    let multiplierX = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+    let multiplierX = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 6.0;
     let scaleX = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
 
     specX.levels = calculate_levels(specX.noise_level, scaleX, 30, multiplierX, scaleX);
@@ -7311,7 +7315,7 @@ function estimate_proj_noise() {
 function update_proj_contour_levels() {
     if (!spectrum_proj) return;
 
-    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 10.0;
+    let multiplier = parseFloat(document.getElementById("proj_contour_start_multiplier").value) || 6.0;
     let scale = parseFloat(document.getElementById("proj_contour_scale_factor").value) || 1.4;
 
     spectrum_proj.spectrum_color = "#0000ff";
@@ -7463,7 +7467,7 @@ function estimate_proj_y_noise() {
 function update_proj_y_contour_levels() {
     if (!spectrum_proj_y) return;
 
-    let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 10.0;
+    let multiplier = parseFloat(document.getElementById("proj_y_contour_start_multiplier").value) || 6.0;
     let scale = parseFloat(document.getElementById("proj_y_contour_scale_factor").value) || 1.4;
 
     spectrum_proj_y.spectrum_color = "#0000ff";
@@ -7615,7 +7619,7 @@ function estimate_proj_x_noise() {
 function update_proj_x_contour_levels() {
     if (!spectrum_proj_x) return;
 
-    let multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 10.0;
+    let multiplier = parseFloat(document.getElementById("proj_x_contour_start_multiplier").value) || 6.0;
     let scale = parseFloat(document.getElementById("proj_x_contour_scale_factor").value) || 1.4;
 
     spectrum_proj_x.spectrum_color = "#0000ff";

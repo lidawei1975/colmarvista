@@ -134,7 +134,7 @@ div.tooltip {
 }
 
 .drop-area {
-    border: 2px dashed #ccc;
+    border: 2px dashed #ccc !important;
     border-radius: 20px;
     font-family: sans-serif;
     margin: 10px auto;

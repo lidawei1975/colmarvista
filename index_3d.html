@@ -195,23 +195,18 @@
                             <input type="submit" id="button_ft2_process" value="Upload and Process .ft2 Spectra"></br>
                         </form>
                     </div>
-                    <div style="flex: 1; border-right: 1px solid #ccc; padding-right: 20px;">
-                        <h5>Option 2: Single 3D File</h5>
-                        <form id="ft3_file_form" action="" enctype="multipart/form-data">
-                            <label for="userfile_ft3">Select a single 3D spectral file (.ft3): </label>
-                            <input type="file" id="userfile_ft3" accept=".ft3"><br>
-                            <span class="information"> The file must contain a single header followed by concatenated
-                                planes.</span><br>
-                            <input type="submit" id="button_ft3_process" value="Upload and Process .ft3 Spectrum"></br>
-                        </form>
-                    </div>
                     <div style="flex: 1;">
-                        <h5>Option 3: Raw Binary File</h5>
-                        <form id="raw_file_form" action="" enctype="multipart/form-data">
-                            <label for="userfile_raw">Select a raw binary 3D file: </label>
-                            <input type="file" id="userfile_raw"><br>
-                            <span class="information"> Header: [ndirect, nindirect1, nindirect2] as float32.</span><br>
-                            <input type="submit" id="button_raw_process" value="Upload and Process Raw Spectrum"></br>
+                        <h5>Option 2: Single 3D / Raw File</h5>
+                        <form id="ft3_file_form" action="" enctype="multipart/form-data">
+                            <div class="drop-area input-section" id="drop_area_ft3">
+                                <label for="userfile_ft3">Select a single 3D spectral file (.ft3/.ucsf) or raw binary
+                                    file: </label>
+                                <input type="file" id="userfile_ft3"><br>
+                                <span class="information"> Supported formats: nmrPipe (*.ft?), Sparky (*.ucsf -
+                                    placeholder), or raw binary (others).</span><br>
+                                <span class="information"> You can also drag and drop a file or folder here.</span><br>
+                            </div>
+                            <input type="submit" id="button_ft3_process" value="Upload and Process Spectrum"></br>
                         </form>
                     </div>
                 </div>
@@ -231,9 +226,11 @@
                 <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj"
                         onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
                 <button onclick="run_auto_phase_on_loaded_spectrum()">Auto Phase</button>
+                <label for="input_new_peak_cutoff" style="margin-left: 10px; font-weight: bold;" title="Higher = tolerates distorted peaks. Lower = prefers finding new peaks. Range: 0.2–0.6 (Default: 0.4).">overlapping peak cutoff: </label>
+                <input type="number" id="input_new_peak_cutoff" value="0.4" step="0.01" min="0.2" max="0.6" style="width: 50px; margin-right: 10px;" title="Higher = tolerates distorted peaks. Lower = prefers finding new peaks. Range: 0.2–0.6 (Default: 0.4).">
                 <button id="button_peak_fit_3d" onclick="run_peak_fit_3d_workflow()">Peak Picking & Fitting</button>
-                <button id="button_download_peaks_list" onclick="download_fitted_peaks_list()" disabled>Download Peaks List</button>
-                <button id="button_toggle_peak_symbols" onclick="toggle_peak_symbols()" disabled>Hide Peak Symbols</button>
+                <button id="button_download_peaks_list" onclick="download_fitted_peaks_list()" disabled>Download Peaks
+                    List</button>
                 <!-- Hidden list, used by myplot if needed, or we might not use it -->
                 <ol id="spectra_list_ol" type="1"></ol>
             </div>
@@ -307,24 +304,31 @@
                             </div>
                             <label for="contour_start_multiplier" style="font-weight: bold; margin-left: 10px;">Lowest
                                 level (x noise): </label>
-                            <input type="number" id="contour_start_multiplier" value="10.0" step="0.5"
+                            <input type="number" id="contour_start_multiplier" value="6.0" step="0.5"
                                 style="width: 60px;">
                             <label for="contour_scale_factor" style="font-weight: bold; margin-left: 10px;">Scale
                                 factor: </label>
                             <input type="number" id="contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
                             <button onclick="update_contour_levels()">Update Contours</button>
+                            <button id="button_toggle_peak_symbols" onclick="toggle_peak_symbols()" disabled>Hide Peak
+                                Symbols</button>
                             <br>
                             <span style="font-weight: bold; margin-left: 10px;">Contour Colors:</span>
                             <label for="color_exp_pos" style="margin-left: 10px;">Positive Exp:</label>
-                            <input type="color" id="color_exp_pos" value="#0000ff" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <input type="color" id="color_exp_pos" value="#0000ff" onchange="update_contour_levels()"
+                                style="vertical-align: middle;">
                             <label for="color_exp_neg" style="margin-left: 10px;">Negative Exp:</label>
-                            <input type="color" id="color_exp_neg" value="#00ff00" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <input type="color" id="color_exp_neg" value="#00ff00" onchange="update_contour_levels()"
+                                style="vertical-align: middle;">
                             <label for="color_theo_pos" style="margin-left: 10px;">Positive Theo:</label>
-                            <input type="color" id="color_theo_pos" value="#ff0000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <input type="color" id="color_theo_pos" value="#ff0000" onchange="update_contour_levels()"
+                                style="vertical-align: middle;">
                             <label for="color_theo_neg" style="margin-left: 10px;">Negative Theo:</label>
-                            <input type="color" id="color_theo_neg" value="#000000" onchange="update_contour_levels()" style="vertical-align: middle;">
+                            <input type="color" id="color_theo_neg" value="#000000" onchange="update_contour_levels()"
+                                style="vertical-align: middle;">
                             <label for="color_peak_symbol" style="margin-left: 10px;">Peak Symbol:</label>
-                            <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()" style="vertical-align: middle;">
+                            <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()"
+                                style="vertical-align: middle;">
                         </div>
 
                         <div
@@ -446,7 +450,7 @@
                                     <span id="proj_noise_level_display" style="font-weight: bold;">Proj. Noise: -</span>
                                     <button onclick="estimate_proj_noise()">Estimate Noise</button>
                                     <label>Start (x noise): </label><input type="number"
-                                        id="proj_contour_start_multiplier" value="10.0" step="0.5" style="width: 50px;">
+                                        id="proj_contour_start_multiplier" value="6.0" step="0.5" style="width: 50px;">
                                     <label>Scale: </label><input type="number" id="proj_contour_scale_factor"
                                         value="1.4" step="0.05" style="width: 50px;">
                                     <button onclick="update_proj_contour_levels()">Update</button>
@@ -510,7 +514,7 @@
                                         -</span>
                                     <button onclick="estimate_proj_y_noise()">Estimate Noise</button>
                                     <label>Start (x noise): </label><input type="number"
-                                        id="proj_y_contour_start_multiplier" value="10.0" step="0.5"
+                                        id="proj_y_contour_start_multiplier" value="6.0" step="0.5"
                                         style="width: 50px;">
                                     <label>Scale: </label><input type="number" id="proj_y_contour_scale_factor"
                                         value="1.4" step="0.05" style="width: 50px;">
@@ -567,7 +571,7 @@
                                         -</span>
                                     <button onclick="estimate_proj_x_noise()">Estimate Noise</button>
                                     <label>Start (x noise): </label><input type="number"
-                                        id="proj_x_contour_start_multiplier" value="10.0" step="0.5"
+                                        id="proj_x_contour_start_multiplier" value="6.0" step="0.5"
                                         style="width: 50px;">
                                     <label>Scale: </label><input type="number" id="proj_x_contour_scale_factor"
                                         value="1.4" step="0.05" style="width: 50px;">
@@ -613,9 +617,11 @@
                                 style="font-weight: bold; border: 1px solid rgba(217, 83, 79, 0.3); padding: 2px 6px; border-radius: 4px; background: rgba(255, 245, 245, 0.9); box-shadow: 0 4px 12px rgba(217, 83, 79, 0.15); display: none; align-items: center; gap: 8px; backdrop-filter: blur(4px); transition: all 0.3s ease;">
                                 <span style="color: #d9534f; font-size: 14px;">📍 Picked Peak:</span>
                                 <span id="picked_peak_info" style="color: #333; font-size: 13px;">-</span>
-                                <button type="button" onclick="document.getElementById('picked_peak_container').style.display='none'"
+                                <button type="button"
+                                    onclick="document.getElementById('picked_peak_container').style.display='none'"
                                     style="background: transparent; border: none; color: #999; cursor: pointer; font-size: 14px; font-weight: bold; padding: 0 4px; margin-left: 5px; line-height: 1;"
-                                    onmouseover="this.style.color='#d9534f'" onmouseout="this.style.color='#999'">×</button>
+                                    onmouseover="this.style.color='#d9534f'"
+                                    onmouseout="this.style.color='#999'">×</button>
                             </div>
 
                             <div
@@ -630,10 +636,10 @@
                             <div
                                 style="display: flex; gap: 10px; align-items: center; border-left: 1px solid #ccc; padding-left: 2px;">
                                 <label>Peak Size:</label>
-                                <input type="range" id="iso_peak_slider" min="0.002" max="0.03" step="0.001"
-                                    value="0.015" style="width: 100px;">
-                                <input type="number" id="iso_peak_input" style="width: 65px;" min="0.002" max="0.03"
-                                    step="0.001" value="0.015">
+                                <input type="range" id="iso_peak_slider" min="0.001" max="0.02" step="0.001"
+                                    value="0.003" style="width: 100px;">
+                                <input type="number" id="iso_peak_input" style="width: 65px;" min="0.001" max="0.02"
+                                    step="0.001" value="0.003">
                             </div>
                         </div>
 

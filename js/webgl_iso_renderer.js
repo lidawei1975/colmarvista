@@ -567,10 +567,10 @@ class IsoSurfaceRenderer {
         let closestT = Infinity;
         let closestIntersection = null;
 
-        // Ray-triangle intersection on the 'solid_red' surface
-        const solidObj = this.objectData.find(obj => obj.name === 'solid_red');
-        if (solidObj && solidObj.vertices) {
-            const verts = solidObj.vertices;
+        // Ray-triangle intersection on the 'wire_blue' surface
+        const wireObj = this.objectData.find(obj => obj.name === 'wire_blue');
+        if (wireObj && wireObj.vertices) {
+            const verts = wireObj.vertices;
             for (let i = 0; i < verts.length; i += 9) {
                 const v0 = [verts[i], verts[i+1], verts[i+2]];
                 const v1 = [verts[i+3], verts[i+4], verts[i+5]];
