@@ -549,18 +549,20 @@ self.onmessage = async function (event) {
             const noiseLevel = typeof event.data.noiseLevel !== 'undefined' ? parseFloat(event.data.noiseLevel) : 0.0;
             const scale1 = typeof event.data.scale1 !== 'undefined' ? parseFloat(event.data.scale1) : 6.0;
             const scale2 = typeof event.data.scale2 !== 'undefined' ? parseFloat(event.data.scale2) : 3.5;
+            const newPeakCutoff = typeof event.data.newPeakCutoff !== 'undefined' ? parseFloat(event.data.newPeakCutoff) : 0.4;
 
             if (ft3Bytes.length === 0) {
                 throw new Error("No FT3 bytes provided for peak picking/fitting.");
             }
-            console.log('[webass_3d] pick_and_fit_3d starting, size:', ft3Bytes.length, 'noise:', noiseLevel, 'scale1:', scale1, 'scale2:', scale2);
-            postMessage({ stdout: '[webass_3d] pick_and_fit_3d starting' });
+            console.log('[webass_3d] pick_and_fit_3d starting, size:', ft3Bytes.length, 'noise:', noiseLevel, 'scale1:', scale1, 'scale2:', scale2, 'newPeakCutoff:', newPeakCutoff);
+            postMessage({ stdout: '[webass_3d] pick_and_fit_3d starting with cutoff ' + newPeakCutoff });
 
             const app = new Module.spectrum_fit_3d();
             let resultString = "";
             try {
                 app.set_noise_scales(noiseLevel, scale1, scale2);
                 app.set_noise_level_for_nus(false);
+                app.set_new_peak_cutoff(newPeakCutoff);
                 app.set_verbose(1); //minimal verbose output (default is 2, which is more verbose)
 
                 const size = ft3Bytes.length;

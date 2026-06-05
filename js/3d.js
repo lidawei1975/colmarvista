@@ -563,7 +563,7 @@ async function run_peak_fit_3d_workflow() {
 
         const ft3Bytes = new Uint8Array(buffer);
         append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
-        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting top-50 partitions)...";
+        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting partitions)...";
 
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
@@ -574,12 +574,20 @@ async function run_peak_fit_3d_workflow() {
         }
         let scale1 = 1.5 * scale2;
 
+        let newPeakCutoff = 0.4;
+        let cutoff_input = document.getElementById("input_new_peak_cutoff");
+        if (cutoff_input) {
+            newPeakCutoff = parseFloat(cutoff_input.value);
+            if (isNaN(newPeakCutoff)) newPeakCutoff = 0.4;
+        }
+
         web_worker_3d.postMessage({
             "#sym:webassembly_job ": "pick_and_fit_3d",
             ft3Bytes: ft3Bytes,
             noiseLevel: noiseLevel,
             scale1: scale1,
-            scale2: scale2
+            scale2: scale2,
+            newPeakCutoff: newPeakCutoff
         }, [ft3Bytes.buffer]);
 
     } catch (err) {
