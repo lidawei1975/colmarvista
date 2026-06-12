@@ -5168,6 +5168,71 @@ function reset_3d_view() {
 }
 
 /**
+ * Downloads the current view of the 3D experimental and reconstructed views (if exist) at 2x resolution.
+ * The display is temporarily set to high resolution, rendered, captured, and restored synchronously
+ * to avoid visual disruption or resizing on the screen.
+ */
+function download_3d_views() {
+    let downloaded = false;
+
+    // Helper to capture a renderer at 2x resolution
+    function captureRenderer(renderer, filename) {
+        if (!renderer || !renderer.canvas || !renderer.gl) return false;
+        
+        const originalResize = renderer.resize;
+        try {
+            // Override the resize logic to render at exactly 2x of its client/display size
+            renderer.resize = function() {
+                this.canvas.width = this.canvas.clientWidth * 2;
+                this.canvas.height = this.canvas.clientHeight * 2;
+                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            };
+
+            // Synchronously render the high-res frame
+            renderer.render();
+
+            // Extract the PNG data URL
+            const dataURL = renderer.canvas.toDataURL("image/png");
+
+            // Trigger programmatic download
+            const link = document.createElement("a");
+            link.download = filename;
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            return true;
+        } catch (e) {
+            console.error("Failed to download 3D view for " + filename + ":", e);
+            return false;
+        } finally {
+            // Restore original resize function and re-render to restore on-screen display
+            renderer.resize = originalResize;
+            renderer.render();
+        }
+    }
+
+    // Capture Experimental 3D View
+    if (iso_renderer) {
+        if (captureRenderer(iso_renderer, "experimental_3d.png")) {
+            downloaded = true;
+        }
+    }
+
+    // Capture Reconstructed 3D View (if it exists)
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0 && iso_renderer_recon) {
+        if (captureRenderer(iso_renderer_recon, "reconstructed_3d.png")) {
+            downloaded = true;
+        }
+    }
+
+    if (!downloaded) {
+        alert("No active 3D visualization to download.");
+    }
+}
+
+/**
  * Handles mouse peak picking on the 3D surface.
  */
 function handle3DPeakPicked(pt, type = "Experimental") {
