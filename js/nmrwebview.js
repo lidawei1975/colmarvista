@@ -223,6 +223,20 @@ $(document).ready(function () {
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
+    const fid_area = document.getElementById("fid_file_area");
+    if (fid_area) {
+        fid_area.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("button_minimize_fid_area");
+            if (btn && btn.innerText === "+") {
+                minimize_fid_area(btn);
+            }
+        });
+        fid_area.addEventListener("dragover", (e) => {
+            e.preventDefault();
+        });
+    }
+
     // Tutorial Implementation
     if (typeof SimpleTutorial !== 'undefined') {
         const steps = [
