@@ -223,6 +223,20 @@ $(document).ready(function () {
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
+    const fid_area = document.getElementById("fid_file_area");
+    if (fid_area) {
+        fid_area.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("button_minimize_fid_area");
+            if (btn && btn.innerText === "+") {
+                minimize_fid_area(btn);
+            }
+        });
+        fid_area.addEventListener("dragover", (e) => {
+            e.preventDefault();
+        });
+    }
+
     // Tutorial Implementation
     if (typeof SimpleTutorial !== 'undefined') {
         const steps = [
@@ -1232,7 +1246,7 @@ webassembly_worker.onmessage = function (e) {
         header[55] = 1.0;
         header[56] = 1.0;
         header[99] = source.n_direct;
-        header[219] = source.n_indirect;
+        header[219] = header[98];
 
         const ft2_data = Float32Concat(header, recon_raw_data);
         const arrayBuffer = ft2_data.buffer.slice(0);
@@ -1241,7 +1255,7 @@ webassembly_worker.onmessage = function (e) {
         let result_spectrum = new spectrum();
         result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, spectrum_index);
 
-        result_spectrum.header = source.header;
+        result_spectrum.header = header;
         result_spectrum.noise_level = source.noise_level;
         result_spectrum.levels = source.levels;
         result_spectrum.negative_levels = source.negative_levels;
@@ -1360,10 +1374,14 @@ webassembly_worker.onmessage = function (e) {
         result_spectrum.process_ft_file(arrayBuffer, result_spectrum_name, e.data.spectrum_origin);
 
         /**
-         * Replace its header with the header of the original spectrum
+         * Replace its header with the header of the original spectrum (with modifications for reconstructed spectrum)
          * and noise_level, levels, negative_levels, spectral_max and spectral_min with the original spectrum
          */
-        result_spectrum.header = hsqc_spectra[e.data.spectrum_origin].header;
+        let header = new Float32Array(hsqc_spectra[e.data.spectrum_origin].header);
+        header[55] = 1.0;
+        header[56] = 1.0;
+        header[219] = header[98];
+        result_spectrum.header = header;
         result_spectrum.noise_level = hsqc_spectra[e.data.spectrum_origin].noise_level;
         result_spectrum.levels = hsqc_spectra[e.data.spectrum_origin].levels;
         result_spectrum.negative_levels = hsqc_spectra[e.data.spectrum_origin].negative_levels;
