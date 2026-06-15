@@ -277,6 +277,7 @@ function reset_3d_dataset_state(keepNuclei = false) {
     hsqc_spectra = [];
     current_slice_index = -1;
     theoretical_peaks_data = [];
+    update_peaks_table_3d();
     theoretical_spectra_3d = [];
     let toggle_btn = document.getElementById("button_toggle_peak_symbols");
     if (toggle_btn) {
@@ -874,6 +875,7 @@ function make_log_movable() {
 
 // Call this once to init
 setTimeout(make_log_movable, 100);
+setTimeout(make_peaks_movable, 100);
 
 // Helper to convert hex color to normalized RGB array
 function hexToRgb(hex) {
@@ -1181,6 +1183,7 @@ async function load_theoretical_peaks() {
         console.log("Loaded " + peaks.length + " theoretical peaks.");
         theoretical_peaks_data = peaks;
         fitted_peaks_text_data = text;
+        update_peaks_table_3d();
         let dl_btn = document.getElementById("button_download_peaks_list");
         if (dl_btn) dl_btn.disabled = false;
         let toggle_btn = document.getElementById("button_toggle_peak_symbols");
@@ -5168,6 +5171,71 @@ function reset_3d_view() {
 }
 
 /**
+ * Downloads the current view of the 3D experimental and reconstructed views (if exist) at 2x resolution.
+ * The display is temporarily set to high resolution, rendered, captured, and restored synchronously
+ * to avoid visual disruption or resizing on the screen.
+ */
+function download_3d_views() {
+    let downloaded = false;
+
+    // Helper to capture a renderer at 2x resolution
+    function captureRenderer(renderer, filename) {
+        if (!renderer || !renderer.canvas || !renderer.gl) return false;
+        
+        const originalResize = renderer.resize;
+        try {
+            // Override the resize logic to render at exactly 2x of its client/display size
+            renderer.resize = function() {
+                this.canvas.width = this.canvas.clientWidth * 2;
+                this.canvas.height = this.canvas.clientHeight * 2;
+                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            };
+
+            // Synchronously render the high-res frame
+            renderer.render();
+
+            // Extract the PNG data URL
+            const dataURL = renderer.canvas.toDataURL("image/png");
+
+            // Trigger programmatic download
+            const link = document.createElement("a");
+            link.download = filename;
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            return true;
+        } catch (e) {
+            console.error("Failed to download 3D view for " + filename + ":", e);
+            return false;
+        } finally {
+            // Restore original resize function and re-render to restore on-screen display
+            renderer.resize = originalResize;
+            renderer.render();
+        }
+    }
+
+    // Capture Experimental 3D View
+    if (iso_renderer) {
+        if (captureRenderer(iso_renderer, "experimental_3d.png")) {
+            downloaded = true;
+        }
+    }
+
+    // Capture Reconstructed 3D View (if it exists)
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0 && iso_renderer_recon) {
+        if (captureRenderer(iso_renderer_recon, "reconstructed_3d.png")) {
+            downloaded = true;
+        }
+    }
+
+    if (!downloaded) {
+        alert("No active 3D visualization to download.");
+    }
+}
+
+/**
  * Handles mouse peak picking on the 3D surface.
  */
 function handle3DPeakPicked(pt, type = "Experimental") {
@@ -6203,6 +6271,7 @@ async function handle_webass_3d_message(e) {
 
                 console.log("Loaded " + peaks.length + " fitted peaks.");
                 theoretical_peaks_data = peaks;
+                update_peaks_table_3d();
 
                 let has_any_shape = peaks.some(p => p.has_shape);
                 if (has_any_shape) {
@@ -7779,4 +7848,201 @@ function apply_trace_phase() {
 
     update_1d_traces_from_center();
     console.log("Phase correction applied.");
+}
+
+// --- Floating Peak List Panel for 3D Viewer ---
+
+function toggle_peak_area_3d_minimize() {
+    const peak_area = document.getElementById('peak_area_3d');
+    const table_container = peak_area.querySelector('div.peak-table-scroll');
+    const controls = document.getElementById('peak_area_3d_controls');
+    const min_btn = document.getElementById('button_minimize_peaks_3d');
+
+    if (!peak_area || !table_container || !min_btn || !controls) return;
+
+    if (table_container.style.display === 'none') {
+        table_container.style.display = 'block';
+        controls.style.display = 'flex';
+        peak_area.style.height = peak_area.dataset.lastHeight || '350px';
+        peak_area.style.width = peak_area.dataset.lastWidth || '450px';
+        peak_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        peak_area.dataset.lastHeight = peak_area.offsetHeight + 'px';
+        peak_area.dataset.lastWidth = peak_area.offsetWidth + 'px';
+        table_container.style.display = 'none';
+        controls.style.display = 'none';
+        peak_area.style.height = 'auto';
+        peak_area.style.width = '250px';
+        peak_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+function make_peaks_movable() {
+    const peak_area = document.getElementById("peak_area_3d");
+    const header = document.getElementById("peak_area_3d_header");
+    if (!peak_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function (e) {
+        e = e || window.event;
+        e.preventDefault();
+
+        startX = e.clientX;
+        startY = e.clientY;
+
+        let rect = peak_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        document.onmouseup = function () {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+
+        document.onmousemove = function (e) {
+            e = e || window.event;
+            e.preventDefault();
+
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+
+            peak_area.style.top = (initialTop + dy) + "px";
+            peak_area.style.left = (initialLeft + dx) + "px";
+            peak_area.style.right = "auto";
+        };
+    };
+}
+
+function update_peaks_table_3d() {
+    let peak_area = document.getElementById('peak_area_3d');
+    let table = document.getElementById('peak_table_3d');
+    if (!peak_area || !table) return;
+
+    // Clear table
+    table.innerHTML = "";
+
+    if (!theoretical_peaks_data || theoretical_peaks_data.length === 0) {
+        peak_area.style.display = "none";
+        return;
+    }
+
+    // Determine if shape / line width information exists
+    let has_fwhh = theoretical_peaks_data.some(p => p.fwhh_x !== undefined);
+    let has_l = theoretical_peaks_data.some(p => p.lx !== undefined);
+
+    // Build headers
+    let thead = document.createElement("thead");
+    let header_row = document.createElement("tr");
+
+    let headers = ["INDEX", "X_PPM", "Y_PPM", "Z_PPM", "AMPLITUDE"];
+    if (has_fwhh) {
+        headers.push("FWHH_X", "FWHH_Y", "FWHH_Z");
+    }
+    if (has_l) {
+        headers.push("LX", "LY", "LZ");
+    }
+
+    headers.forEach(h => {
+        let th = document.createElement("th");
+        th.textContent = h;
+        th.style.fontSize = "13px";
+        th.style.padding = "6px 10px";
+        th.style.textAlign = "center";
+        th.style.cursor = "pointer";
+        header_row.appendChild(th);
+    });
+    thead.appendChild(header_row);
+    table.appendChild(thead);
+
+    // Build body
+    let tbody = document.createElement("tbody");
+    theoretical_peaks_data.forEach((p, idx) => {
+        let row = document.createElement("tr");
+
+        let values = [
+            (idx + 1).toString(),
+            p.x_ppm !== undefined ? p.x_ppm.toFixed(3) : "-",
+            p.y_ppm !== undefined ? p.y_ppm.toFixed(3) : "-",
+            p.z_ppm !== undefined ? p.z_ppm.toFixed(3) : "-",
+            p.amp !== undefined ? p.amp.toExponential(3) : "-"
+        ];
+
+        if (has_fwhh) {
+            values.push(
+                p.fwhh_x !== undefined ? p.fwhh_x.toFixed(3) : "-",
+                p.fwhh_y !== undefined ? p.fwhh_y.toFixed(3) : "-",
+                p.fwhh_z !== undefined ? p.fwhh_z.toFixed(3) : "-"
+            );
+        }
+        if (has_l) {
+            values.push(
+                p.lx !== undefined ? p.lx.toFixed(3) : "-",
+                p.ly !== undefined ? p.ly.toFixed(3) : "-",
+                p.lz !== undefined ? p.lz.toFixed(3) : "-"
+            );
+        }
+
+        values.forEach(val => {
+            let td = document.createElement("td");
+            td.textContent = val;
+            td.style.fontSize = "13px";
+            td.style.padding = "6px 10px";
+            td.style.textAlign = "center";
+            row.appendChild(td);
+        });
+
+        tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+
+    // Make it sortable using Tablesort
+    if (window.Tablesort) {
+        new Tablesort(table);
+    }
+
+    // Show the floating area
+    peak_area.style.display = "block";
+}
+
+function search_peak_3d() {
+    let input = document.getElementById("peak_search_text_3d").value;
+    let filter = input.toUpperCase();
+    let table = document.getElementById("peak_table_3d");
+    let tr = table.getElementsByTagName("tr");
+    let found = false;
+    let index;
+    for (let i = 0; i < tr.length; i++) {
+        let td = tr[i].getElementsByTagName("td");
+        if (td.length > 0) {
+            for (let j = 0; j < td.length; j++) {
+                let t = td[j];
+                if (t) {
+                    let txtValue = t.textContent || t.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        tr[i].style.backgroundColor = "yellow";
+                        index = i - 1; // index in terms of tbody row
+                        break;
+                    }
+                }
+            }
+            if (found) {
+                // Remove highlight after 3 seconds
+                let matchedRow = tr[i];
+                setTimeout(function () {
+                    matchedRow.style.backgroundColor = "";
+                }, 3000);
+                
+                // Scroll to the matched row
+                matchedRow.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center'
+                });
+                break;
+            }
+        }
+    }
 }
