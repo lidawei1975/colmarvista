@@ -45,6 +45,31 @@
                 style="width:100%; height: calc(100% - 30px); font-family: Consolas, 'Courier New', monospace; font-size: 12px; border: 1px solid #eee; border-radius: 4px; resize: none; box-sizing: border-box;"></textarea>
         </div>
 
+        <div id="peak_area_3d" class="drop-area-neighbor"
+            style="position: fixed; top: 20px; right: 20px; width: 450px; height: 350px; box-sizing: border-box; padding: 10px; z-index: 9998; background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.2); border: 1px solid #ccc; border-radius: 8px; display: none; resize: both; overflow: hidden; min-width: 300px; min-height: 150px;">
+            <div id="peak_area_3d_header"
+                style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 5px; cursor: move; user-select: none;">
+                <strong onclick="toggle_peak_area_3d_minimize()">3D Peaks List</strong>
+                <div style="flex-shrink: 0;">
+                    <button type="button" onclick="toggle_peak_area_3d_minimize()" id="button_minimize_peaks_3d"
+                        style="font-size: 11px; padding: 2px 6px; margin: 0;">—</button>
+                </div>
+            </div>
+            <div id="peak_area_3d_controls"
+                style="margin-bottom: 5px; padding: 6px; background-color: rgb(185, 188, 111); border-radius: 4px; display: flex; gap: 5px; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 4px; flex-grow: 1;">
+                    <label for="peak_search_text_3d" style="font-size: 12px; font-weight: bold; font-family: Arial, sans-serif; color: #333;">Search:</label>
+                    <input type="text" id="peak_search_text_3d" placeholder="peak text" onkeydown="if(event.key === 'Enter') search_peak_3d()" style="font-size: 11px; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px; flex-grow: 1; min-width: 50px;">
+                </div>
+                <button id="peak_search_3d" onclick="search_peak_3d()" style="font-size: 11px; padding: 2px 8px; margin: 0; background-color: #fdfdfd; border: 1px solid #ccc; border-radius: 3px; cursor: pointer;">Search</button>
+            </div>
+            <div class="peak-table-scroll" style="width: 100%; height: calc(100% - 65px); overflow: auto; border: 1px solid #eee; border-radius: 4px;">
+                <table id="peak_table_3d" style="width: 100%; font-size: 13px; border-collapse: collapse; font-family: sans-serif;">
+                    <!-- Table content will be managed by JS code -->
+                </table>
+            </div>
+        </div>
+
         <div id="section1" style=" Padding: 10px; width: 100%">
             <div>
                 <h1>COLMARvista 3D</h1>
