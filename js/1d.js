@@ -2023,10 +2023,18 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
 async function download_plot() {
     /**
-         * Generate a link to download main_plot as a SVG file
-         * The top SVG element has id = "plot_1d"
-         */
-    var svgData = document.getElementById("plot_1d").outerHTML;
+     * Generate a link to download main_plot as a SVG file
+     * The top SVG element has id = "main_plot"
+     */
+    var svgElement = document.getElementById("main_plot");
+    if (!svgElement) {
+        console.error("SVG element 'main_plot' not found.");
+        return;
+    }
+    var svgData = serializeAsXML(svgElement);
+    if (!svgData.startsWith('<?xml')) {
+        svgData = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgData;
+    }
     var svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
     var svgUrl = URL.createObjectURL(svgBlob);
     var downloadLink = document.createElement("a");
