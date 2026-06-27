@@ -237,31 +237,17 @@ class cross_section_plot {
                      * and phase_correction_array[last] - phase_correction_array[0] = this.phase_correction_p1
                      */
                 this.make_phase_correction_array();
+                this.update_phase_ui();
                 /**
                  * Update real_data and imaginary_data with phase correction
                  */
                 if (orientation === "horizontal") {
-                    if(this.anchor_ppm < -99.0){
-                        document.getElementById('p0_direct').innerHTML = (this.phase_correction/Math.PI*180).toFixed(1);
-                    }
-                    else{
-                        document.getElementById('p1_direct').innerHTML = (this.phase_correction_p1/Math.PI*180).toFixed(1);
-                    }
-                    
                     for (var i = 0; i < this.data.length; i++) {
                         this.data[i][1] = this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i]);
-                
-                }
-                   
+                    }
                 }
                 else
                 {
-                    if(this.anchor_ppm < -99.0){
-                        document.getElementById('p0_indirect').innerHTML = (this.phase_correction/Math.PI*180).toFixed(1);
-                    }
-                    else{
-                        document.getElementById('p1_indirect').innerHTML = (this.phase_correction_p1/Math.PI*180).toFixed(1);
-                    }
                     for (var i = 0; i < this.data.length; i++) {
                         this.data[i][0] = this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i]);
                     }
@@ -653,6 +639,7 @@ class cross_section_plot {
         else
         {
             this.make_phase_correction_array();
+            this.update_phase_ui();
             if (this.orientation === "horizontal") {
                 for (var i = 0; i < data[0].length; i++) {
                     this.data[i] = [this.ppm[i], this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i])];
@@ -715,6 +702,41 @@ class cross_section_plot {
     }
 
     /**
+     * Updates display elements for phase correction.
+     */
+    update_phase_ui() {
+        const p0_id = this.orientation === "horizontal" ? "p0_direct" : "p0_indirect";
+        const p1_id = this.orientation === "horizontal" ? "p1_direct" : "p1_indirect";
+        const anchor_phase_id = this.orientation === "horizontal" ? "anchor_phase_direct" : "anchor_phase_indirect";
+
+        const p0_el = document.getElementById(p0_id);
+        const p1_el = document.getElementById(p1_id);
+        const anchor_phase_el = document.getElementById(anchor_phase_id);
+
+        if (p0_el) {
+            let p0_val = 0.0;
+            if (this.phase_correction_array && this.phase_correction_array.length > 0) {
+                p0_val = this.phase_correction_array[0] * 180.0 / Math.PI;
+            } else {
+                p0_val = this.phase_correction * 180.0 / Math.PI;
+            }
+            p0_el.innerHTML = p0_val.toFixed(1);
+        }
+        if (p1_el) {
+            let p1_val = this.phase_correction_p1 * 180.0 / Math.PI;
+            p1_el.innerHTML = p1_val.toFixed(1);
+        }
+        if (anchor_phase_el) {
+            if (this.anchor_ppm >= -99.0) {
+                let anchor_phase_val = this.phase_correction * 180.0 / Math.PI;
+                anchor_phase_el.innerHTML = anchor_phase_val.toFixed(1) + "°";
+            } else {
+                anchor_phase_el.innerHTML = "N.A.";
+            }
+        }
+    }
+
+    /**
      * Clears phase correction.
      */
     clear_phase_correction() {
@@ -724,15 +746,12 @@ class cross_section_plot {
         this.phase_correction_array =[];
 
         if (this.orientation === "horizontal") {
-            document.getElementById('p0_direct').innerHTML = "0.0";
-            document.getElementById('p1_direct').innerHTML = "0.0";
             document.getElementById('anchor_direct').innerHTML = "not set";
         }
         else {
-            document.getElementById('p0_indirect').innerHTML = "0.0";
-            document.getElementById('p1_indirect').innerHTML = "0.0";
             document.getElementById('anchor_indirect').innerHTML = "not set";
         }
+        this.update_phase_ui();
         this.redraw();
     }
 
@@ -911,10 +930,13 @@ class cross_section_plot {
          */
         if(this.mouse_is_moving === false && e.button === 0)
         {
-            /**
-             * If the mouse is not moving, we have a click event.
-             * Get the ppm value of the mouse position from the event x
-             */
+            // Left click does not set/unset the pivot point anymore
+        }
+        /**
+         * Right click event
+         */
+        else if(this.mouse_is_moving === false && e.button === 2)
+        {
             if (this.anchor_ppm >= -99.0) {
                 // Already set, unset it
                 this.anchor_ppm = -100.0;
@@ -939,23 +961,8 @@ class cross_section_plot {
                     document.getElementById('anchor_indirect').innerHTML = ppm.toFixed(2)+" ppm";
                 }
             }
-            this.redraw();
-        }
-        /**
-         * Right click event
-         */
-        else if(this.mouse_is_moving === false && e.button === 2)
-        {
-            /**
-             * Clear anchor ppm
-             */
-            this.anchor_ppm = -100.0;
-            if(this.orientation === "horizontal"){
-                document.getElementById('anchor_direct').innerHTML = "not set";
-            }
-            else{
-                document.getElementById('anchor_indirect').innerHTML = "not set";
-            }
+            this.make_phase_correction_array();
+            this.update_phase_ui();
             this.redraw();
         }
         return;
