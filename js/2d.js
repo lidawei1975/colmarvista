@@ -4932,7 +4932,31 @@ async function run_ann_phase_correction_for_spectrum(s) {
         return null;
     }
 
+    const original_console_log = console.log;
+    const original_console_error = console.error;
+    const log_div = document.getElementById("log");
+
+    // Redirect console.log and console.error to the log div during processing
+    const redirect_log = function(...args) {
+        original_console_log.apply(console, args);
+        if (log_div) {
+            log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
+        }
+    };
+    const redirect_error = function(...args) {
+        original_console_error.apply(console, args);
+        if (log_div) {
+            log_div.value += "[ERROR] " + args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
+        }
+    };
+
+    console.log = redirect_log;
+    console.error = redirect_error;
+
     try {
+        console.log("Starting automatic 2D phase correction using ANN model...");
         let n_size = s.n_direct * s.n_indirect;
         if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
             n_size *= 4;
@@ -5030,6 +5054,9 @@ async function run_ann_phase_correction_for_spectrum(s) {
     } catch (error) {
         console.error("[ANN Reprocess] Error running pipeline:", error);
         return null;
+    } finally {
+        console.log = original_console_log;
+        console.error = original_console_error;
     }
 }
 
@@ -5896,3 +5923,80 @@ if (wa_msg_observer_target) {
     });
     observer.observe(wa_msg_observer_target, { childList: true, characterData: true, subtree: true });
 }
+
+/**
+ * Minimizes or restores the floating background log area.
+ */
+function toggle_log_minimize() {
+    const log_area = document.getElementById('log_area');
+    const log_textarea = document.getElementById('log');
+    const min_btn = document.getElementById('button_minimize_log');
+
+    if (!log_area || !log_textarea || !min_btn) return;
+
+    if (log_textarea.style.display === 'none') {
+        log_textarea.style.display = 'block';
+        log_area.style.height = log_area.dataset.lastHeight || '300px';
+        log_area.style.width = log_area.dataset.lastWidth || '500px';
+        log_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        log_area.dataset.lastHeight = log_area.offsetHeight + 'px';
+        log_area.dataset.lastWidth = log_area.offsetWidth + 'px';
+        log_textarea.style.display = 'none';
+        log_area.style.height = 'auto';
+        log_area.style.width = '250px';
+        log_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+/**
+ * Makes the floating background log area draggable by its header.
+ */
+function make_log_movable() {
+    const log_area = document.getElementById("log_area");
+    const header = log_area ? log_area.querySelector(".log-header") : null;
+    if (!log_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function (e) {
+        // If clicking on a button inside the header, don't drag
+        if (e.target.tagName.toLowerCase() === 'button') {
+            return;
+        }
+        e = e || window.event;
+        e.preventDefault();
+
+        // Initial mouse position
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // Current element position
+        let rect = log_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        document.onmouseup = function () {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+
+        document.onmousemove = function (e) {
+            e = e || window.event;
+            e.preventDefault();
+
+            // Calculate distance moved
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+
+            // Apply new position
+            log_area.style.top = (initialTop + dy) + "px";
+            log_area.style.left = (initialLeft + dx) + "px";
+        };
+    };
+}
+
+// Call this once to initialize log dragging
+setTimeout(make_log_movable, 100);

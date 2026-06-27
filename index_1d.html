@@ -235,11 +235,16 @@
 
         </div>
 
-        <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
-            <h4>Background server log:</h4>
-            <textarea id="log" rows="50" cols="120" readonly></textarea>
-            <button onclick="clear_log()">Clear log</button>
-            <button onclick="download_log()">Download log</button>
+        <div id="log_area" class="drop-area-neighbor">
+            <div class="log-header">
+                <strong>Background server log:</strong>
+                <div class="log-actions">
+                    <button onclick="clear_log()">Clear</button>
+                    <button onclick="download_log()">Download</button>
+                    <button id="button_minimize_log" onclick="toggle_log_minimize()">—</button>
+                </div>
+            </div>
+            <textarea id="log" readonly></textarea>
         </div>
 
     </div>

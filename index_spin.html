@@ -443,11 +443,19 @@
             </div>
 
 
-            <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
-                <h4>Background server log:</h4>
-                <textarea id="log" rows="50" cols="80" readonly></textarea>
-                <button onclick="clear_log()">Clear log</button>
-                <button onclick="download_log()">Download log</button>
+            <div id="log_area" class="drop-area-neighbor">
+                <div class="log-header">
+                    <strong>Background server log:</strong>
+                    <div class="log-actions">
+                        <button onclick="clear_log()">Clear</button>
+                        <button onclick="download_log()">Download</button>
+                        <button id="button_minimize_log" onclick="toggle_log_minimize()">—</button>
+                    </div>
+                </div>
+                <textarea id="log" readonly></textarea>
+            </div>
+
+            <div id="spin_system_area" class="drop-area-neighbor" style="width: min-content; margin-top: 10px; margin-bottom: 10px; margin-left: auto; margin-right: auto; padding: 10px;">
                 <h4>Peak:</h4>
                 <table id="spin_system_table">
                     <caption>
@@ -479,10 +487,9 @@
                 </table>
                 <span>
                     <button onclick="save_spin_system()">Save current spin system to a file.</button>
-                    <lablel for="spin_system_file">Load spin system from a file:</lablel>
+                    <label for="spin_system_file">Load spin system from a file:</label>
                     <input type="file" id="spin_system_file" name="spin_system_file" onchange="load_spin_system(this)">
                     <button onclick="run_spin_system()">Run automatic spin system optimization</button>
-
                 </span>
             </div>
 
