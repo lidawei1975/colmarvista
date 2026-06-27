@@ -146,6 +146,18 @@ class cross_section_plot {
         }
 
         /**
+         * Add a dashed line to show the pivot point (anchor ppm)
+         */
+        this.pivot_line = this.vis.append("g")
+            .attr("class", "pivot_line_g")
+            .append("line")
+            .attr("clip-path", "url(#clip" + this.orientation + ")")
+            .style("stroke", "blue")
+            .style("stroke-width", 1.5)
+            .style("stroke-dasharray", "4,4")
+            .style("display", "none");
+
+        /**
          * Turn off the default right click menu
          */
         this.vis.on("contextmenu", function (e) {
@@ -714,11 +726,14 @@ class cross_section_plot {
         if (this.orientation === "horizontal") {
             document.getElementById('p0_direct').innerHTML = "0.0";
             document.getElementById('p1_direct').innerHTML = "0.0";
+            document.getElementById('anchor_direct').innerHTML = "not set";
         }
         else {
             document.getElementById('p0_indirect').innerHTML = "0.0";
             document.getElementById('p1_indirect').innerHTML = "0.0";
+            document.getElementById('anchor_indirect').innerHTML = "not set";
         }
+        this.redraw();
     }
 
     /**
@@ -760,6 +775,31 @@ class cross_section_plot {
                 .attr("y1", this.y.range()[0])
                 .attr("x2", this.x(0))
                 .attr("y2", this.y.range()[1]);
+        }
+
+        /**
+         * Update the line that shows the pivot point
+         */
+        if (this.pivot_line) {
+            if (this.anchor_ppm >= -99.0) {
+                if (this.orientation === "horizontal") {
+                    this.pivot_line
+                        .attr("x1", this.x(this.anchor_ppm))
+                        .attr("y1", this.y.range()[1])
+                        .attr("x2", this.x(this.anchor_ppm))
+                        .attr("y2", this.y.range()[0])
+                        .style("display", "block");
+                } else {
+                    this.pivot_line
+                        .attr("x1", this.x.range()[1])
+                        .attr("y1", this.y(this.anchor_ppm))
+                        .attr("x2", this.x.range()[0])
+                        .attr("y2", this.y(this.anchor_ppm))
+                        .style("display", "block");
+                }
+            } else {
+                this.pivot_line.style("display", "none");
+            }
         }
     }
 
@@ -875,19 +915,31 @@ class cross_section_plot {
              * If the mouse is not moving, we have a click event.
              * Get the ppm value of the mouse position from the event x
              */
-            
-            if(this.orientation === "horizontal")
-            {
-                let ppm = this.x.invert(e.offsetX);
-                this.anchor_ppm = ppm;
-                document.getElementById('anchor_direct').innerHTML = ppm.toFixed(2)+" ppm";
+            if (this.anchor_ppm >= -99.0) {
+                // Already set, unset it
+                this.anchor_ppm = -100.0;
+                if(this.orientation === "horizontal"){
+                    document.getElementById('anchor_direct').innerHTML = "not set";
+                }
+                else{
+                    document.getElementById('anchor_indirect').innerHTML = "not set";
+                }
+            } else {
+                // Not set, set it
+                if(this.orientation === "horizontal")
+                {
+                    let ppm = this.x.invert(e.offsetX);
+                    this.anchor_ppm = ppm;
+                    document.getElementById('anchor_direct').innerHTML = ppm.toFixed(2)+" ppm";
+                }
+                else
+                {
+                    let ppm = this.y.invert(e.offsetY);
+                    this.anchor_ppm = ppm;
+                    document.getElementById('anchor_indirect').innerHTML = ppm.toFixed(2)+" ppm";
+                }
             }
-            else
-            {
-                let ppm = this.y.invert(e.offsetY);
-                this.anchor_ppm = ppm;
-                document.getElementById('anchor_indirect').innerHTML = ppm.toFixed(2)+" ppm";
-            }
+            this.redraw();
         }
         /**
          * Right click event
@@ -904,6 +956,7 @@ class cross_section_plot {
             else{
                 document.getElementById('anchor_indirect').innerHTML = "not set";
             }
+            this.redraw();
         }
         return;
     }
