@@ -5798,3 +5798,101 @@ function get_content_size(element_id) {
     console.log('Content Height:', contentHeight);
     return { width: contentWidth, height: contentHeight, boundingClientRectWidth: rect.width, boundingClientRectHeight: rect.height };
 }
+
+/**
+ * Disable UI controls when a background job is running.
+ */
+let active_background_jobs = 0;
+function set_background_processing(is_running) {
+    if (is_running) {
+        active_background_jobs = 1; // Use 1 and 0 to avoid overlaps if messages are out of order
+    } else {
+        active_background_jobs = 0;
+    }
+
+    const disable = active_background_jobs > 0;
+    
+    if (disable) {
+        document.body.classList.add('processing-background-job');
+    } else {
+        document.body.classList.remove('processing-background-job');
+    }
+
+    const selectors = [
+        "#load_and_save input", "#load_and_save button",
+        "#fid_file_area input", "#fid_file_area select", "#fid_file_area button",
+        "#file_area input", "#file_area select", "#file_area button",
+        "#pseudo3d_area input", "#pseudo3d_area select", "#pseudo3d_area button",
+        "#spectra_list input", "#spectra_list select", "#spectra_list button",
+        "#peak_area input", "#peak_area select", "#peak_area button",
+        "#automatic_pc", "#button_apply_ps"
+    ];
+
+    const exceptions = [
+        "start_tutorial", 
+        "button_save",
+        "button_minimize_fid_area",
+        "button_minimize_file_area",
+        "button_minimize_preudo3d_area"
+    ];
+
+    let style = document.getElementById('processing-style');
+    if (!style) {
+        style = document.createElement('style');
+        style.id = 'processing-style';
+        document.head.appendChild(style);
+        
+        let css = '';
+        selectors.forEach(sel => {
+            css += `body.processing-background-job ${sel} { pointer-events: none; opacity: 0.6; }\n`;
+        });
+        exceptions.forEach(id => {
+            css += `body.processing-background-job #${id} { pointer-events: auto !important; opacity: 1 !important; }\n`;
+        });
+        
+        css += `body.processing-background-job #fid_file_area, body.processing-background-job #file_area, body.processing-background-job #pseudo3d_area { pointer-events: none; }\n`;
+        style.innerHTML = css;
+    }
+
+    selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (exceptions.includes(el.id)) return;
+            
+            if (disable) {
+                if (!el.hasAttribute("data-original-tabindex")) {
+                    el.setAttribute("data-original-tabindex", el.getAttribute("tabindex") || "");
+                }
+                el.setAttribute("tabindex", "-1");
+                el.blur();
+            } else {
+                if (el.hasAttribute("data-original-tabindex")) {
+                    const orig = el.getAttribute("data-original-tabindex");
+                    if (orig === "") {
+                        el.removeAttribute("tabindex");
+                    } else {
+                        el.setAttribute("tabindex", orig);
+                    }
+                    el.removeAttribute("data-original-tabindex");
+                }
+            }
+        });
+    });
+}
+
+const wa_msg_observer_target = document.getElementById("webassembly_message");
+if (wa_msg_observer_target) {
+    const observer = new MutationObserver(function(mutations) {
+        const text = wa_msg_observer_target.innerText.toLowerCase();
+        // check if running or finished
+        const is_running = text.includes("wait") || text.includes("processing") || text.includes("running");
+        const is_finished = text === "" || text.includes("finished") || text.includes("error") || text.includes("failed") || text.includes("complete");
+
+        if (is_running) {
+            set_background_processing(true);
+        } else if (is_finished) {
+            set_background_processing(false);
+        }
+    });
+    observer.observe(wa_msg_observer_target, { childList: true, characterData: true, subtree: true });
+}
