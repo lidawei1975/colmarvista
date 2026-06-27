@@ -2083,11 +2083,7 @@ function add_to_list(index) {
             }
         }
         main_plot.current_spectral_index = index;
-        if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
-            document.getElementById("automatic_pc").disabled = false;
-        } else {
-            document.getElementById("automatic_pc").disabled = true;
-        }
+        update_automatic_pc_button_status(index);
         /**
          * Highlight the current spectrum in the list
          */
@@ -2105,12 +2101,7 @@ function add_to_list(index) {
             /**
              * If this new spectrum has no imaginary part, disable auto phase correction button
              */
-            if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
-                document.getElementById("automatic_pc").disabled = false;
-            }
-            else {
-                document.getElementById("automatic_pc").disabled = true;
-            }
+            update_automatic_pc_button_status(index);
         }
         /**
          * Add filename as a text node
@@ -3165,6 +3156,25 @@ function init_plot(input) {
 
 };
 
+function update_automatic_pc_button_status(index) {
+    const btn = document.getElementById("automatic_pc");
+    if (!btn) return;
+    
+    let disabled = true;
+    if (hsqc_spectra[index] && hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
+        if (main_plot && main_plot.b_show_projection) {
+            const is_from_fid = hsqc_spectra[index].spectrum_origin === -2 || hsqc_spectra[index].fid_process_parameters;
+            const not_reprocessing = current_reprocess_spectrum_index === -1;
+            if (is_from_fid && not_reprocessing) {
+                disabled = false;
+            }
+        } else {
+            disabled = false;
+        }
+    }
+    btn.disabled = disabled;
+}
+
 function show_cross_section() {
     main_plot.b_show_cross_section = true;
     main_plot.b_show_projection = false;
@@ -3172,8 +3182,8 @@ function show_cross_section() {
      * If current spectrum has imaginary part, we will enable automatic phase correction
      */
     const index = main_plot.current_spectral_index;
+    update_automatic_pc_button_status(index);
     if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
-        document.getElementById("automatic_pc").disabled = false;
         /**
          * If there is only one spectrum, we will also enable apply phase correction,
          * because we allow manual phase correction in this case.
@@ -3187,7 +3197,8 @@ function show_cross_section() {
 function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
-    document.getElementById("automatic_pc").disabled = true;
+    const index = main_plot.current_spectral_index;
+    update_automatic_pc_button_status(index);
     document.getElementById("button_apply_ps").disabled = true;
     main_plot.show_projection();
 }
