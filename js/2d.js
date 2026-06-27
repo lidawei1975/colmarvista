@@ -57,6 +57,8 @@ var plot_padding = 20; //padding for the plot area
 
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
+var tfjs_2d_normal_model = null;
+var tfjs_2d_large_model = null;
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
@@ -2007,6 +2009,11 @@ function add_to_list(index) {
             }
         }
         main_plot.current_spectral_index = index;
+        if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
+            document.getElementById("automatic_pc").disabled = false;
+        } else {
+            document.getElementById("automatic_pc").disabled = true;
+        }
         /**
          * Highlight the current spectrum in the list
          */
@@ -2024,7 +2031,7 @@ function add_to_list(index) {
             /**
              * If this new spectrum has no imaginary part, disable auto phase correction button
              */
-            if (hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1) {
+            if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
                 document.getElementById("automatic_pc").disabled = false;
             }
             else {
@@ -3091,7 +3098,7 @@ function show_cross_section() {
      * If current spectrum has imaginary part, we will enable automatic phase correction
      */
     const index = main_plot.current_spectral_index;
-    if (hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1) {
+    if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
         document.getElementById("automatic_pc").disabled = false;
         /**
          * If there is only one spectrum, we will also enable apply phase correction,
@@ -4716,7 +4723,7 @@ function remove_spectrum(index) {
  * When flag ==1, run automatic phase correction
  * @returns 
  */
-function apply_current_pc_or_auto_pc(flag) {
+async function apply_current_pc_or_auto_pc(flag) {
     let current_ps = [[0.0, 0.0], [0.0, 0.0]]; //all 0.0 means auto phase correction
     if (flag == 0) {
         /**
@@ -4922,7 +4929,114 @@ function apply_current_pc_or_auto_pc(flag) {
         return;
     }
 
-    document.getElementById("webassembly_message").innerText = "Automatic phase correction is not available in worker anymore. Use FID reprocess with auto phase options.";
+    if (flag == 1) {
+        const msgDiv = document.getElementById("webassembly_message");
+        if (msgDiv) {
+            msgDiv.innerText = "Loading TF.js model and running automatic phase correction pipeline...";
+        }
+
+        try {
+            const s = hsqc_spectra[index];
+            let n_size = s.n_direct * s.n_indirect;
+            if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
+                n_size *= 4;
+            } else if (s.datatype_direct === 0 || s.datatype_indirect === 0) {
+                n_size *= 2;
+            }
+
+            const data = new Float32Array(512 + n_size);
+            let current_position = 0;
+            data.set(s.header, current_position);
+            current_position += 512;
+            for (let i = 0; i < s.n_indirect; i++) {
+                data.set(s.raw_data.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                current_position += s.n_direct;
+
+                if (s.datatype_direct === 0) {
+                    data.set(s.raw_data_ri.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                    current_position += s.n_direct;
+                }
+                if (s.datatype_indirect === 0) {
+                    data.set(s.raw_data_ir.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                    current_position += s.n_direct;
+                }
+                if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
+                    data.set(s.raw_data_ii.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                    current_position += s.n_direct;
+                }
+            }
+
+            const ft2ArrayBuffer = data.buffer;
+
+            const pipeline = window.NUS2DPhasePipeline;
+            const tf = window.tf;
+            if (!pipeline || !tf) {
+                throw new Error("TensorFlow.js or NUS2DPhasePipeline not loaded. Ensure script tags are added to index.html.");
+            }
+
+            const modelUrl = 'js/2D_model30_tfjs/model.json';
+            const largeModelUrl = 'js/2D_model30_large_tfjs/model.json';
+
+            pipeline.registerCustomLayers(tf);
+            if (!tfjs_2d_normal_model) {
+                tfjs_2d_normal_model = await tf.loadGraphModel(modelUrl);
+            }
+            if (!tfjs_2d_large_model) {
+                tfjs_2d_large_model = await tf.loadGraphModel(largeModelUrl);
+            }
+
+            const result = await pipeline.runFromFt2({
+                tf: tf,
+                ft2ArrayBuffer: ft2ArrayBuffer,
+                model: tfjs_2d_normal_model,
+                largeModel: tfjs_2d_large_model,
+                useTokenNorms: false,
+            });
+
+            console.log("Inference complete!", result);
+
+            const finalPhases = result.final_wls_phase_left_right[0];
+            const leftEdge = -finalPhases[0];
+            const rightEdge = -finalPhases[1];
+            const nx = s.n_direct;
+
+            const p0 = -leftEdge;
+            const p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
+
+            console.log(`Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+
+            const phase_deg = [[p0, p1], [0.0, 0.0]];
+            apply_phase_correction_in_place(s, phase_deg);
+
+            if (index === current_reprocess_spectrum_index) {
+                let v = parseFloat(document.getElementById("phase_correction_direct_p0").value) + p0;
+                document.getElementById("phase_correction_direct_p0").value = v.toFixed(1);
+                s.fid_process_parameters.phase_correction_direct_p0 = v;
+
+                v = parseFloat(document.getElementById("phase_correction_direct_p1").value) + p1;
+                document.getElementById("phase_correction_direct_p1").value = v.toFixed(1);
+                s.fid_process_parameters.phase_correction_direct_p1 = v;
+
+                document.getElementById("auto_direct").checked = false;
+                s.fid_process_parameters.auto_direct = false;
+            }
+
+            document.getElementById("pc_info").innerText = "Phase correction: " + p0.toFixed(1) + " " + p1.toFixed(1) + " 0.0 0.0";
+
+            refresh_contours_for_spectrum(index);
+            refresh_cross_sections_after_phase(index);
+
+            if (msgDiv) {
+                msgDiv.innerText = "Automatic Phase Correction Complete!";
+                clear_webassembly_message_after_delay(5000);
+            }
+        } catch (error) {
+            console.error("Error executing pipeline:", error);
+            if (msgDiv) {
+                msgDiv.innerText = "Error in Auto PC: " + error.message;
+            }
+        }
+    }
 }
 
 /**
