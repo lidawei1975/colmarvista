@@ -2131,12 +2131,19 @@ function disable_enable_peak_buttons(spectrum_index, flag) {
 
 
 
+function check_and_apply_manual_phase() {
+    if (main_plot && main_plot.current_actively_corrected_spectrum_index !== -1) {
+        permanently_apply_phase_correction();
+    }
+}
+
 /**
  * Call DEEP Picker to run peaks picking the spectrum
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
 function run_DEEP_Picker(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     disable_enable_peak_buttons(spectrum_index, 0);
     disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
@@ -2185,6 +2192,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  */
 function run_Voigt_fitter(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
@@ -3005,6 +3013,7 @@ function get_center(peaks) {
  * On-call when button is clicked
  */
 function permanently_apply_phase_correction() {
+    if (main_plot === null) return;
     return_data = main_plot.permanently_apply_phase_correction();
     if (typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
@@ -3045,6 +3054,8 @@ function permanently_apply_phase_correction() {
      */
     document.getElementById("pc_left_end").textContent = "0.0";
     document.getElementById("pc_right_end").textContent = "0.0";
+    const p1_el = document.getElementById("pc_p1");
+    if (p1_el) p1_el.textContent = "0.0";
     document.getElementById("pivot").textContent = "not set";
 
     /**
@@ -3687,6 +3698,7 @@ async function runPrediction(data, data_length, flag = 0) {
  * User click button to run baseline estimation
  */
 function run_baseline_correction() {
+    check_and_apply_manual_phase();
     if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for baseline correction.");
         return;
