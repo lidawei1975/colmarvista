@@ -9,22 +9,19 @@ async function initPipelineAndRun(ft2File) {
 
         // Replace these URLs with the correct paths on your web server
         const modelUrl = '/2D_model30_tfjs/model.json';
-        const largeModelUrl = '/2D_model30_large_tfjs/model.json';
 
         // Register custom model layers and load the model instances
         pipeline.registerCustomLayers(tf);
         const model = await tf.loadGraphModel(modelUrl);
-        const largeModel = await tf.loadGraphModel(largeModelUrl);
 
         console.log("Reading FT2 file into ArrayBuffer...");
         const ft2ArrayBuffer = await readFileAsArrayBuffer(ft2File);
 
-        console.log("Executing 5-stage inference pipeline...");
+        console.log("Executing 4-stage inference pipeline...");
         const result = await pipeline.runFromFt2({
             tf: tf,
             ft2ArrayBuffer: ft2ArrayBuffer,
             model: model,
-            largeModel: largeModel,
             useTokenNorms: false, // matches test_tfjs_pipeline.js settings
         });
 

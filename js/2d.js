@@ -58,7 +58,6 @@ var plot_padding = 20; //padding for the plot area
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tfjs_2d_normal_model = null;
-var tfjs_2d_large_model = null;
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
@@ -5006,21 +5005,16 @@ async function run_ann_phase_correction_for_spectrum(s) {
         }
 
         const modelUrl = 'js/2D_model30_tfjs/model.json';
-        const largeModelUrl = 'js/2D_model30_large_tfjs/model.json';
 
         pipeline.registerCustomLayers(tf);
         if (!tfjs_2d_normal_model) {
             tfjs_2d_normal_model = await tf.loadGraphModel(modelUrl);
-        }
-        if (!tfjs_2d_large_model) {
-            tfjs_2d_large_model = await tf.loadGraphModel(largeModelUrl);
         }
 
         const result = await pipeline.runFromFt2({
             tf: tf,
             ft2ArrayBuffer: ft2ArrayBuffer,
             model: tfjs_2d_normal_model,
-            largeModel: tfjs_2d_large_model,
             useTokenNorms: false,
         });
 

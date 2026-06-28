@@ -1077,8 +1077,8 @@ Intended use in webpage:
   }
 
   /**
-   * Runs the 5-stage inference pipeline from FT2.
-   * Calls large phase model (1 round) and then normal model (4 rounds).
+   * Runs the 4-stage inference pipeline from FT2.
+   * Calls normal model (4 rounds).
    *
    * @param {any} params - Params
    * @returns {Promise<void>}
@@ -1098,14 +1098,6 @@ Intended use in webpage:
         throw new Error("Provide either model or modelUrl for the normal model");
       }
       normalModel = await tf.loadGraphModel(params.modelUrl);
-    }
-
-    let largeModel = params.largeModel;
-    if (!largeModel) {
-      if (!params.largeModelUrl) {
-        throw new Error("Provide either largeModel or largeModelUrl for the initial large model");
-      }
-      largeModel = await tf.loadGraphModel(params.largeModelUrl);
     }
 
     const exp = loadExperimentFromFt2ArrayBuffer(ft2ArrayBuffer, {
@@ -1132,38 +1124,31 @@ Intended use in webpage:
       shape: spectraOriginal.shape,
     };
 
-    // Stage 1: run the large model, apply its phase to the spectra
-    console.log("[tfjs] Starting Stage 1: Large Model");
+    // Stage 1: run normal model (round 1)
+    console.log("[tfjs] Starting Stage 1: Normal Model (Round 1)");
     const ext1 = extractTopNPatches(spectraWorking, cfg, 1);
-    const largeOut = await runModelOnPatches(tf, largeModel, ext1, cfg, 'large_model');
-    applyLeftRightToSpectra(spectraWorking, largeOut.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
-
-    // Stage 2: run normal model (round 1)
-    console.log("[tfjs] Starting Stage 2: Normal Model (Round 1)");
-    const ext2 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut1 = await runModelOnPatches(tf, normalModel, ext2, cfg, 'normal_1');
+    const normalOut1 = await runModelOnPatches(tf, normalModel, ext1, cfg, 'normal_1');
     applyLeftRightToSpectra(spectraWorking, normalOut1.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Stage 3: run normal model (round 2)
-    console.log("[tfjs] Starting Stage 3: Normal Model (Round 2)");
-    const ext3 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut2 = await runModelOnPatches(tf, normalModel, ext3, cfg, 'normal_2');
+    // Stage 2: run normal model (round 2)
+    console.log("[tfjs] Starting Stage 2: Normal Model (Round 2)");
+    const ext2 = extractTopNPatches(spectraWorking, cfg, 1);
+    const normalOut2 = await runModelOnPatches(tf, normalModel, ext2, cfg, 'normal_2');
     applyLeftRightToSpectra(spectraWorking, normalOut2.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Stage 4: run normal model (round 3)
-    console.log("[tfjs] Starting Stage 4: Normal Model (Round 3)");
-    const ext4 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut3 = await runModelOnPatches(tf, normalModel, ext4, cfg, 'normal_3');
+    // Stage 3: run normal model (round 3)
+    console.log("[tfjs] Starting Stage 3: Normal Model (Round 3)");
+    const ext3 = extractTopNPatches(spectraWorking, cfg, 1);
+    const normalOut3 = await runModelOnPatches(tf, normalModel, ext3, cfg, 'normal_3');
     applyLeftRightToSpectra(spectraWorking, normalOut3.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Stage 5: run normal model (round 4)
-    console.log("[tfjs] Starting Stage 5: Normal Model (Round 4)");
-    const ext5 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut4 = await runModelOnPatches(tf, normalModel, ext5, cfg, 'normal_4');
+    // Stage 4: run normal model (round 4)
+    console.log("[tfjs] Starting Stage 4: Normal Model (Round 4)");
+    const ext4 = extractTopNPatches(spectraWorking, cfg, 1);
+    const normalOut4 = await runModelOnPatches(tf, normalModel, ext4, cfg, 'normal_4');
 
     // Combine all predicted phases from all stages
-    let finalLeftRight = largeOut.wls_phase_left_right;
-    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut1.wls_phase_left_right);
+    let finalLeftRight = normalOut1.wls_phase_left_right;
     finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut2.wls_phase_left_right);
     finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut3.wls_phase_left_right);
     finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut4.wls_phase_left_right);
@@ -1182,7 +1167,6 @@ Intended use in webpage:
         rowIdx: ext1.rowIdx,
         rowScore: ext1.rowScore,
       },
-      stage_large: largeOut,
       stage_normal_1: normalOut1,
       stage_normal_2: normalOut2,
       stage_normal_3: normalOut3,
