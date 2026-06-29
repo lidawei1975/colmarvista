@@ -366,12 +366,6 @@ self.onmessage = async function (event) {
                 if (!processor.full_process(options.deleteDirect, options.deleteIndirect)) {
                     throw new Error('full_process failed');
                 }
-                const polynomialOrder = toInt(options.polynomial, 0);
-                if (polynomialOrder > 0) {
-                    if (!processor.polynorminal_baseline(polynomialOrder)) {
-                        throw new Error('polynorminal_baseline failed');
-                    }
-                }
             };
 
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
@@ -414,7 +408,6 @@ self.onmessage = async function (event) {
                     waterSuppression: event.data.water_suppression === true,
                     deleteDirect: event.data.delete_direct === true,
                     deleteIndirect: event.data.delete_indirect === true,
-                    polynomial: event.data.polynomial,
                     applyExtraction: true,
                     extractFrom: toFloat(event.data.extract_direct_from, 8.8),
                     extractTo: toFloat(event.data.extract_direct_to, 7.0)
@@ -443,6 +436,13 @@ self.onmessage = async function (event) {
                     processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
                 }
 
+                const polynomialOrder = toInt(event.data.polynomial, 0);
+                if (polynomialOrder > 0) {
+                    if (!processor.polynorminal_baseline(polynomialOrder)) {
+                        throw new Error('polynorminal_baseline failed');
+                    }
+                }
+
                 const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
                 if (addressVal === 0) {
                     throw new Error('write_nmrpipe_ft2_to_buffer failed');
@@ -451,7 +451,17 @@ self.onmessage = async function (event) {
                 file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
 
                 if (processAllPlanes) {
-                    postMessage({ stdout: "Pseudo-3D all-planes export is under development. Returning first plane only." });
+                    const numPlanes = processor.get_nspectra();
+                    postMessage({ stdout: "Exporting all " + numPlanes + " planes of Pseudo-3D spectrum..." });
+                    for (let i = 1; i < numPlanes; i++) {
+                        const planeAddressVal = Number(processor.write_nmrpipe_ft2_to_buffer_index(i));
+                        if (planeAddressVal === 0) {
+                            throw new Error('write_nmrpipe_ft2_to_buffer_index failed for plane ' + i);
+                        }
+                        const planeSize = processor.get_ft2_size_in_float32();
+                        const planeData = new Uint8Array(Module.HEAPF32.buffer, planeAddressVal, planeSize * 4).slice();
+                        pseudo3d_files.push(planeData);
+                    }
                 }
             }
             finally {
