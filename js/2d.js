@@ -1569,6 +1569,7 @@ webassembly_worker.onmessage = async function (e) {
         let b_reprocess = e.data.processing_flag == 1 ? true : false;
 
         result_spectrum.spectrum_index = e.data.spectrum_index; //only used when reprocess
+        result_spectrum.fid_process_parameters = fid_process_parameters;
         let result_spectra = [result_spectrum];
 
         /**
@@ -1603,6 +1604,7 @@ webassembly_worker.onmessage = async function (e) {
                     result_spectra[i].datatype_direct = 1;
                     result_spectra[i].header[55] = 1.0;
                 }
+                fid_process_parameters.delete_direct = true;
             }
         }
 
@@ -5049,6 +5051,7 @@ async function run_ann_phase_correction_for_spectrum(s) {
         document.getElementById("auto_direct").checked = false;
         if (s.fid_process_parameters) {
             s.fid_process_parameters.auto_direct = false;
+            s.fid_process_parameters.ann_auto_direct = false;
         }
         if (document.getElementById("ann_auto_direct")) {
             document.getElementById("ann_auto_direct").checked = false;
