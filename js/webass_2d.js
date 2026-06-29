@@ -89,16 +89,12 @@ self.onmessage = async function (event) {
                     throw new Error('indirect_only_process failed');
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
-                    }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
-                finally {
-                    outputVec.delete();
-                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
             }
             finally {
                 processor.delete();
@@ -255,16 +251,12 @@ self.onmessage = async function (event) {
                     throw new Error('direct_only_process failed');
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
-                    }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
-                finally {
-                    outputVec.delete();
-                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
             }
             finally {
                 processor.delete();
@@ -451,16 +443,12 @@ self.onmessage = async function (event) {
                     processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
-                    }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
-                finally {
-                    outputVec.delete();
-                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
 
                 if (processAllPlanes) {
                     postMessage({ stdout: "Pseudo-3D all-planes export is under development. Returning first plane only." });
