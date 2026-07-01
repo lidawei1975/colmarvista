@@ -75,7 +75,7 @@ fid_base (base class)
 | Function | Signature | Returns | Purpose | Parameters |
 |----------|-----------|---------|---------|-----------|
 | **full_process** | `full_process(remove_di_direct?: bool, remove_di_indirect?: bool)` | `bool` | Perform FFT in both dimensions | `true` = remove Bruker digitizer filter artifacts |
-| **polynorminal_baseline** | `polynorminal_baseline(order: int)` | `bool` | Apply polynomial baseline correction | `order`: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic) |
+| **polynorminal_baseline** | `polynorminal_baseline(order: int)` | `bool` | Apply polynomial baseline correction | `order`: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic), 4 (quartic) |
 | **extract_region** | `extract_region(from: double, to: double)` | `bool` | Extract spectral region | `from, to` in range [0, 1] where 0=left edge, 1=right edge |
 
 **Processing Chain:**

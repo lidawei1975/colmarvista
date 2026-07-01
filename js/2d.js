@@ -509,7 +509,7 @@ $(document).ready(function () {
             let water_suppression = document.getElementById("water_suppression").checked;
 
             /**
-             * Get html option "polynomial" value: -1,0,1,2,3
+             * Get html option "polynomial" value: -1,0,1,2,3,4
              */
             let polynomial = document.getElementById("polynomial").value;
 
