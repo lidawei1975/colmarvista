@@ -163,6 +163,18 @@ const read_file_text = (file) => {
         reader.readAsText(file);
     });
 };
+function updateBaseline2DUI() {
+    const polyRadio = document.querySelector('input[name="baseline_2d_type"][value="POLYNORMIAL"]');
+    const polySelect = document.getElementById("polynomial");
+    const polyLabel = document.getElementById("label_polynomial_order");
+    if (polyRadio && polySelect) {
+        const isPoly = polyRadio.checked;
+        polySelect.disabled = !isPoly;
+        if (polyLabel) {
+            polyLabel.style.opacity = isPoly ? "1" : "0.5";
+        }
+    }
+}
 
 
 
@@ -384,6 +396,10 @@ $(document).ready(function () {
         });
     }
 
+    document.querySelectorAll('input[name="baseline_2d_type"]').forEach(function (radio) {
+        radio.addEventListener('change', updateBaseline2DUI);
+    });
+    updateBaseline2DUI();
 
 
 
@@ -509,9 +525,20 @@ $(document).ready(function () {
             let water_suppression = document.getElementById("water_suppression").checked;
 
             /**
-             * Get html option "polynomial" value: -1,0,1,2,3,4
+             * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
              */
-            let polynomial = document.getElementById("polynomial").value;
+            let polynomial = -2;
+            const baselineTypeElement = document.querySelector('input[name="baseline_2d_type"]:checked');
+            if (baselineTypeElement) {
+                const type = baselineTypeElement.value;
+                if (type === "NONE") {
+                    polynomial = -2;
+                } else if (type === "FLATT") {
+                    polynomial = -1;
+                } else if (type === "POLYNORMIAL") {
+                    polynomial = parseInt(document.getElementById("polynomial").value, 10);
+                }
+            }
 
             /**
              * Get HTML select "hsqc_acquisition_seq" value: "321" or "312"
@@ -5257,7 +5284,21 @@ function get_peak_limit(peak_object, header) {
 function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
         document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
-        document.getElementById("polynomial").value = fid_process_parameters.polynomial;
+        const paramVal = parseInt(fid_process_parameters.polynomial, 10);
+        if (paramVal === -2) {
+            const radio = document.querySelector('input[name="baseline_2d_type"][value="NONE"]');
+            if (radio) radio.checked = true;
+        } else if (paramVal === -1) {
+            const radio = document.querySelector('input[name="baseline_2d_type"][value="FLATT"]');
+            if (radio) radio.checked = true;
+        } else {
+            const radio = document.querySelector('input[name="baseline_2d_type"][value="POLYNORMIAL"]');
+            if (radio) radio.checked = true;
+            document.getElementById("polynomial").value = isNaN(paramVal) ? 2 : paramVal;
+        }
+        if (typeof updateBaseline2DUI === "function") {
+            updateBaseline2DUI();
+        }
         document.getElementById("hsqc_acquisition_seq").value = fid_process_parameters.acquisition_seq;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
@@ -5281,7 +5322,12 @@ function reprocess_spectrum(self, spectrum_index) {
 
     function set_default_fid_parameters() {
         document.getElementById("water_suppression").checked = false;
-        document.getElementById("polynomial").value = -1;
+        const noneRadio = document.querySelector('input[name="baseline_2d_type"][value="NONE"]');
+        if (noneRadio) noneRadio.checked = true;
+        document.getElementById("polynomial").value = 2;
+        if (typeof updateBaseline2DUI === "function") {
+            updateBaseline2DUI();
+        }
         document.getElementById("hsqc_acquisition_seq").value = "321"
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";

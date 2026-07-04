@@ -436,9 +436,9 @@ self.onmessage = async function (event) {
                     processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
                 }
 
-                const polynomialOrder = toInt(event.data.polynomial, 0);
-                if (polynomialOrder > 0) {
-                    if (!processor.polynorminal_baseline(polynomialOrder)) {
+                const polynomialOrder = toInt(event.data.polynomial, -2);
+                if (polynomialOrder !== -2) {
+                    if (!processor.polynorminal_baseline(polynomialOrder, true, 1e9, 1.5)) {
                         throw new Error('polynorminal_baseline failed');
                     }
                 }
