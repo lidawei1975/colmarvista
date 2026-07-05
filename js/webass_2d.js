@@ -438,7 +438,7 @@ self.onmessage = async function (event) {
 
                 const polynomialOrder = toInt(event.data.polynomial, -2);
                 if (polynomialOrder !== -2) {
-                    if (!processor.polynorminal_baseline(polynomialOrder, true, 1e9, 1.5)) {
+                    if (!processor.polynorminal_baseline(polynomialOrder, true, 1e9, 1.5, 5)) {
                         throw new Error('polynorminal_baseline failed');
                     }
                 }
