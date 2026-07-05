@@ -163,19 +163,7 @@ const read_file_text = (file) => {
         reader.readAsText(file);
     });
 };
-function updateBaseline2DUI() {
-    const polyRadio = document.querySelector('input[name="baseline_2d_type"][value="POLYNORMIAL"]');
-    const polySelect = document.getElementById("polynomial");
-    const polyLabel = document.getElementById("label_polynomial_order");
-    if (polyRadio && polySelect) {
-        const isPoly = polyRadio.checked;
-        polySelect.disabled = !isPoly;
-        if (polyLabel) {
-            polyLabel.style.opacity = isPoly ? "1" : "0.5";
-        }
-    }
-}
-
+// updateBaseline2DUI was removed as 2D baseline settings were moved to standalone controls
 
 
 $(document).ready(function () {
@@ -396,11 +384,7 @@ $(document).ready(function () {
         });
     }
 
-    document.querySelectorAll('input[name="baseline_2d_type"]').forEach(function (radio) {
-        radio.addEventListener('change', updateBaseline2DUI);
-    });
-    updateBaseline2DUI();
-
+    // baseline radio buttons change listener removed
 
 
     /**
@@ -528,18 +512,6 @@ $(document).ready(function () {
              * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
              */
             let polynomial = -2;
-            const baselineTypeElement = document.querySelector('input[name="baseline_2d_type"]:checked');
-            if (baselineTypeElement) {
-                const type = baselineTypeElement.value;
-                if (type === "NONE") {
-                    polynomial = -2;
-                } else if (type === "FLATT") {
-                    polynomial = -1;
-                } else if (type === "POLYNORMIAL") {
-                    polynomial = parseInt(document.getElementById("polynomial").value, 10);
-                }
-            }
-
             /**
              * Get HTML select "hsqc_acquisition_seq" value: "321" or "312"
             */
@@ -1367,6 +1339,53 @@ webassembly_worker.onmessage = async function (e) {
         document.getElementById("webassembly_message").innerText = "";
     }
 
+    else if (webassembly_job === "baseline_correction") {
+        const spectrum_index = e.data.spectrum_index;
+        const s = hsqc_spectra[spectrum_index];
+        if (s) {
+            try {
+                const arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+                const result_spectrum = new spectrum();
+                result_spectrum.process_ft_file(arrayBuffer, s.filename, s.spectrum_origin);
+
+                // Copy properties from original spectrum
+                result_spectrum.spectrum_index = spectrum_index;
+                result_spectrum.spectrum_color = s.spectrum_color;
+                result_spectrum.spectrum_color_negative = s.spectrum_color_negative;
+                result_spectrum.visible = s.visible;
+                result_spectrum.noise_level = s.noise_level;
+                result_spectrum.levels = s.levels;
+                result_spectrum.negative_levels = s.negative_levels;
+                result_spectrum.spectral_max = s.spectral_max;
+                result_spectrum.spectral_min = s.spectral_min;
+                result_spectrum.picked_peaks_object = s.picked_peaks_object;
+                result_spectrum.fitted_peaks_object = s.fitted_peaks_object;
+                result_spectrum.scale = s.scale;
+                result_spectrum.scale2 = s.scale2;
+                result_spectrum.fid_process_parameters = s.fid_process_parameters;
+                result_spectrum.pseudo3d_children = s.pseudo3d_children;
+                result_spectrum.reconstructed_indices = s.reconstructed_indices;
+
+                hsqc_spectra[spectrum_index] = result_spectrum;
+
+                // Clear cross section plot because it becomes invalid
+                if (main_plot.current_spectral_index === spectrum_index) {
+                    main_plot.y_cross_section_plot.clear();
+                    main_plot.x_cross_section_plot.clear();
+                }
+
+                refresh_contours_for_spectrum(spectrum_index);
+                refresh_cross_sections_after_phase(spectrum_index);
+
+                document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
+                clear_webassembly_message_after_delay(5000);
+            } catch (err) {
+                console.error('[baseline_correction] Failed to process:', err);
+                document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
+            }
+        }
+    }
+
     else if (webassembly_job === "pseudo3d_progress") {
         const done = Number.isFinite(Number(e.data.done)) ? Number(e.data.done) : 0;
         const total = Number.isFinite(Number(e.data.total)) ? Number(e.data.total) : 0;
@@ -2112,6 +2131,7 @@ function add_to_list(index) {
         }
         main_plot.current_spectral_index = index;
         update_automatic_pc_button_status(index);
+        update_baseline_button_status(index);
         /**
          * Highlight the current spectrum in the list
          */
@@ -2130,6 +2150,7 @@ function add_to_list(index) {
              * If this new spectrum has no imaginary part, disable auto phase correction button
              */
             update_automatic_pc_button_status(index);
+            update_baseline_button_status(index);
         }
         /**
          * Add filename as a text node
@@ -4824,6 +4845,7 @@ function remove_spectrum(index) {
     main_plot.points_start_negative[index] = main_plot.points_start[index];
 
     main_plot.redraw_contour();
+    update_baseline_button_status(main_plot.current_spectral_index);
 }
 
 
@@ -5284,21 +5306,7 @@ function get_peak_limit(peak_object, header) {
 function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
         document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
-        const paramVal = parseInt(fid_process_parameters.polynomial, 10);
-        if (paramVal === -2) {
-            const radio = document.querySelector('input[name="baseline_2d_type"][value="NONE"]');
-            if (radio) radio.checked = true;
-        } else if (paramVal === -1) {
-            const radio = document.querySelector('input[name="baseline_2d_type"][value="FLATT"]');
-            if (radio) radio.checked = true;
-        } else {
-            const radio = document.querySelector('input[name="baseline_2d_type"][value="POLYNORMIAL"]');
-            if (radio) radio.checked = true;
-            document.getElementById("polynomial").value = isNaN(paramVal) ? 2 : paramVal;
-        }
-        if (typeof updateBaseline2DUI === "function") {
-            updateBaseline2DUI();
-        }
+        // baseline form controls removed, bypass restoring polynomial order to form
         document.getElementById("hsqc_acquisition_seq").value = fid_process_parameters.acquisition_seq;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
@@ -5322,12 +5330,7 @@ function reprocess_spectrum(self, spectrum_index) {
 
     function set_default_fid_parameters() {
         document.getElementById("water_suppression").checked = false;
-        const noneRadio = document.querySelector('input[name="baseline_2d_type"][value="NONE"]');
-        if (noneRadio) noneRadio.checked = true;
-        document.getElementById("polynomial").value = 2;
-        if (typeof updateBaseline2DUI === "function") {
-            updateBaseline2DUI();
-        }
+        // baseline form controls removed, bypass resetting polynomial
         document.getElementById("hsqc_acquisition_seq").value = "321"
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
@@ -5852,6 +5855,7 @@ function set_current_spectrum(spectrum_index) {
     }
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+    update_baseline_button_status(spectrum_index);
 }
 
 
@@ -6054,3 +6058,57 @@ function make_log_movable() {
 
 // Call this once to initialize log dragging
 setTimeout(make_log_movable, 100);
+
+function toggle_baseline_order_visibility() {
+    const method = document.getElementById("baseline_method").value;
+    const container = document.getElementById("baseline_order_container");
+    if (container) {
+        container.style.display = (method === "POLYNORMIAL") ? "inline" : "none";
+    }
+}
+
+function update_baseline_button_status(index) {
+    const btn = document.getElementById("button_apply_baseline");
+    if (!btn) return;
+    btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
+}
+
+async function apply_baseline_correction() {
+    const index = main_plot.current_spectral_index;
+    if (index === -1 || !hsqc_spectra[index]) {
+        console.error("No active spectrum to apply baseline correction.");
+        return;
+    }
+
+    const method = document.getElementById("baseline_method").value;
+    let polyOrder = -2; // NONE
+    if (method === "FLATT") {
+        polyOrder = -1;
+    } else if (method === "POLYNORMIAL") {
+        polyOrder = parseInt(document.getElementById("baseline_order").value, 10);
+    }
+
+    if (polyOrder === -2) {
+        document.getElementById("webassembly_message").innerText = "NONE baseline selected. No correction applied.";
+        return;
+    }
+
+    document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+
+    const s = hsqc_spectra[index];
+
+    // Reconstruct the nmrPipe bytes from s.header and s.raw_data
+    const header = new Float32Array(s.header);
+    header[55] = 1.0; // quad flag: real
+    header[56] = 1.0; // quad flag: real
+    header[219] = s.n_indirect;
+    const spectrumFloat32 = Float32Concat(header, s.raw_data);
+    const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+
+    webassembly_worker.postMessage({
+        [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
+        file_data: inputFt2FileBytes,
+        polynomial_order: polyOrder,
+        spectrum_index: index
+    });
+}

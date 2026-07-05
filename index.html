@@ -151,23 +151,6 @@
                             <label for="delete_imaginary_indirect">Delete imaginary data
                         </span>
 
-                        <span>
-                            <label>2D baseline: </label>
-                            <input type="radio" name="baseline_2d_type" id="baseline_2d_none" value="NONE" checked>
-                            <label for="baseline_2d_none" style="display: inline; margin-right: 8px;">NONE</label>
-                            <input type="radio" name="baseline_2d_type" id="baseline_2d_flatt" value="FLATT">
-                            <label for="baseline_2d_flatt" style="display: inline; margin-right: 8px;">FLATT</label>
-                            <input type="radio" name="baseline_2d_type" id="baseline_2d_polynormial" value="POLYNORMIAL">
-                            <label for="baseline_2d_polynormial" style="display: inline; margin-right: 8px;">POLYNORMIAL</label>
-                            <label for="polynomial" id="label_polynomial_order" style="display: inline; margin-right: 4px;">at order </label>
-                            <select name="polynomial" id="polynomial" style="width: auto; display: inline;">
-                                <option value="0">0</option>
-                                <option value="1">1</option>
-                                <option value="2" selected>2</option>
-                                <option value="3">3</option>
-                                <option value="4">4</option>
-                            </select>
-                        </span>
 
                         <span>
                             <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
@@ -282,6 +265,24 @@
                         <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
                         <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
                         <button onclick="download_plot()">Download plot</button>
+                        <br>
+                        <label for="baseline_method">Baseline: </label>
+                        <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
+                            <option value="NONE">NONE</option>
+                            <option value="FLATT">FLATT</option>
+                            <option value="POLYNORMIAL">POLYNORMIAL</option>
+                        </select>
+                        <span id="baseline_order_container" style="display: none;">
+                            <label for="baseline_order">at order </label>
+                            <select id="baseline_order" style="width: auto; display: inline;">
+                                <option value="0">0</option>
+                                <option value="1">1</option>
+                                <option value="2" selected>2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                            </select>
+                        </span>
+                        <button id="button_apply_baseline" disabled onclick="apply_baseline_correction()">Apply Baseline</button>
                         <br>
 
 

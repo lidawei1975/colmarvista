@@ -911,6 +911,74 @@ self.onmessage = async function (event) {
         obj.delete();
     }
 
+    else if (webassembly_job === "baseline_correction") {
+        try {
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
+
+            const inputBytes = encodeBytes(event.data.file_data);
+            if (inputBytes.length <= 512 * 4) {
+                throw new Error('Invalid nmrPipe payload for baseline_correction');
+            }
+
+            const polyOrder = parseInt(event.data.polynomial_order, 10);
+            
+            const nmrpipeBytesVec = new Module.VectorUChar();
+            for (let i = 0; i < inputBytes.length; i++) {
+                nmrpipeBytesVec.push_back(inputBytes[i]);
+            }
+
+            const fid = new Module.fid_2d();
+            let file_data;
+            try {
+                const successRead = fid.read_nmrpipe_file_from_buffer(nmrpipeBytesVec);
+                if (!successRead) {
+                    throw new Error("Failed to read NMRPipe file from buffer.");
+                }
+
+                const successProcess = fid.other_process(true, true);
+                if (!successProcess) {
+                    throw new Error("Other process failed.");
+                }
+
+                const traceByTrace = true;
+                const flattA = 1e9;         // default regularizer parameter 'a'
+                const flattB = 1.5;         // default asymmetric constraint penalty 'b'
+                const regionFlag = 5;       // -region-flag 5
+                
+                const successBaseline = fid.polynorminal_baseline(polyOrder, traceByTrace, flattA, flattB, regionFlag);
+                if (!successBaseline) {
+                    throw new Error("Baseline correction failed.");
+                }
+
+                const addressVal = Number(fid.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error("Failed to export FT2 spectrum to buffer.");
+                }
+
+                const sizeInFloat32 = fid.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, sizeInFloat32 * 4).slice();
+            } finally {
+                fid.delete();
+                nmrpipeBytesVec.delete();
+            }
+
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                file_data: file_data,
+                spectrum_index: event.data.spectrum_index,
+                polynomial_order: polyOrder
+            });
+        } catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            self.postMessage({ error: "baseline_correction: " + errorText });
+        }
+    }
+
     else if (webassembly_job === "assignment") {
         self.postMessage({
             [WEBASSEMBLY_JOB_KEY]: "assignment",

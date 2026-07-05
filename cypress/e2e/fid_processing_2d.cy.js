@@ -28,5 +28,14 @@ describe('FID Processing 2D Test', () => {
         // 7. Verify Spectra List is populated with the new spectrum
         // The processed file is typically named "from_fid.ft2"
         cy.get('#spectra_list_ol', { timeout: 30000 }).should('contain.text', 'from_fid.ft2');
+
+        // 8. Test standalone baseline correction
+        cy.get('#baseline_method').select('POLYNORMIAL');
+        cy.get('#baseline_order_container').should('be.visible');
+        cy.get('#baseline_order').select('3');
+        cy.get('#button_apply_baseline').should('not.be.disabled').click();
+        
+        // Wait for the message indicating completion
+        cy.get('#webassembly_message', { timeout: 30000 }).should('contain.text', 'Baseline correction complete!');
     });
 });
