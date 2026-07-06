@@ -90,14 +90,97 @@ h3 {
 }
 
 #log_area {
-    font-family: Arial;
-    border-width: 2px;
-    clear: both;
-    margin-top: 10px;
-    margin-bottom: 10px;
-    min-width: 100px;
-    margin-left: auto;
-    margin-right: auto;
+    position: fixed;
+    top: 60px;
+    left: 20px;
+    width: 500px;
+    height: 300px;
+    min-width: 250px;
+    min-height: 120px;
+    box-sizing: border-box;
+    padding: 10px;
+    z-index: 9999;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 10px;
+    resize: both;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    font-family: system-ui, -apple-system, sans-serif;
+    transition: box-shadow 0.2s ease;
+}
+
+#log_area:hover {
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.2);
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    cursor: move;
+    user-select: none;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.log-header strong {
+    font-size: 14px;
+    color: #333;
+    font-weight: 600;
+}
+
+.log-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+.log-actions button {
+    font-size: 11px;
+    padding: 3px 8px;
+    margin: 0;
+    cursor: pointer;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #444;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.log-actions button:hover {
+    background-color: #e4e4e4;
+    border-color: #b5b5b5;
+    color: #111;
+}
+
+#button_minimize_log {
+    font-weight: bold;
+    min-width: 22px;
+}
+
+/* Make sure text area inside fills remaining space and looks clean */
+#log_area textarea {
+    width: 100%;
+    flex-grow: 1;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    resize: none;
+    box-sizing: border-box;
+    background-color: #fafafa;
+    color: #333;
+    padding: 8px;
+    min-height: 0 !important;
+    min-width: 0 !important;
 }
 
 .flex-container {

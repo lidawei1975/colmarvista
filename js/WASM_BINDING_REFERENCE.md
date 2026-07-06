@@ -75,7 +75,7 @@ fid_base (base class)
 | Function | Signature | Returns | Purpose | Parameters |
 |----------|-----------|---------|---------|-----------|
 | **full_process** | `full_process(remove_di_direct?: bool, remove_di_indirect?: bool)` | `bool` | Perform FFT in both dimensions | `true` = remove Bruker digitizer filter artifacts |
-| **polynorminal_baseline** | `polynorminal_baseline(order: int)` | `bool` | Apply polynomial baseline correction | `order`: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic) |
+| **polynorminal_baseline** | `polynorminal_baseline(order: int)` | `bool` | Apply polynomial baseline correction | `order`: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic), 4 (quartic) |
 | **extract_region** | `extract_region(from: double, to: double)` | `bool` | Extract spectral region | `from, to` in range [0, 1] where 0=left edge, 1=right edge |
 
 **Processing Chain:**
@@ -94,7 +94,10 @@ fid_base (base class)
 | Function | Signature | Returns | Purpose | File Format |
 |----------|-----------|---------|---------|-------------|
 | **write_nmrpipe_ft2** | `write_nmrpipe_ft2(filename: string)` | `bool` | Write spectrum to file | NMRPipe ft2 binary format |
-| **write_nmrpipe_ft2_to_buffer** | `write_nmrpipe_ft2_to_buffer(output: VectorUChar)` | `bool` | Export spectrum to byte array | In-memory (recommended for web) |
+| **write_nmrpipe_ft2_to_buffer** | `write_nmrpipe_ft2_to_buffer()` | `uintptr_t` | Export spectrum to byte array buffer, returns address | In-memory (recommended for web) |
+| **write_nmrpipe_ft2_to_buffer_index** | `write_nmrpipe_ft2_to_buffer_index(spec_index: int)` | `uintptr_t` | Export specific plane of pseudo-3D spectrum to buffer | In-memory (recommended for web) |
+| **get_ft2_size_in_float32** | `get_ft2_size_in_float32()` | `int` | Get size of exported ft2 buffer in float32 elements | Helper for reading heap directly |
+| **get_nspectra** | `get_nspectra()` | `int` | Get total number of spectra/planes in loaded dataset | Helper for pseudo-3D loops |
 | **write_nmrpipe_intermediate_to_buffer** | `write_nmrpipe_intermediate_to_buffer(output: VectorUChar)` | `bool` | Export half-Fourier data | In-memory intermediate format |
 | **write_nmrpipe_fid_to_buffer** | `write_nmrpipe_fid_to_buffer(output: VectorUChar)` | `bool` | Export FID time-domain data | In-memory FID format |
 | **write_pipe_to_buffer** | `write_pipe_to_buffer(output: VectorUChar, real_only?: bool)` | `bool` | Generic NMRPipe export | `real_only=true` → real part only |
@@ -213,7 +216,8 @@ stringVector.delete();
    phasing.auto_phase_correction_v2();
 
 8. Export:
-   phasing.write_nmrpipe_ft2_to_buffer(output_buffer);
+   const address = phasing.write_nmrpipe_ft2_to_buffer();
+   const size = phasing.get_ft2_size_in_float32();
    phasing.save_phase_correction_result("phase.txt");
 ```
 
@@ -230,7 +234,8 @@ stringVector.delete();
    fid2d.extract_region(0.2, 0.8);
 
 4. Export:
-   fid2d.write_nmrpipe_ft2_to_buffer(output_buffer);
+   const address = fid2d.write_nmrpipe_ft2_to_buffer();
+   const size = fid2d.get_ft2_size_in_float32();
 ```
 
 ### Pattern C: Bruker File-Based (Legacy)
@@ -330,13 +335,9 @@ phasing.full_process(false, false);
 phasing.auto_phase_correction_v2();
 
 // Export
-const output = new Module.VectorUChar();
-phasing.write_nmrpipe_ft2_to_buffer(output);
-const byteArray = new Uint8Array(output.size());
-for (let i = 0; i < output.size(); i++) {
-  byteArray[i] = output.get(i);
-}
-output.delete();
+const address = phasing.write_nmrpipe_ft2_to_buffer();
+const size = phasing.get_ft2_size_in_float32();
+const byteArray = new Uint8Array(Module.HEAPF32.buffer, address, size * 4).slice();
 
 // Download
 downloadFile(new Blob([byteArray]), "processed.ft2");

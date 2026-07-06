@@ -57,6 +57,7 @@ var plot_padding = 20; //padding for the plot area
 
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
+var tfjs_2d_normal_model = null;
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
@@ -162,7 +163,7 @@ const read_file_text = (file) => {
         reader.readAsText(file);
     });
 };
-
+// updateBaseline2DUI was removed as 2D baseline settings were moved to standalone controls
 
 
 $(document).ready(function () {
@@ -346,7 +347,44 @@ $(document).ready(function () {
         document.getElementById("webassembly_message").innerText = "Assignment transfer is under development.";
     });
 
+    // Synchronize direct dimension phase correction checkboxes:
+    // 1. If "ANN Auto PC" (ann_auto_direct) is checked:
+    //    - "Automated PC" (auto_direct) must be checked.
+    //    - "Delete imaginary data" (delete_imaginary) must be unchecked.
+    // 2. If "Automated PC" (auto_direct) is unchecked:
+    //    - "ANN Auto PC" (ann_auto_direct) must be unchecked.
+    // 3. If "Delete imaginary data" (delete_imaginary) is checked:
+    //    - "ANN Auto PC" (ann_auto_direct) must be unchecked.
+    const autoDirectEl = document.getElementById("auto_direct");
+    const annAutoDirectEl = document.getElementById("ann_auto_direct");
+    const deleteImaginaryEl = document.getElementById("delete_imaginary");
 
+    if (annAutoDirectEl) {
+        annAutoDirectEl.addEventListener("change", function () {
+            if (annAutoDirectEl.checked) {
+                if (autoDirectEl) autoDirectEl.checked = true;
+                if (deleteImaginaryEl) deleteImaginaryEl.checked = false;
+            }
+        });
+    }
+
+    if (autoDirectEl) {
+        autoDirectEl.addEventListener("change", function () {
+            if (!autoDirectEl.checked) {
+                if (annAutoDirectEl) annAutoDirectEl.checked = false;
+            }
+        });
+    }
+
+    if (deleteImaginaryEl) {
+        deleteImaginaryEl.addEventListener("change", function () {
+            if (deleteImaginaryEl.checked) {
+                if (annAutoDirectEl) annAutoDirectEl.checked = false;
+            }
+        });
+    }
+
+    // baseline radio buttons change listener removed
 
 
     /**
@@ -471,10 +509,9 @@ $(document).ready(function () {
             let water_suppression = document.getElementById("water_suppression").checked;
 
             /**
-             * Get html option "polynomial" value: -1,0,1,2,3
+             * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
              */
-            let polynomial = document.getElementById("polynomial").value;
-
+            let polynomial = -2;
             /**
              * Get HTML select "hsqc_acquisition_seq" value: "321" or "312"
             */
@@ -498,7 +535,15 @@ $(document).ready(function () {
             let phase_correction_direct_p0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
             let phase_correction_direct_p1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
             let auto_direct = document.getElementById("auto_direct").checked; //true or false
+            let ann_auto_direct = document.getElementById("ann_auto_direct") && document.getElementById("ann_auto_direct").checked;
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
+            
+            // For code logic, if ANN Auto PC is checked, Automated PC must be true and Delete imaginary must be false
+            if (ann_auto_direct) {
+                auto_direct = true;
+                delete_direct = false;
+            }
+            let delete_direct_worker = ann_auto_direct ? false : delete_direct;
 
             /**
              * Get HTML text input extract_direct_from and extract_direct_to in ppm.
@@ -558,7 +603,9 @@ $(document).ready(function () {
                 apodization_indirect: apodization_indirect,
                 auto_direct: auto_direct,
                 auto_indirect: auto_indirect,
-                delete_direct: delete_direct,
+                ann_auto_direct: ann_auto_direct,
+                delete_direct: delete_direct_worker,
+                delete_direct_after_ann: delete_direct,
                 delete_indirect: delete_indirect,
                 phase_correction_direct_p0: phase_correction_direct_p0,
                 phase_correction_direct_p1: phase_correction_direct_p1,
@@ -1157,7 +1204,7 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
     }
 }
 
-webassembly_worker.onmessage = function (e) {
+webassembly_worker.onmessage = async function (e) {
     const webassembly_job = get_webassembly_job_flag(e.data);
 
     /**
@@ -1290,6 +1337,53 @@ webassembly_worker.onmessage = function (e) {
         document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
 
         document.getElementById("webassembly_message").innerText = "";
+    }
+
+    else if (webassembly_job === "baseline_correction") {
+        const spectrum_index = e.data.spectrum_index;
+        const s = hsqc_spectra[spectrum_index];
+        if (s) {
+            try {
+                const arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+                const result_spectrum = new spectrum();
+                result_spectrum.process_ft_file(arrayBuffer, s.filename, s.spectrum_origin);
+
+                // Copy properties from original spectrum
+                result_spectrum.spectrum_index = spectrum_index;
+                result_spectrum.spectrum_color = s.spectrum_color;
+                result_spectrum.spectrum_color_negative = s.spectrum_color_negative;
+                result_spectrum.visible = s.visible;
+                result_spectrum.noise_level = s.noise_level;
+                result_spectrum.levels = s.levels;
+                result_spectrum.negative_levels = s.negative_levels;
+                result_spectrum.spectral_max = s.spectral_max;
+                result_spectrum.spectral_min = s.spectral_min;
+                result_spectrum.picked_peaks_object = s.picked_peaks_object;
+                result_spectrum.fitted_peaks_object = s.fitted_peaks_object;
+                result_spectrum.scale = s.scale;
+                result_spectrum.scale2 = s.scale2;
+                result_spectrum.fid_process_parameters = s.fid_process_parameters;
+                result_spectrum.pseudo3d_children = s.pseudo3d_children;
+                result_spectrum.reconstructed_indices = s.reconstructed_indices;
+
+                hsqc_spectra[spectrum_index] = result_spectrum;
+
+                // Clear cross section plot because it becomes invalid
+                if (main_plot.current_spectral_index === spectrum_index) {
+                    main_plot.y_cross_section_plot.clear();
+                    main_plot.x_cross_section_plot.clear();
+                }
+
+                refresh_contours_for_spectrum(spectrum_index);
+                refresh_cross_sections_after_phase(spectrum_index);
+
+                document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
+                clear_webassembly_message_after_delay(5000);
+            } catch (err) {
+                console.error('[baseline_correction] Failed to process:', err);
+                document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
+            }
+        }
     }
 
     else if (webassembly_job === "pseudo3d_progress") {
@@ -1521,8 +1615,8 @@ webassembly_worker.onmessage = function (e) {
         let b_reprocess = e.data.processing_flag == 1 ? true : false;
 
         result_spectrum.spectrum_index = e.data.spectrum_index; //only used when reprocess
+        result_spectrum.fid_process_parameters = fid_process_parameters;
         let result_spectra = [result_spectrum];
-
 
         /**
          * Process additional ft2 files (send back from webass worker) in case of pseudo 3D processing
@@ -1535,6 +1629,32 @@ webassembly_worker.onmessage = function (e) {
                 result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
                 result_spectra.push(result_spectrum);
             }
+        }
+
+        // If ANN auto PC is checked, run the automatic phase correction now before drawing contours
+        if (fid_process_parameters.ann_auto_direct) {
+            const msgDiv = document.getElementById("webassembly_message");
+            if (msgDiv) {
+                msgDiv.innerText = "Running additional ANN automatic phase correction...";
+            }
+            const phases = await run_ann_phase_correction_for_spectrum(result_spectrum);
+            if (phases) {
+                for (let i = 1; i < result_spectra.length; i++) {
+                    apply_phase_correction_in_place(result_spectra[i], [[phases[0], phases[1]], [0.0, 0.0]]);
+                }
+            }
+            // Delete direct imaginary data if requested after ANN has run
+            if (fid_process_parameters.delete_direct_after_ann) {
+                for (let i = 0; i < result_spectra.length; i++) {
+                    result_spectra[i].raw_data_ri = new Float32Array(0);
+                    result_spectra[i].datatype_direct = 1;
+                    result_spectra[i].header[55] = 1.0;
+                }
+                fid_process_parameters.delete_direct = true;
+            }
+        }
+
+        if (result_spectra.length > 1) {
             draw_spectrum(result_spectra, true/**from fid */, b_reprocess, e.data.pseudo3d_children);
         }
         else {
@@ -1551,6 +1671,9 @@ webassembly_worker.onmessage = function (e) {
          */
         document.getElementById("auto_direct").checked = false;
         document.getElementById("auto_indirect").checked = false;
+        if (document.getElementById("ann_auto_direct")) {
+            document.getElementById("ann_auto_direct").checked = false;
+        }
     }
 
     /**
@@ -2007,6 +2130,8 @@ function add_to_list(index) {
             }
         }
         main_plot.current_spectral_index = index;
+        update_automatic_pc_button_status(index);
+        update_baseline_button_status(index);
         /**
          * Highlight the current spectrum in the list
          */
@@ -2024,12 +2149,8 @@ function add_to_list(index) {
             /**
              * If this new spectrum has no imaginary part, disable auto phase correction button
              */
-            if (hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1) {
-                document.getElementById("automatic_pc").disabled = false;
-            }
-            else {
-                document.getElementById("automatic_pc").disabled = true;
-            }
+            update_automatic_pc_button_status(index);
+            update_baseline_button_status(index);
         }
         /**
          * Add filename as a text node
@@ -3084,6 +3205,25 @@ function init_plot(input) {
 
 };
 
+function update_automatic_pc_button_status(index) {
+    const btn = document.getElementById("automatic_pc");
+    if (!btn) return;
+    
+    let disabled = true;
+    if (hsqc_spectra[index] && hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
+        if (main_plot && main_plot.b_show_projection) {
+            const is_from_fid = hsqc_spectra[index].spectrum_origin === -2 || hsqc_spectra[index].fid_process_parameters;
+            const not_reprocessing = current_reprocess_spectrum_index === -1;
+            if (is_from_fid && not_reprocessing) {
+                disabled = false;
+            }
+        } else {
+            disabled = false;
+        }
+    }
+    btn.disabled = disabled;
+}
+
 function show_cross_section() {
     main_plot.b_show_cross_section = true;
     main_plot.b_show_projection = false;
@@ -3091,8 +3231,8 @@ function show_cross_section() {
      * If current spectrum has imaginary part, we will enable automatic phase correction
      */
     const index = main_plot.current_spectral_index;
-    if (hsqc_spectra[index].raw_data_ri.length > 0 && hsqc_spectra[index].raw_data_ir.length > 0 && hsqc_spectra[index].raw_data_ii.length > 0 && hsqc_spectra[index].spectrum_origin === -1) {
-        document.getElementById("automatic_pc").disabled = false;
+    update_automatic_pc_button_status(index);
+    if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
         /**
          * If there is only one spectrum, we will also enable apply phase correction,
          * because we allow manual phase correction in this case.
@@ -3106,7 +3246,8 @@ function show_cross_section() {
 function show_projection() {
     main_plot.b_show_cross_section = false;
     main_plot.b_show_projection = true;
-    document.getElementById("automatic_pc").disabled = true;
+    const index = main_plot.current_spectral_index;
+    update_automatic_pc_button_status(index);
     document.getElementById("button_apply_ps").disabled = true;
     main_plot.show_projection();
 }
@@ -4704,8 +4845,139 @@ function remove_spectrum(index) {
     main_plot.points_start_negative[index] = main_plot.points_start[index];
 
     main_plot.redraw_contour();
+    update_baseline_button_status(main_plot.current_spectral_index);
 }
 
+
+function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
+    const n_direct = spectrum_obj.n_direct;
+    const n_indirect = spectrum_obj.n_indirect;
+    const total_points = n_direct * n_indirect;
+
+    const has_ri = spectrum_obj.datatype_direct === 0 && spectrum_obj.raw_data_ri.length === total_points;
+    const has_ir = spectrum_obj.datatype_indirect === 0 && spectrum_obj.raw_data_ir.length === total_points;
+    const has_ii = has_ri && has_ir && spectrum_obj.raw_data_ii.length === total_points;
+
+    const p0_direct = phase_deg[0][0];
+    const p1_direct = phase_deg[0][1];
+    const p0_indirect = phase_deg[1][0];
+    const p1_indirect = phase_deg[1][1];
+
+    for (let ind = 0; ind < n_indirect; ind++) {
+        const cos_indirect = Math.cos((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+        const sin_indirect = Math.sin((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
+
+        for (let f = 0; f < n_direct; f++) {
+            const idx = ind * n_direct + f;
+            const cos_direct = Math.cos((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+            const sin_direct = Math.sin((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
+
+            let rr = spectrum_obj.raw_data[idx];
+            let ri = has_ri ? spectrum_obj.raw_data_ri[idx] : 0.0;
+            let ir = has_ir ? spectrum_obj.raw_data_ir[idx] : 0.0;
+            let ii = has_ii ? spectrum_obj.raw_data_ii[idx] : 0.0;
+
+            // Direct phasing: rotate along direct-complex axis.
+            {
+                const rr_d = rr * cos_direct - ri * sin_direct;
+                const ri_d = rr * sin_direct + ri * cos_direct;
+                const ir_d = ir * cos_direct - ii * sin_direct;
+                const ii_d = ir * sin_direct + ii * cos_direct;
+                rr = rr_d;
+                ri = ri_d;
+                ir = ir_d;
+                ii = ii_d;
+            }
+
+            // Indirect phasing: rotate along indirect-complex axis.
+            {
+                const rr_i = rr * cos_indirect - ir * sin_indirect;
+                const ir_i = rr * sin_indirect + ir * cos_indirect;
+                const ri_i = ri * cos_indirect - ii * sin_indirect;
+                const ii_i = ri * sin_indirect + ii * cos_indirect;
+                rr = rr_i;
+                ir = ir_i;
+                ri = ri_i;
+                ii = ii_i;
+            }
+
+            spectrum_obj.raw_data[idx] = rr;
+            if (has_ri) {
+                spectrum_obj.raw_data_ri[idx] = ri;
+            }
+            if (has_ir) {
+                spectrum_obj.raw_data_ir[idx] = ir;
+            }
+            if (has_ii) {
+                spectrum_obj.raw_data_ii[idx] = ii;
+            }
+        }
+    }
+
+    // Keep min/max in sync for contour and UI scaling.
+    let max_v = spectrum_obj.raw_data[0];
+    let min_v = spectrum_obj.raw_data[0];
+    for (let i = 1; i < spectrum_obj.raw_data.length; i++) {
+        if (spectrum_obj.raw_data[i] > max_v) {
+            max_v = spectrum_obj.raw_data[i];
+        }
+        if (spectrum_obj.raw_data[i] < min_v) {
+            min_v = spectrum_obj.raw_data[i];
+        }
+    }
+    spectrum_obj.spectral_max = max_v;
+    spectrum_obj.spectral_min = min_v;
+}
+
+function refresh_contours_for_spectrum(index) {
+    const s = hsqc_spectra[index];
+    let spectrum_information = {
+        n_direct: s.n_direct,
+        n_indirect: s.n_indirect,
+        levels: s.levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: s.spectrum_origin,
+        contour_sign: 0
+    };
+    my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+
+    spectrum_information = {
+        n_direct: s.n_direct,
+        n_indirect: s.n_indirect,
+        levels: s.negative_levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: s.spectrum_origin,
+        contour_sign: 1
+    };
+    my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
+}
+
+function refresh_cross_sections_after_phase(index) {
+    if (!main_plot || !main_plot.b_show_cross_section) {
+        return;
+    }
+
+    const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
+    const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+
+    const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
+        && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
+
+    if (single_manual_mode) {
+        main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
+        return;
+    }
+
+    main_plot.x_cross_section_plot.clear_data();
+    main_plot.y_cross_section_plot.clear_data();
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        if (hsqc_spectra[i].spectrum_origin > -3) {
+            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+        }
+    }
+}
 
 /**
  * When flag ==0, apply manual phase correction
@@ -4716,7 +4988,136 @@ function remove_spectrum(index) {
  * When flag ==1, run automatic phase correction
  * @returns 
  */
-function apply_current_pc_or_auto_pc(flag) {
+async function run_ann_phase_correction_for_spectrum(s) {
+    if (!s || !s.raw_data_ri || s.raw_data_ri.length === 0) {
+        return null;
+    }
+
+    const original_console_log = console.log;
+    const original_console_error = console.error;
+    const log_div = document.getElementById("log");
+
+    // Redirect console.log and console.error to the log div during processing
+    const redirect_log = function(...args) {
+        original_console_log.apply(console, args);
+        if (log_div) {
+            log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
+        }
+    };
+    const redirect_error = function(...args) {
+        original_console_error.apply(console, args);
+        if (log_div) {
+            log_div.value += "[ERROR] " + args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
+        }
+    };
+
+    console.log = redirect_log;
+    console.error = redirect_error;
+
+    try {
+        console.log("Starting automatic 2D phase correction using ANN model...");
+        let n_size = s.n_direct * s.n_indirect;
+        if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
+            n_size *= 4;
+        } else if (s.datatype_direct === 0 || s.datatype_indirect === 0) {
+            n_size *= 2;
+        }
+
+        const data = new Float32Array(512 + n_size);
+        let current_position = 0;
+        data.set(s.header, current_position);
+        current_position += 512;
+        for (let i = 0; i < s.n_indirect; i++) {
+            data.set(s.raw_data.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+            current_position += s.n_direct;
+
+            if (s.datatype_direct === 0) {
+                data.set(s.raw_data_ri.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                current_position += s.n_direct;
+            }
+            if (s.datatype_indirect === 0) {
+                data.set(s.raw_data_ir.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                current_position += s.n_direct;
+            }
+            if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
+                data.set(s.raw_data_ii.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
+                current_position += s.n_direct;
+            }
+        }
+
+        const ft2ArrayBuffer = data.buffer;
+
+        const pipeline = window.NUS2DPhasePipeline;
+        const tf = window.tf;
+        if (!pipeline || !tf) {
+            throw new Error("TensorFlow.js or NUS2DPhasePipeline not loaded.");
+        }
+
+        const modelUrl = 'js/2D_model30_tfjs/model.json';
+
+        pipeline.registerCustomLayers(tf);
+        if (!tfjs_2d_normal_model) {
+            tfjs_2d_normal_model = await tf.loadGraphModel(modelUrl);
+        }
+
+        const result = await pipeline.runFromFt2({
+            tf: tf,
+            ft2ArrayBuffer: ft2ArrayBuffer,
+            model: tfjs_2d_normal_model,
+            useTokenNorms: false,
+        });
+
+        console.log("[ANN Reprocess] Inference complete!", result);
+
+        const finalPhases = result.final_wls_phase_left_right[0];
+        const leftEdge = -finalPhases[0];
+        const rightEdge = -finalPhases[1];
+        const nx = s.n_direct;
+
+        const p0 = -leftEdge;
+        const p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
+
+        console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+
+        const phase_deg = [[p0, p1], [0.0, 0.0]];
+        apply_phase_correction_in_place(s, phase_deg);
+
+        // Update UI text boxes
+        let v = parseFloat(document.getElementById("phase_correction_direct_p0").value) + p0;
+        document.getElementById("phase_correction_direct_p0").value = v.toFixed(1);
+        if (s.fid_process_parameters) {
+            s.fid_process_parameters.phase_correction_direct_p0 = v;
+        }
+
+        v = parseFloat(document.getElementById("phase_correction_direct_p1").value) + p1;
+        document.getElementById("phase_correction_direct_p1").value = v.toFixed(1);
+        if (s.fid_process_parameters) {
+            s.fid_process_parameters.phase_correction_direct_p1 = v;
+        }
+
+        document.getElementById("auto_direct").checked = false;
+        if (s.fid_process_parameters) {
+            s.fid_process_parameters.auto_direct = false;
+            s.fid_process_parameters.ann_auto_direct = false;
+        }
+        if (document.getElementById("ann_auto_direct")) {
+            document.getElementById("ann_auto_direct").checked = false;
+        }
+
+        document.getElementById("pc_info").innerText = "Phase correction: " + p0.toFixed(1) + " " + p1.toFixed(1) + " 0.0 0.0";
+        return [p0, p1];
+    } catch (error) {
+        console.error("[ANN Reprocess] Error running pipeline:", error);
+        return null;
+    } finally {
+        console.log = original_console_log;
+        console.error = original_console_error;
+    }
+}
+
+async function apply_current_pc_or_auto_pc(flag) {
     let current_ps = [[0.0, 0.0], [0.0, 0.0]]; //all 0.0 means auto phase correction
     if (flag == 0) {
         /**
@@ -4776,137 +5177,6 @@ function apply_current_pc_or_auto_pc(flag) {
         document.getElementById("pc_info").innerText = "Phase correction: " + current_ps[0][0].toFixed(1) + " " + current_ps[0][1].toFixed(1) + " " + current_ps[1][0].toFixed(1) + " " + current_ps[1][1].toFixed(1);
     }
 
-    function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
-        const n_direct = spectrum_obj.n_direct;
-        const n_indirect = spectrum_obj.n_indirect;
-        const total_points = n_direct * n_indirect;
-
-        const has_ri = spectrum_obj.datatype_direct === 0 && spectrum_obj.raw_data_ri.length === total_points;
-        const has_ir = spectrum_obj.datatype_indirect === 0 && spectrum_obj.raw_data_ir.length === total_points;
-        const has_ii = has_ri && has_ir && spectrum_obj.raw_data_ii.length === total_points;
-
-        const p0_direct = phase_deg[0][0];
-        const p1_direct = phase_deg[0][1];
-        const p0_indirect = phase_deg[1][0];
-        const p1_indirect = phase_deg[1][1];
-
-        for (let ind = 0; ind < n_indirect; ind++) {
-            const cos_indirect = Math.cos((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
-            const sin_indirect = Math.sin((p0_indirect + p1_indirect * (ind / n_indirect)) * Math.PI / 180.0);
-
-            for (let f = 0; f < n_direct; f++) {
-                const idx = ind * n_direct + f;
-                const cos_direct = Math.cos((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
-                const sin_direct = Math.sin((p0_direct + p1_direct * (f / n_direct)) * Math.PI / 180.0);
-
-                let rr = spectrum_obj.raw_data[idx];
-                let ri = has_ri ? spectrum_obj.raw_data_ri[idx] : 0.0;
-                let ir = has_ir ? spectrum_obj.raw_data_ir[idx] : 0.0;
-                let ii = has_ii ? spectrum_obj.raw_data_ii[idx] : 0.0;
-
-                // Direct phasing: rotate along direct-complex axis.
-                {
-                    const rr_d = rr * cos_direct - ri * sin_direct;
-                    const ri_d = rr * sin_direct + ri * cos_direct;
-                    const ir_d = ir * cos_direct - ii * sin_direct;
-                    const ii_d = ir * sin_direct + ii * cos_direct;
-                    rr = rr_d;
-                    ri = ri_d;
-                    ir = ir_d;
-                    ii = ii_d;
-                }
-
-                // Indirect phasing: rotate along indirect-complex axis.
-                {
-                    const rr_i = rr * cos_indirect - ir * sin_indirect;
-                    const ir_i = rr * sin_indirect + ir * cos_indirect;
-                    const ri_i = ri * cos_indirect - ii * sin_indirect;
-                    const ii_i = ri * sin_indirect + ii * cos_indirect;
-                    rr = rr_i;
-                    ir = ir_i;
-                    ri = ri_i;
-                    ii = ii_i;
-                }
-
-                spectrum_obj.raw_data[idx] = rr;
-                if (has_ri) {
-                    spectrum_obj.raw_data_ri[idx] = ri;
-                }
-                if (has_ir) {
-                    spectrum_obj.raw_data_ir[idx] = ir;
-                }
-                if (has_ii) {
-                    spectrum_obj.raw_data_ii[idx] = ii;
-                }
-            }
-        }
-
-        // Keep min/max in sync for contour and UI scaling.
-        let max_v = spectrum_obj.raw_data[0];
-        let min_v = spectrum_obj.raw_data[0];
-        for (let i = 1; i < spectrum_obj.raw_data.length; i++) {
-            if (spectrum_obj.raw_data[i] > max_v) {
-                max_v = spectrum_obj.raw_data[i];
-            }
-            if (spectrum_obj.raw_data[i] < min_v) {
-                min_v = spectrum_obj.raw_data[i];
-            }
-        }
-        spectrum_obj.spectral_max = max_v;
-        spectrum_obj.spectral_min = min_v;
-    }
-
-    function refresh_contours_for_spectrum(index) {
-        const s = hsqc_spectra[index];
-        let spectrum_information = {
-            n_direct: s.n_direct,
-            n_indirect: s.n_indirect,
-            levels: s.levels,
-            spectrum_type: "full",
-            spectrum_index: index,
-            spectrum_origin: s.spectrum_origin,
-            contour_sign: 0
-        };
-        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
-
-        spectrum_information = {
-            n_direct: s.n_direct,
-            n_indirect: s.n_indirect,
-            levels: s.negative_levels,
-            spectrum_type: "full",
-            spectrum_index: index,
-            spectrum_origin: s.spectrum_origin,
-            contour_sign: 1
-        };
-        my_contour_worker.postMessage({ response_value: s.raw_data, spectrum: spectrum_information });
-    }
-
-    function refresh_cross_sections_after_phase(index) {
-        if (!main_plot || !main_plot.b_show_cross_section) {
-            return;
-        }
-
-        const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
-        const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
-
-        const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
-            && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
-
-        if (single_manual_mode) {
-            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
-            return;
-        }
-
-        main_plot.x_cross_section_plot.clear_data();
-        main_plot.y_cross_section_plot.clear_data();
-        for (let i = 0; i < hsqc_spectra.length; i++) {
-            if (hsqc_spectra[i].spectrum_origin > -3) {
-                main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
-            }
-        }
-    }
-
-
     /**
      * Run webass worker to apply phase correction.
      * First, pass the spectrum as a file. 
@@ -4922,7 +5192,32 @@ function apply_current_pc_or_auto_pc(flag) {
         return;
     }
 
-    document.getElementById("webassembly_message").innerText = "Automatic phase correction is not available in worker anymore. Use FID reprocess with auto phase options.";
+    if (flag == 1) {
+        const msgDiv = document.getElementById("webassembly_message");
+        if (msgDiv) {
+            msgDiv.innerText = "Loading TF.js model and running automatic phase correction pipeline...";
+        }
+        const phases = await run_ann_phase_correction_for_spectrum(hsqc_spectra[index]);
+        if (phases) {
+            const s = hsqc_spectra[index];
+            if (s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+                for (let i = 0; i < s.pseudo3d_children.length; i++) {
+                    const child_idx = s.pseudo3d_children[i];
+                    if (hsqc_spectra[child_idx]) {
+                        apply_phase_correction_in_place(hsqc_spectra[child_idx], [[phases[0], phases[1]], [0.0, 0.0]]);
+                        refresh_contours_for_spectrum(child_idx);
+                    }
+                }
+            }
+        }
+        refresh_contours_for_spectrum(index);
+        refresh_cross_sections_after_phase(index);
+
+        if (msgDiv) {
+            msgDiv.innerText = "Automatic Phase Correction Complete!";
+            clear_webassembly_message_after_delay(5000);
+        }
+    }
 }
 
 /**
@@ -5011,13 +5306,16 @@ function get_peak_limit(peak_object, header) {
 function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
         document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
-        document.getElementById("polynomial").value = fid_process_parameters.polynomial;
+        // baseline form controls removed, bypass restoring polynomial order to form
         document.getElementById("hsqc_acquisition_seq").value = fid_process_parameters.acquisition_seq;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
         document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
         document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
+        if (document.getElementById("ann_auto_direct")) {
+            document.getElementById("ann_auto_direct").checked = fid_process_parameters.ann_auto_direct || false;
+        }
         document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
         document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
         document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
@@ -5032,13 +5330,16 @@ function reprocess_spectrum(self, spectrum_index) {
 
     function set_default_fid_parameters() {
         document.getElementById("water_suppression").checked = false;
-        document.getElementById("polynomial").value = -1;
+        // baseline form controls removed, bypass resetting polynomial
         document.getElementById("hsqc_acquisition_seq").value = "321"
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = 0;
         document.getElementById("phase_correction_direct_p1").value = 0;
         document.getElementById("auto_direct").checked = true;
+        if (document.getElementById("ann_auto_direct")) {
+            document.getElementById("ann_auto_direct").checked = false;
+        }
         document.getElementById("delete_imaginary").checked = false
         document.getElementById("extract_direct_from").value = 8.8;
         document.getElementById("extract_direct_to").value = 7.0;
@@ -5554,6 +5855,7 @@ function set_current_spectrum(spectrum_index) {
     }
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
+    update_baseline_button_status(spectrum_index);
 }
 
 
@@ -5580,4 +5882,233 @@ function get_content_size(element_id) {
     console.log('Content Width:', contentWidth);
     console.log('Content Height:', contentHeight);
     return { width: contentWidth, height: contentHeight, boundingClientRectWidth: rect.width, boundingClientRectHeight: rect.height };
+}
+
+/**
+ * Disable UI controls when a background job is running.
+ */
+let active_background_jobs = 0;
+function set_background_processing(is_running) {
+    if (is_running) {
+        active_background_jobs = 1; // Use 1 and 0 to avoid overlaps if messages are out of order
+    } else {
+        active_background_jobs = 0;
+    }
+
+    const disable = active_background_jobs > 0;
+    
+    if (disable) {
+        document.body.classList.add('processing-background-job');
+    } else {
+        document.body.classList.remove('processing-background-job');
+    }
+
+    const selectors = [
+        "#load_and_save input", "#load_and_save button",
+        "#fid_file_area input", "#fid_file_area select", "#fid_file_area button",
+        "#file_area input", "#file_area select", "#file_area button",
+        "#pseudo3d_area input", "#pseudo3d_area select", "#pseudo3d_area button",
+        "#spectra_list input", "#spectra_list select", "#spectra_list button",
+        "#peak_area input", "#peak_area select", "#peak_area button",
+        "#automatic_pc", "#button_apply_ps"
+    ];
+
+    const exceptions = [
+        "start_tutorial", 
+        "button_save",
+        "button_minimize_fid_area",
+        "button_minimize_file_area",
+        "button_minimize_preudo3d_area"
+    ];
+
+    let style = document.getElementById('processing-style');
+    if (!style) {
+        style = document.createElement('style');
+        style.id = 'processing-style';
+        document.head.appendChild(style);
+        
+        let css = '';
+        selectors.forEach(sel => {
+            css += `body.processing-background-job ${sel} { pointer-events: none; opacity: 0.6; }\n`;
+        });
+        exceptions.forEach(id => {
+            css += `body.processing-background-job #${id} { pointer-events: auto !important; opacity: 1 !important; }\n`;
+        });
+        
+        css += `body.processing-background-job #fid_file_area, body.processing-background-job #file_area, body.processing-background-job #pseudo3d_area { pointer-events: none; }\n`;
+        style.innerHTML = css;
+    }
+
+    selectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+            if (exceptions.includes(el.id)) return;
+            
+            if (disable) {
+                if (!el.hasAttribute("data-original-tabindex")) {
+                    el.setAttribute("data-original-tabindex", el.getAttribute("tabindex") || "");
+                }
+                el.setAttribute("tabindex", "-1");
+                el.blur();
+            } else {
+                if (el.hasAttribute("data-original-tabindex")) {
+                    const orig = el.getAttribute("data-original-tabindex");
+                    if (orig === "") {
+                        el.removeAttribute("tabindex");
+                    } else {
+                        el.setAttribute("tabindex", orig);
+                    }
+                    el.removeAttribute("data-original-tabindex");
+                }
+            }
+        });
+    });
+}
+
+const wa_msg_observer_target = document.getElementById("webassembly_message");
+if (wa_msg_observer_target) {
+    const observer = new MutationObserver(function(mutations) {
+        const text = wa_msg_observer_target.innerText.toLowerCase();
+        // check if running or finished
+        const is_running = text.includes("wait") || text.includes("processing") || text.includes("running");
+        const is_finished = text === "" || text.includes("finished") || text.includes("error") || text.includes("failed") || text.includes("complete");
+
+        if (is_running) {
+            set_background_processing(true);
+        } else if (is_finished) {
+            set_background_processing(false);
+        }
+    });
+    observer.observe(wa_msg_observer_target, { childList: true, characterData: true, subtree: true });
+}
+
+/**
+ * Minimizes or restores the floating background log area.
+ */
+function toggle_log_minimize() {
+    const log_area = document.getElementById('log_area');
+    const log_textarea = document.getElementById('log');
+    const min_btn = document.getElementById('button_minimize_log');
+
+    if (!log_area || !log_textarea || !min_btn) return;
+
+    if (log_textarea.style.display === 'none') {
+        log_textarea.style.display = 'block';
+        log_area.style.height = log_area.dataset.lastHeight || '300px';
+        log_area.style.width = log_area.dataset.lastWidth || '500px';
+        log_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        log_area.dataset.lastHeight = log_area.offsetHeight + 'px';
+        log_area.dataset.lastWidth = log_area.offsetWidth + 'px';
+        log_textarea.style.display = 'none';
+        log_area.style.height = 'auto';
+        log_area.style.width = '250px';
+        log_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+/**
+ * Makes the floating background log area draggable by its header.
+ */
+function make_log_movable() {
+    const log_area = document.getElementById("log_area");
+    const header = log_area ? log_area.querySelector(".log-header") : null;
+    if (!log_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function (e) {
+        // If clicking on a button inside the header, don't drag
+        if (e.target.tagName.toLowerCase() === 'button') {
+            return;
+        }
+        e = e || window.event;
+        e.preventDefault();
+
+        // Initial mouse position
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // Current element position
+        let rect = log_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        document.onmouseup = function () {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+
+        document.onmousemove = function (e) {
+            e = e || window.event;
+            e.preventDefault();
+
+            // Calculate distance moved
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+
+            // Apply new position
+            log_area.style.top = (initialTop + dy) + "px";
+            log_area.style.left = (initialLeft + dx) + "px";
+        };
+    };
+}
+
+// Call this once to initialize log dragging
+setTimeout(make_log_movable, 100);
+
+function toggle_baseline_order_visibility() {
+    const method = document.getElementById("baseline_method").value;
+    const container = document.getElementById("baseline_order_container");
+    if (container) {
+        container.style.display = (method === "POLYNORMIAL") ? "inline" : "none";
+    }
+}
+
+function update_baseline_button_status(index) {
+    const btn = document.getElementById("button_apply_baseline");
+    if (!btn) return;
+    btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
+}
+
+async function apply_baseline_correction() {
+    const index = main_plot.current_spectral_index;
+    if (index === -1 || !hsqc_spectra[index]) {
+        console.error("No active spectrum to apply baseline correction.");
+        return;
+    }
+
+    const method = document.getElementById("baseline_method").value;
+    let polyOrder = -2; // NONE
+    if (method === "FLATT") {
+        polyOrder = -1;
+    } else if (method === "POLYNORMIAL") {
+        polyOrder = parseInt(document.getElementById("baseline_order").value, 10);
+    }
+
+    if (polyOrder === -2) {
+        document.getElementById("webassembly_message").innerText = "NONE baseline selected. No correction applied.";
+        return;
+    }
+
+    document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+
+    const s = hsqc_spectra[index];
+
+    // Reconstruct the nmrPipe bytes from s.header and s.raw_data
+    const header = new Float32Array(s.header);
+    header[55] = 1.0; // quad flag: real
+    header[56] = 1.0; // quad flag: real
+    header[219] = s.n_indirect;
+    const spectrumFloat32 = Float32Concat(header, s.raw_data);
+    const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+
+    webassembly_worker.postMessage({
+        [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
+        file_data: inputFt2FileBytes,
+        polynomial_order: polyOrder,
+        spectrum_index: index
+    });
 }

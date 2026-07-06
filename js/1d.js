@@ -2131,12 +2131,19 @@ function disable_enable_peak_buttons(spectrum_index, flag) {
 
 
 
+function check_and_apply_manual_phase() {
+    if (main_plot && main_plot.current_actively_corrected_spectrum_index !== -1) {
+        permanently_apply_phase_correction();
+    }
+}
+
 /**
  * Call DEEP Picker to run peaks picking the spectrum
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
 function run_DEEP_Picker(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     disable_enable_peak_buttons(spectrum_index, 0);
     disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
@@ -2185,6 +2192,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  */
 function run_Voigt_fitter(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
@@ -3005,6 +3013,7 @@ function get_center(peaks) {
  * On-call when button is clicked
  */
 function permanently_apply_phase_correction() {
+    if (main_plot === null) return;
     return_data = main_plot.permanently_apply_phase_correction();
     if (typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
@@ -3045,6 +3054,8 @@ function permanently_apply_phase_correction() {
      */
     document.getElementById("pc_left_end").textContent = "0.0";
     document.getElementById("pc_right_end").textContent = "0.0";
+    const p1_el = document.getElementById("pc_p1");
+    if (p1_el) p1_el.textContent = "0.0";
     document.getElementById("pivot").textContent = "not set";
 
     /**
@@ -3133,109 +3144,110 @@ async function run_auto_pc() {
  * @param {*} ndx 
  */
 async function run_ann_phase_correction(ndx) {
-    /**
-     * Our model was trained using data length of at least 32768,65536 and 131072 points
-     * If data length is less than 32768, alert user but still proceed
-     */
-    if (all_spectra[ndx].raw_data.length < 32768) {
-        alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
-    }
-    document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
-    /**
-     * Disable manual phase correction and myself button during auto phase correction
-     */
-    disable_enable_phase_baseline_buttons(false);
-
-    document.getElementById("log").value += "Starting automatic phase correction using ANN model...\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-
-
-    let result = await get_best_location_diagonal(ndx, 0, 0);
-
-    let current_phase_left = result[0];
-    let current_phase_right = result[1];
-
-    let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
-
-    /**
-     * Now run p1 prediction on the new data to make sure we are at the maximum
-     */
-    const prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
-    let prediction = prediction_all[0];
-
-    /**
-     * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
-    */
-    if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
-        result = await get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, prediction[1]);
-    }
-    else {
-        /**
-         * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
-         * then we can run section search to find the cross point from negative to positive phase error
-         * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
-         * then we can run section search to find the cross point from negative to positive phase error
-         */
-        let b_cross = false;
-        let advance_direction_left = 1;
-        let advance_direction_right = -1;
-        let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
-        while (!b_cross) {
-            // Perform a small phase correction along anti-diagonal direction
-            let current_additional_phase_left = current_additional_phase * advance_direction_left
-            let current_additional_phase_right = current_additional_phase * advance_direction_right;
-            let phase_correction_left = current_phase_left + current_additional_phase_left;
-            let phase_correction_right = current_phase_right + current_additional_phase_right;
-
-            // move phase correction along diagonal line to reach optimal point
-            let p0_result = await get_best_location_diagonal(ndx, phase_correction_left, phase_correction_right);
-            phase_correction_left = p0_result[0];
-            phase_correction_right = p0_result[1];
-            /**
-             * Also use current data to update advance_direction_left and advance_direction_right
-             */
-            advance_direction_left = (phase_correction_left - current_phase_left) / current_additional_phase;
-            advance_direction_right = (phase_correction_right - current_phase_right) / current_additional_phase;
-
-            let data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
-
-            const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
-            let new_prediction = new_prediction_all[0];
-
-            console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
-            console.log("Current P1 prediction: " + new_prediction);
-            document.getElementById("log").value += "Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right + "\n";
-            document.getElementById("log").value += "Current P1 prediction: " + new_prediction + "\n";
-            document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-
-
-            if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
-                b_cross = true;
-                result = await get_maximum_pre1_location_p1(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
-            }
-            //check if we cross the boundary, no need to advance further
-            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
-                b_cross = true;
-                result = await get_cross_point_p1(ndx, phase_correction_left - current_additional_phase_left, phase_correction_right - current_additional_phase_right, current_additional_phase_left, current_additional_phase_right);
-
-            }
-            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
-                b_cross = true;
-                result = await get_cross_point_p1(ndx, phase_correction_left, phase_correction_right, -current_additional_phase_left, -current_additional_phase_right);
-
-            }
-            /**
-             * We haven't crossed yet, continue
-             */
-            prediction = new_prediction;
-            current_phase_left = phase_correction_left;
-            current_phase_right = phase_correction_right;
+    const original_console_log = console.log;
+    const log_div = document.getElementById("log");
+    
+    // Redirect console.log to the log div during processing
+    console.log = function(...args) {
+        original_console_log.apply(console, args);
+        if (log_div) {
+            log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
         }
-    }
+    };
 
-    console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
-    document.getElementById("log").value += "Final phase correction: left end = " + result[0] + ", right end = " + result[1] + "\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    try {
+        if (all_spectra[ndx].raw_data.length < 32768) {
+            alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
+        }
+        document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
+        /**
+         * Disable manual phase correction and myself button during auto phase correction
+         */
+        disable_enable_phase_baseline_buttons(false);
+
+        console.log("Starting automatic phase correction using ANN model...");
+
+        let result = await get_best_location_diagonal(ndx, 0, 0);
+
+        let current_phase_left = result[0];
+        let current_phase_right = result[1];
+
+        let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
+
+        /**
+         * Now run p1 prediction on the new data to make sure we are at the maximum
+         */
+        const prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
+        let prediction = prediction_all[0];
+
+        /**
+         * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
+        */
+        if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
+            result = await get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, prediction[1]);
+        }
+        else {
+            /**
+             * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
+             * then we can run section search to find the cross point from negative to positive phase error
+             * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
+             * then we can run section search to find the cross point from negative to positive phase error
+             */
+            let b_cross = false;
+            let advance_direction_left = 1;
+            let advance_direction_right = -1;
+            let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
+            while (!b_cross) {
+                // Perform a small phase correction along anti-diagonal direction
+                let current_additional_phase_left = current_additional_phase * advance_direction_left
+                let current_additional_phase_right = current_additional_phase * advance_direction_right;
+                let phase_correction_left = current_phase_left + current_additional_phase_left;
+                let phase_correction_right = current_phase_right + current_additional_phase_right;
+
+                // move phase correction along diagonal line to reach optimal point
+                let p0_result = await get_best_location_diagonal(ndx, phase_correction_left, phase_correction_right);
+                phase_correction_left = p0_result[0];
+                phase_correction_right = p0_result[1];
+                /**
+                 * Also use current data to update advance_direction_left and advance_direction_right
+                 */
+                advance_direction_left = (phase_correction_left - current_phase_left) / current_additional_phase;
+                advance_direction_right = (phase_correction_right - current_phase_right) / current_additional_phase;
+
+                let data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
+
+                const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
+                let new_prediction = new_prediction_all[0];
+
+                console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
+                console.log("Current P1 prediction: " + new_prediction);
+
+                if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
+                    b_cross = true;
+                    result = await get_maximum_pre1_location_p1(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
+                }
+                //check if we cross the boundary, no need to advance further
+                else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
+                    b_cross = true;
+                    result = await get_cross_point_p1(ndx, phase_correction_left - current_additional_phase_left, phase_correction_right - current_additional_phase_right, current_additional_phase_left, current_additional_phase_right);
+
+                }
+                else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
+                    b_cross = true;
+                    result = await get_cross_point_p1(ndx, phase_correction_left, phase_correction_right, -current_additional_phase_left, -current_additional_phase_right);
+
+                }
+                /**
+                 * We haven't crossed yet, continue
+                 */
+                prediction = new_prediction;
+                current_phase_left = phase_correction_left;
+                current_phase_right = phase_correction_right;
+            }
+        }
+
+        console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
 
     /**
      * result is the best location (phase correction at left end and right end)
@@ -3287,18 +3299,21 @@ async function run_ann_phase_correction(ndx) {
         }
         main_plot.add_data(data, ndx);
     }
-    /**
-     * Enable manual phase correction and myself button after auto phase correction
-     */
-    disable_enable_phase_baseline_buttons(true);
+        /**
+         * Enable manual phase correction and myself button after auto phase correction
+         */
+        disable_enable_phase_baseline_buttons(true);
 
-    // Notify completion of TFJS phase correction
-    // Dispatch on the button so the tutorial listener which is attached to the button can catch it
-    const btn = document.getElementById("button_fid_process");
-    if (btn) {
-        btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+        // Notify completion of TFJS phase correction
+        // Dispatch on the button so the tutorial listener which is attached to the button can catch it
+        const btn = document.getElementById("button_fid_process");
+        if (btn) {
+            btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+        }
+    } finally {
+        console.log = original_console_log;
+        document.getElementById("webassembly_message").innerText = "";
     }
-    document.getElementById("webassembly_message").innerText = "";
 }
 
 /**
@@ -3586,9 +3601,9 @@ async function get_maximum_pre1_location_2(ndx, current_phase_left, current_phas
         /**
          * Begin to decrease, we are done.
          */
-        // console.log("Current phase correction: left end = " + current_phase_left + ", right end = " + current_phase_right);
-        // console.log("previous P0 prediction: " + current_prediction1);
-        // console.log("Current P0 prediction: " + new_prediction[1]);
+        console.log("Current phase correction: left end = " + current_phase_left + ", right end = " + current_phase_right);
+        console.log("previous P0 prediction: " + current_prediction1);
+        console.log("Current P0 prediction: " + new_prediction[1]);
         return [current_phase_left, current_phase_right];
     }
     else {
@@ -3610,7 +3625,7 @@ async function get_maximum_pre1_location_2(ndx, current_phase_left, current_phas
 async function runPrediction(data, data_length, flag = 0) {
     // 1. Load the model
     const model = await (flag === 0 ? tf.loadGraphModel('./saved_model_p0/model.json') : tf.loadGraphModel('./saved_model_p1/model.json'));
-    // console.log('Model loaded successfully!');
+    console.log('Model loaded successfully!');
 
     // 2. Preprocess Input Data (Example). n_data is batch size in our prediction
     // Because of limited resources in browser, we only process one or two spectrum at a time.
@@ -3651,14 +3666,14 @@ async function runPrediction(data, data_length, flag = 0) {
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
-    // console.log('Processing output...');
+    console.log('Processing output...');
     const outputData = prediction.dataSync();
 
     const probabilities = Array.from(outputData);
 
-    // console.log(`Prediction finished.`);
-    // console.log("outputData: ", outputData);
-    // console.log('Output Probabilities:', probabilities);
+    console.log(`Prediction finished.`);
+    console.log("outputData: ", outputData);
+    console.log('Output Probabilities:', probabilities);
 
     /**
      * Convert probabilities_p0 from 1*27 to 9*3
@@ -3667,7 +3682,7 @@ async function runPrediction(data, data_length, flag = 0) {
     for (let i = 0; i < n_data; i++) {
         reshapedProbabilities.push(probabilities.slice(i * 3, (i + 1) * 3));
     }
-    // console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
+    console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
@@ -3683,6 +3698,7 @@ async function runPrediction(data, data_length, flag = 0) {
  * User click button to run baseline estimation
  */
 function run_baseline_correction() {
+    check_and_apply_manual_phase();
     if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for baseline correction.");
         return;
@@ -4520,3 +4536,80 @@ function exit_reprocessing_ui(index) {
         if (div) div.style.backgroundColor = ""; // Reset to default (or remove inline style)
     }
 }
+
+/**
+ * Minimizes or restores the floating background log area.
+ */
+function toggle_log_minimize() {
+    const log_area = document.getElementById('log_area');
+    const log_textarea = document.getElementById('log');
+    const min_btn = document.getElementById('button_minimize_log');
+
+    if (!log_area || !log_textarea || !min_btn) return;
+
+    if (log_textarea.style.display === 'none') {
+        log_textarea.style.display = 'block';
+        log_area.style.height = log_area.dataset.lastHeight || '300px';
+        log_area.style.width = log_area.dataset.lastWidth || '500px';
+        log_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        log_area.dataset.lastHeight = log_area.offsetHeight + 'px';
+        log_area.dataset.lastWidth = log_area.offsetWidth + 'px';
+        log_textarea.style.display = 'none';
+        log_area.style.height = 'auto';
+        log_area.style.width = '250px';
+        log_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+/**
+ * Makes the floating background log area draggable by its header.
+ */
+function make_log_movable() {
+    const log_area = document.getElementById("log_area");
+    const header = log_area ? log_area.querySelector(".log-header") : null;
+    if (!log_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function (e) {
+        // If clicking on a button inside the header, don't drag
+        if (e.target.tagName.toLowerCase() === 'button') {
+            return;
+        }
+        e = e || window.event;
+        e.preventDefault();
+
+        // Initial mouse position
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // Current element position
+        let rect = log_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        document.onmouseup = function () {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+
+        document.onmousemove = function (e) {
+            e = e || window.event;
+            e.preventDefault();
+
+            // Calculate distance moved
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+
+            // Apply new position
+            log_area.style.top = (initialTop + dy) + "px";
+            log_area.style.left = (initialLeft + dx) + "px";
+        };
+    };
+}
+
+// Call this once to initialize log dragging
+setTimeout(make_log_movable, 100);

@@ -106,6 +106,8 @@
                                 value="0" step="any">
                             <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
                             <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="ann_auto_direct" id="ann_auto_direct" value="yes">
+                            <label for="ann_auto_direct">ANN Auto PC</label>
                             <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
                             <label for="delete_imaginary">Delete imaginary data
                         </span>
@@ -149,15 +151,6 @@
                             <label for="delete_imaginary_indirect">Delete imaginary data
                         </span>
 
-                        <span>
-                            <label for="polynomial">polynomial baseline correction at order </label>
-                            <select name="polynomial" id="polynomial">
-                                <option value="-1">none</option>
-                                <option value="0">0</option>
-                                <option value="1">1</option>
-                                <option value="2">2</option>
-                            </select>
-                        </span>
 
                         <span>
                             <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
@@ -273,6 +266,24 @@
                         <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
                         <button onclick="download_plot()">Download plot</button>
                         <br>
+                        <label for="baseline_method">Baseline: </label>
+                        <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
+                            <option value="NONE">NONE</option>
+                            <option value="FLATT">FLATT</option>
+                            <option value="POLYNORMIAL">POLYNORMIAL</option>
+                        </select>
+                        <span id="baseline_order_container" style="display: none;">
+                            <label for="baseline_order">at order </label>
+                            <select id="baseline_order" style="width: auto; display: inline;">
+                                <option value="0">0</option>
+                                <option value="1">1</option>
+                                <option value="2" selected>2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                            </select>
+                        </span>
+                        <button id="button_apply_baseline" disabled onclick="apply_baseline_correction()">Apply Baseline</button>
+                        <br>
 
 
                         <label for="peak_size">Peak size: </label>
@@ -352,7 +363,7 @@
                                 <div id="cross_section_x_info" class="tooltip"
                                     style="display:none; position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
                                     p0 = <span id="p0_direct">0</span>. Anchor = <span id="anchor_direct">not
-                                        set</span>. P1 = <span id="p1_direct">0</span>.
+                                        set</span> (phase at anchor = <span id="anchor_phase_direct">N.A.</span>). P1 = <span id="p1_direct">0</span>.
                                 </div>
                                 <svg id="cross_section_svg_x" width="1200" height="200"></svg>
                             </div>
@@ -365,7 +376,7 @@
                                 <div id="cross_section_y_info" class="tooltip"
                                     style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
                                     p0 = <span id="p0_indirect">0</span>.<br>
-                                    Anchor = <span id="anchor_indirect">not set</span>.<br>
+                                    Anchor = <span id="anchor_indirect">not set</span> (phase at anchor = <span id="anchor_phase_indirect">N.A.</span>).<br>
                                     P1 = <span id="p1_indirect">0</span>.
                                 </div>
                                 <svg id="cross_section_svg_y" width="200" height="800"></svg>
@@ -404,11 +415,16 @@
 
             </div>
 
-            <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
-                <h4>Background server log:</h4>
-                <textarea id="log" rows="50" cols="120" readonly></textarea>
-                <button onclick="clear_log()">Clear log</button>
-                <button onclick="download_log()">Download log</button>
+            <div id="log_area" class="drop-area-neighbor">
+                <div class="log-header">
+                    <strong>Background server log:</strong>
+                    <div class="log-actions">
+                        <button onclick="clear_log()">Clear</button>
+                        <button onclick="download_log()">Download</button>
+                        <button id="button_minimize_log" onclick="toggle_log_minimize()">—</button>
+                    </div>
+                </div>
+                <textarea id="log" readonly></textarea>
             </div>
 
         </div>
@@ -433,7 +449,9 @@
         <script type="text/javascript" src="js/file_drop.js"></script>
         <script type="text/javascript" src="js/make_table.js"></script>
         <script type="text/javascript" src="js/simple_peak_picker.js"></script>
-        <script type="text/javascript" src="js/nmrwebview.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+        <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
+        <script type="text/javascript" src="js/2d.js"></script>
         <script type="text/javascript" src="js/tutorial.js"></script>
     </div>
 </body>

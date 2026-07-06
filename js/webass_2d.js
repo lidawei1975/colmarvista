@@ -89,16 +89,12 @@ self.onmessage = async function (event) {
                     throw new Error('indirect_only_process failed');
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
-                    }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
-                finally {
-                    outputVec.delete();
-                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
             }
             finally {
                 processor.delete();
@@ -255,16 +251,12 @@ self.onmessage = async function (event) {
                     throw new Error('direct_only_process failed');
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
-                    }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
                 }
-                finally {
-                    outputVec.delete();
-                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
             }
             finally {
                 processor.delete();
@@ -374,12 +366,6 @@ self.onmessage = async function (event) {
                 if (!processor.full_process(options.deleteDirect, options.deleteIndirect)) {
                     throw new Error('full_process failed');
                 }
-                const polynomialOrder = toInt(options.polynomial, 0);
-                if (polynomialOrder > 0) {
-                    if (!processor.polynorminal_baseline(polynomialOrder)) {
-                        throw new Error('polynorminal_baseline failed');
-                    }
-                }
             };
 
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
@@ -422,7 +408,6 @@ self.onmessage = async function (event) {
                     waterSuppression: event.data.water_suppression === true,
                     deleteDirect: event.data.delete_direct === true,
                     deleteIndirect: event.data.delete_indirect === true,
-                    polynomial: event.data.polynomial,
                     applyExtraction: true,
                     extractFrom: toFloat(event.data.extract_direct_from, 8.8),
                     extractTo: toFloat(event.data.extract_direct_to, 7.0)
@@ -451,19 +436,32 @@ self.onmessage = async function (event) {
                     processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
                 }
 
-                const outputVec = new Module.VectorUChar();
-                try {
-                    if (!processor.write_nmrpipe_ft2_to_buffer(outputVec)) {
-                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                const polynomialOrder = toInt(event.data.polynomial, -2);
+                if (polynomialOrder !== -2) {
+                    if (!processor.polynorminal_baseline(polynomialOrder, true, 1e7, 1.5, 5)) {
+                        throw new Error('polynorminal_baseline failed');
                     }
-                    file_data = convertVectorUCharToUint8Array(outputVec);
-                }
-                finally {
-                    outputVec.delete();
                 }
 
+                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                }
+                const size = processor.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
+
                 if (processAllPlanes) {
-                    postMessage({ stdout: "Pseudo-3D all-planes export is under development. Returning first plane only." });
+                    const numPlanes = processor.get_nspectra();
+                    postMessage({ stdout: "Exporting all " + numPlanes + " planes of Pseudo-3D spectrum..." });
+                    for (let i = 1; i < numPlanes; i++) {
+                        const planeAddressVal = Number(processor.write_nmrpipe_ft2_to_buffer_index(i));
+                        if (planeAddressVal === 0) {
+                            throw new Error('write_nmrpipe_ft2_to_buffer_index failed for plane ' + i);
+                        }
+                        const planeSize = processor.get_ft2_size_in_float32();
+                        const planeData = new Uint8Array(Module.HEAPF32.buffer, planeAddressVal, planeSize * 4).slice();
+                        pseudo3d_files.push(planeData);
+                    }
                 }
             }
             finally {
@@ -911,6 +909,74 @@ self.onmessage = async function (event) {
 
         nmrpipe_bytes.delete();
         obj.delete();
+    }
+
+    else if (webassembly_job === "baseline_correction") {
+        try {
+            const encodeBytes = function (input) {
+                if (input instanceof Uint8Array) {
+                    return input;
+                }
+                return new Uint8Array(input);
+            };
+
+            const inputBytes = encodeBytes(event.data.file_data);
+            if (inputBytes.length <= 512 * 4) {
+                throw new Error('Invalid nmrPipe payload for baseline_correction');
+            }
+
+            const polyOrder = parseInt(event.data.polynomial_order, 10);
+            
+            const nmrpipeBytesVec = new Module.VectorUChar();
+            for (let i = 0; i < inputBytes.length; i++) {
+                nmrpipeBytesVec.push_back(inputBytes[i]);
+            }
+
+            const fid = new Module.fid_2d();
+            let file_data;
+            try {
+                const successRead = fid.read_nmrpipe_file_from_buffer(nmrpipeBytesVec);
+                if (!successRead) {
+                    throw new Error("Failed to read NMRPipe file from buffer.");
+                }
+
+                const successProcess = fid.other_process(true, true);
+                if (!successProcess) {
+                    throw new Error("Other process failed.");
+                }
+
+                const traceByTrace = true;
+                const flattA = 1e9;         // default regularizer parameter 'a'
+                const flattB = 1.5;         // default asymmetric constraint penalty 'b'
+                const regionFlag = 5;       // -region-flag 5
+                
+                const successBaseline = fid.polynorminal_baseline(polyOrder, traceByTrace, flattA, flattB, regionFlag);
+                if (!successBaseline) {
+                    throw new Error("Baseline correction failed.");
+                }
+
+                const addressVal = Number(fid.write_nmrpipe_ft2_to_buffer());
+                if (addressVal === 0) {
+                    throw new Error("Failed to export FT2 spectrum to buffer.");
+                }
+
+                const sizeInFloat32 = fid.get_ft2_size_in_float32();
+                file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, sizeInFloat32 * 4).slice();
+            } finally {
+                fid.delete();
+                nmrpipeBytesVec.delete();
+            }
+
+            self.postMessage({
+                [WEBASSEMBLY_JOB_KEY]: webassembly_job,
+                file_data: file_data,
+                spectrum_index: event.data.spectrum_index,
+                polynomial_order: polyOrder
+            });
+        } catch (error) {
+            const errorText = error && error.message ? error.message : String(error);
+            self.postMessage({ error: "baseline_correction: " + errorText });
+        }
     }
 
     else if (webassembly_job === "assignment") {

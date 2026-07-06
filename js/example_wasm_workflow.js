@@ -266,7 +266,7 @@ function applyBaselineCorrection(fid2dInstance) {
   console.log("\n========== Baseline Correction ==========");
 
   // PLACEHOLDER: Polynomial order
-  // Typical values: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic)
+  // Typical values: 0 (constant), 1 (linear), 2 (quadratic), 3 (cubic), 4 (quartic)
   const polynomial_order = 1; // PLACEHOLDER: Change based on baseline shape
 
   console.log(`\n1. Applying polynomial baseline correction (order=${polynomial_order})...`);
@@ -676,7 +676,7 @@ async function handleFormSubmit(event) {
  *   Perform complete FFT in both dimensions
  * 
  * • polynorminal_baseline(order: int) → bool
- *   Apply polynomial baseline correction (order 0-3)
+ *   Apply polynomial baseline correction (order 0-4)
  * 
  * • write_json(filename: string) → bool
  *   Export metadata to JSON file
