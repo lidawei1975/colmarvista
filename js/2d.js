@@ -587,8 +587,14 @@ $(document).ready(function () {
              * Normal or NUS processing 
              */
             let webassembly_job = "process_fid";
+            let nus_auto_phase_prep = false;
             if (current_fid_files.length === 4) {
-                webassembly_job = "nus_step1";
+                if (auto_direct || ann_auto_direct) {
+                    webassembly_job = "process_fid";
+                    nus_auto_phase_prep = true;
+                } else {
+                    webassembly_job = "nus_step1";
+                }
             }
 
             fid_process_parameters = {
@@ -601,10 +607,10 @@ $(document).ready(function () {
                 neg_imaginary: neg_imaginary,
                 apodization_direct: apodization_direct,
                 apodization_indirect: apodization_indirect,
-                auto_direct: auto_direct,
-                auto_indirect: auto_indirect,
-                ann_auto_direct: ann_auto_direct,
-                delete_direct: delete_direct_worker,
+                auto_direct: nus_auto_phase_prep ? false : auto_direct,
+                auto_indirect: nus_auto_phase_prep ? false : auto_indirect,
+                ann_auto_direct: nus_auto_phase_prep ? false : ann_auto_direct,
+                delete_direct: nus_auto_phase_prep ? false : delete_direct_worker,
                 delete_direct_after_ann: delete_direct,
                 delete_indirect: delete_indirect,
                 phase_correction_direct_p0: phase_correction_direct_p0,
@@ -617,6 +623,7 @@ $(document).ready(function () {
                 extract_direct_to: extract_direct_to,
                 processing_flag: processing_flag, //0: process, 1: reprocess
                 spectrum_index: spectrum_index, //not used if not reprocessing
+                nus_auto_phase_prep: nus_auto_phase_prep
             };
 
             if (processing_flag == 1) {
@@ -1568,6 +1575,34 @@ webassembly_worker.onmessage = async function (e) {
      * from the time domain spectrum
      */
     else if (e.data.file_data && e.data.file_type && (e.data.file_type === 'full' || e.data.file_type === 'indirect') && e.data.phasing_data) {
+        if (e.data.nus_auto_phase_prep) {
+            let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+            let result_spectrum = new spectrum();
+            result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
+            result_spectrum.fid_process_parameters = fid_process_parameters;
+
+            const msgDiv = document.getElementById("webassembly_message");
+            if (msgDiv) {
+                msgDiv.innerText = "Running ANN automatic phase correction on full spectrum...";
+            }
+            
+            // Run ANN phase correction to predict correct direct phase correction
+            await run_ann_phase_correction_for_spectrum(result_spectrum);
+            
+            // Turn off auto phase checks to prevent infinite loops in the next execution
+            document.getElementById("auto_direct").checked = false;
+            if (document.getElementById("ann_auto_direct")) {
+                document.getElementById("ann_auto_direct").checked = false;
+            }
+            
+            if (msgDiv) {
+                msgDiv.innerText = "Direct dimension phase correction obtained. Running direct-only processing, NUS reconstruction, and indirect processing...";
+            }
+            
+            // Run actual NUS workflow with the predicted phase values (now populated in UI)
+            process_fid_files(e.data.processing_flag, e.data.spectrum_index);
+            return;
+        }
 
         /**
          * e.data.phasing_data is a string with 4 numbers separated by space(s)

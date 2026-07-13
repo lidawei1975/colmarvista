@@ -1,4 +1,41 @@
-// worker.js
+/**
+ * worker.js (webass_2d.js)
+ * 
+ * DESIGN NOTE: NUS 2D Direct Dimension Automatic Phase Correction Workflow
+ * ------------------------------------------------------------------------
+ * When a Non-Uniformly Sampled (NUS) 2D spectrum requires automatic direct-dimension
+ * phase correction, the system employs a multi-step pipeline that reuses standard
+ * processing components:
+ * 
+ * Step 1: Prep Processing
+ * - If it's a NUS spectrum (length 4) and auto direct phasing is requested (auto_direct or ann_auto_direct),
+ *   the system first runs a full standard 2D processing job (job: "process_fid") on the raw files 
+ *   WITHOUT NUS reconstruction, preserving the artifacts.
+ * - During this prep run, entropy-based auto phasing is skipped on the worker (auto_direct/auto_indirect 
+ *   are forced to false) and imaginary data is retained (delete_direct is forced to false) so that 
+ *   the full raw frequency/imaginary dataset is available.
+ * 
+ * Step 2: ANN Inference
+ * - Once the prep run completes, the main thread receives the intermediate full spectrum and runs 
+ *   TensorFlow.js ANN-based phase correction (NUS2DPhasePipeline) to predict the correct direct 
+ *   p0 and p1 phase values.
+ * 
+ * Step 3: Reconstruction & Final Processing
+ * - The predicted phase values are written back to the HTML UI phase inputs, and the auto-phasing 
+ *   checkboxes are unchecked.
+ * - The main thread automatically triggers the standard NUS processing pipeline again. Since the 
+ *   auto-phasing checkboxes are now false, it runs the standard NUS pipeline using the newly obtained 
+ *   direct phase values:
+ *     (a) Direct-only processing ("nus_step1")
+ *     (b) SMILE NUS reconstruction (webass_smile.js / nuspipe)
+ *     (c) Indirect-only processing ("nus_step2")
+ * 
+ * Benefits:
+ * - This design ensures that the exact same NUS reconstruction and indirect dimension processing 
+ *   code path is reused for both:
+ *     (1) Auto-phased NUS spectra after phases are predicted and loaded.
+ *     (2) Manually-phased NUS spectra where the user inputs the phase values directly.
+ */
 
 // Import Emscripten factory function
 importScripts('webdp1d_cpp.js');
@@ -479,6 +516,7 @@ self.onmessage = async function (event) {
                 processing_flag: event.data.processing_flag,
                 spectrum_index: event.data.spectrum_index,
                 pseudo3d_children: event.data.pseudo3d_children,
+                nus_auto_phase_prep: event.data.nus_auto_phase_prep,
             });
         }
         catch (error) {
