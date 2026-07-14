@@ -408,6 +408,10 @@ self.onmessage = async function (event) {
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
             const fidBytes = encodeBytes(event.data.file_data[2]);
+            let nusListText = "";
+            if (event.data.file_data.length === 4) {
+                nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
+            }
 
             const fidBytesVec = new Module.VectorUChar();
             for (let i = 0; i < fidBytes.length; i++) {
@@ -434,6 +438,11 @@ self.onmessage = async function (event) {
             let pseudo3d_files = [];
             try {
                 initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, fidBytesVec);
+                if (nusListText) {
+                    if (!processor.read_nus_list_from_string(nusListText)) {
+                        throw new Error('read_nus_list_from_string failed');
+                    }
+                }
                 configureCommon(processor, {
                     acquisitionSeq: acquisitionSeq,
                     negativeImaginary: negativeImaginary,

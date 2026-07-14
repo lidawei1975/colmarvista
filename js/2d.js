@@ -71,6 +71,7 @@ var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estima
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
 var nuslist_as_string = "";
+var current_process_fid_files_fn;
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -496,6 +497,7 @@ $(document).ready(function () {
     document.getElementById('fid_file_form').addEventListener('submit', function (e) {
 
         let current_fid_files;
+        current_process_fid_files_fn = process_fid_files;
 
 
         /**
@@ -1600,7 +1602,9 @@ webassembly_worker.onmessage = async function (e) {
             }
             
             // Run actual NUS workflow with the predicted phase values (now populated in UI)
-            process_fid_files(e.data.processing_flag, e.data.spectrum_index);
+            if (typeof current_process_fid_files_fn === "function") {
+                current_process_fid_files_fn(e.data.processing_flag, e.data.spectrum_index);
+            }
             return;
         }
 
@@ -5106,15 +5110,24 @@ async function run_ann_phase_correction_for_spectrum(s) {
 
         console.log("[ANN Reprocess] Inference complete!", result);
 
-        const finalPhases = result.final_wls_phase_left_right[0];
-        const leftEdge = -finalPhases[0];
-        const rightEdge = -finalPhases[1];
-        const nx = s.n_direct;
+        const finalPhases = result.final_wls_phase_left_right ? result.final_wls_phase_left_right[0] : null;
+        let p0 = 0.0;
+        let p1 = 0.0;
 
-        const p0 = -leftEdge;
-        const p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
-
-        console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+        if (finalPhases && Number.isFinite(finalPhases[0]) && Number.isFinite(finalPhases[1])) {
+            const leftEdge = -finalPhases[0];
+            const rightEdge = -finalPhases[1];
+            const nx = s.n_direct;
+            p0 = -leftEdge;
+            p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
+            console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+        } else {
+            console.warn("[ANN Reprocess] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.");
+            if (log_div) {
+                log_div.value += "[WARNING] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.\n";
+                log_div.scrollTop = log_div.scrollHeight;
+            }
+        }
 
         const phase_deg = [[p0, p1], [0.0, 0.0]];
         apply_phase_correction_in_place(s, phase_deg);
