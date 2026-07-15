@@ -189,6 +189,7 @@ self.onmessage = async function (event) {
 
             const acqusText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acqu2sText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const acqu3sText = event.data.acqu3s_content || "";
             const fidBytes = encodeBytes(event.data.file_data[2]);
             const nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
 
@@ -197,7 +198,6 @@ self.onmessage = async function (event) {
                 fidBytesVec.push_back(fidBytes[i]);
             }
 
-            const acquisitionSeq = String(event.data.acquisition_seq);
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const apodizationDirect = String(event.data.apodization_direct);
@@ -210,7 +210,7 @@ self.onmessage = async function (event) {
             if (event.data.auto_direct === true) {
                 const estimator = new Module.spectrum_phasing();
                 try {
-                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
                     if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -218,9 +218,6 @@ self.onmessage = async function (event) {
                     }
                     if (!estimator.read_nus_list_from_string(nusListText)) {
                         throw new Error('read_nus_list_from_string failed');
-                    }
-                    if (!estimator.set_aqseq(acquisitionSeq)) {
-                        throw new Error('set_aqseq failed');
                     }
                     estimator.set_negative(negativeImaginary);
                     estimator.set_first_only(true);
@@ -260,9 +257,6 @@ self.onmessage = async function (event) {
                 if (!processor.read_nus_list_from_string(nusListText)) {
                     throw new Error('read_nus_list_from_string failed');
                 }
-                if (!processor.set_aqseq(acquisitionSeq)) {
-                    throw new Error('set_aqseq failed');
-                }
                 if (!processor.extract_region_ppm(toFloat(event.data.extract_direct_from, 8.8), toFloat(event.data.extract_direct_to, 7.0))) {
                     throw new Error('extract_region_ppm failed');
                 }
@@ -277,7 +271,7 @@ self.onmessage = async function (event) {
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
-                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
                 if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -371,8 +365,8 @@ self.onmessage = async function (event) {
                 return result;
             };
 
-            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, fidBytesVec) {
-                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, acqu3sText, fidBytesVec) {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
                 if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -381,9 +375,6 @@ self.onmessage = async function (event) {
             };
 
             const configureCommon = function (processor, options) {
-                if (!processor.set_aqseq(options.acquisitionSeq)) {
-                    throw new Error('set_aqseq failed');
-                }
                 if (options.applyExtraction === true) {
                     if (!processor.extract_region_ppm(options.extractFrom, options.extractTo)) {
                         throw new Error('extract_region_ppm failed');
@@ -407,6 +398,7 @@ self.onmessage = async function (event) {
 
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const acqu3sText = event.data.acqu3s_content || "";
             const fidBytes = encodeBytes(event.data.file_data[2]);
             let nusListText = "";
             if (event.data.file_data.length === 4) {
@@ -418,7 +410,6 @@ self.onmessage = async function (event) {
                 fidBytesVec.push_back(fidBytes[i]);
             }
 
-            const acquisitionSeq = String(event.data.acquisition_seq);
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const zfIndirect = toInt(event.data.zf_indirect, 1);
@@ -437,14 +428,13 @@ self.onmessage = async function (event) {
             let file_data;
             let pseudo3d_files = [];
             try {
-                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, fidBytesVec);
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
                 if (nusListText) {
                     if (!processor.read_nus_list_from_string(nusListText)) {
                         throw new Error('read_nus_list_from_string failed');
                     }
                 }
                 configureCommon(processor, {
-                    acquisitionSeq: acquisitionSeq,
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,
                     zfDirect: zfDirect,

@@ -134,44 +134,7 @@ class file_drop_processor {
             container.items.add(file);
             let file_id = this.files_id[this.files_name.indexOf(file.name)];
 
-            /**
-             * A special case for the file input id "hsqc_acquisition_file2"
-             * File name can be acqu2s or acqu3s. 
-             * we will read the file (either acqu2s or acqu3s) as a text file.
-             * if it contains line "##$FnMODE= 1", skip the file
-             */
-            if (file_id === "acquisition_file2" && (file.name === "acqu3s" || file.name === "acqu2s")) {
-
-                /**
-                 * Read the file as text
-                 */
-                let file_data = await this.read_file_text_safe(file);
-                /**
-                 * Split the file_data by line (line break)
-                 */
-                let lines = file_data.split(/\r?\n/);
-                /**
-                 * Loop all lines, find line start with "##$FnMODE=", get the value after "="
-                 */
-                let fnmode = null;
-                for (let i = 0; i < lines.length; i++) {
-                    const m = lines[i].match(/^\s*##\$FnMODE\s*=\s*(-?\d+)/);
-                    if (m) {
-                        fnmode = parseInt(m[1], 10);
-                        break;
-                    }
-                }
-                /**
-                 * Attach acqu2s unconditionally (2D indirect acquisition file).
-                 * Keep acqu3s guarded by FnMODE when available.
-                */
-                if (file.name === "acqu2s" || fnmode === null || (fnmode > 1 && fnmode !== 7)) {
-                    document.getElementById(file_id).files = container.files;
-                    document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            }
-
-            else if (file_id === "nuslist_file") {
+            if (file_id === "nuslist_file") {
                 document.getElementById(file_id).files = container.files;
                 /**
                  * Special case for nuslist file. 

@@ -66,8 +66,10 @@
                             acqus):</label>
                         <input type="file" name="acquisition_file" id="acquisition_file"><br>
                         <label for="acquisition_file2">Indirect dimension acquisition file (required, usually called
-                            acqu2s (in pseudo-3D, might be acqu3s or acqu2s)): </label>
+                            acqu2s): </label>
                         <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
+                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (optional, usually called acqu3s): </label>
+                        <input type="file" name="acquisition_file3" id="acquisition_file3"><br>
                         <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist):
                         </label>
                         <input type="file" name="nuslist_file" id="nuslist_file"><br>
@@ -155,14 +157,6 @@
                         <span>
                             <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
                             <label for="neg_imaginary">Negative imaginary data (indirect dimension)?</label>
-                        </span>
-
-                        <span>
-                            <label for="hsqc_acquisition_seq">pseudo-3D acquisition sequence </label>
-                            <select name="hsqc_acquisition_seq" id="hsqc_acquisition_seq">
-                                <option value="321">321</option>
-                                <option value="312">312</option>
-                            </select>
                         </span>
 
                         <span>

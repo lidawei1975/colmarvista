@@ -219,7 +219,7 @@ $(document).ready(function () {
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
         .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file2", "acquisition_file2", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
+        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
@@ -497,6 +497,7 @@ $(document).ready(function () {
     document.getElementById('fid_file_form').addEventListener('submit', function (e) {
 
         let current_fid_files;
+        let acqu3s_as_string = "";
         current_process_fid_files_fn = process_fid_files;
 
 
@@ -514,10 +515,6 @@ $(document).ready(function () {
              * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
              */
             let polynomial = -2;
-            /**
-             * Get HTML select "hsqc_acquisition_seq" value: "321" or "312"
-            */
-            let acquisition_seq = document.getElementById("hsqc_acquisition_seq").value;
 
             /**
              * Get HTML text input apodization_direct
@@ -604,7 +601,7 @@ $(document).ready(function () {
                 water_suppression: water_suppression,
                 polynomial: polynomial,
                 file_data: current_fid_files,
-                acquisition_seq: acquisition_seq,
+                acqu3s_content: acqu3s_as_string,
                 pseudo3d_process: pseudo3d_process,
                 neg_imaginary: neg_imaginary,
                 apodization_direct: apodization_direct,
@@ -657,6 +654,7 @@ $(document).ready(function () {
 
         if (button_value === "Reprocess") {
             current_fid_files = hsqc_spectra[current_reprocess_spectrum_index].fid_process_parameters.file_data;
+            acqu3s_as_string = hsqc_spectra[current_reprocess_spectrum_index].fid_process_parameters.acqu3s_content || "";
 
             process_fid_files(1, current_reprocess_spectrum_index);
         }
@@ -669,6 +667,7 @@ $(document).ready(function () {
 
             let acquisition_file = document.getElementById('acquisition_file').files[0];
             let acquisition_file2 = document.getElementById('acquisition_file2').files[0];
+            let acquisition_file3 = document.getElementById('acquisition_file3').files[0];
             let fid_file = document.getElementById('fid_file').files[0];
             /**
              * Nuslist file is optional (for non-uniform sampling)
@@ -676,40 +675,47 @@ $(document).ready(function () {
              */
             let nuslist_file = document.getElementById('nuslist_file').files[0];
 
-
-
-            let promises;
-            if (typeof nuslist_file === "undefined") {
-                promises = [read_file(acquisition_file), read_file(acquisition_file2), read_file(fid_file)];
-            }
-            else {
-                promises = [read_file(acquisition_file), read_file(acquisition_file2), read_file(fid_file), read_file(nuslist_file)];
-            }
+            let promises = [
+                read_file(acquisition_file),
+                read_file(acquisition_file2),
+                read_file(fid_file),
+                nuslist_file ? read_file(nuslist_file) : Promise.resolve(null),
+                acquisition_file3 ? read_file_text(acquisition_file3) : Promise.resolve("")
+            ];
 
             Promise.all(promises)
                 .then((result) => {
+                    const acqus_buf = result[0];
+                    const acqu2s_buf = result[1];
+                    const fid_buf = result[2];
+                    const nuslist_buf = result[3];
+                    const acqu3s_text = result[4];
 
                     /**
                      * For each element in result (raw data of the files), we will convert it to Uint8Array
                      * so that they can be transferred to the worker
                      */
-                    if (typeof nuslist_file === "undefined") {
-                        current_fid_files = [new Uint8Array(result[0]), new Uint8Array(result[1]), new Uint8Array(result[2])];
+                    if (nuslist_buf === null) {
+                        current_fid_files = [new Uint8Array(acqus_buf), new Uint8Array(acqu2s_buf), new Uint8Array(fid_buf)];
                     }
                     else {
-                        current_fid_files = [new Uint8Array(result[0]), new Uint8Array(result[1]), new Uint8Array(result[2]), new Uint8Array(result[3])];
+                        current_fid_files = [new Uint8Array(acqus_buf), new Uint8Array(acqu2s_buf), new Uint8Array(fid_buf), new Uint8Array(nuslist_buf)];
                         /**
                          * convert nuslist file content (arrayBuffer) to string
                          */
-                        let nuslist_array = new Uint8Array(result[3]);
+                        let nuslist_array = new Uint8Array(nuslist_buf);
                         nuslist_as_string = String.fromCharCode.apply(null, nuslist_array);
                     }
+
+                    acqu3s_as_string = acqu3s_text || "";
 
                     /**
                      * Clear file input
                      */
                     document.getElementById('acquisition_file').value = "";
                     document.getElementById('acquisition_file2').value = "";
+                    const acqu3El = document.getElementById('acquisition_file3');
+                    if (acqu3El) acqu3El.value = "";
                     document.getElementById('fid_file').value = "";
                     document.getElementById('nuslist_file').value = "";
 
@@ -5355,7 +5361,6 @@ function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
         document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
         // baseline form controls removed, bypass restoring polynomial order to form
-        document.getElementById("hsqc_acquisition_seq").value = fid_process_parameters.acquisition_seq;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
@@ -5379,7 +5384,6 @@ function reprocess_spectrum(self, spectrum_index) {
     function set_default_fid_parameters() {
         document.getElementById("water_suppression").checked = false;
         // baseline form controls removed, bypass resetting polynomial
-        document.getElementById("hsqc_acquisition_seq").value = "321"
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = 0;
