@@ -1392,11 +1392,16 @@ webassembly_worker.onmessage = async function (e) {
                 refresh_contours_for_spectrum(spectrum_index);
                 refresh_cross_sections_after_phase(spectrum_index);
 
+                // Restore peak/fitted peak buttons to correct enabled/disabled status
+                restore_spectrum_buttons_status(spectrum_index);
+
                 document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
                 clear_webassembly_message_after_delay(5000);
             } catch (err) {
                 console.error('[baseline_correction] Failed to process:', err);
                 document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
+                // Restore buttons on failure as well
+                restore_spectrum_buttons_status(spectrum_index);
             }
         }
     }
@@ -4293,6 +4298,37 @@ function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
     }
 }
 
+/**
+ * Restore the correct enabled/disabled status of peak/fitted peak buttons for a spectrum
+ */
+function restore_spectrum_buttons_status(spectrum_index) {
+    const s = hsqc_spectra[spectrum_index];
+    if (!s) return;
+
+    const has_picked = s.picked_peaks_object && s.picked_peaks_object.column_headers && s.picked_peaks_object.column_headers.length > 0;
+    const has_fitted = s.fitted_peaks_object && s.fitted_peaks_object.columns && s.fitted_peaks_object.columns.length > 0 && s.fitted_peaks_object.columns[0].length > 0;
+
+    const run_deep_picker = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    const run_simple_picker = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    const run_load_peak_list = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    const run_voigt_fitter = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+    const download_peaks = document.getElementById("download_peaks-".concat(spectrum_index));
+    const show_peaks = document.getElementById("show_peaks-".concat(spectrum_index));
+    const download_fitted_peaks = document.getElementById("download_fitted_peaks-".concat(spectrum_index));
+    const show_fitted_peaks = document.getElementById("show_fitted_peaks-".concat(spectrum_index));
+
+    if (run_deep_picker) run_deep_picker.disabled = false;
+    if (run_simple_picker) run_simple_picker.disabled = false;
+    if (run_load_peak_list) run_load_peak_list.disabled = false;
+
+    if (run_voigt_fitter) run_voigt_fitter.disabled = !has_picked;
+    if (download_peaks) download_peaks.disabled = !has_picked;
+    if (show_peaks) show_peaks.disabled = !has_picked;
+
+    if (download_fitted_peaks) download_fitted_peaks.disabled = !has_fitted;
+    if (show_fitted_peaks) show_fitted_peaks.disabled = !has_fitted;
+}
+
 
 /**
  * Call DEEP Picker to run peaks picking the spectrum
@@ -6146,6 +6182,10 @@ async function apply_baseline_correction() {
     }
 
     document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+
+    // Disable peak/fitting buttons during baseline correction
+    disable_enable_peak_buttons(index, 0);
+    disable_enable_fitted_peak_buttons(index, 0);
 
     const s = hsqc_spectra[index];
 

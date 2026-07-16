@@ -963,7 +963,7 @@ self.onmessage = async function (event) {
             }
 
             const polyOrder = parseInt(event.data.polynomial_order, 10);
-            
+
             const nmrpipeBytesVec = new Module.VectorUChar();
             for (let i = 0; i < inputBytes.length; i++) {
                 nmrpipeBytesVec.push_back(inputBytes[i]);
@@ -983,10 +983,10 @@ self.onmessage = async function (event) {
                 }
 
                 const traceByTrace = true;
-                const flattA = 1e9;         // default regularizer parameter 'a'
+                const flattA = 1e7;         // default regularizer parameter 'a'
                 const flattB = 1.5;         // default asymmetric constraint penalty 'b'
                 const regionFlag = 5;       // -region-flag 5
-                
+
                 const successBaseline = fid.polynorminal_baseline(polyOrder, traceByTrace, flattA, flattB, regionFlag);
                 if (!successBaseline) {
                     throw new Error("Baseline correction failed.");
