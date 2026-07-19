@@ -281,6 +281,10 @@ self.onmessage = async function (event) {
                 if (!processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
                 }
+                if (event.data.nus_flatt_baseline) {
+                    postMessage({ stdout: "Executing FLATT baseline correction along F2 (direct) traces" });
+                    processor.flatt_baseline_direct();
+                }
 
                 const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
                 if (addressVal === 0) {

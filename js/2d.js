@@ -536,6 +536,7 @@ $(document).ready(function () {
             let auto_direct = document.getElementById("auto_direct").checked; //true or false
             let ann_auto_direct = document.getElementById("ann_auto_direct") && document.getElementById("ann_auto_direct").checked;
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
+            let nus_flatt_baseline = document.getElementById("nus_flatt_baseline") ? document.getElementById("nus_flatt_baseline").checked : false;
             
             // For code logic, if ANN Auto PC is checked, Automated PC must be true and Delete imaginary must be false
             if (ann_auto_direct) {
@@ -622,7 +623,8 @@ $(document).ready(function () {
                 extract_direct_to: extract_direct_to,
                 processing_flag: processing_flag, //0: process, 1: reprocess
                 spectrum_index: spectrum_index, //not used if not reprocessing
-                nus_auto_phase_prep: nus_auto_phase_prep
+                nus_auto_phase_prep: nus_auto_phase_prep,
+                nus_flatt_baseline: nus_flatt_baseline
             };
 
             if (processing_flag == 1) {

@@ -321,6 +321,11 @@ self.onmessage = async function (event) {
                     console.log('[webass_3d] direct_only_process for NUS step1');
                     postMessage({ stdout: '[webass_3d] NUS step1: direct_only_process()' });
                     fid.direct_only_process();
+                    if (cfg && cfg.nus_flatt_baseline) {
+                        console.log('[webass_3d] Executing FLATT baseline correction along F2 (direct) traces');
+                        postMessage({ stdout: '[webass_3d] NUS step1: flatt_baseline_direct()' });
+                        fid.flatt_baseline_direct();
+                    }
                     const nIndirect1 = Number(fid.get_ndata_indirect1());
                     const nIndirect2 = Number(fid.get_ndata_indirect2());
                     postMessage({ stdout: '[webass_3d] NUS step1 dims indirect1=' + nIndirect1 + ', indirect2=' + nIndirect2 });
