@@ -1,0 +1,22 @@
+##TITLE= Parameter file, TOPSPIN		Version 3.1
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 3962	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= baxgrp
+$$ 2015-10-21 05:49:55.371 -0400  baxgrp@av800
+$$ /baxdisk/data/rochej/nmr/151020_800_HN-aSynuclein/2/acqu2s
+$$ process /opt/topspin3.1/prog/mod/go
+##$ACQT0= 0
+##$BF1= 81.076469
+##$FnMODE= 6
+##$NUC1= <15N>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 740
+##$O1= 9615.6692234
+##$SFO1= 81.0860846692234
+##$SW= 22.4228586889942
+##$SW_h= 1818.18181818182
+##$TD= 740
+##END=

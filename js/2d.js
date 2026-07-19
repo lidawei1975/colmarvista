@@ -71,6 +71,7 @@ var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estima
 var fid_process_parameters;
 var current_reprocess_spectrum_index = -1;
 var nuslist_as_string = "";
+var current_process_fid_files_fn;
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -218,7 +219,7 @@ $(document).ready(function () {
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
         .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file2", "acquisition_file2", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
+        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
@@ -496,6 +497,8 @@ $(document).ready(function () {
     document.getElementById('fid_file_form').addEventListener('submit', function (e) {
 
         let current_fid_files;
+        let acqu3s_as_string = "";
+        current_process_fid_files_fn = process_fid_files;
 
 
         /**
@@ -512,10 +515,6 @@ $(document).ready(function () {
              * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
              */
             let polynomial = -2;
-            /**
-             * Get HTML select "hsqc_acquisition_seq" value: "321" or "312"
-            */
-            let acquisition_seq = document.getElementById("hsqc_acquisition_seq").value;
 
             /**
              * Get HTML text input apodization_direct
@@ -587,8 +586,14 @@ $(document).ready(function () {
              * Normal or NUS processing 
              */
             let webassembly_job = "process_fid";
+            let nus_auto_phase_prep = false;
             if (current_fid_files.length === 4) {
-                webassembly_job = "nus_step1";
+                if (auto_direct || ann_auto_direct) {
+                    webassembly_job = "process_fid";
+                    nus_auto_phase_prep = true;
+                } else {
+                    webassembly_job = "nus_step1";
+                }
             }
 
             fid_process_parameters = {
@@ -596,15 +601,15 @@ $(document).ready(function () {
                 water_suppression: water_suppression,
                 polynomial: polynomial,
                 file_data: current_fid_files,
-                acquisition_seq: acquisition_seq,
+                acqu3s_content: acqu3s_as_string,
                 pseudo3d_process: pseudo3d_process,
                 neg_imaginary: neg_imaginary,
                 apodization_direct: apodization_direct,
                 apodization_indirect: apodization_indirect,
-                auto_direct: auto_direct,
-                auto_indirect: auto_indirect,
-                ann_auto_direct: ann_auto_direct,
-                delete_direct: delete_direct_worker,
+                auto_direct: nus_auto_phase_prep ? false : auto_direct,
+                auto_indirect: nus_auto_phase_prep ? false : auto_indirect,
+                ann_auto_direct: nus_auto_phase_prep ? false : ann_auto_direct,
+                delete_direct: nus_auto_phase_prep ? false : delete_direct_worker,
                 delete_direct_after_ann: delete_direct,
                 delete_indirect: delete_indirect,
                 phase_correction_direct_p0: phase_correction_direct_p0,
@@ -617,6 +622,7 @@ $(document).ready(function () {
                 extract_direct_to: extract_direct_to,
                 processing_flag: processing_flag, //0: process, 1: reprocess
                 spectrum_index: spectrum_index, //not used if not reprocessing
+                nus_auto_phase_prep: nus_auto_phase_prep
             };
 
             if (processing_flag == 1) {
@@ -648,6 +654,7 @@ $(document).ready(function () {
 
         if (button_value === "Reprocess") {
             current_fid_files = hsqc_spectra[current_reprocess_spectrum_index].fid_process_parameters.file_data;
+            acqu3s_as_string = hsqc_spectra[current_reprocess_spectrum_index].fid_process_parameters.acqu3s_content || "";
 
             process_fid_files(1, current_reprocess_spectrum_index);
         }
@@ -660,6 +667,7 @@ $(document).ready(function () {
 
             let acquisition_file = document.getElementById('acquisition_file').files[0];
             let acquisition_file2 = document.getElementById('acquisition_file2').files[0];
+            let acquisition_file3 = document.getElementById('acquisition_file3').files[0];
             let fid_file = document.getElementById('fid_file').files[0];
             /**
              * Nuslist file is optional (for non-uniform sampling)
@@ -667,40 +675,47 @@ $(document).ready(function () {
              */
             let nuslist_file = document.getElementById('nuslist_file').files[0];
 
-
-
-            let promises;
-            if (typeof nuslist_file === "undefined") {
-                promises = [read_file(acquisition_file), read_file(acquisition_file2), read_file(fid_file)];
-            }
-            else {
-                promises = [read_file(acquisition_file), read_file(acquisition_file2), read_file(fid_file), read_file(nuslist_file)];
-            }
+            let promises = [
+                read_file(acquisition_file),
+                read_file(acquisition_file2),
+                read_file(fid_file),
+                nuslist_file ? read_file(nuslist_file) : Promise.resolve(null),
+                acquisition_file3 ? read_file_text(acquisition_file3) : Promise.resolve("")
+            ];
 
             Promise.all(promises)
                 .then((result) => {
+                    const acqus_buf = result[0];
+                    const acqu2s_buf = result[1];
+                    const fid_buf = result[2];
+                    const nuslist_buf = result[3];
+                    const acqu3s_text = result[4];
 
                     /**
                      * For each element in result (raw data of the files), we will convert it to Uint8Array
                      * so that they can be transferred to the worker
                      */
-                    if (typeof nuslist_file === "undefined") {
-                        current_fid_files = [new Uint8Array(result[0]), new Uint8Array(result[1]), new Uint8Array(result[2])];
+                    if (nuslist_buf === null) {
+                        current_fid_files = [new Uint8Array(acqus_buf), new Uint8Array(acqu2s_buf), new Uint8Array(fid_buf)];
                     }
                     else {
-                        current_fid_files = [new Uint8Array(result[0]), new Uint8Array(result[1]), new Uint8Array(result[2]), new Uint8Array(result[3])];
+                        current_fid_files = [new Uint8Array(acqus_buf), new Uint8Array(acqu2s_buf), new Uint8Array(fid_buf), new Uint8Array(nuslist_buf)];
                         /**
                          * convert nuslist file content (arrayBuffer) to string
                          */
-                        let nuslist_array = new Uint8Array(result[3]);
+                        let nuslist_array = new Uint8Array(nuslist_buf);
                         nuslist_as_string = String.fromCharCode.apply(null, nuslist_array);
                     }
+
+                    acqu3s_as_string = acqu3s_text || "";
 
                     /**
                      * Clear file input
                      */
                     document.getElementById('acquisition_file').value = "";
                     document.getElementById('acquisition_file2').value = "";
+                    const acqu3El = document.getElementById('acquisition_file3');
+                    if (acqu3El) acqu3El.value = "";
                     document.getElementById('fid_file').value = "";
                     document.getElementById('nuslist_file').value = "";
 
@@ -1377,11 +1392,16 @@ webassembly_worker.onmessage = async function (e) {
                 refresh_contours_for_spectrum(spectrum_index);
                 refresh_cross_sections_after_phase(spectrum_index);
 
+                // Restore peak/fitted peak buttons to correct enabled/disabled status
+                restore_spectrum_buttons_status(spectrum_index);
+
                 document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
                 clear_webassembly_message_after_delay(5000);
             } catch (err) {
                 console.error('[baseline_correction] Failed to process:', err);
                 document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
+                // Restore buttons on failure as well
+                restore_spectrum_buttons_status(spectrum_index);
             }
         }
     }
@@ -1568,6 +1588,36 @@ webassembly_worker.onmessage = async function (e) {
      * from the time domain spectrum
      */
     else if (e.data.file_data && e.data.file_type && (e.data.file_type === 'full' || e.data.file_type === 'indirect') && e.data.phasing_data) {
+        if (e.data.nus_auto_phase_prep) {
+            let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+            let result_spectrum = new spectrum();
+            result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
+            result_spectrum.fid_process_parameters = fid_process_parameters;
+
+            const msgDiv = document.getElementById("webassembly_message");
+            if (msgDiv) {
+                msgDiv.innerText = "Running ANN automatic phase correction on full spectrum...";
+            }
+            
+            // Run ANN phase correction to predict correct direct phase correction
+            await run_ann_phase_correction_for_spectrum(result_spectrum);
+            
+            // Turn off auto phase checks to prevent infinite loops in the next execution
+            document.getElementById("auto_direct").checked = false;
+            if (document.getElementById("ann_auto_direct")) {
+                document.getElementById("ann_auto_direct").checked = false;
+            }
+            
+            if (msgDiv) {
+                msgDiv.innerText = "Direct dimension phase correction obtained. Running direct-only processing, NUS reconstruction, and indirect processing...";
+            }
+            
+            // Run actual NUS workflow with the predicted phase values (now populated in UI)
+            if (typeof current_process_fid_files_fn === "function") {
+                current_process_fid_files_fn(e.data.processing_flag, e.data.spectrum_index);
+            }
+            return;
+        }
 
         /**
          * e.data.phasing_data is a string with 4 numbers separated by space(s)
@@ -4248,6 +4298,37 @@ function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
     }
 }
 
+/**
+ * Restore the correct enabled/disabled status of peak/fitted peak buttons for a spectrum
+ */
+function restore_spectrum_buttons_status(spectrum_index) {
+    const s = hsqc_spectra[spectrum_index];
+    if (!s) return;
+
+    const has_picked = s.picked_peaks_object && s.picked_peaks_object.column_headers && s.picked_peaks_object.column_headers.length > 0;
+    const has_fitted = s.fitted_peaks_object && s.fitted_peaks_object.columns && s.fitted_peaks_object.columns.length > 0 && s.fitted_peaks_object.columns[0].length > 0;
+
+    const run_deep_picker = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    const run_simple_picker = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    const run_load_peak_list = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    const run_voigt_fitter = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+    const download_peaks = document.getElementById("download_peaks-".concat(spectrum_index));
+    const show_peaks = document.getElementById("show_peaks-".concat(spectrum_index));
+    const download_fitted_peaks = document.getElementById("download_fitted_peaks-".concat(spectrum_index));
+    const show_fitted_peaks = document.getElementById("show_fitted_peaks-".concat(spectrum_index));
+
+    if (run_deep_picker) run_deep_picker.disabled = false;
+    if (run_simple_picker) run_simple_picker.disabled = false;
+    if (run_load_peak_list) run_load_peak_list.disabled = false;
+
+    if (run_voigt_fitter) run_voigt_fitter.disabled = !has_picked;
+    if (download_peaks) download_peaks.disabled = !has_picked;
+    if (show_peaks) show_peaks.disabled = !has_picked;
+
+    if (download_fitted_peaks) download_fitted_peaks.disabled = !has_fitted;
+    if (show_fitted_peaks) show_fitted_peaks.disabled = !has_fitted;
+}
+
 
 /**
  * Call DEEP Picker to run peaks picking the spectrum
@@ -5071,15 +5152,24 @@ async function run_ann_phase_correction_for_spectrum(s) {
 
         console.log("[ANN Reprocess] Inference complete!", result);
 
-        const finalPhases = result.final_wls_phase_left_right[0];
-        const leftEdge = -finalPhases[0];
-        const rightEdge = -finalPhases[1];
-        const nx = s.n_direct;
+        const finalPhases = result.final_wls_phase_left_right ? result.final_wls_phase_left_right[0] : null;
+        let p0 = 0.0;
+        let p1 = 0.0;
 
-        const p0 = -leftEdge;
-        const p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
-
-        console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+        if (finalPhases && Number.isFinite(finalPhases[0]) && Number.isFinite(finalPhases[1])) {
+            const leftEdge = -finalPhases[0];
+            const rightEdge = -finalPhases[1];
+            const nx = s.n_direct;
+            p0 = -leftEdge;
+            p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
+            console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+        } else {
+            console.warn("[ANN Reprocess] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.");
+            if (log_div) {
+                log_div.value += "[WARNING] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.\n";
+                log_div.scrollTop = log_div.scrollHeight;
+            }
+        }
 
         const phase_deg = [[p0, p1], [0.0, 0.0]];
         apply_phase_correction_in_place(s, phase_deg);
@@ -5307,7 +5397,6 @@ function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
         document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
         // baseline form controls removed, bypass restoring polynomial order to form
-        document.getElementById("hsqc_acquisition_seq").value = fid_process_parameters.acquisition_seq;
         document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
         document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
         document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
@@ -5331,7 +5420,6 @@ function reprocess_spectrum(self, spectrum_index) {
     function set_default_fid_parameters() {
         document.getElementById("water_suppression").checked = false;
         // baseline form controls removed, bypass resetting polynomial
-        document.getElementById("hsqc_acquisition_seq").value = "321"
         document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
         document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = 0;
@@ -6094,6 +6182,10 @@ async function apply_baseline_correction() {
     }
 
     document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+
+    // Disable peak/fitting buttons during baseline correction
+    disable_enable_peak_buttons(index, 0);
+    disable_enable_fitted_peak_buttons(index, 0);
 
     const s = hsqc_spectra[index];
 

@@ -1,4 +1,41 @@
-// worker.js
+/**
+ * worker.js (webass_2d.js)
+ * 
+ * DESIGN NOTE: NUS 2D Direct Dimension Automatic Phase Correction Workflow
+ * ------------------------------------------------------------------------
+ * When a Non-Uniformly Sampled (NUS) 2D spectrum requires automatic direct-dimension
+ * phase correction, the system employs a multi-step pipeline that reuses standard
+ * processing components:
+ * 
+ * Step 1: Prep Processing
+ * - If it's a NUS spectrum (length 4) and auto direct phasing is requested (auto_direct or ann_auto_direct),
+ *   the system first runs a full standard 2D processing job (job: "process_fid") on the raw files 
+ *   WITHOUT NUS reconstruction, preserving the artifacts.
+ * - During this prep run, entropy-based auto phasing is skipped on the worker (auto_direct/auto_indirect 
+ *   are forced to false) and imaginary data is retained (delete_direct is forced to false) so that 
+ *   the full raw frequency/imaginary dataset is available.
+ * 
+ * Step 2: ANN Inference
+ * - Once the prep run completes, the main thread receives the intermediate full spectrum and runs 
+ *   TensorFlow.js ANN-based phase correction (NUS2DPhasePipeline) to predict the correct direct 
+ *   p0 and p1 phase values.
+ * 
+ * Step 3: Reconstruction & Final Processing
+ * - The predicted phase values are written back to the HTML UI phase inputs, and the auto-phasing 
+ *   checkboxes are unchecked.
+ * - The main thread automatically triggers the standard NUS processing pipeline again. Since the 
+ *   auto-phasing checkboxes are now false, it runs the standard NUS pipeline using the newly obtained 
+ *   direct phase values:
+ *     (a) Direct-only processing ("nus_step1")
+ *     (b) SMILE NUS reconstruction (webass_smile.js / nuspipe)
+ *     (c) Indirect-only processing ("nus_step2")
+ * 
+ * Benefits:
+ * - This design ensures that the exact same NUS reconstruction and indirect dimension processing 
+ *   code path is reused for both:
+ *     (1) Auto-phased NUS spectra after phases are predicted and loaded.
+ *     (2) Manually-phased NUS spectra where the user inputs the phase values directly.
+ */
 
 // Import Emscripten factory function
 importScripts('webdp1d_cpp.js');
@@ -152,6 +189,7 @@ self.onmessage = async function (event) {
 
             const acqusText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acqu2sText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const acqu3sText = event.data.acqu3s_content || "";
             const fidBytes = encodeBytes(event.data.file_data[2]);
             const nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
 
@@ -160,7 +198,6 @@ self.onmessage = async function (event) {
                 fidBytesVec.push_back(fidBytes[i]);
             }
 
-            const acquisitionSeq = String(event.data.acquisition_seq);
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const apodizationDirect = String(event.data.apodization_direct);
@@ -173,7 +210,7 @@ self.onmessage = async function (event) {
             if (event.data.auto_direct === true) {
                 const estimator = new Module.spectrum_phasing();
                 try {
-                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                    if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
                     if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -181,9 +218,6 @@ self.onmessage = async function (event) {
                     }
                     if (!estimator.read_nus_list_from_string(nusListText)) {
                         throw new Error('read_nus_list_from_string failed');
-                    }
-                    if (!estimator.set_aqseq(acquisitionSeq)) {
-                        throw new Error('set_aqseq failed');
                     }
                     estimator.set_negative(negativeImaginary);
                     estimator.set_first_only(true);
@@ -223,9 +257,6 @@ self.onmessage = async function (event) {
                 if (!processor.read_nus_list_from_string(nusListText)) {
                     throw new Error('read_nus_list_from_string failed');
                 }
-                if (!processor.set_aqseq(acquisitionSeq)) {
-                    throw new Error('set_aqseq failed');
-                }
                 if (!processor.extract_region_ppm(toFloat(event.data.extract_direct_from, 8.8), toFloat(event.data.extract_direct_to, 7.0))) {
                     throw new Error('extract_region_ppm failed');
                 }
@@ -240,7 +271,7 @@ self.onmessage = async function (event) {
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
-                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
                 if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -334,8 +365,8 @@ self.onmessage = async function (event) {
                 return result;
             };
 
-            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, fidBytesVec) {
-                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText)) {
+            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, acqu3sText, fidBytesVec) {
+                if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
                 if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
@@ -344,9 +375,6 @@ self.onmessage = async function (event) {
             };
 
             const configureCommon = function (processor, options) {
-                if (!processor.set_aqseq(options.acquisitionSeq)) {
-                    throw new Error('set_aqseq failed');
-                }
                 if (options.applyExtraction === true) {
                     if (!processor.extract_region_ppm(options.extractFrom, options.extractTo)) {
                         throw new Error('extract_region_ppm failed');
@@ -370,14 +398,18 @@ self.onmessage = async function (event) {
 
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
+            const acqu3sText = event.data.acqu3s_content || "";
             const fidBytes = encodeBytes(event.data.file_data[2]);
+            let nusListText = "";
+            if (event.data.file_data.length === 4) {
+                nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
+            }
 
             const fidBytesVec = new Module.VectorUChar();
             for (let i = 0; i < fidBytes.length; i++) {
                 fidBytesVec.push_back(fidBytes[i]);
             }
 
-            const acquisitionSeq = String(event.data.acquisition_seq);
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const zfIndirect = toInt(event.data.zf_indirect, 1);
@@ -396,9 +428,13 @@ self.onmessage = async function (event) {
             let file_data;
             let pseudo3d_files = [];
             try {
-                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, fidBytesVec);
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
+                if (nusListText) {
+                    if (!processor.read_nus_list_from_string(nusListText)) {
+                        throw new Error('read_nus_list_from_string failed');
+                    }
+                }
                 configureCommon(processor, {
-                    acquisitionSeq: acquisitionSeq,
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,
                     zfDirect: zfDirect,
@@ -479,6 +515,7 @@ self.onmessage = async function (event) {
                 processing_flag: event.data.processing_flag,
                 spectrum_index: event.data.spectrum_index,
                 pseudo3d_children: event.data.pseudo3d_children,
+                nus_auto_phase_prep: event.data.nus_auto_phase_prep,
             });
         }
         catch (error) {
@@ -926,7 +963,7 @@ self.onmessage = async function (event) {
             }
 
             const polyOrder = parseInt(event.data.polynomial_order, 10);
-            
+
             const nmrpipeBytesVec = new Module.VectorUChar();
             for (let i = 0; i < inputBytes.length; i++) {
                 nmrpipeBytesVec.push_back(inputBytes[i]);
@@ -946,10 +983,10 @@ self.onmessage = async function (event) {
                 }
 
                 const traceByTrace = true;
-                const flattA = 1e9;         // default regularizer parameter 'a'
+                const flattA = 1e7;         // default regularizer parameter 'a'
                 const flattB = 1.5;         // default asymmetric constraint penalty 'b'
                 const regionFlag = 5;       // -region-flag 5
-                
+
                 const successBaseline = fid.polynorminal_baseline(polyOrder, traceByTrace, flattA, flattB, regionFlag);
                 if (!successBaseline) {
                     throw new Error("Baseline correction failed.");
