@@ -512,7 +512,7 @@ $(document).ready(function () {
             let water_suppression = document.getElementById("water_suppression").checked;
 
             /**
-             * Get 2D baseline correction parameter: -2 for NONE, -1 for FLATT, or 0-4 for POLYNORMIAL order
+             * Get 2D baseline correction parameter: -2 for NONE, -1 for PARAMETRIC SMOOTHING, or 0-4 for POLYNORMIAL order
              */
             let polynomial = -2;
 
@@ -537,7 +537,7 @@ $(document).ready(function () {
             let ann_auto_direct = document.getElementById("ann_auto_direct") && document.getElementById("ann_auto_direct").checked;
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
             let nus_flatt_baseline = document.getElementById("nus_flatt_baseline") ? document.getElementById("nus_flatt_baseline").checked : false;
-            
+
             // For code logic, if ANN Auto PC is checked, Automated PC must be true and Delete imaginary must be false
             if (ann_auto_direct) {
                 auto_direct = true;
@@ -1600,20 +1600,20 @@ webassembly_worker.onmessage = async function (e) {
             if (msgDiv) {
                 msgDiv.innerText = "Running ANN automatic phase correction on full spectrum...";
             }
-            
+
             // Run ANN phase correction to predict correct direct phase correction
             await run_ann_phase_correction_for_spectrum(result_spectrum);
-            
+
             // Turn off auto phase checks to prevent infinite loops in the next execution
             document.getElementById("auto_direct").checked = false;
             if (document.getElementById("ann_auto_direct")) {
                 document.getElementById("ann_auto_direct").checked = false;
             }
-            
+
             if (msgDiv) {
                 msgDiv.innerText = "Direct dimension phase correction obtained. Running direct-only processing, NUS reconstruction, and indirect processing...";
             }
-            
+
             // Run actual NUS workflow with the predicted phase values (now populated in UI)
             if (typeof current_process_fid_files_fn === "function") {
                 current_process_fid_files_fn(e.data.processing_flag, e.data.spectrum_index);
@@ -3260,7 +3260,7 @@ function init_plot(input) {
 function update_automatic_pc_button_status(index) {
     const btn = document.getElementById("automatic_pc");
     if (!btn) return;
-    
+
     let disabled = true;
     if (hsqc_spectra[index] && hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
         if (main_plot && main_plot.b_show_projection) {
@@ -5081,14 +5081,14 @@ async function run_ann_phase_correction_for_spectrum(s) {
     const log_div = document.getElementById("log");
 
     // Redirect console.log and console.error to the log div during processing
-    const redirect_log = function(...args) {
+    const redirect_log = function (...args) {
         original_console_log.apply(console, args);
         if (log_div) {
             log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
             log_div.scrollTop = log_div.scrollHeight;
         }
     };
-    const redirect_error = function(...args) {
+    const redirect_error = function (...args) {
         original_console_error.apply(console, args);
         if (log_div) {
             log_div.value += "[ERROR] " + args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
@@ -5986,7 +5986,7 @@ function set_background_processing(is_running) {
     }
 
     const disable = active_background_jobs > 0;
-    
+
     if (disable) {
         document.body.classList.add('processing-background-job');
     } else {
@@ -6004,7 +6004,7 @@ function set_background_processing(is_running) {
     ];
 
     const exceptions = [
-        "start_tutorial", 
+        "start_tutorial",
         "button_save",
         "button_minimize_fid_area",
         "button_minimize_file_area",
@@ -6016,7 +6016,7 @@ function set_background_processing(is_running) {
         style = document.createElement('style');
         style.id = 'processing-style';
         document.head.appendChild(style);
-        
+
         let css = '';
         selectors.forEach(sel => {
             css += `body.processing-background-job ${sel} { pointer-events: none; opacity: 0.6; }\n`;
@@ -6024,7 +6024,7 @@ function set_background_processing(is_running) {
         exceptions.forEach(id => {
             css += `body.processing-background-job #${id} { pointer-events: auto !important; opacity: 1 !important; }\n`;
         });
-        
+
         css += `body.processing-background-job #fid_file_area, body.processing-background-job #file_area, body.processing-background-job #pseudo3d_area { pointer-events: none; }\n`;
         style.innerHTML = css;
     }
@@ -6033,7 +6033,7 @@ function set_background_processing(is_running) {
         const elements = document.querySelectorAll(selector);
         elements.forEach(el => {
             if (exceptions.includes(el.id)) return;
-            
+
             if (disable) {
                 if (!el.hasAttribute("data-original-tabindex")) {
                     el.setAttribute("data-original-tabindex", el.getAttribute("tabindex") || "");
@@ -6057,7 +6057,7 @@ function set_background_processing(is_running) {
 
 const wa_msg_observer_target = document.getElementById("webassembly_message");
 if (wa_msg_observer_target) {
-    const observer = new MutationObserver(function(mutations) {
+    const observer = new MutationObserver(function (mutations) {
         const text = wa_msg_observer_target.innerText.toLowerCase();
         // check if running or finished
         const is_running = text.includes("wait") || text.includes("processing") || text.includes("running");
@@ -6172,7 +6172,7 @@ async function apply_baseline_correction() {
 
     const method = document.getElementById("baseline_method").value;
     let polyOrder = -2; // NONE
-    if (method === "FLATT") {
+    if (method === "PARAMETRIC") {
         polyOrder = -1;
     } else if (method === "POLYNORMIAL") {
         polyOrder = parseInt(document.getElementById("baseline_order").value, 10);

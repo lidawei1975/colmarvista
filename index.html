@@ -68,7 +68,8 @@
                         <label for="acquisition_file2">Indirect dimension acquisition file (required, usually called
                             acqu2s): </label>
                         <input type="file" name="acquisition_file2" id="acquisition_file2"><br>
-                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (optional, usually called acqu3s): </label>
+                        <label for="acquisition_file3">Indirect dimension 2 acquisition file (optional, usually called
+                            acqu3s): </label>
                         <input type="file" name="acquisition_file3" id="acquisition_file3"><br>
                         <label for="nuslist_file">NUS list file (for NUS experiment only, usually called nuslist):
                         </label>
@@ -264,9 +265,9 @@
                         <br>
                         <label for="baseline_method">Baseline: </label>
                         <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
-                            <option value="NONE">NONE</option>
-                            <option value="FLATT">FLATT</option>
-                            <option value="POLYNORMIAL">POLYNORMIAL</option>
+                            <option value="NONE">None</option>
+                            <option value="PARAMETRIC">Parametric</option>
+                            <option value="POLYNORMIAL">Polynomial</option>
                         </select>
                         <span id="baseline_order_container" style="display: none;">
                             <label for="baseline_order">at order </label>
@@ -278,7 +279,8 @@
                                 <option value="4">4</option>
                             </select>
                         </span>
-                        <button id="button_apply_baseline" disabled onclick="apply_baseline_correction()">Apply Baseline</button>
+                        <button id="button_apply_baseline" disabled onclick="apply_baseline_correction()">Apply
+                            Baseline</button>
                         <br>
 
 
@@ -359,7 +361,8 @@
                                 <div id="cross_section_x_info" class="tooltip"
                                     style="display:none; position: absolute; top: 0px; right: 40px; width:400px; z-index: 3;">
                                     p0 = <span id="p0_direct">0</span>. Anchor = <span id="anchor_direct">not
-                                        set</span> (phase at anchor = <span id="anchor_phase_direct">N.A.</span>). P1 = <span id="p1_direct">0</span>.
+                                        set</span> (phase at anchor = <span id="anchor_phase_direct">N.A.</span>). P1 =
+                                    <span id="p1_direct">0</span>.
                                 </div>
                                 <svg id="cross_section_svg_x" width="1200" height="200"></svg>
                             </div>
@@ -372,7 +375,8 @@
                                 <div id="cross_section_y_info" class="tooltip"
                                     style="display:none; position: absolute; top: 0px; right: 5px; width:150px; z-index: 3;">
                                     p0 = <span id="p0_indirect">0</span>.<br>
-                                    Anchor = <span id="anchor_indirect">not set</span> (phase at anchor = <span id="anchor_phase_indirect">N.A.</span>).<br>
+                                    Anchor = <span id="anchor_indirect">not set</span> (phase at anchor = <span
+                                        id="anchor_phase_indirect">N.A.</span>).<br>
                                     P1 = <span id="p1_indirect">0</span>.
                                 </div>
                                 <svg id="cross_section_svg_y" width="200" height="800"></svg>
