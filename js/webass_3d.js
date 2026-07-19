@@ -326,6 +326,7 @@ self.onmessage = async function (event) {
                         postMessage({ stdout: '[webass_3d] NUS step1: flatt_baseline_direct()' });
                         fid.flatt_baseline_direct();
                     }
+                    fid.transpose_intermediate_data();
                     const nIndirect1 = Number(fid.get_ndata_indirect1());
                     const nIndirect2 = Number(fid.get_ndata_indirect2());
                     postMessage({ stdout: '[webass_3d] NUS step1 dims indirect1=' + nIndirect1 + ', indirect2=' + nIndirect2 });
