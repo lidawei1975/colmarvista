@@ -295,7 +295,7 @@ self.onmessage = async function (event) {
         postMessage({ stdout: "[JS-debug] zf_direct = " + event.data.zf_direct });
         obj.run_zf(event.data.zf_direct); // Zero filling
         postMessage({ stdout: "[JS-debug] Calling run_fft_and_rm_bruker_filter()..." });
-        obj.run_fft_and_rm_bruker_filter(); // FFT and remove Bruker filter. This is the main processing step
+        obj.run_fft_and_rm_bruker_filter("none"); // FFT and remove Bruker filter. This is the main processing step
         postMessage({ stdout: "[JS-debug] run_fft_and_rm_bruker_filter() succeeded!" });
 
         let p0 = event.data.phase_correction_direct_p0;
