@@ -112,29 +112,50 @@ onmessage = function (e) {
          * apodization_direct: "SP begin 0.5 end 0.875 pow 2 elb 0 c 0.5"
          * We need to extract the values of begin, end, pow, and elb
         */
-        let apodization_direct = e.data.apodization_direct;
-        let apodization_direct_values = apodization_direct.split(/\s+/);
-        let begin = apodization_direct_values[2];
-        let end = apodization_direct_values[4];
-        let pow = apodization_direct_values[6];
-        let elb = apodization_direct_values[8];
+        let apodization_direct = e.data.apodization_direct || "";
+        let apodization_direct_values = apodization_direct.trim().split(/\s+/);
+        let begin = "0.5";
+        let end = "0.896";
+        let pow = "3.684";
+        let elb = "0.0";
+        if (apodization_direct_values.length >= 9) {
+            begin = apodization_direct_values[2];
+            end = apodization_direct_values[4];
+            pow = apodization_direct_values[6];
+            elb = apodization_direct_values[8];
+        }
 
         /**
          * Get the last number in the nuslist_as_string. Need trim() because there might be a space at the end of the string
-         * This number+1 (becaused 0 based) is the number of points in the indirect dimension after NUS reconstruction. *2 because the data is complex
+         * This number+1 (becaused 0 based) is the number of points in the indirect dimension after NUS reconstruction.
          */
-        let nuslist_as_string = e.data.nuslist_as_string;
-        let nuslist_as_string_values = nuslist_as_string.trim().split(/\s+/);
-        let xT = (parseInt(nuslist_as_string_values[nuslist_as_string_values.length - 1])+1);
+        let nuslist_as_string = e.data.nuslist_as_string || "";
+        let nuslist_as_string_values = nuslist_as_string.trim().split(/\s+/).filter(v => v.length > 0);
+        let sampleCount = nuslist_as_string_values.length;
+        let xT = nuslist_as_string_values.length > 0
+            ? (parseInt(nuslist_as_string_values[nuslist_as_string_values.length - 1], 10) + 1)
+            : 1024;
+
+        const isPseudo3D = (e.data.pseudo3d_process === 'all_planes') || (e.data.smile_mode === 'pseudo3d_nus');
 
         /**
          * write the command file "arguments_nus_pipe.txt"
          */
-        let command = "-in test_direct.ft2 -fn SMILE -nDim 2 -maxIter 2048 -nSigma 2.5 -report 1 -sample nuslist ";
-        command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
-        command = command.concat(" -xGLB 0.0 -xT ", xT);
-        command = command.concat(" -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
-        command = command.concat(" -out test_nus.ft2 -ov");
+        let command;
+        if (isPseudo3D) {
+            command = "-in test_direct.ft2 -fn SMILE -pseudoND -sample nuslist -sampleCount " + sampleCount;
+            command = command.concat(" -nSigma 2.5 -maxNPks 1 -maxIter 2048 -report 1 ");
+            command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
+            command = command.concat(" -xT ", xT, " -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
+            command = command.concat(" -out test_nus.ft2 -ov");
+        }
+        else {
+            command = "-in test_direct.ft2 -fn SMILE -nDim 2 -maxIter 2048 -nSigma 2.5 -report 1 -sample nuslist ";
+            command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
+            command = command.concat(" -xGLB 0.0 -xT ", xT);
+            command = command.concat(" -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
+            command = command.concat(" -out test_nus.ft2 -ov");
+        }
         Module['FS_createDataFile']('/', 'arguments_nus_pipe.txt', command, true, true, true);
         console.log(command);
 
@@ -152,11 +173,11 @@ onmessage = function (e) {
         postMessage({ stdout: 'Calling nusPipe function' });
         try {
             const nusPipeFn = getNusPipe();
-            postMessage({ stdout: '[smile-diag] 2d nuspipe typeof=' + typeof nusPipeFn });
+            postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
             nusPipeFn();
         } catch (err) {
             postMessage({
-                error: '2D nusPipe failed: ' + (err && err.message ? err.message : String(err))
+                error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe failed: ' + (err && err.message ? err.message : String(err))
             });
             try {
                 Module['FS_unlink']('test_direct.ft2');
@@ -167,11 +188,11 @@ onmessage = function (e) {
         }
 
         /**
-         * Read the output file "34.ft2" and send it back to the main thread
+         * Read the output file "test_nus.ft2" and send it back to the main thread
          */
         let output = FS.readFile('test_nus.ft2', { encoding: 'binary' });
         console.log('Output file read from virtual file system');
-        postRuntimeDiagnostics('2d-after-nuspipe-output', output);
+        postRuntimeDiagnostics((isPseudo3D ? 'pseudo3d' : '2d') + '-after-nuspipe-output', output);
 
         /**
          * Remove the files from the virtual file system
@@ -188,6 +209,7 @@ onmessage = function (e) {
              */
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
+            pseudo3d_process: e.data.pseudo3d_process,
         }, [output.buffer]);
     }
 

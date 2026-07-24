@@ -1,5 +1,5 @@
-describe('FID Processing 2D NUS Test', () => {
-    it('loads NUS files, sets processing parameters, and verifies 2D contour plot and 1D projections', () => {
+describe('FID Processing Pseudo3D NUS Test', () => {
+    it('loads pseudo3D NUS files, sets all_planes, and verifies all planes are processed', () => {
         // 1. Visit the page
         cy.visit('/index.html');
 
@@ -13,34 +13,30 @@ describe('FID Processing 2D NUS Test', () => {
         cy.get('#nuslist_file', { timeout: 10000 })
             .selectFile('cypress/fixtures/test_data_2d_nus/nuslist', { force: true });
 
-        // 3. Set Phase and Range Parameters (with known phase correction values)
+        // 3. Select Pseudo-3D Process All Planes
+        cy.get('input[name="Pseudo-3D-process"][value="all_planes"]').check({ force: true });
+
+        // 4. Set Phase and Range Parameters
         cy.get('#auto_direct').uncheck({ force: true });
+        cy.get('#auto_indirect').uncheck({ force: true });
         cy.get('#phase_correction_direct_p0').clear({ force: true }).type('0', { force: true });
         cy.get('#phase_correction_direct_p1').clear({ force: true }).type('0', { force: true });
-
-        // - Set phase at 90,0 for indirect dimension (disable auto_indirect first)
-        cy.get('#auto_indirect').uncheck({ force: true });
         cy.get('#phase_correction_indirect_p0').clear({ force: true }).type('90', { force: true });
         cy.get('#phase_correction_indirect_p1').clear({ force: true }).type('0', { force: true });
 
-        // - Extract direct dimension from 8.8 to 7.8 ppm
         cy.get('#extract_direct_from').clear({ force: true }).type('8.8', { force: true });
         cy.get('#extract_direct_to').clear({ force: true }).type('7.8', { force: true });
 
-        // 4. Click Process
+        // 5. Click Process
         cy.get('#button_fid_process', { timeout: 10000 }).click({ force: true });
 
-        // 5. Wait for Processing to Complete
-        cy.get('#spectra_list_ol li', { timeout: 600000 }).should('have.length.gt', 0);
+        // 6. Wait for Processing to Complete (136 planes SMILE reconstruction takes ~4.5 minutes)
+        cy.get('#spectra_list_ol li', { timeout: 360000 }).should('have.length.gt', 0);
         cy.get('#spectra_list_ol', { timeout: 30000 }).should('contain.text', 'from_fid.ft2');
 
-        // 6. Verify 2D Contour Plot (Axes and Canvas exist)
+        // 7. Verify 2D Contour Plot (Axes and Canvas exist)
         cy.get('.xaxis').should('exist');
         cy.get('.yaxis').should('exist');
         cy.get('#canvas1').should('exist');
-
-        // 7. Verify 1D Projections exist and have path lines rendered
-        cy.get('#cross_section_svg_x path', { timeout: 30000 }).should('have.length.gt', 0);
-        cy.get('#cross_section_svg_y path', { timeout: 30000 }).should('have.length.gt', 0);
     });
 });

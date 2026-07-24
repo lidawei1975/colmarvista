@@ -1136,6 +1136,7 @@ webassembly_worker2.onmessage = function (e) {
             apodization_indirect: apodizationIndirectValue,
             zf_indirect: zfIndirectValue,
             processing_flag: e.data.processing_flag,
+            pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
         });
     }
 }
@@ -1582,6 +1583,7 @@ webassembly_worker.onmessage = async function (e) {
              */
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
+            pseudo3d_process: e.data.pseudo3d_process || fid_process_parameters.pseudo3d_process,
         });
     }
 
