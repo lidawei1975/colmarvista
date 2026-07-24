@@ -238,6 +238,11 @@ self.onmessage = async function (event) {
             if (event.data.auto_direct === true) {
                 const estimator = new Module.spectrum_phasing();
                 try {
+                    if (event.data.nus_flatt_baseline) {
+                        if (typeof estimator.set_flatt_direct_enabled === 'function') {
+                            estimator.set_flatt_direct_enabled(true);
+                        }
+                    }
                     if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
@@ -299,6 +304,12 @@ self.onmessage = async function (event) {
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
+                if (event.data.nus_flatt_baseline) {
+                    postMessage({ stdout: "Enabling FLATT baseline correction along direct dimension before reading Bruker files" });
+                    if (typeof processor.set_flatt_direct_enabled === 'function') {
+                        processor.set_flatt_direct_enabled(true);
+                    }
+                }
                 if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
@@ -309,7 +320,7 @@ self.onmessage = async function (event) {
                 if (!processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
                 }
-                if (event.data.nus_flatt_baseline) {
+                if (event.data.nus_flatt_baseline && typeof processor.set_flatt_direct_enabled !== 'function') {
                     postMessage({ stdout: "Executing FLATT baseline correction along F2 (direct) traces" });
                     processor.flatt_baseline_direct();
                 }
@@ -345,7 +356,8 @@ self.onmessage = async function (event) {
                 phasing_data: phase_correction,
                 processing_flag: event.data.processing_flag,
                 spectrum_index: event.data.spectrum_index,
-                pseudo3d_process: event.data.pseudo3d_process
+                pseudo3d_process: event.data.pseudo3d_process,
+                save_debug_ft3: event.data.save_debug_ft3
             });
         }
         catch (error) {

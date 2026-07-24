@@ -537,6 +537,7 @@ $(document).ready(function () {
             let ann_auto_direct = document.getElementById("ann_auto_direct") && document.getElementById("ann_auto_direct").checked;
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
             let nus_flatt_baseline = document.getElementById("nus_flatt_baseline") ? document.getElementById("nus_flatt_baseline").checked : false;
+            let save_debug_ft3 = document.getElementById("save_debug_ft3") ? document.getElementById("save_debug_ft3").checked : false;
 
             // For code logic, if ANN Auto PC is checked, Automated PC must be true and Delete imaginary must be false
             if (ann_auto_direct) {
@@ -624,7 +625,8 @@ $(document).ready(function () {
                 processing_flag: processing_flag, //0: process, 1: reprocess
                 spectrum_index: spectrum_index, //not used if not reprocessing
                 nus_auto_phase_prep: nus_auto_phase_prep,
-                nus_flatt_baseline: nus_flatt_baseline
+                nus_flatt_baseline: nus_flatt_baseline,
+                save_debug_ft3: save_debug_ft3
             };
 
             if (processing_flag == 1) {
@@ -1562,6 +1564,21 @@ webassembly_worker.onmessage = async function (e) {
             datatype_direct_header55: headerFloats.length > 55 ? headerFloats[55] : NaN,
             datatype_indirect_header56: headerFloats.length > 56 ? headerFloats[56] : NaN,
         });
+
+        if (e.data.save_debug_ft3 || (document.getElementById("save_debug_ft3") && document.getElementById("save_debug_ft3").checked)) {
+            const isPseudo3D = (e.data.pseudo3d_process === 'all_planes');
+            const fileName = isPseudo3D ? 'debug_direct_processed.ft3' : 'debug_direct_processed.ft2';
+            console.log('[Debug] Saving direct-only processed buffer to file:', fileName);
+            const blob = new Blob([directBytes], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
 
         /**
          * Send e.data.file_data as Unit8Array to webass_smile (smile) worker to process it.
