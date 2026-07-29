@@ -243,14 +243,16 @@ self.onmessage = async function (event) {
                             estimator.set_flatt_direct_enabled(true);
                         }
                     }
+                    if (nusListText) {
+                        if (!estimator.read_nus_list_from_string(nusListText)) {
+                            throw new Error('read_nus_list_from_string failed');
+                        }
+                    }
                     if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
                     if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
                         throw new Error('read_bruker_fid_data_bytes failed');
-                    }
-                    if (!estimator.read_nus_list_from_string(nusListText)) {
-                        throw new Error('read_nus_list_from_string failed');
                     }
                     estimator.set_negative(negativeImaginary);
                     estimator.set_first_only(!processAllPlanes);
@@ -456,10 +458,13 @@ self.onmessage = async function (event) {
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
             const acqu3sText = event.data.acqu3s_content || "";
-            const fidBytes = encodeBytes(event.data.file_data[2]);
+            let fidBytes = encodeBytes(event.data.file_data[2]);
             let nusListText = "";
             if (event.data.file_data.length === 4) {
                 nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
+            } else if (event.data.file_data.length === 5) {
+                fidBytes = encodeBytes(event.data.file_data[3]);
+                nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[4]));
             }
 
             const fidBytesVec = new Module.VectorUChar();
@@ -485,12 +490,12 @@ self.onmessage = async function (event) {
             let file_data;
             let pseudo3d_files = [];
             try {
-                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
                 if (nusListText) {
                     if (!processor.read_nus_list_from_string(nusListText)) {
                         throw new Error('read_nus_list_from_string failed');
                     }
                 }
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
                 configureCommon(processor, {
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,

@@ -58,6 +58,7 @@ var plot_padding = 20; //padding for the plot area
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tfjs_2d_normal_model = null;
+var tfjs_2d_large_model = null;
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
@@ -538,6 +539,7 @@ $(document).ready(function () {
             let delete_direct = document.getElementById("delete_imaginary").checked; //true or false
             let nus_flatt_baseline = document.getElementById("nus_flatt_baseline") ? document.getElementById("nus_flatt_baseline").checked : false;
             let save_debug_ft3 = document.getElementById("save_debug_ft3") ? document.getElementById("save_debug_ft3").checked : false;
+            let nus_process_as_normal = document.getElementById("nus_process_as_normal") ? document.getElementById("nus_process_as_normal").checked : false;
 
             // For code logic, if ANN Auto PC is checked, Automated PC must be true and Delete imaginary must be false
             if (ann_auto_direct) {
@@ -589,7 +591,7 @@ $(document).ready(function () {
              */
             let webassembly_job = "process_fid";
             let nus_auto_phase_prep = false;
-            if (current_fid_files.length === 4) {
+            if (current_fid_files.length === 4 && !nus_process_as_normal) {
                 if (auto_direct || ann_auto_direct) {
                     webassembly_job = "process_fid";
                     nus_auto_phase_prep = true;
@@ -604,7 +606,7 @@ $(document).ready(function () {
                 polynomial: polynomial,
                 file_data: current_fid_files,
                 acqu3s_content: acqu3s_as_string,
-                pseudo3d_process: pseudo3d_process,
+                pseudo3d_process: nus_auto_phase_prep ? 'first_only' : pseudo3d_process,
                 neg_imaginary: neg_imaginary,
                 apodization_direct: apodization_direct,
                 apodization_indirect: apodization_indirect,
@@ -613,7 +615,7 @@ $(document).ready(function () {
                 ann_auto_direct: nus_auto_phase_prep ? false : ann_auto_direct,
                 delete_direct: nus_auto_phase_prep ? false : delete_direct_worker,
                 delete_direct_after_ann: delete_direct,
-                delete_indirect: delete_indirect,
+                delete_indirect: nus_auto_phase_prep ? false : delete_indirect,
                 phase_correction_direct_p0: phase_correction_direct_p0,
                 phase_correction_direct_p1: phase_correction_direct_p1,
                 phase_correction_indirect_p0: phase_correction_indirect_p0,
@@ -626,7 +628,8 @@ $(document).ready(function () {
                 spectrum_index: spectrum_index, //not used if not reprocessing
                 nus_auto_phase_prep: nus_auto_phase_prep,
                 nus_flatt_baseline: nus_flatt_baseline,
-                save_debug_ft3: save_debug_ft3
+                save_debug_ft3: save_debug_ft3,
+                nus_process_as_normal: nus_process_as_normal
             };
 
             if (processing_flag == 1) {
@@ -5090,10 +5093,14 @@ function refresh_cross_sections_after_phase(index) {
  * When flag ==1, run automatic phase correction
  * @returns 
  */
-async function run_ann_phase_correction_for_spectrum(s) {
+async function run_ann_phase_correction_for_spectrum(s, options) {
     if (!s || !s.raw_data_ri || s.raw_data_ri.length === 0) {
         return null;
     }
+
+    const opts = options || {};
+    const numRounds = opts.numRounds !== undefined ? opts.numRounds : 5;
+    const useLargeModel = opts.useLargeModel !== undefined ? opts.useLargeModel : false;
 
     const original_console_log = console.log;
     const original_console_error = console.error;
@@ -5119,7 +5126,7 @@ async function run_ann_phase_correction_for_spectrum(s) {
     console.error = redirect_error;
 
     try {
-        console.log("Starting automatic 2D phase correction using ANN model...");
+        console.log(`Starting automatic 2D phase correction using ANN model (${numRounds} round(s))...`);
         let n_size = s.n_direct * s.n_indirect;
         if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
             n_size *= 4;
@@ -5130,6 +5137,8 @@ async function run_ann_phase_correction_for_spectrum(s) {
         const data = new Float32Array(512 + n_size);
         let current_position = 0;
         data.set(s.header, current_position);
+        data[55] = (s.datatype_indirect === 0) ? 0.0 : 1.0;
+        data[56] = (s.datatype_direct === 0) ? 0.0 : 1.0;
         current_position += 512;
         for (let i = 0; i < s.n_indirect; i++) {
             data.set(s.raw_data.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
@@ -5158,32 +5167,38 @@ async function run_ann_phase_correction_for_spectrum(s) {
         }
 
         const modelUrl = 'js/2D_model30_tfjs/model.json';
+        const largeModelUrl = 'js/2D_model30_large_tfjs/model.json';
 
         pipeline.registerCustomLayers(tf);
         if (!tfjs_2d_normal_model) {
             tfjs_2d_normal_model = await tf.loadGraphModel(modelUrl);
+        }
+        if (useLargeModel && !tfjs_2d_large_model) {
+            tfjs_2d_large_model = await tf.loadGraphModel(largeModelUrl);
         }
 
         const result = await pipeline.runFromFt2({
             tf: tf,
             ft2ArrayBuffer: ft2ArrayBuffer,
             model: tfjs_2d_normal_model,
+            largeModel: useLargeModel ? tfjs_2d_large_model : null,
+            numRounds: numRounds,
             useTokenNorms: false,
         });
-
-        console.log("[ANN Reprocess] Inference complete!", result);
 
         const finalPhases = result.final_wls_phase_left_right ? result.final_wls_phase_left_right[0] : null;
         let p0 = 0.0;
         let p1 = 0.0;
 
         if (finalPhases && Number.isFinite(finalPhases[0]) && Number.isFinite(finalPhases[1])) {
-            const leftEdge = -finalPhases[0];
-            const rightEdge = -finalPhases[1];
+            // finalPhases stores the estimated phase error present in the spectrum.
+            // To correct the spectrum, we must apply the negative of the predicted error (-left, -right).
+            const appliedLeft = -finalPhases[0];
+            const appliedRight = -finalPhases[1];
             const nx = s.n_direct;
-            p0 = -leftEdge;
-            p1 = nx > 1 ? -(rightEdge - leftEdge) * nx / (nx - 1) : 0.0;
-            console.log(`[ANN Reprocess] Auto phase prediction: left=${leftEdge.toFixed(2)}, right=${rightEdge.toFixed(2)}. Applying correction: p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+            p0 = appliedLeft;
+            p1 = nx > 1 ? (appliedRight - appliedLeft) * nx / (nx - 1) : 0.0;
+            console.log(`[ANN Phase] Applied Total Correction: left=${appliedLeft.toFixed(2)}, right=${appliedRight.toFixed(2)} | p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
         } else {
             console.warn("[ANN Reprocess] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.");
             if (log_div) {
@@ -5195,17 +5210,23 @@ async function run_ann_phase_correction_for_spectrum(s) {
         const phase_deg = [[p0, p1], [0.0, 0.0]];
         apply_phase_correction_in_place(s, phase_deg);
 
-        // Update UI text boxes
-        let v = parseFloat(document.getElementById("phase_correction_direct_p0").value) + p0;
-        document.getElementById("phase_correction_direct_p0").value = v.toFixed(1);
+        // Update UI text boxes with total phase correction (WebAssembly phase + ANN phase prediction)
+        let v0 = parseFloat(document.getElementById("phase_correction_direct_p0").value);
+        if (!Number.isFinite(v0)) v0 = 0.0;
+        const final_p0 = v0 + p0;
+
+        let v1 = parseFloat(document.getElementById("phase_correction_direct_p1").value);
+        if (!Number.isFinite(v1)) v1 = 0.0;
+        const final_p1 = v1 + p1;
+
+        document.getElementById("phase_correction_direct_p0").value = final_p0.toFixed(1);
         if (s.fid_process_parameters) {
-            s.fid_process_parameters.phase_correction_direct_p0 = v;
+            s.fid_process_parameters.phase_correction_direct_p0 = final_p0;
         }
 
-        v = parseFloat(document.getElementById("phase_correction_direct_p1").value) + p1;
-        document.getElementById("phase_correction_direct_p1").value = v.toFixed(1);
+        document.getElementById("phase_correction_direct_p1").value = final_p1.toFixed(1);
         if (s.fid_process_parameters) {
-            s.fid_process_parameters.phase_correction_direct_p1 = v;
+            s.fid_process_parameters.phase_correction_direct_p1 = final_p1;
         }
 
         document.getElementById("auto_direct").checked = false;
@@ -5217,7 +5238,7 @@ async function run_ann_phase_correction_for_spectrum(s) {
             document.getElementById("ann_auto_direct").checked = false;
         }
 
-        document.getElementById("pc_info").innerText = "Phase correction: " + p0.toFixed(1) + " " + p1.toFixed(1) + " 0.0 0.0";
+        document.getElementById("pc_info").innerText = "Phase correction: " + final_p0.toFixed(1) + " " + final_p1.toFixed(1) + " 0.0 0.0";
         return [p0, p1];
     } catch (error) {
         console.error("[ANN Reprocess] Error running pipeline:", error);
