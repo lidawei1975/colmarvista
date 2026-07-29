@@ -235,7 +235,13 @@
                                 <input type="checkbox" name="ann_auto_direct" id="ann_auto_direct" value="yes">
                                 <label for="ann_auto_direct">ANN Auto PC</label>
                                 <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
-                                <label for="delete_imaginary">Delete imaginary data
+                                <label for="delete_imaginary">Delete imaginary data</label>
+                                <input type="checkbox" name="nus_flatt_baseline" id="nus_flatt_baseline" value="yes">
+                                <label for="nus_flatt_baseline">Direct dimension FLATT baseline correction for NUS</label>
+                                <input type="checkbox" name="save_debug_ft3" id="save_debug_ft3" value="yes">
+                                <label for="save_debug_ft3">Save debug direct FT3/FT2 file</label>
+                                <input type="checkbox" name="nus_process_as_normal" id="nus_process_as_normal" value="yes">
+                                <label for="nus_process_as_normal">Process NUS spectrum as normal (No NUS recon)</label>
                             </span>
 
                             <span>
@@ -365,9 +371,9 @@
                         <br>
                         <label for="baseline_method">Baseline: </label>
                         <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
-                            <option value="NONE">NONE</option>
-                            <option value="FLATT">FLATT</option>
-                            <option value="POLYNORMIAL">POLYNORMIAL</option>
+                            <option value="NONE">None</option>
+                            <option value="PARAMETRIC">Parametric</option>
+                            <option value="POLYNORMIAL">Polynomial</option>
                         </select>
                         <span id="baseline_order_container" style="display: none;">
                             <label for="baseline_order">at order </label>

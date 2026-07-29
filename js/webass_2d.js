@@ -102,10 +102,13 @@ self.onmessage = async function (event) {
             const processor = new Module.fid_2d();
 
             let file_data;
+            let pseudo3d_files = [];
+            let pseudo3d_ft3_data = null;
             const phase_correction = '0 0 ' + toFloat(event.data.phase_correction_indirect_p0, 0).toString() + ' ' + toFloat(event.data.phase_correction_indirect_p1, 0).toString();
+            const processAllPlanes = event.data.pseudo3d_process === 'all_planes';
 
             try {
-                processor.set_first_only(true);
+                processor.set_first_only(!processAllPlanes);
                 if (!processor.run_zf(1, toInt(event.data.zf_indirect, 1))) {
                     throw new Error('run_zf failed');
                 }
@@ -132,6 +135,26 @@ self.onmessage = async function (event) {
                 }
                 const size = processor.get_ft2_size_in_float32();
                 file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
+
+                if (processAllPlanes) {
+                    const numPlanes = processor.get_nspectra();
+                    postMessage({ stdout: "Exporting all " + numPlanes + " planes of Pseudo-3D NUS spectrum..." });
+                    for (let i = 1; i < numPlanes; i++) {
+                        const planeAddressVal = Number(processor.write_nmrpipe_ft2_to_buffer_index(i));
+                        if (planeAddressVal === 0) {
+                            throw new Error('write_nmrpipe_ft2_to_buffer_index failed for plane ' + i);
+                        }
+                        const planeSize = processor.get_ft2_size_in_float32();
+                        const planeData = new Uint8Array(Module.HEAPF32.buffer, planeAddressVal, planeSize * 4).slice();
+                        pseudo3d_files.push(planeData);
+                    }
+
+                    const ft3AddressVal = Number(processor.write_pseudo3d_ft3_to_buffer());
+                    if (ft3AddressVal !== 0) {
+                        const ft3Size = processor.get_pseudo3d_ft3_size_in_float32();
+                        pseudo3d_ft3_data = new Uint8Array(Module.HEAPF32.buffer, ft3AddressVal, ft3Size * 4).slice();
+                    }
+                }
             }
             finally {
                 processor.delete();
@@ -142,9 +165,13 @@ self.onmessage = async function (event) {
                 [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
                 file_type: 'indirect',
+                pseudo3d_files: pseudo3d_files,
+                pseudo3d_ft3_data: pseudo3d_ft3_data,
                 phasing_data: phase_correction,
                 processing_flag: event.data.processing_flag,
-                spectrum_index: event.data.spectrum_index
+                spectrum_index: event.data.spectrum_index,
+                pseudo3d_process: event.data.pseudo3d_process,
+                pseudo3d_children: event.data.pseudo3d_children,
             });
         }
         catch (error) {
@@ -201,6 +228,7 @@ self.onmessage = async function (event) {
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const apodizationDirect = String(event.data.apodization_direct);
+            const processAllPlanes = event.data.pseudo3d_process === 'all_planes';
 
             let direct_phase_correction_p0 = toFloat(event.data.phase_correction_direct_p0, 0);
             let direct_phase_correction_p1 = toFloat(event.data.phase_correction_direct_p1, 0);
@@ -210,17 +238,24 @@ self.onmessage = async function (event) {
             if (event.data.auto_direct === true) {
                 const estimator = new Module.spectrum_phasing();
                 try {
+                    if (event.data.nus_flatt_baseline) {
+                        if (typeof estimator.set_flatt_direct_enabled === 'function') {
+                            estimator.set_flatt_direct_enabled(true);
+                        }
+                    }
+                    if (nusListText) {
+                        if (!estimator.read_nus_list_from_string(nusListText)) {
+                            throw new Error('read_nus_list_from_string failed');
+                        }
+                    }
                     if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
                     if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
                         throw new Error('read_bruker_fid_data_bytes failed');
                     }
-                    if (!estimator.read_nus_list_from_string(nusListText)) {
-                        throw new Error('read_nus_list_from_string failed');
-                    }
                     estimator.set_negative(negativeImaginary);
-                    estimator.set_first_only(true);
+                    estimator.set_first_only(!processAllPlanes);
                     if (!estimator.run_zf(zfDirect, 1)) {
                         throw new Error('run_zf failed');
                     }
@@ -261,7 +296,7 @@ self.onmessage = async function (event) {
                     throw new Error('extract_region_ppm failed');
                 }
                 processor.set_negative(negativeImaginary);
-                processor.set_first_only(true);
+                processor.set_first_only(!processAllPlanes);
                 if (!processor.run_zf(zfDirect, 1)) {
                     throw new Error('run_zf failed');
                 }
@@ -270,6 +305,12 @@ self.onmessage = async function (event) {
                 }
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
+                }
+                if (event.data.nus_flatt_baseline) {
+                    postMessage({ stdout: "Enabling FLATT baseline correction along direct dimension before reading Bruker files" });
+                    if (typeof processor.set_flatt_direct_enabled === 'function') {
+                        processor.set_flatt_direct_enabled(true);
+                    }
                 }
                 if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
@@ -281,12 +322,28 @@ self.onmessage = async function (event) {
                 if (!processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
                 }
-
-                const addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
-                if (addressVal === 0) {
-                    throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                if (event.data.nus_flatt_baseline && typeof processor.set_flatt_direct_enabled !== 'function') {
+                    postMessage({ stdout: "Executing FLATT baseline correction along F2 (direct) traces" });
+                    processor.flatt_baseline_direct();
                 }
-                const size = processor.get_ft2_size_in_float32();
+
+                let addressVal;
+                let size;
+                if (processAllPlanes) {
+                    postMessage({ stdout: "Exporting direct-only processed buffer (Pseudo3D FT3) for SMILE..." });
+                    addressVal = Number(processor.write_pseudo3d_ft3_to_buffer());
+                    if (addressVal === 0) {
+                        throw new Error('write_pseudo3d_ft3_to_buffer failed');
+                    }
+                    size = processor.get_pseudo3d_ft3_size_in_float32();
+                } else {
+                    postMessage({ stdout: "Exporting direct-only processed buffer (2D FT2) for SMILE..." });
+                    addressVal = Number(processor.write_nmrpipe_ft2_to_buffer());
+                    if (addressVal === 0) {
+                        throw new Error('write_nmrpipe_ft2_to_buffer failed');
+                    }
+                    size = processor.get_ft2_size_in_float32();
+                }
                 file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, size * 4).slice();
             }
             finally {
@@ -300,7 +357,9 @@ self.onmessage = async function (event) {
                 file_type: 'direct',
                 phasing_data: phase_correction,
                 processing_flag: event.data.processing_flag,
-                spectrum_index: event.data.spectrum_index
+                spectrum_index: event.data.spectrum_index,
+                pseudo3d_process: event.data.pseudo3d_process,
+                save_debug_ft3: event.data.save_debug_ft3
             });
         }
         catch (error) {
@@ -399,10 +458,13 @@ self.onmessage = async function (event) {
             const acquisitionText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[0]));
             const acquisitionText2 = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[1]));
             const acqu3sText = event.data.acqu3s_content || "";
-            const fidBytes = encodeBytes(event.data.file_data[2]);
+            let fidBytes = encodeBytes(event.data.file_data[2]);
             let nusListText = "";
             if (event.data.file_data.length === 4) {
                 nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
+            } else if (event.data.file_data.length === 5) {
+                fidBytes = encodeBytes(event.data.file_data[3]);
+                nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[4]));
             }
 
             const fidBytesVec = new Module.VectorUChar();
@@ -428,12 +490,12 @@ self.onmessage = async function (event) {
             let file_data;
             let pseudo3d_files = [];
             try {
-                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
                 if (nusListText) {
                     if (!processor.read_nus_list_from_string(nusListText)) {
                         throw new Error('read_nus_list_from_string failed');
                     }
                 }
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
                 configureCommon(processor, {
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,

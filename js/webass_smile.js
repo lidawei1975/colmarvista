@@ -76,7 +76,7 @@ onmessage = function (e) {
                 Module['FS_unlink']('half.ft3');
                 Module['FS_unlink']('arguments_nus_pipe.txt');
                 Module['FS_unlink']('nuslist');
-            } catch (_) {}
+            } catch (_) { }
             return;
         }
 
@@ -98,43 +98,90 @@ onmessage = function (e) {
         return;
     }
 
-    if (e.data.spectrum_data )
-    {
+    if (e.data.spectrum_data) {
         console.log('Spectrum data received by Smile worker');
         postRuntimeDiagnostics('2d-before-fs-write', e.data.spectrum_data);
 
         /**
-         * Write a file named "nuslist"
+         * Parse nuslist_as_string line by line.
+         * For Pseudo-3D with 2 columns (e.g. "0 0", "1 0", ..., "0 1", "1 1"),
+         * we extract unique values of col2 (or col1 if col2 is constant/1-column) in order of first appearance.
          */
-        Module['FS_createDataFile']('/', 'nuslist', e.data.nuslist_as_string, true, true, true);
+        let nuslist_as_string = e.data.nuslist_as_string || "";
+        let nusLines = nuslist_as_string.trim().split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith('#'));
+
+        let col1Unique = [];
+        let col2Unique = [];
+
+        nusLines.forEach(line => {
+            let tokens = line.split(/\s+/);
+            if (tokens.length >= 1) {
+                let v1 = parseInt(tokens[0], 10);
+                if (Number.isFinite(v1) && !col1Unique.includes(v1)) {
+                    col1Unique.push(v1);
+                }
+            }
+            if (tokens.length >= 2) {
+                let v2 = parseInt(tokens[1], 10);
+                if (Number.isFinite(v2) && !col2Unique.includes(v2)) {
+                    col2Unique.push(v2);
+                }
+            }
+        });
+
+        // If col2 has multiple unique values (Pseudo-3D plane indices / indirect sampling points), use col2.
+        // Otherwise use col1.
+        let targetIndices = (col2Unique.length > 1) ? col2Unique : (col1Unique.length > 0 ? col1Unique : [0]);
+        let sampleCount = targetIndices.length;
+        let smileNuslistContent = targetIndices.join('\n');
+
+        let maxX = targetIndices.length > 0 ? Math.max(...targetIndices) : 0;
+        let xT = maxX + 1;
+
+        console.log('[webass_smile] Nuslist parsed: sampleCount=' + sampleCount + ', xT=' + xT + ', content:\n' + smileNuslistContent);
+
+        /**
+         * Write clean single-column "nuslist" file for SMILE
+         */
+        Module['FS_createDataFile']('/', 'nuslist', smileNuslistContent, true, true, true);
 
         /**
          * apodization_direct: "SP begin 0.5 end 0.875 pow 2 elb 0 c 0.5"
          * We need to extract the values of begin, end, pow, and elb
         */
-        let apodization_direct = e.data.apodization_direct;
-        let apodization_direct_values = apodization_direct.split(/\s+/);
-        let begin = apodization_direct_values[2];
-        let end = apodization_direct_values[4];
-        let pow = apodization_direct_values[6];
-        let elb = apodization_direct_values[8];
+        let apodization_direct = e.data.apodization_direct || "";
+        let apodization_direct_values = apodization_direct.trim().split(/\s+/);
+        let begin = "0.5";
+        let end = "0.896";
+        let pow = "3.684";
+        let elb = "0.0";
+        if (apodization_direct_values.length >= 9) {
+            begin = apodization_direct_values[2];
+            end = apodization_direct_values[4];
+            pow = apodization_direct_values[6];
+            elb = apodization_direct_values[8];
+        }
 
-        /**
-         * Get the last number in the nuslist_as_string. Need trim() because there might be a space at the end of the string
-         * This number+1 (becaused 0 based) is the number of points in the indirect dimension after NUS reconstruction. *2 because the data is complex
-         */
-        let nuslist_as_string = e.data.nuslist_as_string;
-        let nuslist_as_string_values = nuslist_as_string.trim().split(/\s+/);
-        let xT = (parseInt(nuslist_as_string_values[nuslist_as_string_values.length - 1])+1);
+        const isPseudo3D = (e.data.pseudo3d_process === 'all_planes') || (e.data.smile_mode === 'pseudo3d_nus');
 
         /**
          * write the command file "arguments_nus_pipe.txt"
          */
-        let command = "-in test_direct.ft2 -fn SMILE -nDim 2 -maxIter 2048 -nSigma 2.5 -report 1 -sample nuslist ";
-        command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
-        command = command.concat(" -xGLB 0.0 -xT ", xT);
-        command = command.concat(" -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
-        command = command.concat(" -out test_nus.ft2 -ov");
+        let command;
+        if (isPseudo3D) {
+            command = "-in test_direct.ft2 -fn SMILE -pseudoND -sample nuslist -sampleCount " + sampleCount;
+            command = command.concat(" -nSigma 2.5 -maxNPks 1 -maxIter 2048 -report 2 ");
+            command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
+            command = command.concat(" -xT ", xT, " -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
+            command = command.concat(" -out test_nus.ft2 -ov");
+        }
+        else {
+            command = "-in test_direct.ft2 -fn SMILE -nDim 2 -maxIter 2048 -nSigma 2.5 -report 2 -sample nuslist ";
+            command = command.concat(" -xApod SP -xQ1 ", begin, " -xQ2 ", end, " -xQ3 ", pow, " -xELB ", elb, " ");
+            command = command.concat(" -xGLB 0.0 -xT ", xT);
+            command = command.concat(" -xP0 ", e.data.phase_correction_indirect_p0, " -xP1 ", e.data.phase_correction_indirect_p1);
+            command = command.concat(" -out test_nus.ft2 -ov");
+        }
         Module['FS_createDataFile']('/', 'arguments_nus_pipe.txt', command, true, true, true);
         console.log(command);
 
@@ -152,26 +199,26 @@ onmessage = function (e) {
         postMessage({ stdout: 'Calling nusPipe function' });
         try {
             const nusPipeFn = getNusPipe();
-            postMessage({ stdout: '[smile-diag] 2d nuspipe typeof=' + typeof nusPipeFn });
+            postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
             nusPipeFn();
         } catch (err) {
             postMessage({
-                error: '2D nusPipe failed: ' + (err && err.message ? err.message : String(err))
+                error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe failed: ' + (err && err.message ? err.message : String(err))
             });
             try {
                 Module['FS_unlink']('test_direct.ft2');
                 Module['FS_unlink']('arguments_nus_pipe.txt');
                 Module['FS_unlink']('nuslist');
-            } catch (_) {}
+            } catch (_) { }
             return;
         }
 
         /**
-         * Read the output file "34.ft2" and send it back to the main thread
+         * Read the output file "test_nus.ft2" and send it back to the main thread
          */
         let output = FS.readFile('test_nus.ft2', { encoding: 'binary' });
         console.log('Output file read from virtual file system');
-        postRuntimeDiagnostics('2d-after-nuspipe-output', output);
+        postRuntimeDiagnostics((isPseudo3D ? 'pseudo3d' : '2d') + '-after-nuspipe-output', output);
 
         /**
          * Remove the files from the virtual file system
@@ -188,6 +235,7 @@ onmessage = function (e) {
              */
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
+            pseudo3d_process: e.data.pseudo3d_process,
         }, [output.buffer]);
     }
 

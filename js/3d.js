@@ -5852,6 +5852,7 @@ function build_3d_worker_cfg_from_ui() {
         ],
         nusSerInflated: false,
         normalDirectDimAutoPhase: !!(document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked),
+        nus_flatt_baseline: !!(document.getElementById('nus_flatt_baseline_3d') && document.getElementById('nus_flatt_baseline_3d').checked),
         extPpm: [
             parseFloat(document.getElementById('extract_direct_from').value),
             parseFloat(document.getElementById('extract_direct_to').value)

@@ -51,7 +51,7 @@ Intended use in webpage:
     patchHeight: 32,
     directExtend: 32,
     l2Reg: 1e-6,
-    flipRiSign: true,
+    flipRiSign: false,
     useTokenNorms: false,
   };
 
@@ -559,15 +559,16 @@ Intended use in webpage:
     const tokenWidth = cfg.tokenWidth;
     const patchHeight = cfg.patchHeight;
     const directExtend = cfg.directExtend;
-    const channels = numChannels !== undefined ? numChannels : (cfg.channels || 2);
+    const outChannels = numChannels !== undefined ? numChannels : (cfg.channels || 1);
+    const spectraChannels = shape[3]; // Total spectrum channels (usually 2: real and imag)
 
     const tTotal = Math.max(Math.floor(nx / tokenWidth), 1);
     const nxUse = tTotal * tokenWidth;
     const extWidth = tokenWidth + 2 * directExtend;
     const half = Math.floor(patchHeight / 2);
 
-    const patchesShape = [bsz, tTotal, topN, patchHeight, extWidth, channels];
-    const patches = new Float32Array(bsz * tTotal * topN * patchHeight * extWidth * channels);
+    const patchesShape = [bsz, tTotal, topN, patchHeight, extWidth, outChannels];
+    const patches = new Float32Array(bsz * tTotal * topN * patchHeight * extWidth * outChannels);
     const rowIdx = new Int32Array(bsz * tTotal * topN);
     const rowScore = new Float32Array(bsz * tTotal * topN);
     const tokenNorms = new Float32Array(bsz * tTotal);
@@ -648,7 +649,27 @@ Intended use in webpage:
           }
         }
 
-        // Extract patches using padded coordinates
+        // Compute max absolute amplitude across ALL spectrum channels (both real and imag) for this token
+        let maxAbs = 0.0;
+        for (let k = 0; k < topN; k += 1) {
+          const cy = selected[k];
+          for (let py = 0; py < patchHeight; py += 1) {
+            const origY = cy + (py - half);
+            if (origY >= 0 && origY < ny) {
+              for (let px = 0; px < extWidth; px += 1) {
+                const paddedX = x0 + px;
+                for (let ch = 0; ch < spectraChannels; ch += 1) {
+                  const v = Math.abs(getPaddedSpectraVal(b, origY, paddedX, ch));
+                  if (v > maxAbs) maxAbs = v;
+                }
+              }
+            }
+          }
+        }
+        tokenNorms[b * tTotal + t] = maxAbs;
+        const invMax = maxAbs > 1e-9 ? 1.0 / maxAbs : 1.0;
+
+        // Extract patches for outChannels (e.g. outChannels=1 for reals) normalized by maxAbs of ALL channels
         for (let k = 0; k < topN; k += 1) {
           const cy = selected[k];
           rowIdx[(b * tTotal + t) * topN + k] = cy;
@@ -660,33 +681,16 @@ Intended use in webpage:
             for (let px = 0; px < extWidth; px += 1) {
               const paddedX = x0 + px;
 
-              for (let ch = 0; ch < channels; ch += 1) {
+              for (let ch = 0; ch < outChannels; ch += 1) {
                 let val = 0.0;
                 if (origY >= 0 && origY < ny) {
-                  val = getPaddedSpectraVal(b, origY, paddedX, ch);
+                  val = getPaddedSpectraVal(b, origY, paddedX, ch) * invMax;
                 }
 
-                const outIdx = ((((b * tTotal + t) * topN + k) * patchHeight + py) * extWidth + px) * channels + ch;
+                const outIdx = ((((b * tTotal + t) * topN + k) * patchHeight + py) * extWidth + px) * outChannels + ch;
                 patches[outIdx] = val;
               }
             }
-          }
-        }
-
-        // Normalize patches for this token to max absolute amplitude 1.0
-        const strideToken = topN * patchHeight * extWidth * channels;
-        const off = (b * tTotal + t) * strideToken;
-        let maxAbs = 0.0;
-        for (let q = 0; q < strideToken; q += 1) {
-          const v = Math.abs(patches[off + q]);
-          if (v > maxAbs) maxAbs = v;
-        }
-        tokenNorms[b * tTotal + t] = maxAbs;
-
-        if (maxAbs > 1e-9) {
-          const inv = 1.0 / maxAbs;
-          for (let q = 0; q < strideToken; q += 1) {
-            patches[off + q] *= inv;
           }
         }
       }
@@ -909,19 +913,25 @@ Intended use in webpage:
 
         const raw = model.execute(reshaped);
 
-        // raw is an array: [phase_output, local_preds_output, patch_local_output]
-        // We want local_preds_output which has shape [bsz*nb, 1, 2]
-        const rawLocal = Array.isArray(raw) ? raw[1] : raw;
+        // Check if raw is array and handle single vs multi-output models
+        let rawLocal;
         if (Array.isArray(raw)) {
-          raw[0].dispose();
-          if (raw[2]) raw[2].dispose();
+          if (raw.length === 1) {
+            rawLocal = raw[0];
+          } else {
+            rawLocal = raw[1];
+            if (raw[0]) raw[0].dispose();
+            if (raw[2]) raw[2].dispose();
+          }
+        } else {
+          rawLocal = raw;
         }
 
         // rawLocal expected shape: [bsz*nb, 1, 2] -> convert to [bsz, nb, 2]
         const rawSqueezed = tf.tidy(() => tf.squeeze(rawLocal, [1]));
         const rawReshaped = tf.tidy(() => tf.reshape(rawSqueezed, [bsz, nb, 2]));
 
-        const phaseChunk = tf.tidy(() => tf.slice(rawReshaped, [0, 0, 0], [-1, -1, 1]).squeeze([2]));
+        const phaseChunk = tf.tidy(() => tf.neg(tf.slice(rawReshaped, [0, 0, 0], [-1, -1, 1]).squeeze([2])));
         const sChunk = tf.tidy(() => tf.slice(rawReshaped, [0, 0, 1], [-1, -1, 1]).squeeze([2]));
 
         const phaseArr = await phaseChunk.array();
@@ -953,18 +963,6 @@ Intended use in webpage:
 
       const leftRight = wlsLeftRightFromLocal(phasePerToken, weightPerTokenFinal, cfg.directDim, cfg.tokenWidth, cfg.l2Reg);
 
-      if (phasePerToken.length > 0) {
-        const stageLabel = debugStage || "unnamed_stage";
-        const pStr = phasePerToken[0].map(v => v.toFixed(3)).join(", ");
-        const sStr = sUncertaintyPerToken[0].map(v => v.toFixed(3)).join(", ");
-        const wStr = weightPerTokenFinal[0].map(v => v.toFixed(3)).join(", ");
-        const wlsStr = leftRight[0].map(v => v.toFixed(2)).join(", ");
-
-        const logMsg = `[tfjs][${stageLabel}] \n  Local Phases: ${pStr}\n  Logits (s):   ${sStr}\n  Weights (w):  ${wStr}\n  WLS (L/R):    ${wlsStr}`;
-        console.log(logMsg);
-        logToHtml(logMsg);
-      }
-
       patchesTensor.dispose();
 
       return {
@@ -977,13 +975,20 @@ Intended use in webpage:
 
     // Fallback: layers model
     const rawOutput = model.predict(patchesTensor);
-    const localPredsOutput = Array.isArray(rawOutput) ? rawOutput[1] : rawOutput;
+    let localPredsOutput;
     if (Array.isArray(rawOutput)) {
-      rawOutput[0].dispose();
-      if (rawOutput[2]) rawOutput[2].dispose();
+      if (rawOutput.length === 1) {
+        localPredsOutput = rawOutput[0];
+      } else {
+        localPredsOutput = rawOutput[1];
+        if (rawOutput[0]) rawOutput[0].dispose();
+        if (rawOutput[2]) rawOutput[2].dispose();
+      }
+    } else {
+      localPredsOutput = rawOutput;
     }
 
-    const phaseTensor = tf.tidy(() => tf.slice(localPredsOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2]));
+    const phaseTensor = tf.tidy(() => tf.neg(tf.slice(localPredsOutput, [0, 0, 0], [-1, -1, 1]).squeeze([2])));
     const sTensor = tf.tidy(() => tf.slice(localPredsOutput, [0, 0, 1], [-1, -1, 1]).squeeze([2]));
 
     const phasePerToken = await phaseTensor.array();
@@ -1100,6 +1105,14 @@ Intended use in webpage:
       normalModel = await tf.loadGraphModel(params.modelUrl);
     }
 
+    let largeModel = params.largeModel;
+    if (!largeModel && params.largeModelUrl) {
+      largeModel = await tf.loadGraphModel(params.largeModelUrl);
+    }
+
+    const normalModelName = params.modelName || '2D_model30_tfjs';
+    const largeModelName = params.largeModelName || '2D_model30_large_tfjs';
+
     const exp = loadExperimentFromFt2ArrayBuffer(ft2ArrayBuffer, {
       flipRiSign: params.flipRiSign != null ? params.flipRiSign : DEFAULTS.flipRiSign,
     });
@@ -1124,55 +1137,78 @@ Intended use in webpage:
       shape: spectraOriginal.shape,
     };
 
-    // Stage 1: run normal model (round 1)
-    console.log("[tfjs] Starting Stage 1: Normal Model (Round 1)");
-    const ext1 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut1 = await runModelOnPatches(tf, normalModel, ext1, cfg, 'normal_1');
-    applyLeftRightToSpectra(spectraWorking, normalOut1.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
+    const logRound = function (roundNum, currentModelName, normalOut) {
+      const lr = normalOut.wls_phase_left_right[0];
+      const left = lr[0];
+      const right = lr[1];
+      const appliedLeft = -left;
+      const appliedRight = -right;
+      const msg = `[ANN Phase] Round ${roundNum} (Model: ${currentModelName}) | Obtained: left = ${left.toFixed(2)}, right = ${right.toFixed(2)} | Applied: left = ${appliedLeft.toFixed(2)}, right = ${appliedRight.toFixed(2)}`;
+      console.log(msg);
+      logToHtml(msg);
+    };
 
-    // Stage 2: run normal model (round 2)
-    console.log("[tfjs] Starting Stage 2: Normal Model (Round 2)");
-    const ext2 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut2 = await runModelOnPatches(tf, normalModel, ext2, cfg, 'normal_2');
-    applyLeftRightToSpectra(spectraWorking, normalOut2.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
+    const numRounds = params.numRounds || 10;
+    let finalLeftRight = null;
+    let firstPatchesShape = null;
+    let firstRowIdx = null;
+    let firstRowScore = null;
+    const stageOutputs = {};
+    let currentRound = 1;
 
-    // Stage 3: run normal model (round 3)
-    console.log("[tfjs] Starting Stage 3: Normal Model (Round 3)");
-    const ext3 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut3 = await runModelOnPatches(tf, normalModel, ext3, cfg, 'normal_3');
-    applyLeftRightToSpectra(spectraWorking, normalOut3.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
+    // Optional Stage 1: run 1 round of Large Model if provided
+    if (largeModel) {
+      const ext = extractTopNPatches(spectraWorking, cfg, 1);
+      firstPatchesShape = ext.patchesShape;
+      firstRowIdx = ext.rowIdx;
+      firstRowScore = ext.rowScore;
 
-    // Stage 4: run normal model (round 4)
-    console.log("[tfjs] Starting Stage 4: Normal Model (Round 4)");
-    const ext4 = extractTopNPatches(spectraWorking, cfg, 1);
-    const normalOut4 = await runModelOnPatches(tf, normalModel, ext4, cfg, 'normal_4');
+      const largeOut = await runModelOnPatches(tf, largeModel, ext, cfg, 'large_model');
+      logRound(currentRound, largeModelName, largeOut);
+      applyLeftRightToSpectra(spectraWorking, largeOut.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    // Combine all predicted phases from all stages
-    let finalLeftRight = normalOut1.wls_phase_left_right;
-    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut2.wls_phase_left_right);
-    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut3.wls_phase_left_right);
-    finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut4.wls_phase_left_right);
+      finalLeftRight = addLeftRightArrays(finalLeftRight, largeOut.wls_phase_left_right);
+      stageOutputs[`stage_large_1`] = largeOut;
+      currentRound++;
+    }
 
-    console.log("[tfjs] Final combined WLS Left/Right:", finalLeftRight[0].map(v => v.toFixed(2)));
-    logToHtml(`[tfjs][Final] Combined WLS: [${finalLeftRight[0].map(v => v.toFixed(2)).join(", ")}]`);
+    const remainingRounds = largeModel ? (numRounds - 1) : numRounds;
+    for (let i = 1; i <= remainingRounds; i++) {
+      const ext = extractTopNPatches(spectraWorking, cfg, 1);
+      if (!firstPatchesShape) {
+        firstPatchesShape = ext.patchesShape;
+        firstRowIdx = ext.rowIdx;
+        firstRowScore = ext.rowScore;
+      }
+      const normalOut = await runModelOnPatches(tf, normalModel, ext, cfg, `normal_${i}`);
+      logRound(currentRound, normalModelName, normalOut);
+      applyLeftRightToSpectra(spectraWorking, normalOut.wls_phase_left_right.map(lr => [-lr[0], -lr[1]]));
 
-    return {
+      finalLeftRight = addLeftRightArrays(finalLeftRight, normalOut.wls_phase_left_right);
+      stageOutputs[`stage_normal_${i}`] = normalOut;
+      currentRound++;
+    }
+
+    const totLr = finalLeftRight[0];
+    const totLeft = totLr[0];
+    const totRight = totLr[1];
+    const totMsg = `[ANN Phase] Total Combined (${numRounds} rounds) | Obtained: left = ${totLeft.toFixed(2)}, right = ${totRight.toFixed(2)} | Total Applied: left = ${(-totLeft).toFixed(2)}, right = ${(-totRight).toFixed(2)}`;
+    console.log(totMsg);
+    logToHtml(totMsg);
+
+    return Object.assign({
       ft2Meta: exp.meta,
       config: cfg,
       shapes: {
         spectra: exp.shape,
-        patches: ext1.patchesShape,
+        patches: firstPatchesShape,
       },
       cubeMeta: { // matching 3D output names
-        rowIdx: ext1.rowIdx,
-        rowScore: ext1.rowScore,
+        rowIdx: firstRowIdx,
+        rowScore: firstRowScore,
       },
-      stage_normal_1: normalOut1,
-      stage_normal_2: normalOut2,
-      stage_normal_3: normalOut3,
-      stage_normal_4: normalOut4,
       final_wls_phase_left_right: finalLeftRight,
-    };
+    }, stageOutputs);
   }
 
   const api = {
