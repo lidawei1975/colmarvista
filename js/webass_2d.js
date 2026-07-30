@@ -112,7 +112,7 @@ self.onmessage = async function (event) {
                 if (!processor.run_zf(1, toInt(event.data.zf_indirect, 1))) {
                     throw new Error('run_zf failed');
                 }
-                if (!processor.set_up_apodization_from_string('none', String(event.data.apodization_indirect))) {
+                if (!processor.set_up_apodization_from_string('none', 'none')) {/** SMILE already included indirect dimension apodization in FID reconstruction */
                     throw new Error('set_up_apodization_from_string failed');
                 }
                 if (!processor.read_phase_correction_from_string(phase_correction)) {

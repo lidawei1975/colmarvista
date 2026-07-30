@@ -382,8 +382,8 @@ self.onmessage = async function (event) {
                 fidInstance.run_zf(1, cfg.zfIndirect1, cfg.zfIndirect2);
                 fidInstance.set_up_apodization_from_string(
                     'none',
-                    cfg.apodIndirect1 || 'none',
-                    cfg.apodIndirect2 || 'none'
+                    'none', /** SMILE already included indirect dimension apodization in FID reconstruction */
+                    'none'
                 );
                 if (cfg.extPpm && cfg.extPpm.length >= 2) {
                     fidInstance.extract_region_ppm(cfg.extPpm[0], cfg.extPpm[1]);
