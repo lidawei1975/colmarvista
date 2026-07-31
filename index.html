@@ -107,16 +107,20 @@
                             <label for="phase_correction_direct_p1">P1: </label>
                             <input type="number" name="phase_correction_direct_p1" id="phase_correction_direct_p1"
                                 value="0" step="any">
-                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked>
-                            <label for="auto_direct">Automated PC</label>
-                            <input type="checkbox" name="ann_auto_direct" id="ann_auto_direct" value="yes">
-                            <label for="ann_auto_direct">ANN Auto PC</label>
+                            <input type="checkbox" name="auto_direct" id="auto_direct" value="yes" checked
+                                title="Based on entropy minimization">
+                            <label for="auto_direct" title="Based on entropy minimization">Automated PC</label>
+                            <input type="checkbox" name="ann_auto_direct" id="ann_auto_direct" value="yes" checked
+                                title="Based on neural network and works on direct dimension only">
+                            <label for="ann_auto_direct"
+                                title="Based on neural network and works on direct dimension only">ANN Auto PC</label>
+                            <br>
                             <input type="checkbox" name="delete_imaginary" id="delete_imaginary" value="yes">
                             <label for="delete_imaginary">Delete imaginary data</label>
                             <input type="checkbox" name="nus_flatt_baseline" id="nus_flatt_baseline" value="yes">
                             <label for="nus_flatt_baseline">Direct dimension FLATT baseline correction for NUS</label>
-                            <input type="checkbox" name="save_debug_ft3" id="save_debug_ft3" value="yes">
-                            <label for="save_debug_ft3">Save debug direct FT3/FT2 file</label>
+                            <!-- <input type="checkbox" name="save_debug_ft3" id="save_debug_ft3" value="yes">
+                            <label for="save_debug_ft3">Save debug direct FT3/FT2 file</label> -->
                             <input type="checkbox" name="nus_process_as_normal" id="nus_process_as_normal" value="yes">
                             <label for="nus_process_as_normal">Process NUS spectrum as normal (No NUS recon)</label>
                         </span>
@@ -153,8 +157,9 @@
                             <label for="phase_correction_indirect_p1">P1: </label>
                             <input type="number" name="phase_correction_indirect_p1" id="phase_correction_indirect_p1"
                                 value="0" step="any">
-                            <input type="checkbox" name="auto_indirect" id="auto_indirect" value="yes" checked>
-                            <label for="auto_direct">Automated PC</label>
+                            <input type="checkbox" name="auto_indirect" id="auto_indirect" value="yes" checked
+                                title="Based on entropy minimization">
+                            <label for="auto_indirect" title="Based on entropy minimization">Automated PC</label>
                             <input type="checkbox" name="delete_imaginary_indirect" id="delete_imaginary_indirect"
                                 value="yes">
                             <label for="delete_imaginary_indirect">Delete imaginary data
@@ -163,7 +168,8 @@
 
                         <span>
                             <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
-                            <label for="neg_imaginary">Negative imaginary data (indirect dimension)?</label>
+                            <label for="neg_imaginary">Negative imaginary data (along indirect dimension), which will
+                                cause spectrum flipping along indirect dimension</label>
                         </span>
 
                         <span>

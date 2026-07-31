@@ -297,6 +297,14 @@ $(document).ready(function () {
 
         const tutorial = new SimpleTutorial(steps, () => {
             document.getElementById('start_tutorial').style.display = 'none';
+            const annElem = document.getElementById('ann_auto_direct');
+            if (annElem) {
+                annElem.checked = true;
+                const autoDirectEl = document.getElementById("auto_direct");
+                const deleteImaginaryEl = document.getElementById("delete_imaginary");
+                if (autoDirectEl) autoDirectEl.checked = true;
+                if (deleteImaginaryEl) deleteImaginaryEl.checked = false;
+            }
         });
 
         document.getElementById('start_tutorial').addEventListener('click', () => {
@@ -304,6 +312,10 @@ $(document).ready(function () {
             const btn = document.getElementById('button_minimize_fid_area');
             if (btn && btn.innerText === '+') {
                 minimize_fid_area(btn);
+            }
+            const annElem = document.getElementById('ann_auto_direct');
+            if (annElem) {
+                annElem.checked = false;
             }
             tutorial.start();
         });
