@@ -13,6 +13,16 @@
 */
 
 var webassembly_1d_worker_2;
+var webdp1d_module = null;
+var webdp1d_module_promise = null;
+
+if (typeof webdp1d_cpp === "function") {
+    webdp1d_module_promise = webdp1d_cpp().then((mod) => {
+        webdp1d_module = mod;
+        return mod;
+    });
+}
+
 const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
 function get_webassembly_job_flag(data) {
@@ -381,7 +391,7 @@ $(document).ready(function () {
              */
             let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
             // Get raw data on demand
-            let fid_data_preview = get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
+            let fid_data_preview = await get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
 
             if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
                 if (fid_data_preview) {
@@ -480,7 +490,7 @@ $(document).ready(function () {
 
                 // --- PREVIEW FID PLOT ---
                 try {
-                    let fid_data_preview = get_fid_data_from_buffer(fid_buffer, acquisition_string);
+                    let fid_data_preview = await get_fid_data_from_buffer(fid_buffer, acquisition_string);
 
                     if (fid_data_preview) {
                         let cutoff = fid_data_preview.length; // Default to full
@@ -3146,9 +3156,9 @@ async function run_auto_pc() {
 async function run_ann_phase_correction(ndx) {
     const original_console_log = console.log;
     const log_div = document.getElementById("log");
-    
+
     // Redirect console.log to the log div during processing
-    console.log = function(...args) {
+    console.log = function (...args) {
         original_console_log.apply(console, args);
         if (log_div) {
             log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
@@ -3249,56 +3259,56 @@ async function run_ann_phase_correction(ndx) {
 
         console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
 
-    /**
-     * result is the best location (phase correction at left end and right end)
-     * Apply the phase correction to raw_data and raw_data_i
-     */
-    let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
-    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-        phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
-        phase_array[i] = phase_array[i] * Math.PI / 180;
-    }
-    for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
-        all_spectra[ndx].raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
-        all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
-    }
-
-    /**
-     * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
-     */
-    if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
         /**
-         * If we are in reprocessing mode,
-         * Update input field phase_correction_direct_p0 and p1 to the new valu
+         * result is the best location (phase correction at left end and right end)
+         * Apply the phase correction to raw_data and raw_data_i
          */
-        if (current_reprocess_spectrum_index === ndx) {
-            document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
-            document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+        let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+        for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
+            phase_array[i] = phase_array[i] * Math.PI / 180;
         }
-    }
+        for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
+            all_spectra[ndx].raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
+            all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
+        }
 
-    /**
-     * Need to update the plot as well
-     */
-    if (main_plot !== null) {
         /**
-         * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
+         * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
          */
-        let data = [];
-        if (all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length) {
-            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i], all_spectra[ndx].raw_data_i[i]]);
+        if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
+            all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
+            all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
+            /**
+             * If we are in reprocessing mode,
+             * Update input field phase_correction_direct_p0 and p1 to the new valu
+             */
+            if (current_reprocess_spectrum_index === ndx) {
+                document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+                document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
             }
         }
-        else {
-            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i]]);
+
+        /**
+         * Need to update the plot as well
+         */
+        if (main_plot !== null) {
+            /**
+             * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
+             */
+            let data = [];
+            if (all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length) {
+                for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                    data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i], all_spectra[ndx].raw_data_i[i]]);
+                }
             }
+            else {
+                for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                    data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i]]);
+                }
+            }
+            main_plot.add_data(data, ndx);
         }
-        main_plot.add_data(data, ndx);
-    }
         /**
          * Enable manual phase correction and myself button after auto phase correction
          */
@@ -4361,55 +4371,53 @@ function detect_signal_end(fid_data) {
 }
 
 /**
- * Helper to parse FID data from buffer
+ * Helper to parse FID data from buffer using WebAssembly (read_acqus_and_fid_from_memory and write_nmrpipe_fid_to_buffer)
  * @param {ArrayBuffer} fid_buffer 
  * @param {string} acquisition_string 
- * @returns {Int32Array|Float64Array}
+ * @returns {Promise<Float32Array>}
  */
-function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
-    let dtypa = 0; // Default Int32
-    let bytorda = 0; // Default Little Endian
-
-    const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
-    if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
-
-    const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
-    if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
-
-    // Determine system endianness
-    const isLittleEndian = (function () {
-        const buffer = new ArrayBuffer(2);
-        new DataView(buffer).setInt16(0, 256, true);
-        return new Int16Array(buffer)[0] === 256;
-    })();
-
-    const fileIsLittleEndian = (bytorda === 0);
-    const swapBytes = (isLittleEndian !== fileIsLittleEndian);
-
-    let fid_data = null;
-
-    if (dtypa === 2) { // Float64
-        if (swapBytes) {
-            const dv = new DataView(fid_buffer);
-            fid_data = new Float64Array(fid_buffer.byteLength / 8);
-            for (let i = 0; i < fid_data.length; i++) {
-                fid_data[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
-            }
-        } else {
-            fid_data = new Float64Array(fid_buffer);
-        }
-    } else { // Int32
-        if (swapBytes) {
-            const dv = new DataView(fid_buffer);
-            fid_data = new Int32Array(fid_buffer.byteLength / 4);
-            for (let i = 0; i < fid_data.length; i++) {
-                fid_data[i] = dv.getInt32(i * 4, fileIsLittleEndian);
-            }
-        } else {
-            fid_data = new Int32Array(fid_buffer);
-        }
+async function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
+    if (!webdp1d_module && webdp1d_module_promise) {
+        await webdp1d_module_promise;
     }
-    return fid_data;
+
+    if (webdp1d_module) {
+        const obj = new webdp1d_module.spectrum_phasing_1d();
+
+        const fid_bytes = new webdp1d_module.VectorUChar();
+        const raw_bytes = new Uint8Array(fid_buffer);
+        for (let i = 0; i < raw_bytes.length; i++) {
+            fid_bytes.push_back(raw_bytes[i]);
+        }
+
+        obj.read_acqus_and_fid_from_memory(acquisition_string, fid_bytes);
+        fid_bytes.delete();
+
+        const nmrpipe_vec = new webdp1d_module.VectorUChar();
+        const write_ok = obj.write_nmrpipe_fid_to_buffer(nmrpipe_vec);
+
+        if (write_ok && nmrpipe_vec.size() > 2048) {
+            const nmrpipe_uint8 = new Uint8Array(nmrpipe_vec.size());
+            for (let i = 0; i < nmrpipe_vec.size(); i++) {
+                nmrpipe_uint8[i] = nmrpipe_vec.get(i);
+            }
+            nmrpipe_vec.delete();
+            obj.delete();
+
+            const total_floats = (nmrpipe_uint8.byteLength - 2048) / 4;
+            const n_real = total_floats / 2;
+
+            return new Float32Array(
+                nmrpipe_uint8.buffer,
+                nmrpipe_uint8.byteOffset + 2048,
+                n_real
+            );
+        }
+
+        nmrpipe_vec.delete();
+        obj.delete();
+    }
+    return null;
 }
 
 /**
