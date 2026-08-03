@@ -1,5 +1,5 @@
 describe('FID Processing 2D NUS Test', () => {
-    it('loads NUS files, sets processing parameters, and verifies 2D contour plot and 1D projections', () => {
+    it('loads NUS files, sets processing parameters, and verifies 2D contour plot, 1D projections, noise level, and sparse peaks', () => {
         // 1. Visit the page
         cy.visit('/index.html');
 
@@ -14,7 +14,8 @@ describe('FID Processing 2D NUS Test', () => {
             .selectFile('cypress/fixtures/test_data_2d_nus/nuslist', { force: true });
 
         // 3. Set Phase and Range Parameters (with known phase correction values)
-        cy.get('#auto_direct').uncheck({ force: true });
+        cy.get('#auto_direct').check({ force: true });
+        cy.get('#ann_auto_direct').uncheck({ force: true });
         cy.get('#phase_correction_direct_p0').clear({ force: true }).type('0', { force: true });
         cy.get('#phase_correction_direct_p1').clear({ force: true }).type('0', { force: true });
 
@@ -25,7 +26,7 @@ describe('FID Processing 2D NUS Test', () => {
 
         // - Extract direct dimension from 8.8 to 7.8 ppm
         cy.get('#extract_direct_from').clear({ force: true }).type('8.8', { force: true });
-        cy.get('#extract_direct_to').clear({ force: true }).type('7.8', { force: true });
+        cy.get('#extract_direct_to').clear({ force: true }).type('5.2', { force: true });
 
         // 4. Click Process
         cy.get('#button_fid_process', { timeout: 10000 }).click({ force: true });
@@ -42,5 +43,33 @@ describe('FID Processing 2D NUS Test', () => {
         // 7. Verify 1D Projections exist and have path lines rendered
         cy.get('#cross_section_svg_x path', { timeout: 30000 }).should('have.length.gt', 0);
         cy.get('#cross_section_svg_y path', { timeout: 30000 }).should('have.length.gt', 0);
+
+        // 8. Verify 2D Frequency Spectrum Noise Level and Peak Sparsity
+        cy.window().then((win) => {
+            expect(win.hsqc_spectra).to.exist;
+            expect(win.hsqc_spectra.length).to.be.greaterThan(0);
+
+            const spectrum = win.hsqc_spectra[0];
+            expect(spectrum).to.exist;
+            expect(spectrum.raw_data).to.exist;
+            expect(spectrum.noise_level).to.exist;
+
+            // Assert noise level is around 11 (+-30%, i.e. between 7.7 and 14.3)
+            expect(spectrum.noise_level).to.be.within(11 * 0.7, 11 * 1.3);
+
+            // Assert sparse peaks: data points where abs(val) > 10 * noise_level should be < 5% of total points
+            const threshold = 10 * spectrum.noise_level;
+            const totalPoints = spectrum.raw_data.length;
+            let peakPointsCount = 0;
+
+            for (let i = 0; i < totalPoints; i++) {
+                if (Math.abs(spectrum.raw_data[i]) > threshold) {
+                    peakPointsCount++;
+                }
+            }
+
+            const peakRatio = peakPointsCount / totalPoints;
+            expect(peakRatio).to.be.lessThan(0.05);
+        });
     });
 });

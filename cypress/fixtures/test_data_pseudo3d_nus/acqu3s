@@ -1,0 +1,24 @@
+##TITLE= Parameter file, TopSpin 3.8.0
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 2	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ 2026-04-03 14:17:20.580 -0400  nmr@CZC5217H4L
+$$ /home/nmr/NMR_Data/klee/data/Metabolomics/nmr/Biofilm-31May2026_bf/11/acqu3s
+$$ process /opt/topspin3.8.0/prog/mod/go4
+##$ACQT0= 0
+##$BF1= 213.772902
+##$FnILOOP= 0
+##$FnMODE= 6
+##$NUC1= <13C>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 256
+##$O1= 16032.9676500055
+##$ProjAngle= 0
+##$SFO1= 213.78893496765
+##$SW= 160.188717660471
+##$SW_h= 34246.5753424658
+##$TD= 1
+##END=

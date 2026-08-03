@@ -1737,7 +1737,7 @@ async function load_ft3_file() {
     let ext = file.name.split('.').pop().toLowerCase();
 
     if (ext === 'ucsf') {
-        alert("not implemented yet");
+        await load_sparky_3d_file_impl(file);
         return;
     }
 
@@ -1746,9 +1746,325 @@ async function load_ft3_file() {
     if (isNmrPipe) {
         await load_ft3_file_impl(file);
     } else {
+        // First check if raw file has UCSF NMR magic header
+        try {
+            let headerBlob = file.slice(0, 10);
+            let headerBuffer = await read_file_as_buffer(headerBlob);
+            let ident = "";
+            let dataView = new DataView(headerBuffer);
+            for (let i = 0; i < Math.min(8, headerBuffer.byteLength); i++) {
+                ident += String.fromCharCode(dataView.getUint8(i));
+            }
+            if (ident === "UCSF NMR") {
+                await load_sparky_3d_file_impl(file);
+                return;
+            }
+        } catch (e) {
+            // Ignore error and fall through
+        }
+
         await load_raw_3d_file_impl(file);
     }
 }
+
+/**
+ * Loads Sparky 3D (.ucsf) file.
+ * @param {File} file
+ * @returns {Promise<void>}
+ */
+async function load_sparky_3d_file_impl(file) {
+    set_loading_buttons_state(true);
+    try {
+        document.getElementById("webassembly_message").innerText = "Loading Sparky 3D " + file.name + "...";
+
+        // Reset state
+        reset_3d_dataset_state();
+
+        let buffer = await read_file_as_buffer(file);
+        if (buffer.byteLength < 564) {
+            alert("File is too small to be a valid UCSF Sparky 3D file.");
+            return;
+        }
+
+        let dataView = new DataView(buffer);
+
+        // 1. Read 180-byte Main Header
+        let ident = "";
+        for (let i = 0; i < 8; i++) {
+            ident += String.fromCharCode(dataView.getUint8(i));
+        }
+
+        if (ident !== "UCSF NMR") {
+            alert("Not a valid UCSF Sparky file format.");
+            return;
+        }
+
+        let naxis = dataView.getUint8(10);
+        let ncomponents = dataView.getUint8(11); // 1 = Real, 2 = Complex (Real + Imaginary pairs)
+        let encoding = dataView.getUint8(12);
+        let version = dataView.getUint8(13);
+
+        if (naxis !== 3) {
+            alert("Expected a 3D dataset, but naxis = " + naxis);
+            return;
+        }
+
+        if (ncomponents !== 1 && ncomponents !== 2) {
+            alert("Unsupported ncomponents value: " + ncomponents);
+            return;
+        }
+
+        // 2. Read Axis Headers (128 bytes each starting at 180 + i * 128)
+        let axes = [];
+        for (let i = 0; i < 3; i++) {
+            let axis_pos = 180 + i * 128;
+            let nuc = "";
+            for (let j = 0; j < 6; j++) {
+                let charCode = dataView.getUint8(axis_pos + j);
+                if (charCode === 0) break;
+                nuc += String.fromCharCode(charCode);
+            }
+            nuc = nuc.trim();
+
+            let npoints = dataView.getInt32(axis_pos + 8, false); // Big endian
+            let block_size = dataView.getInt32(axis_pos + 16, false); // Big endian
+            let spectrometer_freq = dataView.getFloat32(axis_pos + 20, false); // Big endian
+            let spectral_width = dataView.getFloat32(axis_pos + 24, false); // Big endian
+            let center_ppm = dataView.getFloat32(axis_pos + 28, false); // Big endian
+
+            axes.push({
+                nucleus: nuc,
+                npoints: npoints,
+                block_size: block_size,
+                spectrometer_freq: spectrometer_freq,
+                spectral_width: spectral_width,
+                center_ppm: center_ppm
+            });
+        }
+
+        // Axis 0: Z (w1), Axis 1: Y (w2), Axis 2: X (w3)
+        let N1 = axes[0].npoints, B1 = axes[0].block_size;
+        let N2 = axes[1].npoints, B2 = axes[1].block_size;
+        let N3 = axes[2].npoints, B3 = axes[2].block_size;
+
+        if (N1 <= 0 || N2 <= 0 || N3 <= 0 || B1 <= 0 || B2 <= 0 || B3 <= 0) {
+            alert("Invalid axis or block dimensions in Sparky file.");
+            return;
+        }
+
+        let num_blocks_1 = Math.ceil(N1 / B1);
+        let num_blocks_2 = Math.ceil(N2 / B2);
+        let num_blocks_3 = Math.ceil(N3 / B3);
+
+        let float_count_per_block = B1 * B2 * B3 * ncomponents;
+        let block_byte_size = float_count_per_block * 4;
+
+        let expected_min_bytes = 564 + num_blocks_1 * num_blocks_2 * num_blocks_3 * block_byte_size;
+        if (buffer.byteLength < expected_min_bytes) {
+            console.warn(`Sparky 3D file payload size (${buffer.byteLength}) is smaller than expected (${expected_min_bytes}).`);
+        }
+
+        // Calculate PPM values for each axis
+        let sw_ppm1 = axes[0].spectral_width / axes[0].spectrometer_freq;
+        let z_ppm_start = axes[0].center_ppm + (sw_ppm1 / 2.0);
+        let z_ppm_step = - (sw_ppm1 / N1);
+        let z_ppm_width = sw_ppm1;
+
+        let sw_ppm2 = axes[1].spectral_width / axes[1].spectrometer_freq;
+        let y_ppm_start = axes[1].center_ppm + (sw_ppm2 / 2.0);
+        let y_ppm_step = - (sw_ppm2 / N2);
+        let y_ppm_width = sw_ppm2;
+
+        let sw_ppm3 = axes[2].spectral_width / axes[2].spectrometer_freq;
+        let x_ppm_start = axes[2].center_ppm + (sw_ppm3 / 2.0);
+        let x_ppm_step = - (sw_ppm3 / N3);
+        let x_ppm_width = sw_ppm3;
+
+        // Create N1 plane spectrum objects
+        spectra_3d = [];
+        for (let p = 0; p < N1; p++) {
+            let s = new spectrum();
+            s.n_direct = N3;
+            s.n_indirect = N2;
+            s.filename = `plane_${String(p + 1).padStart(3, '0')}`;
+            s.raw_data = new Float32Array(N2 * N3);
+            if (ncomponents === 2) {
+                s.raw_data_ri = new Float32Array(N2 * N3);
+            }
+
+            s.x_ppm_start = x_ppm_start;
+            s.x_ppm_step = x_ppm_step;
+            s.x_ppm_width = x_ppm_width;
+            s.x_ppm_ref = 0.0;
+            s.frq1 = axes[2].spectrometer_freq;
+
+            s.y_ppm_start = y_ppm_start;
+            s.y_ppm_step = y_ppm_step;
+            s.y_ppm_width = y_ppm_width;
+            s.y_ppm_ref = 0.0;
+            s.frq2 = axes[1].spectrometer_freq;
+
+            s.z_ppm_start = z_ppm_start;
+            s.z_ppm_step = z_ppm_step;
+            s.z_ppm_width = z_ppm_width;
+            s.z_ppm_ref = 0.0;
+
+            // Fill header (NMRPipe style header)
+            s.header = new Float32Array(512);
+            s.header[99] = N3;  // FDSIZE
+            s.header[219] = N2; // FDSPECNUM
+            s.header[15] = N1;  // FDF3SIZE
+
+            s.header[24] = 2; // FDDIMORDER1 (direct)
+            s.header[25] = 1; // FDDIMORDER2 (indirect1)
+            s.header[26] = 3; // FDDIMORDER3 (indirect2)
+
+            s.header[56] = (ncomponents === 2) ? 0 : 1; // FDF2QUADFLAG
+            s.header[55] = 1; // FDF1QUADFLAG
+            s.header[51] = 1; // FDF3QUADFLAG
+
+            s.header[119] = axes[2].spectrometer_freq; // FDF2OBS
+            s.header[100] = axes[2].spectral_width;    // FDF2SW
+            s.header[66]  = axes[2].center_ppm;        // FDF2CAR
+            s.header[101] = (x_ppm_start - x_ppm_width - x_ppm_step) * axes[2].spectrometer_freq; // FDF2ORIG
+
+            s.header[218] = axes[1].spectrometer_freq; // FDF1OBS
+            s.header[229] = axes[1].spectral_width;    // FDF1SW
+            s.header[67]  = axes[1].center_ppm;        // FDF1CAR
+            s.header[249] = (y_ppm_start - y_ppm_width - y_ppm_step) * axes[1].spectrometer_freq; // FDF1ORIG
+
+            s.header[10]  = axes[0].spectrometer_freq; // FDF3OBS
+            s.header[11]  = axes[0].spectral_width;    // FDF3SW
+            s.header[68]  = axes[0].center_ppm;        // FDF3CAR
+            s.header[12]  = (z_ppm_start - z_ppm_width - z_ppm_step) * axes[0].spectrometer_freq; // FDF3ORIG
+
+            let headerUint8 = new Uint8Array(s.header.buffer, s.header.byteOffset, 2048);
+            const setLabel = (offsetFloatIdx, labelStr) => {
+                if (!labelStr) return;
+                let byteOffset = offsetFloatIdx * 4;
+                let bytes = new TextEncoder().encode(labelStr.slice(0, 8));
+                headerUint8.set(bytes, byteOffset);
+            };
+            setLabel(16, axes[2].nucleus);
+            setLabel(18, axes[1].nucleus);
+            setLabel(20, axes[0].nucleus);
+
+            spectra_3d.push(s);
+        }
+
+        // 3. Read tiled binary data blocks
+        let data_byte_offset = 564;
+        for (let b1 = 0; b1 < num_blocks_1; b1++) {
+            for (let b2 = 0; b2 < num_blocks_2; b2++) {
+                for (let b3 = 0; b3 < num_blocks_3; b3++) {
+
+                    if (data_byte_offset + block_byte_size > buffer.byteLength) {
+                        break;
+                    }
+
+                    for (let z = 0; z < B1; z++) {
+                        let w1 = b1 * B1 + z;
+                        if (w1 >= N1) continue;
+                        let s = spectra_3d[w1];
+
+                        for (let y = 0; y < B2; y++) {
+                            let w2 = b2 * B2 + y;
+                            if (w2 >= N2) continue;
+
+                            for (let x = 0; x < B3; x++) {
+                                let w3 = b3 * B3 + x;
+                                if (w3 >= N3) continue;
+
+                                let block_real_idx = ((z * B2 + y) * B3 + x) * ncomponents;
+                                let float_pos = data_byte_offset + block_real_idx * 4;
+                                let real_val = dataView.getFloat32(float_pos, false); // big endian
+
+                                let idx_2d = w2 * N3 + w3;
+                                s.raw_data[idx_2d] = real_val;
+
+                                if (ncomponents === 2) {
+                                    let imag_val = dataView.getFloat32(float_pos + 4, false);
+                                    s.raw_data_ri[idx_2d] = imag_val;
+                                }
+                            }
+                        }
+                    }
+
+                    data_byte_offset += block_byte_size;
+                }
+            }
+        }
+
+        // 4. Common processing for each plane
+        for (let p = 0; p < N1; p++) {
+            let msgElem = document.getElementById("webassembly_message");
+            if (msgElem) {
+                msgElem.innerText = "Processing plane " + (p + 1) + " of " + N1 + " from " + file.name + "...";
+            }
+            if (p % 2 === 0 || p === N1 - 1) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            let s = spectra_3d[p];
+            s.process_spectrum_common_task();
+
+            s.levels = calculate_levels(s.noise_level, 1.4, 30);
+            s.negative_levels = calculate_negative_levels(s.noise_level, 1.4, 30);
+            s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+            s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+            s.visible = true;
+        }
+
+        // Set nuclei
+        window.last_fid_nuclei = {
+            x: axes[2].nucleus,
+            y: axes[1].nucleus,
+            z: axes[0].nucleus
+        };
+
+        if (spectra_3d.length > 0) {
+            let slider = document.getElementById('slice_slider');
+            slider.max = spectra_3d.length - 1;
+            slider.value = 0;
+            document.getElementById('slice_control_area').style.display = 'block';
+            document.getElementById('aux_buttons').style.display = 'block';
+            document.getElementById('main_plot_area').style.display = 'flex';
+
+            // Clear projection state for new dataset
+            spectrum_proj = null; spectrum_proj_y = null; spectrum_proj_x = null;
+            main_plot_proj = null; main_plot_proj_y = null; main_plot_proj_x = null;
+
+            extract_nuclei_from_spectrum(spectra_3d[0]);
+            // Initialize main plot with dimensions from the first slice
+            init_main_plot(spectra_3d[0]);
+
+            update_global_noise_level();
+            // Draw first slice
+            draw_slice(0);
+
+            if (document.getElementById('normal_direct_dim_auto_phase_3d') && document.getElementById('normal_direct_dim_auto_phase_3d').checked) {
+                run_auto_phase_on_loaded_spectrum();
+            }
+
+            // Sync projection view if checked
+            const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
+            if (projChecked) {
+                toggle_visualize_proj(true);
+            }
+        }
+
+        document.getElementById("webassembly_message").innerText = "";
+    } catch (err) {
+        console.error("Error loading Sparky 3D file", err);
+        alert("Failed to read Sparky 3D file: " + err.message);
+    } finally {
+        set_loading_buttons_state(false);
+    }
+}
+
+window.load_sparky_3d_file_impl = load_sparky_3d_file_impl;
+window.load_sparky_3d_file = load_sparky_3d_file_impl;
+window.read_sparky_3d_file = load_sparky_3d_file_impl;
+
 
 async function load_ft3_file_impl(file) {
     set_loading_buttons_state(true);
@@ -1826,6 +2142,10 @@ async function load_ft3_file_impl(file) {
 
         for (let i = 0; i < num_planes; i++) {
             try {
+                let msgElem = document.getElementById("webassembly_message");
+                if (msgElem) {
+                    msgElem.innerText = "Loading plane " + (i + 1) + " of " + num_planes + " from " + file.name + "...";
+                }
                 let start_offset = data_start_offset + i * plane_byte_size;
                 let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
                 let planeDataBuffer = await read_file_as_buffer(planeBlob);
@@ -1938,6 +2258,13 @@ async function load_raw_3d_file_impl(file) {
 
         for (let p = 0; p < n_indirect2; p++) {
             try {
+                let msgElem = document.getElementById("webassembly_message");
+                if (msgElem) {
+                    msgElem.innerText = "Processing plane " + (p + 1) + " of " + n_indirect2 + " from " + file.name + "...";
+                }
+                if (p % 2 === 0 || p === n_indirect2 - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
                 let s = new spectrum();
                 s.n_direct = n_direct;
                 s.n_indirect = n_indirect1;
@@ -2067,6 +2394,10 @@ async function load_files() {
         for (let i = 0; i < files.length; i++) {
             let file = files[i];
             try {
+                let msgElem = document.getElementById("webassembly_message");
+                if (msgElem) {
+                    msgElem.innerText = "Loading plane " + (i + 1) + " of " + files.length + " (" + file.name + ")...";
+                }
                 let buffer = await read_file_as_buffer(file);
                 let s = new spectrum();
                 // process_ft_file(buffer, filename, origin)

@@ -243,47 +243,21 @@ self.onmessage = async function (event) {
 
 
         obj.set_up_apodization_from_string(event.data.apodization_string);
-        obj.read_bruker_files_as_strings(event.data.acquisition_string);
 
-        const fid_data = new Module.VectorFloat();
-        let js_fid_data = null; // Reference to the underlying JS TypedArray for signal processing
-
-        const fid_data_type = Number(obj.get_fid_data_type());
-        postMessage({ stdout: "[JS-debug] get_fid_data_type() = " + fid_data_type });
-        postMessage({ stdout: "[JS-debug] fid_buffer byteLength = " + (event.data.fid_buffer ? event.data.fid_buffer.byteLength : "undefined") });
-
-        if (fid_data_type === 2) {
-            /**
-             * Double (float64) data type in e.data.fid_data,
-             * convert every 8 bytes to a float32 number.
-             * Remember that e.data.fid_data is Uint8Array, need to view it as a float64 array.
-             */
-            const fid_data_double = new Float64Array(event.data.fid_buffer);
-            js_fid_data = fid_data_double;
-            postMessage({ stdout: "[JS-debug] Float64Array length = " + fid_data_double.length });
-            for (let i = 0; i < fid_data_double.length; ++i) {
-                fid_data.push_back(fid_data_double[i]);
+        const fid_bytes_vec = new Module.VectorUChar();
+        if (event.data.fid_buffer && event.data.fid_buffer.byteLength > 0) {
+            const raw_fid_bytes = new Uint8Array(event.data.fid_buffer);
+            postMessage({ stdout: "[JS-debug] Reading acqus and fid from memory, raw bytes: " + raw_fid_bytes.length });
+            for (let i = 0; i < raw_fid_bytes.length; ++i) {
+                fid_bytes_vec.push_back(raw_fid_bytes[i]);
             }
-        }
-        else if (fid_data_type === 0) {
-            /**
-             * Int (int32) data type in e.data.fid_data,
-             * convert every 4 bytes to a int32 number.
-             */
-            const fid_data_int = new Int32Array(event.data.fid_buffer);
-            js_fid_data = fid_data_int;
-            postMessage({ stdout: "[JS-debug] Int32Array length = " + fid_data_int.length });
-            for (let i = 0; i < fid_data_int.length; ++i) {
-                fid_data.push_back(fid_data_int[i]);
-            }
-        }
-        else {
-            console.error("Unknown or unhandled FID data type: " + fid_data_type);
-            postMessage({ stdout: "[JS-debug] Unknown FID data type: " + fid_data_type });
+        } else {
+            postMessage({ stdout: "[JS-debug] Reading single parameter/jdx file from memory (fid_bytes empty)" });
         }
 
-        postMessage({ stdout: "[JS-debug] VectorFloat (fid_data) size = " + fid_data.size() });
-        obj.set_fid_data(fid_data);
+        obj.read_acqus_and_fid_from_memory(event.data.acquisition_string, fid_bytes_vec);
+        fid_bytes_vec.delete();
+
         let reduced_fid_size = 0;
 
         if (event.data.reduced_fid_size > 0) {
