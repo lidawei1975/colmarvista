@@ -462,6 +462,26 @@
       color: var(--accent-primary);
     }
 
+    /* Search Highlight Style */
+    mark.highlight {
+      background-color: rgba(56, 189, 248, 0.35);
+      color: white;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+
+    #no-results-msg {
+      display: none;
+      padding: 40px;
+      text-align: center;
+      background-color: var(--bg-card);
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      margin-bottom: 24px;
+    }
+
     /* Back to Top Button */
     #back-to-top {
       position: fixed;
@@ -593,6 +613,7 @@
 
     <!-- Main Content Container -->
     <main class="content-wrapper">
+      <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
       
 <section class="hero-banner" id="overview">
   <h1 class="hero-title">COLMARvista Documentation</h1>
@@ -627,7 +648,7 @@
   </div>
 </section>
 
-<div style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-2d);">
+<div class="section-divider-header" style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-2d);">
   <h2 style="color: var(--accent-2d); font-size: 1.5rem;">2D NMR Spectra Instructions (<a href="doc_2d.html" style="color: var(--accent-2d); font-size: 0.85em; text-decoration: underline;">Open Standalone 2D Page</a>)</h2>
 </div>
 
@@ -876,7 +897,7 @@
         </section>
         
 
-<div style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-1d); margin-top: 48px;">
+<div class="section-divider-header" style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-1d); margin-top: 48px;">
   <h2 style="color: var(--accent-1d); font-size: 1.5rem;">1D NMR Spectra Instructions (<a href="doc_1d.html" style="color: var(--accent-1d); font-size: 0.85em; text-decoration: underline;">Open Standalone 1D Page</a>)</h2>
 </div>
 
@@ -1110,6 +1131,7 @@
   </button>
 
   <script>
+    // Theme Toggle Logic
     const themeToggle = document.getElementById('theme-toggle');
     const htmlElem = document.documentElement;
     const savedTheme = localStorage.getItem('colmar_doc_theme') || 'dark';
@@ -1122,6 +1144,7 @@
       localStorage.setItem('colmar_doc_theme', newTheme);
     });
 
+    // Back to Top Button Logic
     const backToTop = document.getElementById('back-to-top');
     window.addEventListener('scroll', () => {
       if (window.scrollY > 400) {
@@ -1135,6 +1158,7 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
+    // Active Sidebar ScrollSpy
     const sections = document.querySelectorAll('section.doc-card, section.hero-banner');
     const navLinks = document.querySelectorAll('.nav-link');
 
@@ -1142,33 +1166,64 @@
       let current = '';
       sections.forEach(section => {
         const sectionTop = section.offsetTop - 100;
-        if (window.scrollY >= sectionTop) {
+        if (window.scrollY >= sectionTop && section.style.display !== 'none') {
           current = section.getAttribute('id');
         }
       });
 
       navLinks.forEach(link => {
         link.classList.remove('active');
-        if (link.getAttribute('href') === '#' + current || link.getAttribute('href').endsWith('#' + current)) {
+        const href = link.getAttribute('href');
+        if (href === '#' + current || href.endsWith('#' + current)) {
           link.classList.add('active');
         }
       });
     });
 
+    // Robust Real-Time Live Search Filter
     const searchInput = document.getElementById('doc-search');
-    searchInput.addEventListener('input', (e) => {
-      const query = e.target.value.toLowerCase().trim();
-      const docCards = document.querySelectorAll('.doc-card');
+    const noResultsMsg = document.getElementById('no-results-msg');
+    const docCards = document.querySelectorAll('.doc-card');
+    const sectionHeaders = document.querySelectorAll('.section-divider-header');
+
+    function performSearch() {
+      const query = searchInput.value.toLowerCase().trim();
+      let visibleCount = 0;
 
       docCards.forEach(card => {
-        const text = card.textContent.toLowerCase();
-        if (text.includes(query)) {
+        const id = card.getAttribute('id');
+        const cardText = card.textContent.toLowerCase();
+        const navLink = document.querySelector(`.nav-link[href*="#${id}"]`);
+
+        if (query === '' || cardText.includes(query)) {
           card.style.display = 'block';
+          if (navLink) navLink.style.display = 'block';
+          visibleCount++;
         } else {
           card.style.display = 'none';
+          if (navLink) navLink.style.display = 'none';
         }
       });
-    });
+
+      // Show/Hide section headers if all cards in that section are hidden
+      sectionHeaders.forEach(header => {
+        if (query === '') {
+          header.style.display = 'block';
+        } else {
+          const siblingCards = Array.from(docCards).filter(c => c.previousElementSibling === header || (c.previousElementSibling && c.previousElementSibling.previousElementSibling === header));
+          const hasVisible = siblingCards.some(c => c.style.display !== 'none');
+          header.style.display = hasVisible ? 'block' : 'none';
+        }
+      });
+
+      if (noResultsMsg) {
+        noResultsMsg.style.display = (visibleCount === 0 && query !== '') ? 'block' : 'none';
+      }
+    }
+
+    searchInput.addEventListener('input', performSearch);
+    searchInput.addEventListener('keyup', performSearch);
+    searchInput.addEventListener('search', performSearch);
   </script>
 </body>
 </html>
