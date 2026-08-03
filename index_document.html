@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>COLMARvista Documentation - Complete User Guide</title>
-  <meta name="description" content="Official unified documentation for COLMARvista 1D, 2D, and Pseudo-3D NMR spectrum viewer and processor.">
+  <meta name="description" content="Official unified documentation for COLMARvista 1D, 2D, and 3D NMR spectrum viewer and processor.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -25,6 +25,7 @@
       
       --accent-primary: #38bdf8;
       --accent-hover: #0284c7;
+      --accent-3d: #e76f51;
       --accent-2d: #38bdf8;
       --accent-1d: #a855f7;
       --accent-warn: #f59e0b;
@@ -52,6 +53,7 @@
       
       --accent-primary: #0284c7;
       --accent-hover: #0369a1;
+      --accent-3d: #d97706;
       --accent-2d: #0284c7;
       --accent-1d: #7e22ce;
       --accent-warn: #d97706;
@@ -81,7 +83,6 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Top Navigation Header */
     header.site-header {
       position: fixed;
       top: 0;
@@ -110,7 +111,7 @@
     }
 
     .brand-logo {
-      background: linear-gradient(135deg, var(--accent-2d), var(--accent-1d));
+      background: linear-gradient(135deg, var(--accent-3d), var(--accent-2d));
       color: white;
       width: 36px;
       height: 36px;
@@ -120,20 +121,20 @@
       justify-content: center;
       font-weight: 800;
       font-size: 1.1rem;
-      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 2px 8px rgba(231, 111, 81, 0.3);
     }
 
     .nav-tabs {
       display: flex;
-      gap: 8px;
-      margin-left: 20px;
+      gap: 6px;
+      margin-left: 12px;
     }
 
     .tab-link {
-      padding: 6px 14px;
+      padding: 6px 12px;
       border-radius: 20px;
       text-decoration: none;
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       font-weight: 600;
       color: var(--text-muted);
       transition: all 0.2s ease;
@@ -151,7 +152,7 @@
 
     .search-box {
       position: relative;
-      width: 300px;
+      width: 260px;
     }
 
     .search-box input {
@@ -207,14 +208,12 @@
       color: var(--accent-primary);
     }
 
-    /* Main Layout */
     .app-layout {
       display: flex;
       margin-top: var(--header-height);
       min-height: calc(100vh - var(--header-height));
     }
 
-    /* Sidebar Navigation */
     aside.sidebar {
       width: var(--sidebar-width);
       background-color: var(--bg-sidebar);
@@ -277,7 +276,6 @@
       border-left: 3px solid var(--accent-primary);
     }
 
-    /* Main Content Area */
     main.content-wrapper {
       margin-left: var(--sidebar-width);
       flex: 1;
@@ -285,7 +283,6 @@
       max-width: 1080px;
     }
 
-    /* Banner / Hero Section */
     .hero-banner {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95)), url('data:image/svg+xml;utf8,<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg"><path d="0 20 Q 10 5, 20 20 T 40 20" stroke="%23334155" fill="none" stroke-width="1.5"/></svg>');
       border: 1px solid var(--border-color);
@@ -314,8 +311,8 @@
 
     .quick-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
       margin-top: 24px;
     }
 
@@ -323,7 +320,7 @@
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      padding: 20px;
+      padding: 18px;
       text-decoration: none;
       color: var(--text-main);
       transition: all 0.2s ease;
@@ -340,7 +337,7 @@
 
     .quick-card-title {
       font-weight: 700;
-      font-size: 1.05rem;
+      font-size: 1rem;
       color: var(--text-heading);
       display: flex;
       align-items: center;
@@ -348,11 +345,10 @@
     }
 
     .quick-card-desc {
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       color: var(--text-muted);
     }
 
-    /* Documentation Cards */
     .doc-card {
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
@@ -383,7 +379,6 @@
       letter-spacing: -0.01em;
     }
 
-    /* Badges */
     .badge {
       display: inline-block;
       padding: 4px 10px;
@@ -393,6 +388,12 @@
       letter-spacing: 0.04em;
       text-transform: uppercase;
       width: fit-content;
+    }
+
+    .badge-3d {
+      background-color: rgba(231, 111, 81, 0.15);
+      color: var(--accent-3d);
+      border: 1px solid rgba(231, 111, 81, 0.3);
     }
 
     .badge-2d {
@@ -413,7 +414,6 @@
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
 
-    /* Card Content Styling */
     .card-body h3 {
       font-size: 1.15rem;
       color: var(--text-heading);
@@ -462,14 +462,6 @@
       color: var(--accent-primary);
     }
 
-    /* Search Highlight Style */
-    mark.highlight {
-      background-color: rgba(56, 189, 248, 0.35);
-      color: white;
-      padding: 0 2px;
-      border-radius: 2px;
-    }
-
     #no-results-msg {
       display: none;
       padding: 40px;
@@ -482,7 +474,6 @@
       margin-bottom: 24px;
     }
 
-    /* Back to Top Button */
     #back-to-top {
       position: fixed;
       bottom: 24px;
@@ -535,14 +526,13 @@
         padding: 24px 16px;
       }
       .search-box {
-        width: 180px;
+        width: 160px;
       }
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Header -->
   <header class="site-header">
     <a href="index_document.html" class="header-brand">
       <div class="brand-logo">C</div>
@@ -551,6 +541,7 @@
 
     <div class="nav-tabs">
       <a href="index_document.html" class="tab-link active">All Docs</a>
+      <a href="doc_3d.html" class="tab-link ">3D NMR</a>
       <a href="doc_2d.html" class="tab-link ">2D & Pseudo-3D</a>
       <a href="doc_1d.html" class="tab-link ">1D NMR</a>
     </div>
@@ -577,7 +568,6 @@
   </header>
 
   <div class="app-layout">
-    <!-- Sidebar Navigation -->
     <aside class="sidebar" id="sidebar">
       
 <div>
@@ -585,6 +575,17 @@
   <ul class="nav-list">
     <li><a href="#overview" class="nav-link active">Getting Started & Home</a></li>
     <li><a href="#known-limitations" class="nav-link">Known Limitations</a></li>
+  </ul>
+</div>
+<div>
+  <div class="nav-group-title">3D NMR Instructions</div>
+  <ul class="nav-list">
+    <li><a href="#3d-upload-processing" class="nav-link">1. Raw 3D FID & NUS Processing</a></li>
+    <li><a href="#3d-upload-spectra" class="nav-link">2. Upload 3D & Theoretical Peaks</a></li>
+    <li><a href="#3d-orthogonal-views" class="nav-link">3. Orthogonal Views & 1D Slices</a></li>
+    <li><a href="#3d-projected-views" class="nav-link">4. 2D Projected Views</a></li>
+    <li><a href="#3d-isosurface-webgl" class="nav-link">5. WebGL 3D Isosurface</a></li>
+    <li><a href="#3d-peak-picking" class="nav-link">6. 3D Peak Picking & Table</a></li>
   </ul>
 </div>
 <div>
@@ -611,23 +612,30 @@
 
     </aside>
 
-    <!-- Main Content Container -->
     <main class="content-wrapper">
       <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
       
 <section class="hero-banner" id="overview">
-  <h1 class="hero-title">COLMARvista Documentation</h1>
+  <h1 class="hero-title">COLMARvista Documentation Portal</h1>
   <p class="hero-subtitle">
-    Unified documentation portal and user guide for interactive web-based 1D, 2D, and Pseudo-3D NMR spectrum viewing, WebAssembly FID processing, neural network phase correction, DEEP Picker, and baseline correction.
+    Unified documentation portal and user guide for interactive web-based 1D, 2D, and 3D NMR spectrum viewing, WebAssembly FID processing, Non-Uniform Sampling (NUS), neural network phase correction, DEEP Picker, and WebGL 3D isosurfaces.
   </p>
 
   <div class="quick-grid">
+    <a href="doc_3d.html" class="quick-card">
+      <div class="quick-card-title">
+        <span>3D NMR Manual</span>
+        <span class="badge badge-3d">3D</span>
+      </div>
+      <p class="quick-card-desc">Dedicated guide for 3D FID processing, NUS, orthogonal planes, 2D projections, and WebGL isosurfaces.</p>
+    </a>
+
     <a href="doc_2d.html" class="quick-card">
       <div class="quick-card-title">
         <span>2D NMR Manual</span>
         <span class="badge badge-2d">2D</span>
       </div>
-      <p class="quick-card-desc">Dedicated guide for uploading, contour viewing, zoom sync, NUS processing, and DOSY.</p>
+      <p class="quick-card-desc">Dedicated guide for contour viewing, zoom sync, 2D NUS processing, Pseudo-3D, and DOSY.</p>
     </a>
 
     <a href="doc_1d.html" class="quick-card">
@@ -637,18 +645,220 @@
       </div>
       <p class="quick-card-desc">Dedicated guide for 1D spectrum viewer, benchtop NMR processing, DEEP Picker, and parametric baseline.</p>
     </a>
-
-    <a href="#2d-pseudo-3d" class="quick-card">
-      <div class="quick-card-title">
-        <span>Pseudo-3D & DOSY</span>
-        <span class="badge badge-2d">Pseudo-3D</span>
-      </div>
-      <p class="quick-card-desc">Workflow for pseudo-3D series fitting and calculating diffusion constants.</p>
-    </a>
   </div>
 </section>
 
-<div class="section-divider-header" style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-2d);">
+<div class="section-divider-header" style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-3d);">
+  <h2 style="color: var(--accent-3d); font-size: 1.5rem;">3D NMR Spectra Instructions (<a href="doc_3d.html" style="color: var(--accent-3d); font-size: 0.85em; text-decoration: underline;">Open Standalone 3D Page</a>)</h2>
+</div>
+
+        <section class="doc-card" id="3d-upload-processing">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">3D Time-Domain FID Processing (Bruker & NUS)</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Processing Raw 3D Time-Domain (FID) Data</h2>
+        <p>COLMARvista 3D features a high-performance WebAssembly processing pipeline for raw 3D Bruker time-domain FID datasets directly inside the browser, with native Non-Uniform Sampling (NUS) reconstruction.</p>
+
+        <h3>Supported Experiments & Required Files</h3>
+        <ul>
+          <li><b>Supported Experiments:</b> 3D Bruker experiments from TopSpin console versions <b>&ge; 3.0</b>.</li>
+          <li><b>Required Parameter Files:</b>
+            <ul>
+              <li>Direct dimension time-domain <code>fid</code> (or <code>ser</code>) and acquisition parameter file <code>acqus</code>.</li>
+              <li>Indirect dimension 1 acquisition file <code>acqu2s</code> ($F_1$).</li>
+              <li>Indirect dimension 2 acquisition file <code>acqu3s</code> ($F_3$).</li>
+              <li><b>NUS Experiments:</b> Upload the NUS sampling schedule <code>nuslist</code> for 3D Non-Uniform Sampling experiments.</li>
+            </ul>
+          </li>
+          <li><b>Drag and Drop:</b> Drag and drop the entire 3D Bruker experiment folder directly into the upload drop area.</li>
+        </ul>
+
+        <h3>Dimension-Specific Processing Options</h3>
+        <ul>
+          <li><b>Direct Dimension ($F_2$):</b>
+            <ul>
+              <li>Apodization string (e.g. <code>sp off 0.5 end 0.896 pow 3.684 elb 0.0 c 0.5</code>).</li>
+              <li>Zero filling factor (1, 2, 4, 8).</li>
+              <li>Phase correction P0 and P1 parameters.</li>
+              <li><b>Automatic Phase Correction:</b> Check <i>Automatic phase correction</i> to run entropy/neural network phase optimization.</li>
+              <li><b>NUS FLATT Baseline Correction:</b> Check <i>Direct dimension FLATT baseline correction for NUS</i> to eliminate baseline roll during NUS reconstruction.</li>
+              <li><b>Sub-Region Direct Extraction:</b> Specify chemical shift bounds in <i>Extract (ppm) from ... to ...</i> to accelerate processing.</li>
+              <li><b>Keep Direct Imaginary Data:</b> Check <i>Keep direct dimension imaginary data</i> for downstream manual phase adjustments.</li>
+            </ul>
+          </li>
+          <li><b>Indirect Dimension 1 ($F_1$):</b> Apodization string, zero filling factor (1, 2, 4, 8), and phase correction P0/P1.</li>
+          <li><b>Indirect Dimension 2 ($F_3$):</b> Apodization string, zero filling factor (1, 2, 4, 8), and phase correction P0/P1.</li>
+          <li><b>Polynomial Baseline Orders:</b> Configure time-domain polynomial orders <i>TD Poly (f2 f1 f3)</i> (e.g., <code>4 -1 -1</code>) and frequency-domain polynomial orders <i>Poly f2 (f2 f1 f3)</i> (e.g., <code>4 1 1</code>).</li>
+        </ul>
+
+        <div style="background-color: rgba(231, 111, 81, 0.1); border-left: 4px solid var(--accent-3d); padding: 16px; margin: 16px 0; border-radius: 4px;">
+          <h4 style="color: var(--accent-3d); margin-bottom: 8px;">3D Non-Uniform Sampling (NUS) Automated Phase Estimation</h4>
+          <p>For 3D Non-Uniform Sampling (NUS) experiments, automated phase correction functions on the <b>direct dimension only</b>:</p>
+          <ul>
+            <li><b>Workflow & Mechanism:</b> Similar to 2D NUS processing, to estimate direct-dimension phase correction parameters ($P_0 / P_1$) on 3D NUS data, the processing engine first executes a preliminary full direct Fourier Transform process (which contains NUS sampling artifacts) solely to calculate and optimize direct phase correction via ANN/entropy minimization. These estimated phase parameters are then applied to the raw time-domain data before executing full 3D NUS reconstruction. Indirect dimension phase parameters ($F_1, F_3$) cannot be automatically calculated on NUS data and must be set manually.</li>
+            <li><b>Show Spectrum with Artifact:</b> Check <i>Show spectrum with artifact</i> to inspect the preliminary direct FT spectrum with NUS sampling artifacts used for phase estimation.</li>
+          </ul>
+        </div>
+
+        <h3>Process & Export Processed Spectrum</h3>
+        <ul>
+          <li>Click <b>Upload and Process 3D FID</b> to execute Fourier Transformation and NUS reconstruction.</li>
+          <li><b>Download Processed Spectrum:</b> Click <b>Download Processed .ft3</b> or <b>Save as .ft3</b> to export the processed 3D dataset as an nmrPipe <code>.ft3</code> binary file.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="3d-upload-spectra">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">Uploading Pre-Processed 3D Spectra & Overlaying Theoretical Peaks</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Uploading Pre-Processed 3D Spectra</h2>
+        <p>If your 3D spectrum is already processed, you can upload it directly using one of two options:</p>
+
+        <h3>Option 1: Series of 2D Planes</h3>
+        <ul>
+          <li>Select multiple 2D spectral files in nmrPipe (<code>.ft2</code>) or Sparky (<code>.ucsf</code>) format.</li>
+          <li>Files are automatically sorted alphabetically and stacked along the third dimension to construct the complete 3D volume.</li>
+        </ul>
+
+        <h3>Option 2: Single 3D Spectral File</h3>
+        <ul>
+          <li>Upload a single 3D spectral file in nmrPipe (<code>.ft3</code>), Sparky 3D (<code>.ucsf</code>), or raw binary format.</li>
+          <li>Drag and drop the single 3D file or containing folder into the drop zone.</li>
+        </ul>
+
+        <h3>Overlaying Theoretical 3D Peaks</h3>
+        <ul>
+          <li>Upload a theoretical peak list (<code>.txt</code>) in <i>Overlay Theoretical 3D Peaks</i>.</li>
+          <li>Click <b>Load and Overlay Peaks</b> to generate synthetic 3D Gaussian contours and display theoretical vs. experimental peak contours simultaneously in contrasting colors.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="3d-orthogonal-views">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">Standard Orthogonal 2D Planes & 1D Slices</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Standard Orthogonal Views & 1D Slices</h2>
+        <p>COLMARvista 3D presents synchronized orthogonal 2D slice planes along all three principal axes:</p>
+
+        <h3>Synchronized 2D Slice Planes</h3>
+        <ul>
+          <li><b>XY Plane ($z$-Plane Slice):</b> Display 2D cross-section at active $z$-depth. Drag slider or use <code>&lt;</code> / <code>&gt;</code> buttons to browse $z$-planes.</li>
+          <li><b>XZ Plane ($y$-Plane Slice):</b> Display 2D cross-section at active $y$-position. Browse $y$-slices with slider controls.</li>
+          <li><b>ZY Plane ($x$-Plane Slice):</b> Display 2D cross-section at active $x$-position. Browse $x$-slices with slider controls.</li>
+        </ul>
+
+        <h3>1D Traces Along Axis Centers</h3>
+        <ul>
+          <li><b>1D Trace Along $Z$:</b> Renders 1D spectral slice along $z$-axis at current $xy$ center.</li>
+          <li><b>1D Trace Along $Y$:</b> Renders 1D spectral slice along $y$-axis at current $xz$ center.</li>
+          <li><b>1D Trace Along $X$:</b> Renders 1D spectral slice along $x$-axis at current $yz$ center, complete with live $P_0$, $P_1$, and pivot point phase readouts.</li>
+          <li><b>Apply Phase:</b> Adjust phase parameters on the 1D trace along $X$ and click <b>Apply Phase</b> to update the entire 3D volume phase in real-time.</li>
+        </ul>
+
+        <h3>Contour & Color Customization</h3>
+        <ul>
+          <li><b>Contour Threshold:</b> Adjust <i>Lowest level (x noise)</i> (default 6.0x) and <i>Scale factor</i> (default 1.4x) and click <b>Update Contours</b>.</li>
+          <li><b>Custom Color Palettes:</b> Customize independent color pickers for Positive Experimental, Negative Experimental, Positive Theoretical, Negative Theoretical, and Peak Marker symbols.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="3d-projected-views">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">2D Projected Views (z-Projection, y-Projection, x-Projection)</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>2D Projected Views</h2>
+        <p>Check <i>Visualize Proj</i> to enable interactive 2D projection views averaged across 3D dimensions:</p>
+
+        <ul>
+          <li><b>$z$-Projection (Averaged) View:</b> Renders 2D contour map averaged along the $z$-axis with dedicated 1D trace along $x$. Includes automated noise estimation (<b>Estimate Noise</b>), contour multiplier controls, and <b>Reset Zoom</b>.</li>
+          <li><b>$y$-Projection (Averaged) View:</b> Renders 2D contour map averaged along the $y$-axis with dedicated 1D trace along $x$.</li>
+          <li><b>$x$-Projection (Averaged) View:</b> Renders 2D contour map averaged along the direct $x$-axis.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="3d-isosurface-webgl">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">WebGL Marching Cubes 3D Isosurface Rendering</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>WebGL Marching Cubes 3D Isosurface Visualization</h2>
+        <p>Check <i>Visualize 3D</i> to launch GPU-accelerated 3D isosurface rendering powered by WebGL and the Marching Cubes algorithm.</p>
+
+        <h3>Side-by-Side Dual 3D Canvases</h3>
+        <ul>
+          <li><b>Experimental 3D Volume Canvas:</b> Interactive 3D view of the experimental spectral dataset. Rotate, pan, and zoom in 3D space.</li>
+          <li><b>Reconstructed 3D Volume Canvas:</b> Side-by-side interactive 3D view of synthetic reconstructed 3D peak shapes generated from peak fitting for direct visual comparison.</li>
+        </ul>
+
+        <h3>Isosurface Controls & Interactivity</h3>
+        <ul>
+          <li><b>Solid & Mesh Thresholds:</b> Set <b>Solid (Red)</b> inner isosurface threshold and <b>Mesh (Blue)</b> outer isosurface threshold, then click <b>Update Isosurface</b>.</li>
+          <li><b>Peak Symbol Size:</b> Adjust peak sphere marker radius using the <i>Peak Size</i> slider (range 0.001–0.02).</li>
+          <li><b>Center 3D on Slices:</b> Click <b>Set 3D Center</b> to align 3D rotation pivot with current orthogonal 2D slice center.</li>
+          <li><b>Interactive Peak Picking:</b> Click directly on a 3D peak in the WebGL canvas to pick its 3D chemical shift coordinates (displayed in the <i>📍 Picked Peak</i> floating overlay).</li>
+          <li><b>Export Views:</b> Click <b>Download 3D Views</b> to export high-resolution PNG snapshots of the 3D canvases.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="3d-peak-picking">
+          <div class="card-header">
+            <span class="badge badge-3d">3D NMR</span>
+            <h2 class="card-title">3D 2-in-1 Iterative Peak Picking & Line-Shape Fitting Workflow</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>3D Peak Picking & Fitting Workflow</h2>
+
+        <h3>2-in-1 Iterative Peak Picking & Line-Shape Fitting</h3>
+        <p>COLMARvista 3D features a <b>2-in-1 iterative peak picking and line-shape fitting algorithm</b> that simultaneously detects 3D peaks and optimizes their line-shape parameters.</p>
+        <ol>
+          <li><b>Overlapping Peak Cutoff:</b> Set the <i>overlapping peak cutoff</i> parameter (range 0.2–0.6, default 0.4). Higher cutoff values tolerate distorted or broad peak shapes, while lower values prioritize discovering closely overlapping individual peaks.</li>
+          <li><b>Run Peak Picking & Fitting:</b> Click <b>Peak Picking & Fitting</b> to execute the 2-in-1 iterative workflow.</li>
+          <li><b>Overlay Reconstructed Spectrum with Experimental Input:</b> Upon completion, a synthetic 3D reconstructed spectrum is generated from the fitted peak parameters and rendered in the <b>Reconstructed 3D</b> canvas alongside the input <b>Experimental 3D</b> canvas (and overlaid on 2D orthogonal slices) for instant visual validation and quality control.</li>
+        </ol>
+
+        <h3>Floating 3D Peak Table Modal</h3>
+        <ul>
+          <li><b>Peak List Navigation:</b> Displays all picked 3D peaks with chemical shifts ($F_1, F_2, F_3$) and intensities in a floating, resizable <b>3D Peaks List</b> window.</li>
+          <li><b>Search Peaks:</b> Type chemical shift values or assignment text into <i>Search</i> and press <kbd>Enter</kbd> to filter peak rows.</li>
+          <li><b>Jump to Peak:</b> Click any peak row in the table to automatically center all 2D orthogonal slices and 3D WebGL canvases onto that peak.</li>
+          <li><b>Download Peaks:</b> Click <b>Download Peaks List</b> to export picked peaks in tabular text format.</li>
+        </ul>
+
+        <h3>Floating 3D Background Log Console</h3>
+        <ul>
+          <li>Inspect real-time WebAssembly Fourier Transformation and 3D peak fitting progress in the floating <b>3D Processing Log</b> modal.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+
+<div class="section-divider-header" style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-2d); margin-top: 48px;">
   <h2 style="color: var(--accent-2d); font-size: 1.5rem;">2D NMR Spectra Instructions (<a href="doc_2d.html" style="color: var(--accent-2d); font-size: 0.85em; text-decoration: underline;">Open Standalone 2D Page</a>)</h2>
 </div>
 
@@ -783,7 +993,7 @@
         
         <section class="doc-card" id="2d-bruker-processing">
           <div class="card-header">
-            <span class="badge badge-2d">2D / Pseudo-3D</span>
+            <span class="badge badge-3d">2D / Pseudo-3D</span>
             <h2 class="card-title">Processing Raw 2D & Pseudo-3D Time-Domain Data (Bruker & NUS)</h2>
           </div>
           <div class="card-body">
@@ -868,7 +1078,7 @@
         
         <section class="doc-card" id="2d-pseudo-3d">
           <div class="card-header">
-            <span class="badge badge-2d">2D / Pseudo-3D</span>
+            <span class="badge badge-3d">2D / Pseudo-3D</span>
             <h2 class="card-title">Pseudo-3D Series Processing & 2D DOSY Diffusion Workflow</h2>
           </div>
           <div class="card-body">
@@ -1111,8 +1321,8 @@
   </div>
   <div class="card-body">
     <ul>
-      <li><b>File Size Limit:</b> COLMARvista has an inherent total file size limit of 16GB. It may fail if your spectral file is too large or if your pseudo-3D experiments contain too many planes.</li>
-      <li><b>Incomplete Experiments:</b> Pseudo-3D time-domain data processing does not function if the experiment is incomplete (i.e., the actual number of traces along the indirect dimension is less than the planned number).</li>
+      <li><b>File Size Limit:</b> COLMARvista has an inherent total file size limit of 16GB. It may fail if your spectral file is too large or if your pseudo-3D/3D experiments contain too many points.</li>
+      <li><b>Incomplete Experiments:</b> 3D/Pseudo-3D time-domain data processing does not function if the experiment is incomplete (i.e., the actual number of traces along indirect dimensions is less than the planned number).</li>
     </ul>
   </div>
 </section>
@@ -1131,7 +1341,6 @@
   </button>
 
   <script>
-    // Theme Toggle Logic
     const themeToggle = document.getElementById('theme-toggle');
     const htmlElem = document.documentElement;
     const savedTheme = localStorage.getItem('colmar_doc_theme') || 'dark';
@@ -1144,7 +1353,6 @@
       localStorage.setItem('colmar_doc_theme', newTheme);
     });
 
-    // Back to Top Button Logic
     const backToTop = document.getElementById('back-to-top');
     window.addEventListener('scroll', () => {
       if (window.scrollY > 400) {
@@ -1158,7 +1366,6 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    // Active Sidebar ScrollSpy
     const sections = document.querySelectorAll('section.doc-card, section.hero-banner');
     const navLinks = document.querySelectorAll('.nav-link');
 
@@ -1180,7 +1387,6 @@
       });
     });
 
-    // Robust Real-Time Live Search Filter
     const searchInput = document.getElementById('doc-search');
     const noResultsMsg = document.getElementById('no-results-msg');
     const docCards = document.querySelectorAll('.doc-card');
@@ -1205,7 +1411,6 @@
         }
       });
 
-      // Show/Hide section headers if all cards in that section are hidden
       sectionHeaders.forEach(header => {
         if (query === '') {
           header.style.display = 'block';

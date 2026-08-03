@@ -25,6 +25,7 @@
       
       --accent-primary: #38bdf8;
       --accent-hover: #0284c7;
+      --accent-3d: #e76f51;
       --accent-2d: #38bdf8;
       --accent-1d: #a855f7;
       --accent-warn: #f59e0b;
@@ -52,6 +53,7 @@
       
       --accent-primary: #0284c7;
       --accent-hover: #0369a1;
+      --accent-3d: #d97706;
       --accent-2d: #0284c7;
       --accent-1d: #7e22ce;
       --accent-warn: #d97706;
@@ -81,7 +83,6 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Top Navigation Header */
     header.site-header {
       position: fixed;
       top: 0;
@@ -110,7 +111,7 @@
     }
 
     .brand-logo {
-      background: linear-gradient(135deg, var(--accent-2d), var(--accent-1d));
+      background: linear-gradient(135deg, var(--accent-3d), var(--accent-2d));
       color: white;
       width: 36px;
       height: 36px;
@@ -120,20 +121,20 @@
       justify-content: center;
       font-weight: 800;
       font-size: 1.1rem;
-      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.3);
+      box-shadow: 0 2px 8px rgba(231, 111, 81, 0.3);
     }
 
     .nav-tabs {
       display: flex;
-      gap: 8px;
-      margin-left: 20px;
+      gap: 6px;
+      margin-left: 12px;
     }
 
     .tab-link {
-      padding: 6px 14px;
+      padding: 6px 12px;
       border-radius: 20px;
       text-decoration: none;
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       font-weight: 600;
       color: var(--text-muted);
       transition: all 0.2s ease;
@@ -151,7 +152,7 @@
 
     .search-box {
       position: relative;
-      width: 300px;
+      width: 260px;
     }
 
     .search-box input {
@@ -207,14 +208,12 @@
       color: var(--accent-primary);
     }
 
-    /* Main Layout */
     .app-layout {
       display: flex;
       margin-top: var(--header-height);
       min-height: calc(100vh - var(--header-height));
     }
 
-    /* Sidebar Navigation */
     aside.sidebar {
       width: var(--sidebar-width);
       background-color: var(--bg-sidebar);
@@ -277,7 +276,6 @@
       border-left: 3px solid var(--accent-primary);
     }
 
-    /* Main Content Area */
     main.content-wrapper {
       margin-left: var(--sidebar-width);
       flex: 1;
@@ -285,7 +283,6 @@
       max-width: 1080px;
     }
 
-    /* Banner / Hero Section */
     .hero-banner {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95)), url('data:image/svg+xml;utf8,<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg"><path d="0 20 Q 10 5, 20 20 T 40 20" stroke="%23334155" fill="none" stroke-width="1.5"/></svg>');
       border: 1px solid var(--border-color);
@@ -314,8 +311,8 @@
 
     .quick-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
       margin-top: 24px;
     }
 
@@ -323,7 +320,7 @@
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
-      padding: 20px;
+      padding: 18px;
       text-decoration: none;
       color: var(--text-main);
       transition: all 0.2s ease;
@@ -340,7 +337,7 @@
 
     .quick-card-title {
       font-weight: 700;
-      font-size: 1.05rem;
+      font-size: 1rem;
       color: var(--text-heading);
       display: flex;
       align-items: center;
@@ -348,11 +345,10 @@
     }
 
     .quick-card-desc {
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       color: var(--text-muted);
     }
 
-    /* Documentation Cards */
     .doc-card {
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
@@ -383,7 +379,6 @@
       letter-spacing: -0.01em;
     }
 
-    /* Badges */
     .badge {
       display: inline-block;
       padding: 4px 10px;
@@ -393,6 +388,12 @@
       letter-spacing: 0.04em;
       text-transform: uppercase;
       width: fit-content;
+    }
+
+    .badge-3d {
+      background-color: rgba(231, 111, 81, 0.15);
+      color: var(--accent-3d);
+      border: 1px solid rgba(231, 111, 81, 0.3);
     }
 
     .badge-2d {
@@ -413,7 +414,6 @@
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
 
-    /* Card Content Styling */
     .card-body h3 {
       font-size: 1.15rem;
       color: var(--text-heading);
@@ -462,14 +462,6 @@
       color: var(--accent-primary);
     }
 
-    /* Search Highlight Style */
-    mark.highlight {
-      background-color: rgba(56, 189, 248, 0.35);
-      color: white;
-      padding: 0 2px;
-      border-radius: 2px;
-    }
-
     #no-results-msg {
       display: none;
       padding: 40px;
@@ -482,7 +474,6 @@
       margin-bottom: 24px;
     }
 
-    /* Back to Top Button */
     #back-to-top {
       position: fixed;
       bottom: 24px;
@@ -535,14 +526,13 @@
         padding: 24px 16px;
       }
       .search-box {
-        width: 180px;
+        width: 160px;
       }
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Header -->
   <header class="site-header">
     <a href="index_document.html" class="header-brand">
       <div class="brand-logo">C</div>
@@ -551,6 +541,7 @@
 
     <div class="nav-tabs">
       <a href="index_document.html" class="tab-link ">All Docs</a>
+      <a href="doc_3d.html" class="tab-link ">3D NMR</a>
       <a href="doc_2d.html" class="tab-link ">2D & Pseudo-3D</a>
       <a href="doc_1d.html" class="tab-link active">1D NMR</a>
     </div>
@@ -577,7 +568,6 @@
   </header>
 
   <div class="app-layout">
-    <!-- Sidebar Navigation -->
     <aside class="sidebar" id="sidebar">
       
 <div>
@@ -594,7 +584,6 @@
 
     </aside>
 
-    <!-- Main Content Container -->
     <main class="content-wrapper">
       <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
       
@@ -822,7 +811,6 @@
   </button>
 
   <script>
-    // Theme Toggle Logic
     const themeToggle = document.getElementById('theme-toggle');
     const htmlElem = document.documentElement;
     const savedTheme = localStorage.getItem('colmar_doc_theme') || 'dark';
@@ -835,7 +823,6 @@
       localStorage.setItem('colmar_doc_theme', newTheme);
     });
 
-    // Back to Top Button Logic
     const backToTop = document.getElementById('back-to-top');
     window.addEventListener('scroll', () => {
       if (window.scrollY > 400) {
@@ -849,7 +836,6 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    // Active Sidebar ScrollSpy
     const sections = document.querySelectorAll('section.doc-card, section.hero-banner');
     const navLinks = document.querySelectorAll('.nav-link');
 
@@ -871,7 +857,6 @@
       });
     });
 
-    // Robust Real-Time Live Search Filter
     const searchInput = document.getElementById('doc-search');
     const noResultsMsg = document.getElementById('no-results-msg');
     const docCards = document.querySelectorAll('.doc-card');
@@ -896,7 +881,6 @@
         }
       });
 
-      // Show/Hide section headers if all cards in that section are hidden
       sectionHeaders.forEach(header => {
         if (query === '') {
           header.style.display = 'block';
