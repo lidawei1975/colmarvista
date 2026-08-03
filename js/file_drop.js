@@ -33,6 +33,11 @@ class file_drop_processor {
         return this;
     }
 
+    extension_files_id(extension_files_id) {
+        this.extension_files_id = extension_files_id;
+        return this;
+    }
+
     required_files(required_files) {
         this.required_files = required_files;
         return this;
@@ -179,7 +184,9 @@ class file_drop_processor {
         let file_extension = file.name.split('.').pop().toLowerCase();
         if (this.file_extension.includes(file_extension)) {
             this.container.items.add(file);
-            let file_id = this.files_id[this.file_extension.indexOf(file_extension)];
+            let file_id = (this.extension_files_id && this.extension_files_id[this.file_extension.indexOf(file_extension)])
+                || this.files_id[this.file_extension.indexOf(file_extension)]
+                || this.files_id[0];
             document.getElementById(file_id).files = this.container.files;
             /**
              * Simulate the change event

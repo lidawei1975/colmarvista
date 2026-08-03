@@ -196,10 +196,11 @@ $(document).ready(function () {
     */
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
-        .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
-        .file_extension([])  /** file extensions to be searched from upload */
-        .required_files([0, 1])
+        .files_name(["acqus", "ser", "fid", "acqu.par", "data.1d"])  /** file names to be searched from upload */
+        .files_id(["acquisition_file", "fid_file", "fid_file", "acquisition_file", "fid_file"]) /** Corresponding file element IDs */
+        .file_extension(["jdx", "dx"])  /** file extensions to be searched from upload */
+        .extension_files_id(["acquisition_file", "acquisition_file"])
+        .required_files([0])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
@@ -439,9 +440,9 @@ $(document).ready(function () {
             let acquisition_file = document.getElementById('acquisition_file').files[0];
             let fid_file = document.getElementById('fid_file').files[0];
 
-            if (acquisition_file && fid_file) {
-                let acquisition_string = await read_file_text(acquisition_file);
-                let fid_buffer = await read_file(fid_file);
+            if (acquisition_file || fid_file) {
+                let acquisition_string = acquisition_file ? await read_file_text(acquisition_file) : "";
+                let fid_buffer = fid_file ? await read_file(fid_file) : new ArrayBuffer(0);
                 /**
                  * Convert fid_buffer to Float32Array
                  */
@@ -4385,9 +4386,11 @@ async function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
         const obj = new webdp1d_module.spectrum_phasing_1d();
 
         const fid_bytes = new webdp1d_module.VectorUChar();
-        const raw_bytes = new Uint8Array(fid_buffer);
-        for (let i = 0; i < raw_bytes.length; i++) {
-            fid_bytes.push_back(raw_bytes[i]);
+        if (fid_buffer && fid_buffer.byteLength > 0) {
+            const raw_bytes = new Uint8Array(fid_buffer);
+            for (let i = 0; i < raw_bytes.length; i++) {
+                fid_bytes.push_back(raw_bytes[i]);
+            }
         }
 
         obj.read_acqus_and_fid_from_memory(acquisition_string, fid_bytes);

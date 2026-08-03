@@ -245,10 +245,14 @@ self.onmessage = async function (event) {
         obj.set_up_apodization_from_string(event.data.apodization_string);
 
         const fid_bytes_vec = new Module.VectorUChar();
-        const raw_fid_bytes = new Uint8Array(event.data.fid_buffer);
-        postMessage({ stdout: "[JS-debug] Reading acqus and fid from memory, raw bytes: " + raw_fid_bytes.length });
-        for (let i = 0; i < raw_fid_bytes.length; ++i) {
-            fid_bytes_vec.push_back(raw_fid_bytes[i]);
+        if (event.data.fid_buffer && event.data.fid_buffer.byteLength > 0) {
+            const raw_fid_bytes = new Uint8Array(event.data.fid_buffer);
+            postMessage({ stdout: "[JS-debug] Reading acqus and fid from memory, raw bytes: " + raw_fid_bytes.length });
+            for (let i = 0; i < raw_fid_bytes.length; ++i) {
+                fid_bytes_vec.push_back(raw_fid_bytes[i]);
+            }
+        } else {
+            postMessage({ stdout: "[JS-debug] Reading single parameter/jdx file from memory (fid_bytes empty)" });
         }
 
         obj.read_acqus_and_fid_from_memory(event.data.acquisition_string, fid_bytes_vec);
