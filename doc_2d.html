@@ -556,7 +556,7 @@
     <div class="header-actions">
       <button class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme">
         <svg id="theme-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
         </svg>
       </button>
       <button class="btn-icon" onclick="window.print()" title="Print Page / Save PDF">
@@ -576,10 +576,11 @@
     <li><a href="#overview" class="nav-link active">2D Overview</a></li>
     <li><a href="#2d-save-load" class="nav-link">1. Save & Load Workspace</a></li>
     <li><a href="#2d-upload-view" class="nav-link">2. Upload & View 2D Spectra</a></li>
-    <li><a href="#2d-peak-picking" class="nav-link">3. Peak Picking & Fitting</a></li>
-    <li><a href="#2d-bruker-processing" class="nav-link">4. Process Raw 2D & Pseudo-3D Data</a></li>
-    <li><a href="#2d-phase-correction" class="nav-link">5. Manual Phase Correction</a></li>
-    <li><a href="#2d-pseudo-3d" class="nav-link">6. Pseudo-3D & DOSY</a></li>
+    <li><a href="#2d-3d-view" class="nav-link">3. 3D Surface View for 2D</a></li>
+    <li><a href="#2d-peak-picking" class="nav-link">4. Peak Picking & Fitting</a></li>
+    <li><a href="#2d-bruker-processing" class="nav-link">5. Process Raw 2D & Pseudo-3D Data</a></li>
+    <li><a href="#2d-phase-correction" class="nav-link">6. Manual Phase Correction</a></li>
+    <li><a href="#2d-pseudo-3d" class="nav-link">7. Pseudo-3D & DOSY</a></li>
   </ul>
 </div>
 
@@ -591,7 +592,7 @@
 <section class="hero-banner" id="overview">
   <h1 class="hero-title">2D & Pseudo-3D NMR Documentation</h1>
   <p class="hero-subtitle">
-    Complete user guide for 2D NMR spectrum viewing, WebAssembly FID processing, Non-Uniform Sampling (NUS), Pseudo-3D series fitting, 2D DOSY diffusion analysis, and baseline correction.
+    Complete user guide for 2D NMR spectrum viewing, 3D surface rendering of 2D spectra, WebAssembly FID processing, Non-Uniform Sampling (NUS), Pseudo-3D series fitting, 2D DOSY diffusion analysis, and baseline correction.
   </p>
 </section>
 
@@ -675,6 +676,39 @@
           <li><b>Resolution Scale Factor:</b> Increase the <i>Downloaded plot resolution factor</i> from <code>1.0</code> up to <code>10.0</code> to download ultra-high-definition PNG contour plots matching publication standards.</li>
           <li><b>Custom Font Size:</b> Adjust plot label font size (12–72 pt) for optimal legibility.</li>
           <li><b>Download Plot:</b> Click <b>Download plot</b> to save PNG or vector SVG files.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-3d-view">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">3D Surface & Terrace Visualization for 2D Spectra</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>3D Surface & Terrace Visualization for 2D Spectra</h2>
+        <p>In addition to 2D flat contour viewing, COLMARvista provides a dedicated <b>3D View for 2D Spectra</b> mode (<a href="index_2d_3dview.html" target="_blank" style="color: var(--accent-2d); font-weight: 600;">index_2d_3dview.html</a>) that projects a 2D NMR spectrum as a 3D elevation landscape using WebGL.</p>
+
+        <h3>Key Features of 3D View for 2D Spectra</h3>
+        <ul>
+          <li><b>3D Surface vs. Terrace Rendering:</b>
+            <ul>
+              <li><b>3D Surface Mode:</b> Renders a smooth 3D elevation terrain where peak intensities map directly to vertical $Z$-axis peak heights.</li>
+              <li><b>3D Terrace Mode:</b> Renders stepped contour terraces for clear visual demarcation of intensity levels.</li>
+            </ul>
+          </li>
+          <li><b>Interactive 3D Viewport Controls:</b>
+            <ul>
+              <li><b>Tilt & Rotation:</b> Adjust <i>Tilt</i> ($-200^\circ$ to $200^\circ$) and <i>Rotation</i> ($0^\circ$ to $360^\circ$) sliders to view the 2D spectrum from any perspective angle.</li>
+              <li><b>$Z$ Scale & $Y$ Scale:</b> Scale vertical signal peak height ($Z$-scale) and spectrum aspect ratio ($Y$-scale) dynamically.</li>
+              <li><b>Lighting Angle & Orientation:</b> Customize <i>Light Angle</i> and <i>Light Orientation</i> for optimal 3D shading and shadow contrast.</li>
+            </ul>
+          </li>
+          <li><b>Custom Surface & Contour Styling:</b> Customize independent color pickers for <b>Surface color</b> and <b>Contour color</b>.</li>
+          <li><b>Contour Modes:</b> Choose between <i>Logarithmic-linear</i>, <i>Logarithmic</i>, or <i>Linear</i> contour spacing.</li>
+          <li><b>Download 3D Figure:</b> Click <b>Download figure</b> to capture and save the interactive 3D surface model as an image.</li>
         </ul>
         
           </div>
