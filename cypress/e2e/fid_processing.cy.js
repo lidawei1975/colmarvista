@@ -5,9 +5,9 @@ describe('FID Processing Test', () => {
 
         // 2. Upload Files
         // Note: We use .selectFile with force: true because the input might be hidden or styled customly
-        // The user must place 'fid' and 'acqus' in cypress/fixtures/test_data/
-        cy.get('#fid_file').selectFile('cypress/fixtures/test_data/fid', { force: true });
-        cy.get('#acquisition_file').selectFile('cypress/fixtures/test_data/acqus', { force: true });
+        // The user must place 'fid' and 'acqus' in cypress/fixtures/test_data_1d_bruker/
+        cy.get('#fid_file').selectFile('cypress/fixtures/test_data_1d_bruker/fid', { force: true });
+        cy.get('#acquisition_file').selectFile('cypress/fixtures/test_data_1d_bruker/acqus', { force: true });
 
         // 3. Click Process
         cy.get('#button_fid_process').click({ force: true });

@@ -13,6 +13,158 @@
  * first plot has 2 levels, second plot has 2 levels in the levels_length array
  * if overlays =[] means all levels are in one plot (no overlay), this is the default, equal to [0, levels_length.length]
  */
+const nmrpipe_dictionary = {
+    "FDBASEBLOCK": 361,
+    "FDBMAPBLOCK": 363,
+    "FDCOMMENT": 312,
+    "FDCONTBLOCK": 360,
+    "FDDAY": 295,
+    "FDDIMCOUNT": 9,
+    "FDDIMORDER1": 24,
+    "FDDIMORDER2": 25,
+    "FDDIMORDER3": 26,
+    "FDDIMORDER4": 27,
+    "FDF2AQSIGN": 64,
+    "FDF2APOD": 95,
+    "FDF2APODCODE": 413,
+    "FDF2APODQ1": 415,
+    "FDF2APODQ2": 416,
+    "FDF2APODQ3": 417,
+    "FDF2CAR": 66,
+    "FDF2CENTER": 79,
+    "FDF2C1": 418,
+    "FDF2FTFLAG": 220,
+    "FDF2FTSIZE": 96,
+    "FDF2LABEL": 16,
+    "FDF2LB": 111,
+    "FDF2OBS": 119,
+    "FDF2OFFPPM": 480,
+    "FDF2ORIG": 101,
+    "FDF2P0": 109,
+    "FDF2P1": 110,
+    "FDF2QUADFLAG": 56,
+    "FDF2SW": 100,
+    "FDF2TDSIZE": 386,
+    "FDF2UNITS": 152,
+    "FDF2X1": 257,
+    "FDF2XN": 258,
+    "FDF2ZF": 108,
+    "FDF3APOD": 50,
+    "FDF3APODCODE": 400,
+    "FDF3APODQ1": 401,
+    "FDF3APODQ2": 402,
+    "FDF3APODQ3": 403,
+    "FDF3AQSIGN": 476,
+    "FDF3CAR": 68,
+    "FDF3CENTER": 81,
+    "FDF3C1": 404,
+    "FDF3FTFLAG": 13,
+    "FDF3FTSIZE": 200,
+    "FDF3LABEL": 20,
+    "FDF3OBS": 10,
+    "FDF3OFFPPM": 482,
+    "FDF3ORIG": 12,
+    "FDF3P0": 60,
+    "FDF3P1": 61,
+    "FDF3QUADFLAG": 51,
+    "FDF3SIZE": 15,
+    "FDF3SW": 11,
+    "FDF3TDSIZE": 388,
+    "FDF3UNITS": 58,
+    "FDF3X1": 261,
+    "FDF3XN": 262,
+    "FDF3ZF": 438,
+    "FDF4APOD": 53,
+    "FDF4APODCODE": 405,
+    "FDF4APODQ1": 406,
+    "FDF4APODQ2": 407,
+    "FDF4APODQ3": 408,
+    "FDF4AQSIGN": 477,
+    "FDF4CAR": 69,
+    "FDF4CENTER": 82,
+    "FDF4C1": 409,
+    "FDF4FTFLAG": 31,
+    "FDF4FTSIZE": 201,
+    "FDF4LABEL": 22,
+    "FDF4OBS": 28,
+    "FDF4OFFPPM": 483,
+    "FDF4ORIG": 30,
+    "FDF4P0": 62,
+    "FDF4P1": 63,
+    "FDF4QUADFLAG": 54,
+    "FDF4SIZE": 32,
+    "FDF4SW": 29,
+    "FDF4TDSIZE": 389,
+    "FDF4UNITS": 59,
+    "FDF4X1": 263,
+    "FDF4XN": 264,
+    "FDF4ZF": 439,
+    "FDFILECOUNT": 442,
+    "FDFIRSTPLANE": 77,
+    "FDFLTFORMAT": 1,
+    "FDFLTORDER": 2,
+    "FDMAGIC": 0,
+    "FDMCFLAG": 135,
+    "FDMAX": 247,
+    "FDMIN": 248,
+    "FDMINS": 284,
+    "FDMONTH": 294,
+    "FDNOISE": 153,
+    "FDOPERNAME": 464,
+    "FDPARTITION": 65,
+    "FDPEAKBLOCK": 362,
+    "FDPIPECOUNT": 75,
+    "FDPIPEFLAG": 57,
+    "FDPLANELOC": 14,
+    "FDQUADFLAG": 106,
+    "FDRANK": 180,
+    "FDREALSIZE": 97,
+    "FDSCALEFLAG": 250,
+    "FDSECS": 285,
+    "FDSIZE": 99,
+    "FDSLICECOUNT": 443,
+    "FDSPECNUM": 219,
+    "FDSRCNAME": 286,
+    "FDTEMPERATURE": 157,
+    "FDTITLE": 297,
+    "FDTRANSPOSED": 221,
+    "FDUSER1": 70,
+    "FDUSER2": 71,
+    "FDUSER3": 72,
+    "FDUSER4": 73,
+    "FDUSER5": 74,
+    "FDUSER6": 76,
+    "FDUSERNAME": 290,
+    "FDYEAR": 296,
+    "FDF1APOD": 428,
+    "FDF1APODCODE": 414,
+    "FDF1APODQ1": 420,
+    "FDF1APODQ2": 421,
+    "FDF1APODQ3": 422,
+    "FDF1AQSIGN": 475,
+    "FDF1CAR": 67,
+    "FDF1CENTER": 80,
+    "FDF1C1": 423,
+    "FDF1FTFLAG": 222,
+    "FDF1FTSIZE": 98,
+    "FDF1LABEL": 18,
+    "FDF1LB": 243,
+    "FDF1OBS": 218,
+    "FDF1OFFPPM": 481,
+    "FDF1ORIG": 249,
+    "FDF1P0": 245,
+    "FDF1P1": 246,
+    "FDF1QUADFLAG": 55,
+    "FDF1SW": 229,
+    "FDF1TDSIZE": 387,
+    "FDF1UNITS": 234,
+    "FDF1X1": 259,
+    "FDF1XN": 260,
+    "FDF1ZF": 437,
+    "GRPDLY": 40
+};
+
+
 class spectrum {
     constructor() {
         this.spectrum_format = "ft2"; //ft2 is the default format
@@ -342,65 +494,78 @@ class spectrum {
 
         this.spectrum_origin = spectrum_origin;
 
-        this.header = new Float32Array(arrayBuffer, 0, 512);
+        this.header = new Float32Array(arrayBuffer.slice(0, 2048), 0, 512);
 
-        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum
-        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
+        this.dimorder1 = this.header[nmrpipe_dictionary.FDDIMORDER1];
+        this.dimorder2 = this.header[nmrpipe_dictionary.FDDIMORDER2];
+        this.dimorder3 = this.header[nmrpipe_dictionary.FDDIMORDER3];
+        this.dimorder4 = this.header[nmrpipe_dictionary.FDDIMORDER4];
 
-        this.tp = this.header[221];
 
         /**
-         * if transposed, set this.error and return
+         * For nmrPipe, the size of the first dimension is given by FDSIZE, 
+         * the size of the second dimension is given by FDSPECNUM, 
+         * the size of the third dimension is given by FDF3SIZE, 
+         * the size of the fourth dimension is given by FDF4SIZE. 
+         * This does not depend on dimorder1, dimorder2, dimorder3, dimorder4.
          */
-        if (this.tp !== 0) {
-            this.error = "Transposed data, please un-transpose the data before loading";
-            return result;
+        this.n_inner_dimension = this.header[nmrpipe_dictionary.FDSIZE];
+        this.n_outer_dimension = this.header[nmrpipe_dictionary.FDSPECNUM];
+        this.n_outer2_dimension = this.header[nmrpipe_dictionary.FDF3SIZE];
+        this.n_outer3_dimension = this.header[nmrpipe_dictionary.FDF4SIZE];
+
+        /** 
+         * We expect dimorder1 = 2, dimorder2 = 1, dimorder3 = 3,
+         * or  expect dimorder1 = 2, dimorder2 = 3, dimorder3 = 1
+         */
+        if ((this.dimorder1 !== 2 || this.dimorder2 !== 1 || this.dimorder3 !== 3) &&
+            (this.dimorder1 !== 2 || this.dimorder2 !== 3 || this.dimorder3 !== 1)) {
+            this.error = "Dimension order is not as expected";
+            return null;
         }
+
+        /**
+         * Because we requrie dimension order to be 2,1,3 or 2,3,1
+         * this.dimorder1 = 2, so the first dimension is the direct dimension
+         * this.dimorder2 = 1 or 3, so the second dimension is the indirect dimension
+         * this.dimorder3 = 3 or 1, so the third dimension is the indirect dimension
+         */
+        this.n_direct = this.header[nmrpipe_dictionary.FDSIZE]; //size of direct dimension of the input spectrum (FDSIZE)
+        this.n_indirect = this.header[nmrpipe_dictionary.FDSPECNUM]; //size of indirect dimension of the input spectrum (FDSPECNUM)
+        this.n_indirect2 = this.header[nmrpipe_dictionary.FDF3SIZE]; //size of indirect dimension of the input spectrum (FDF3SIZE)
+
+        /**
+         * Complex or real data only along each dimension. Keep in mind they 
+         * do not depend on dimension orders. 
+         */
+        this.data_types = [
+            this.header[nmrpipe_dictionary.FDF1QUADFLAG],
+            this.header[nmrpipe_dictionary.FDF2QUADFLAG],
+            this.header[nmrpipe_dictionary.FDF3QUADFLAG],
+            this.header[nmrpipe_dictionary.FDF4QUADFLAG]
+        ];
 
         /**
          * Datatype of the direct and indirect dimension
          * 0: complex
          * 1: real
          */
-        this.datatype_direct = this.header[56];
-        this.datatype_indirect = this.header[55];
+        this.datatype_direct = this.data_types[this.dimorder1 - 1];
+        this.datatype_indirect = this.data_types[this.dimorder2 - 1];
+        this.datatype_indirect2 = this.data_types[this.dimorder3 - 1];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
          * this.datatype_indirect: 1 means real, 0 means complex
          */
         if (this.datatype_direct == 0 && this.datatype_indirect == 0) {
-            console.log("Complex data along both dimensions.");
             this.n_indirect /= 2; //complex data along both dimensions, per nmrPipe format, so we divide by 2
         }
-        else if (this.datatype_direct == 0 && this.datatype_indirect == 1) {
-            console.log("Complex data along direct dimension, real data along indirect dimension.");
-        }
-        else if (this.datatype_direct == 1 && this.datatype_indirect == 0) {
-            console.log("Complex data along indirect dimension, real data along direct dimension.");
-        }
-        else if (this.datatype_direct == 1 && this.datatype_indirect == 1) {
-            console.log("Real data along both dimensions.");
-        }
-        console.log("n_direct: ", this.n_direct);
-        console.log("n_indirect: ", this.n_indirect);
 
-        this.direct_ndx = this.header[24]; //must be 2
-        this.indirect_ndx = this.header[25]; //must be 1 or 3
-        /**
-         * direct_ndx must be 1, otherwise set error and return
-         */
-        if (this.direct_ndx !== 2) {
-            this.error = "Direct dimension must be the second dimension";
-            return result;
-        }
-        /**
-         * indirect_ndx must be 1 or 3, otherwise set error and return
-         */
-        if (this.indirect_ndx !== 1 && this.indirect_ndx !== 3) {
-            this.error = "Indirect dimension must be the first or third dimension";
-            return result;
-        }
+        this.direct_ndx = this.dimorder1;
+        this.indirect_ndx = this.dimorder2;
+        this.indirect_ndx2 = this.dimorder3;
+
 
         /**
          * this.sw, this.frq,this.ref are the spectral width, frequency and reference of the direct dimension
@@ -410,20 +575,20 @@ class spectrum {
         this.frq = [];
         this.ref = [];
 
-        this.sw[0] = this.header[229];
-        this.sw[1] = this.header[100];
-        this.sw[2] = this.header[11];
-        this.sw[3] = this.header[29];
+        this.sw[0] = this.header[nmrpipe_dictionary.FDF1SW];
+        this.sw[1] = this.header[nmrpipe_dictionary.FDF2SW];
+        this.sw[2] = this.header[nmrpipe_dictionary.FDF3SW];
+        this.sw[3] = this.header[nmrpipe_dictionary.FDF4SW];
 
-        this.frq[0] = this.header[218];
-        this.frq[1] = this.header[119];
-        this.frq[2] = this.header[10];
-        this.frq[3] = this.header[28];
+        this.frq[0] = this.header[nmrpipe_dictionary.FDF1OBS];
+        this.frq[1] = this.header[nmrpipe_dictionary.FDF2OBS];
+        this.frq[2] = this.header[nmrpipe_dictionary.FDF3OBS];
+        this.frq[3] = this.header[nmrpipe_dictionary.FDF4OBS];
 
-        this.ref[0] = this.header[249];
-        this.ref[1] = this.header[101];
-        this.ref[2] = this.header[12];
-        this.ref[3] = this.header[30];
+        this.ref[0] = this.header[nmrpipe_dictionary.FDF1ORIG];
+        this.ref[1] = this.header[nmrpipe_dictionary.FDF2ORIG];
+        this.ref[2] = this.header[nmrpipe_dictionary.FDF3ORIG];
+        this.ref[3] = this.header[nmrpipe_dictionary.FDF4ORIG];
 
         /**
          * Get ppm_start, ppm_width, ppm_step for both direct and indirect dimensions
@@ -434,6 +599,9 @@ class spectrum {
         this.frq2 = this.frq[this.indirect_ndx - 1];
         this.ref1 = this.ref[this.direct_ndx - 1];
         this.ref2 = this.ref[this.indirect_ndx - 1];
+        this.sw3 = this.sw[this.indirect_ndx2 - 1];
+        this.frq3 = this.frq[this.indirect_ndx2 - 1];
+        this.ref3 = this.ref[this.indirect_ndx2 - 1];
 
 
         this.x_ppm_start = (this.ref1 + this.sw1) / this.frq1;
@@ -442,15 +610,20 @@ class spectrum {
         this.y_ppm_width = this.sw2 / this.frq2;
         this.x_ppm_step = -this.x_ppm_width / this.n_direct;
         this.y_ppm_step = -this.y_ppm_width / this.n_indirect;
+        this.z_ppm_start = (this.ref3 + this.sw3) / this.frq3;
+        this.z_ppm_width = this.sw3 / this.frq3;
+        this.z_ppm_step = -this.z_ppm_width / this.n_indirect2;
 
         /**
          * shift by half of the bin size because the contour plot is defined by the center of each bin
          */
         this.x_ppm_start -= this.x_ppm_width / this.n_direct / 2;
         this.y_ppm_start -= this.y_ppm_width / this.n_indirect / 2;
+        this.z_ppm_start -= this.z_ppm_width / this.n_indirect2 / 2;
 
         this.x_ppm_ref = 0.0;
         this.y_ppm_ref = 0.0;
+        this.z_ppm_ref = 0.0;
 
         const spectral_data = new Float32Array(arrayBuffer);
 
@@ -554,7 +727,6 @@ class spectrum {
          * Make sure n_dim is 2 and n_complicity is 1 (real)
          */
         if (n_dim !== 2 || n_complicity !== 1) {
-            console.log('n_dim: ', n_dim, 'n_complicity: ', n_complicity, 'n_version: ', n_version, ' . Only 2D real data is supported');
             return;
         }
 
@@ -795,341 +967,31 @@ class spectrum {
     };
 
 
-    run_peak_fitting(peak_fitting_parameters) {
-
-        /**
-         * Clear current fitted peak object
-         */
-        this.fitted_peaks_object = null;
-
-        /**
-         * 0  gaussian_type,
-         * 1  voigt_type,
-         * 2  exact_type,
-         * 3  voigt_lorentz_type, // voigt along x and lorentzian along y
-         * 4  null_type //this is an error!
-         */
-
-
-        this.user_scale = peak_fitting_parameters.user_scale ? peak_fitting_parameters.user_scale : 5.5;
-        this.user_scale2 = peak_fitting_parameters.user_scale2 ? peak_fitting_parameters.user_scale2 : 3.0;
-        this.peak_shape = peak_fitting_parameters.peak_shape ? peak_fitting_parameters.peak_shape : 0; //default is gaussian
-        this.too_near_cutoff = peak_fitting_parameters.too_near_cutoff ? peak_fitting_parameters.too_near_cutoff : 0.01; //default is 0.1 ppm
-        this.removal_cutoff = peak_fitting_parameters.removal_cutoff ? peak_fitting_parameters.removal_cutoff : 0.01; //default is 0.1 ppm
-        this.maxround = peak_fitting_parameters.maxround ? peak_fitting_parameters.maxrouns : 10; //default is 10 rounds
-
-        let x_ppm = this.picked_peaks_object.get_column_by_header("X_PPM");
-        let y_ppm = this.picked_peaks_object.get_column_by_header("Y_PPM");
-        this.p_intensity = this.picked_peaks_object.get_column_by_header("HEIGHT");
-        this.peak_assignments = this.picked_peaks_object.get_column_by_header("ASS");
-
-        this.sigmax = this.picked_peaks_object.get_column_by_header("XW").map((x) => x / 2.355);
-        this.sigmay = this.picked_peaks_object.get_column_by_header("YW").map((y) => y / 2.355);
-
-
-        /**
-         * User this.x_ppm_start and this.x_ppm_step to convert x_ppm to index
-         * index = (x_ppm - this.x_ppm_start) / this.x_ppm_step
-         */
-        let p1 = x_ppm.map((x) => Math.round((x - this.x_ppm_start) / this.x_ppm_step));
-        let p2 = y_ppm.map((y) => Math.round((y - this.y_ppm_start) / this.y_ppm_step));
-
-        /**
-         * Get peak widths from the picked peaks object
-         */
-        let x_width = this.picked_peaks_object.get_column_by_header("XW");
-        let y_width = this.picked_peaks_object.get_column_by_header("YW");
-
-        /**
-         * Get median of x_width and y_width
-         */
-        this.median_width_x = mathTool.get_median(x_width);
-        this.median_width_y = mathTool.get_median(y_width);
-        this.wx = this.median_width_x * 1.6;
-        this.wy = this.median_width_y * 1.6;
-
-        // Allocate arrays
-        this.peak_map = new Array(this.n_direct * this.n_indirect).fill(-1);
-        this.peak_map2 = new Array(this.n_direct * this.n_indirect).fill(0);
-        this.peak_map3 = new Array(this.n_direct * this.n_indirect).fill(0);
-
-        // Populate peak_map
-        for (let i = 0; i < p1.length; i++) {
-            let xx = Math.round(p1[i]);
-            let yy = Math.round(p2[i]);
-            if (xx >= this.n_direct || xx < 0 || yy < 0 || yy >= this.n_indirect) {
-                console.log("Something is wrong with the coordinates in peak_partition.");
-            }
-            this.peak_map[xx * this.n_indirect + yy] = i;
-        }
-
-        // Populate peak_map2 and peak_map3 for peak regions
-        for (let i = 0; i < p1.length; i++) {
-            let x_from = Math.round(p1[i] - this.wx * 1.5);
-            let x_to = Math.round(p1[i] + this.wx * 1.5);
-            let y_from = Math.round(p2[i] - this.wy * 1.5) + 1;
-            let y_to = Math.round(p2[i] + this.wy * 1.5) + 1;
-
-            if (x_from < 0) x_from = 0;
-            if (x_to > this.n_direct) x_to = this.n_direct;
-            if (y_from < 0) y_from = 0;
-            if (y_to > this.n_indirect) y_to = this.n_indirect;
-
-            for (let m = x_from; m < x_to; m++) {
-                for (let n = y_from; n < y_to; n++) {
-                    if (m >= this.n_direct || m < 0 || n < 0 || n >= this.n_indirect) {
-                        console.log("Something is wrong with the coordinates in peak_partition.");
-                    }
-                    if (this.p_intensity[i] > 0) {
-                        this.peak_map2[m * this.n_indirect + n] = 1;
-                    } else {
-                        this.peak_map3[m * this.n_indirect + n] = 1;
-                    }
-                }
-            }
-        }
-
-        this.cluster_counter = 0;
-        this.peak_partition_core(0); // positive peaks
-        // this.peak_partition_core(1); // negative peaks
-    };
-
-    async peak_partition_core(flag) {
-        // === Peak map is used to map the peak position to the data point index ===
-        let peak_segment_b = Array(this.n_indirect).fill(0).map(() => []);
-        let peak_segment_s = Array(this.n_indirect).fill(0).map(() => []);
-        let used = Array(this.n_indirect).fill(0).map(() => []);
-        let clusters = [];
-
-        const lowest_level = this.noise_level * this.user_scale2;
-
-        if (flag === 0) {
-            // Process positive peaks only
-            for (let j = 0; j < this.n_indirect; j++) {
-                if (this.raw_data[j * this.n_direct + 0] >= lowest_level && this.peak_map2[j] === 1) {
-                    peak_segment_b[j].push(0);
-                }
-                for (let i = 1; i < this.n_direct; i++) {
-                    if ((this.raw_data[j * this.n_direct + i - 1] < lowest_level || this.peak_map2[j + (i - 1) * this.n_indirect] === 0)
-                        && (this.raw_data[j * this.n_direct + i] >= lowest_level && this.peak_map2[j + i * this.n_indirect] === 1)) {
-                        peak_segment_b[j].push(i);
-                    }
-                    if ((this.raw_data[j * this.n_direct + i - 1] >= lowest_level && this.peak_map2[j + (i - 1) * this.n_indirect] === 1)
-                        && (this.raw_data[j * this.n_direct + i] < lowest_level || this.peak_map2[j + i * this.n_indirect] === 0)) {
-                        peak_segment_s[j].push(i);
-                    }
-                }
-                if (peak_segment_s[j].length < peak_segment_b[j].length) {
-                    peak_segment_s[j].push(this.n_direct);
-                }
-                for (let i = 0; i < peak_segment_s[j].length; i++) {
-                    used[j].push(0);
-                }
-            }
-        } else {
-            // Process negative peaks only
-            for (let j = 0; j < this.n_indirect; j++) {
-                if (this.raw_data[j * this.n_direct + 0] <= -lowest_level && this.peak_map3[j] === 1) {
-                    peak_segment_b[j].push(0);
-                }
-                for (let i = 1; i < this.n_direct; i++) {
-                    if ((this.raw_data[j * this.n_direct + i - 1] > -lowest_level || this.peak_map3[j + (i - 1) * this.n_indirect] === 0)
-                        && (this.raw_data[j * this.n_direct + i] <= -lowest_level && this.peak_map3[j + i * this.n_indirect] === 1)) {
-                        peak_segment_b[j].push(i);
-                    }
-                    if ((this.raw_data[j * this.n_direct + i - 1] <= -lowest_level && this.peak_map3[j + (i - 1) * this.n_indirect] === 1)
-                        && (this.raw_data[j * this.n_direct + i] > -lowest_level || this.peak_map3[j + i * this.n_indirect] === 0)) {
-                        peak_segment_s[j].push(i);
-                    }
-                }
-                if (peak_segment_s[j].length < peak_segment_b[j].length) {
-                    peak_segment_s[j].push(this.n_direct);
-                }
-                for (let i = 0; i < peak_segment_s[j].length; i++) {
-                    used[j].push(0);
-                }
-            }
-        }
-
-        // === Breadth-first search to find all clusters ===
-        let work = [];
-
-        for (let j = 0; j < this.n_indirect; j++) {
-            for (let i = 0; i < used[j].length; i++) {
-                if (used[j][i] === 0) {
-                    used[j][i] = 1;
-                    work.length = 0;
-                    work.push([j, i]);
-
-                    let position = 0;
-                    while (position < work.length) {
-                        const [c_row, c_idx] = work[position];
-                        position++;
-
-                        for (let jj = Math.max(0, c_row - 1); jj < Math.min(this.n_indirect, c_row + 2); jj++) {
-                            if (jj === c_row) continue;
-                            for (let ii = 0; ii < used[jj].length; ii++) {
-                                if (used[jj][ii] === 1) continue;
-                                if (peak_segment_s[jj][ii] >= peak_segment_b[c_row][c_idx] &&
-                                    peak_segment_b[jj][ii] <= peak_segment_s[c_row][c_idx]) {
-                                    work.push([jj, ii]);
-                                    used[jj][ii] = 1;
-                                }
-                            }
-                        }
-                    }
-
-                    clusters.push(work.slice());
-                }
-            }
-        }
-
-        if (flag === 0) {
-            console.log(`Total ${clusters.length} positive peak clusters.`);
-        } else {
-            console.log(`Total ${clusters.length} negative peak clusters.`);
-        }
-
-        // === Part II: prepare data for fitting ===
-        for (let i0 = 0; i0 < clusters.length; i0++) {
-            let min1 = Infinity, min2 = Infinity;
-            let max1 = -Infinity, max2 = -Infinity;
-
-            for (const [j, k] of clusters[i0]) {
-                const begin = peak_segment_b[j][k];
-                const stop = peak_segment_s[j][k];
-                if (begin < min1) min1 = begin;
-                if (stop > max1) max1 = stop;
-                if (j < min2) min2 = j;
-                if (j > max2) max2 = j;
-            }
-            max1++;
-            max2++;
-
-            if (max1 - min1 < 3 || max2 - min2 < 3) continue;
-
-            const xydim = (max1 - min1) * (max2 - min2);
-            const spect_parts = Array(this.nspect * xydim).fill(0);
-            const aas = [];
-            const xx = [], yy = [], sx = [], sy = [], gx = [], gy = [], ori_index = [], region_peak_cannot_move_flag = [];
-
-            for (const [j, k] of clusters[i0]) {
-                const begin = peak_segment_b[j][k];
-                const stop = peak_segment_s[j][k];
-                for (let kk = begin; kk < stop; kk++) {
-                    for (let kIdx = 0; kIdx < this.nspect; kIdx++) {
-                        spect_parts[kIdx * xydim + (kk - min1) * (max2 - min2) + (j - min2)] =
-                            this.raw_data[kk + j * this.n_direct];
-                    }
-
-                    const peak_ndx = this.peak_map[kk * this.n_indirect + j];
-                    if (peak_ndx >= 0) {
-                        xx.push(kk - min1);
-                        yy.push(j - min2);
-                        sx.push(this.sigmax[peak_ndx]);
-                        sy.push(this.sigmay[peak_ndx]);
-                        gx.push(0.00001);
-                        gy.push(0.00001);
-                        ori_index.push(peak_ndx);
-                        region_peak_cannot_move_flag.push(0);
-                        aas.push(this.p_intensity[peak_ndx]);
-                    }
-                }
-            }
-
-            if (xx.length > 0) {
-                const workerInput =
-                {
-                    webassembly_job: "gaussian_fitting",
-                    spectrum_index: this.spectrum_index,
-                    peak_shape: this.peak_shape,
-                    maxround: this.maxround,
-                    cluster_counter: this.cluster_counter,
-                    peak_assignments: this.peak_assignments,
-                    peak_sign: flag === 0 ? 1 : -1,
-                    min1, min2,
-                    size1: max1 - min1,
-                    size2: max2 - min2,
-                    nspect: this.nspect,
-                    spect_parts,
-                    xx, yy, aas, sx, sy, gx, gy, ori_index, region_peak_cannot_move_flag,
-                    median_width_x: this.median_width_x,
-                    median_width_y: this.median_width_y,
-                    wx: this.wx * 1.5,
-                    wy: this.wy * 1.5,
-                    noise_level: this.noise_level,
-                    user_scale2: this.user_scale2,
-                    too_near_cutoff: this.too_near_cutoff,
-                    step1: this.x_ppm_step,
-                    step2: this.y_ppm_step,
-                    removal_cutoff: this.removal_cutoff
-                };
-                this.cluster_counter++;
-
-                // Call the worker, wait for result:
-                webassembly_1d_worker_2.postMessage(workerInput);
-            }
-        }
-
-        return true;
-    };
-
     /**
-     * result is from web worker, which use web assembly to do gaussian fitting
-     * @param {*} result 
+     * Collect v2 peak fitting output from web worker into this.fitted_peaks_object.
      */
-    process_gaussian_fitting_result(result) {
-        console.log("Processing gaussian fitting result...");
-        /**
-         * result is an object with the following properties:
-         *  webassembly_job: event.data.webassembly_job,
-            spectrum_index: event.data.spectrum_index,
-            peak_assignments: event.data.peak_assignments,
-            p1: p1,
-            p2: p2,
-            group: group,
-            nround: nround,
-            p_intensity: p_intensity,
-            sigmax: sigmax,
-            sigmay: sigmay,
-            peak_index: peak_index,
-            err: err,
-            num_sums: num_sums,
-            gammax: gammax,
-            gammay: gammay,
-            p_intensity_all_spectra: p_intensity_all_spectra,
-         */
-
+    process_peak_fitter_v2_result(result) {
         if (this.fitted_peaks_object === null) {
             this.fitted_peaks_object = new cpeaks();
-            /**
-             * Add column_headers and column_formats to fitted_peaks_object 
-             */
             this.fitted_peaks_object.column_headers = [
-                "INDEX", 'X_AXIS', "Y_AXIS",
-                "X_PPM", "Y_PPM", "XW", "YW", "HEIGHT", "ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
+                "INDEX", "X_AXIS", "Y_AXIS",
+                "X_PPM", "Y_PPM", "XW", "YW", "HEIGHT", "VOLUME", "ASS", "SIGMAX", "SIGMAY", "GAMMAX", "GAMMAY",
                 "GROUP", "NROUND"
             ];
             this.fitted_peaks_object.column_formats = [
                 "%5d", "%9.4f", "9.4f",
-                "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%s", "%f", "%f", "%f", "%f",
+                "%8.4f", "8.4f", "%7.3f", "%7.3f", "%e", "%e", "%s", "%f", "%f", "%f", "%f",
                 "%5d", "%4d"
             ];
-            /**
-             * DEfine this.fitted_peaks_object.columns as array of arrays, and out layer size is the same as column_headers
-             */
             this.fitted_peaks_object.columns = [];
             for (let i = 0; i < this.fitted_peaks_object.column_headers.length; i++) {
                 this.fitted_peaks_object.columns.push([]);
             }
         }
-        /**
-         * Add current result to fitted_peaks_object, one row per peak
-         */
+
         for (let i = 0; i < result.p1.length; i++) {
-            let current_index = this.fitted_peaks_object.columns[0].length;
             let row = [];
-            row.push(current_index + i);
+            row.push(this.fitted_peaks_object.columns[0].length + 1);
             row.push(result.p1[i]);
             row.push(result.p2[i]);
             row.push(this.x_ppm_start + result.p1[i] * this.x_ppm_step);
@@ -1138,17 +1000,31 @@ class spectrum {
             let fwhhy = 1.0692 * result.gammay[i] + Math.sqrt(0.8664 * result.gammay[i] ** 2 + 5.5452 * result.sigmay[i] ** 2);
             row.push(fwhhx);
             row.push(fwhhy);
-            row.push(result.p_intensity[i]);
+            const height = Array.isArray(result.p_intensity) || ArrayBuffer.isView(result.p_intensity)
+                ? Number(result.p_intensity[i])
+                : Number(result.p_intensity);
+            const volume = Number(result.p_volume[i]);
+            // HEIGHT is shape-corrected physical peak height at apex.
+            // VOLUME is fitted amp parameter (equal to area/volume for Voigt-family models).
+            row.push(Number.isFinite(height) ? height : 0.0);
+            row.push(Number.isFinite(volume) ? volume : 0.0);
             let original_peak_index = result.peak_index[i];
-            row.push(this.peak_assignments[original_peak_index] ? this.peak_assignments[original_peak_index] : "peak");
+            let assignment = "peak";
+            if (Array.isArray(this.peak_assignments) && typeof this.peak_assignments[original_peak_index] !== "undefined") {
+                assignment = this.peak_assignments[original_peak_index] ? this.peak_assignments[original_peak_index] : "peak";
+            }
+            row.push(assignment);
             row.push(result.sigmax[i]);
             row.push(result.sigmay[i]);
             row.push(result.gammax[i]);
             row.push(result.gammay[i]);
             row.push(result.group[i]);
             row.push(result.nround[i]);
-
             this.fitted_peaks_object.add_row(row);
         }
+
+        this.completed_peak_fitting_jobs++;
     };
+
+
 };

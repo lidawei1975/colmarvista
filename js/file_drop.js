@@ -33,6 +33,11 @@ class file_drop_processor {
         return this;
     }
 
+    extension_files_id(extension_files_id) {
+        this.extension_files_id = extension_files_id;
+        return this;
+    }
+
     required_files(required_files) {
         this.required_files = required_files;
         return this;
@@ -87,6 +92,23 @@ class file_drop_processor {
         return this;
     }
 
+    async read_file_text_safe(file) {
+        if (!file) {
+            return '';
+        }
+        if (typeof file.text === 'function') {
+            return await file.text();
+        }
+        return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function () {
+                resolve(reader.result || '');
+            };
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
+    }
+
     async process_file_attachment(entry) {
         let file;
 
@@ -117,42 +139,7 @@ class file_drop_processor {
             container.items.add(file);
             let file_id = this.files_id[this.files_name.indexOf(file.name)];
 
-            /**
-             * A special case for the file input id "hsqc_acquisition_file2"
-             * File name can be acqu2s or acqu3s. 
-             * we will read the file (either acqu2s or acqu3s) as a text file.
-             * if it contains line "##$FnMODE= 1", skip the file
-             */
-            if (file_id === "acquisition_file2" && (file.name === "acqu3s" || file.name === "acqu2s")) {
-
-                /**
-                 * Read the file as text
-                 */
-                let file_data = await read_file_text(file);
-                /**
-                 * Split the file_data by line (line break)
-                 */
-                let lines = file_data.split(/\r?\n/);
-                /**
-                 * Loop all lines, find line start with "##$FnMODE=", get the value after "="
-                 */
-                let fnmode = 0;
-                for (let i = 0; i < lines.length; i++) {
-                    if (lines[i].startsWith("##$FnMODE=")) {
-                        fnmode = parseInt(lines[i].split("=")[1]);
-                        break;
-                    }
-                }
-                /**
-                 * Only when fnmode > 1 and fnmode !=7, we will attach the file to the file input
-                */
-                if (fnmode > 1 && fnmode != 7) {
-                    document.getElementById(file_id).files = container.files;
-                    document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            }
-
-            else if (file_id === "nuslist_file") {
+            if (file_id === "nuslist_file") {
                 document.getElementById(file_id).files = container.files;
                 /**
                  * Special case for nuslist file. 
@@ -161,14 +148,7 @@ class file_drop_processor {
                  */
                 document.getElementById("auto_indirect").checked = false;
                 document.getElementById("auto_indirect").disabled = true;
-                /**
-                 * At this moment, also disable extract_direct_from and extract_direct_to
-                 * because smile (my implementation) doesn't support NUS processing
-                 */
-                document.getElementById("extract_direct_from").value = 0;
-                document.getElementById("extract_direct_to").value = 100;
-                document.getElementById("extract_direct_from").disabled = true;
-                document.getElementById("extract_direct_to").disabled = true;
+                // Keep extract controls editable for class-based NUS processing.
             }
             else {
                 document.getElementById(file_id).files = container.files;
@@ -201,10 +181,21 @@ class file_drop_processor {
          * Only if the dropped file's extension is as predefined, we will attach it to the corresponding file input
          * this.file_extension is an array of file extensions
          */
-        let file_extension = file.name.split('.').pop();
+        let file_extension = file.name.split('.').pop().toLowerCase();
         if (this.file_extension.includes(file_extension)) {
             this.container.items.add(file);
-            let file_id = this.files_id[this.file_extension.indexOf(file_extension)];
+            let file_id = (this.extension_files_id && this.extension_files_id[this.file_extension.indexOf(file_extension)])
+                || this.files_id[this.file_extension.indexOf(file_extension)]
+                || this.files_id[0];
+            document.getElementById(file_id).files = this.container.files;
+            /**
+             * Simulate the change event
+             */
+            document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        else if (this.file_extension.includes('*')) {
+            this.container.items.add(file);
+            let file_id = this.files_id[this.file_extension.indexOf('*')];
             document.getElementById(file_id).files = this.container.files;
             /**
              * Simulate the change event

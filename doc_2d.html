@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COLMARvista Documentation - 2D & Pseudo-3D NMR</title>
+  <meta name="description" content="Official 2D and Pseudo-3D NMR documentation for COLMARvista">
+  <link rel="stylesheet" type="text/css" href="doc.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <a href="index_document.html" class="header-brand">
+      <div class="brand-logo">C</div>
+      <span>COLMARvista Docs</span>
+    </a>
+
+    <div class="nav-tabs">
+      <a href="index_document.html" class="tab-link ">All Docs</a>
+      <a href="doc_3d.html" class="tab-link ">3D NMR</a>
+      <a href="doc_2d.html" class="tab-link active">2D & Pseudo-3D</a>
+      <a href="doc_1d.html" class="tab-link ">1D NMR</a>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+      <input type="text" id="doc-search" placeholder="Search documentation...">
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme">
+        <svg id="theme-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+        </svg>
+      </button>
+      <button class="btn-icon" onclick="window.print()" title="Print Page / Save PDF">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+      
+<div>
+  <div class="nav-group-title">2D & Pseudo-3D Manual</div>
+  <ul class="nav-list">
+    <li><a href="#overview" class="nav-link active">2D Overview</a></li>
+    <li><a href="#2d-save-load" class="nav-link">1. Save & Load Workspace</a></li>
+    <li><a href="#2d-upload-view" class="nav-link">2. Upload & View 2D Spectra</a></li>
+    <li><a href="#2d-3d-view" class="nav-link">3. 3D Surface View for 2D</a></li>
+    <li><a href="#2d-peak-picking" class="nav-link">4. Peak Picking & Fitting</a></li>
+    <li><a href="#2d-bruker-processing" class="nav-link">5. Process Raw 2D & Pseudo-3D Data</a></li>
+    <li><a href="#2d-phase-correction" class="nav-link">6. Manual Phase Correction</a></li>
+    <li><a href="#2d-pseudo-3d" class="nav-link">7. Pseudo-3D & DOSY</a></li>
+  </ul>
+</div>
+
+    </aside>
+
+    <main class="content-wrapper">
+      <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
+      
+<section class="hero-banner" id="overview">
+  <h1 class="hero-title">2D & Pseudo-3D NMR Documentation</h1>
+  <p class="hero-subtitle">
+    Complete user guide for 2D NMR spectrum viewing, 3D surface rendering of 2D spectra, WebAssembly FID processing, Non-Uniform Sampling (NUS), Pseudo-3D series fitting, 2D DOSY diffusion analysis, and baseline correction.
+  </p>
+</section>
+
+        <section class="doc-card" id="2d-save-load">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">2D Workspace Saving & Loading</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Save and Load 2D Workspace</h2>
+        <p>COLMARvista 2D allows you to save and restore your complete interactive analysis workspace to a local binary/JSON file.</p>
+        <ol>
+          <li><b>Save Session:</b> Click the <b>Save current session to a local file</b> button to export your workspace state to a binary/JSON formatted <code>.save</code> or <code>.colmar</code> file.</li>
+          <li><b>Load Session:</b> Use the <b>Load previous session</b> file selector to restore a saved session file.</li>
+          <li><b>Data Included in Save:</b> Saves all frequency domain 2D spectra, contour levels, reconstructed spectra from peak fitting, picked/fitted peak lists, and pseudo-3D fitted peaks.</li>
+          <li><b>FID Data Limitation:</b> Unprocessed raw time-domain (FID) data is not stored in the session file. Saving is disabled while unprocessed FID files remain in the workspace.</li>
+          <li><b>Contour Recalculation:</b> Upon loading, COLMARvista automatically recalculates high-performance WebGL contour lines using saved contour level parameters.</li>
+        </ol>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-upload-view">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">Uploading, Interactive Viewing & Contour Controls for 2D Spectra</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>2D NMR Spectrum Viewer and Interactive Processor</h2>
+        <p>COLMARvista 2D features a WebGL-accelerated interactive canvas for displaying, zooming, and overlaying multiple 2D NMR spectra.</p>
+
+        <h3>Interactive Guided Tutorial</h3>
+        <p>Click the green <button style="background-color: #4CAF50; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-weight: bold;">Tutorial</button> button at the top of the page at any time to launch an interactive guided UI walkthrough.</p>
+
+        <h3>Uploading Frequency Domain Spectra</h3>
+        <ul>
+          <li><b>Supported Formats:</b> Upload 2D NMR spectra in nmrPipe (<code>.ft2</code>), Sparky (<code>.ucsf</code>), or Topspin ASCII (<code>.txt</code> converted using <code>totxt</code>).</li>
+          <li><b>Drag and Drop:</b> Drag and drop single spectral files or an entire folder containing 2D spectra into the <i>Frequency domain spectra</i> upload drop zone.</li>
+        </ul>
+
+        <h3>Contour Level Calculation & Customization</h3>
+        <ul>
+          <li><b>Separate Positive & Negative Contours:</b> Positive (red/custom) and negative (blue/custom) contour levels are computed and rendered independently.</li>
+          <li><b>Automatic Noise Estimation (Logarithmic Scale):</b> Noise levels are automatically estimated upon file upload. Default logarithmic contours start at $5.5 	imes 	ext{noise}$ level, with subsequent levels increasing by a multiplier of $1.5$.</li>
+          <li><b>Linear Contours:</b> Switch to a linear contour scale using the <i># of linear contours</i> control for intuitive peak height representation.</li>
+          <li><b>Adjusting Contour Display:</b> Customize display by adding lower contour levels (down button), adjust the lowest visible contour level slider in real-time, or select custom spectrum colors.</li>
+        </ul>
+
+        <h3>Interactive Plot Interactivity & Navigation</h3>
+        <ul>
+          <li><b>Zooming:</b> Click and brush a rectangular area on the main 2D plot to zoom in. Use <b>Reset all Zoom</b>, <b>Zoom Back</b> (step back zoom stack), or <b>Zoom out 120%</b> buttons.</li>
+          <li><b>Reordering Spectra:</b> Drag and drop loaded spectra in <i>Your spectra list</i> to reorder display depth layer rendering.</li>
+          <li><b>1D Projections vs. Cross Section Slices:</b> Toggle between <i>Projection</i> mode and <i>Cross section</i> mode. Hover the cursor over a peak location for 3 seconds (with <i>Pause the cursor</i> checked) or right-click to view synchronized 1D cross section slices along direct ($X$) and indirect ($Y$) dimensions.</li>
+          <li><b>Phase & Anchor Overlay:</b> The 1D cross-section slice headers display real-time $P_0$, $P_1$, and anchor point phase parameters.</li>
+        </ul>
+
+        <h3>Magnifying Glass Tool</h3>
+        <ul>
+          <li><b>Enable/Disable:</b> Check <i>Enable</i> in the Magnifying glass box at the top left of the plot.</li>
+          <li><b>Adjust Size & Magnification:</b> Customize lens diameter percentage (10–40% of plot area) and magnification ratio (2.0x–30.0x) for ultra-close inspection without changing the main zoom level.</li>
+        </ul>
+
+        <h3>Plot Group View Synchronization</h3>
+        <ul>
+          <li>Set the <b>Plot group</b> number (range 1–10). Open 2D plots across different browser windows or tabs sharing the same group number automatically synchronize their ppm viewing region.</li>
+        </ul>
+
+        <h3>Baseline Correction (WebAssembly Accelerated)</h3>
+        <ul>
+          <li><b>Baseline Methods:</b> COLMARvista 2D supports both <b>Parametric</b> and <b>Polynomial</b> baseline correction methods, implemented and accelerated directly in the browser via WebAssembly.</li>
+          <li><b>Algorithm Reference:</b> Parametric baseline correction is based on the method described in:
+            <br><i>Baseline Correction for NMR Spectroscopic Metabolomics Data Analysis</i>, Yuanxin Xi and David M. Rocke, <i>BMC Bioinformatics</i> (2008).
+          </li>
+          <li><b>Order & Application:</b> Select <i>Parametric</i> or <i>Polynomial</i> baseline method, choose polynomial order (0, 1, 2, 3, 4) if applicable, and click <b>Apply Baseline</b>.</li>
+        </ul>
+
+        <h3>High-Resolution & Vector Export for Publication</h3>
+        <ul>
+          <li><b>Resolution Scale Factor:</b> Increase the <i>Downloaded plot resolution factor</i> from <code>1.0</code> up to <code>10.0</code> to download ultra-high-definition PNG contour plots matching publication standards.</li>
+          <li><b>Custom Font Size:</b> Adjust plot label font size (12–72 pt) for optimal legibility.</li>
+          <li><b>Download Plot:</b> Click <b>Download plot</b> to save PNG or vector SVG files.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-3d-view">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">3D Surface & Terrace Visualization for 2D Spectra</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>3D Surface & Terrace Visualization for 2D Spectra</h2>
+        <p>In addition to 2D flat contour viewing, COLMARvista provides a dedicated <b>3D View for 2D Spectra</b> mode (<a href="index_2d_3dview.html" target="_blank" style="color: var(--accent-2d); font-weight: 600;">index_2d_3dview.html</a>) that projects a 2D NMR spectrum as a 3D elevation landscape using WebGL.</p>
+
+        <h3>Key Features of 3D View for 2D Spectra</h3>
+        <ul>
+          <li><b>3D Surface vs. Terrace Rendering:</b>
+            <ul>
+              <li><b>3D Surface Mode:</b> Renders a smooth 3D elevation terrain where peak intensities map directly to vertical $Z$-axis peak heights.</li>
+              <li><b>3D Terrace Mode:</b> Renders stepped contour terraces for clear visual demarcation of intensity levels.</li>
+            </ul>
+          </li>
+          <li><b>Interactive 3D Viewport Controls:</b>
+            <ul>
+              <li><b>Tilt & Rotation:</b> Adjust <i>Tilt</i> ($-200^\circ$ to $200^\circ$) and <i>Rotation</i> ($0^\circ$ to $360^\circ$) sliders to view the 2D spectrum from any perspective angle.</li>
+              <li><b>$Z$ Scale & $Y$ Scale:</b> Scale vertical signal peak height ($Z$-scale) and spectrum aspect ratio ($Y$-scale) dynamically.</li>
+              <li><b>Lighting Angle & Orientation:</b> Customize <i>Light Angle</i> and <i>Light Orientation</i> for optimal 3D shading and shadow contrast.</li>
+            </ul>
+          </li>
+          <li><b>Custom Surface & Contour Styling:</b> Customize independent color pickers for <b>Surface color</b> and <b>Contour color</b>.</li>
+          <li><b>Contour Modes:</b> Choose between <i>Logarithmic-linear</i>, <i>Logarithmic</i>, or <i>Linear</i> contour spacing.</li>
+          <li><b>Download 3D Figure:</b> Click <b>Download figure</b> to capture and save the interactive 3D surface model as an image.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-peak-picking">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">Running DEEP Picker, Peak Fitting & Label Layout for 2D</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>DEEP Picker & Peak Fitting for 2D Spectra</h2>
+
+        <h3>2D Peak Picking Methods</h3>
+        <ol>
+          <li><b>DEEP Picker:</b> Click <b>DEEP Picker</b> to execute deep neural network peak detection using the current lowest contour level as the height threshold.</li>
+          <li><b>Simple Picker:</b> Click <b>Simple Picker</b> to identify mathematical local intensity maxima.</li>
+          <li><b>Upload Peak List:</b> Upload pre-existing peak lists in Sparky (<code>.list</code>) format.</li>
+        </ol>
+
+        <h3>Voigt / Gaussian Line-Shape Fitting</h3>
+        <ol>
+          <li><b>Peak Profile:</b> Select <b>Voigt</b> or <b>Gaussian</b> peak line shape profile.</li>
+          <li><b>Perform Fitting:</b> Click <b>Peak Fitting</b> to fit all picked peaks within the visible spectral window. A synthetic reconstructed spectrum is generated and overlaid.</li>
+        </ol>
+
+        <h3>Interactive Peak Editing</h3>
+        <ul>
+          <li><b>Brush to Remove:</b> Check <i>Brush to remove peaks</i> to delete multiple peak markers inside a brushed region.</li>
+          <li><b>Drag and Drop:</b> Check <i>Drag and drop to move (or remove) peaks</i> to reposition or delete individual peaks.</li>
+          <li><b>Click to Add:</b> Check <i>Click to add peaks</i> to manually place new peak markers on the spectrum.</li>
+        </ul>
+
+        <h3>Automated Peak Label Placement & Repulsive Force Engine</h3>
+        <ul>
+          <li><b>Peak Labels & Assignments:</b> Check <i>Show peak label</i> to render assignments (e.g. <code>ASS</code>) or peak parameters on all visible peaks.</li>
+          <li><b>Repulsive Layout Engine:</b> Adjust label font size (12–72 pt), minimum/maximum label offset distance (e.g., 40–80 px), and <b>Repulsive force</b> weight (default 100). The layout engine dynamically repositions peak labels to prevent overlaps.</li>
+        </ul>
+
+        <h3>Interactive Peak Table & Search</h3>
+        <ul>
+          <li><b>Search Peaks:</b> Search peak assignments or chemical shift coordinates in the peak table via <i>Search in peaks</i>.</li>
+          <li><b>Jump to Peak:</b> Click any peak row in the table to automatically center and zoom the 2D plot onto that peak.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-bruker-processing">
+          <div class="card-header">
+            <span class="badge badge-3d">2D / Pseudo-3D</span>
+            <h2 class="card-title">Processing Raw 2D & Pseudo-3D Time-Domain Data (Bruker & NUS)</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Processing Raw 2D & Pseudo-3D Time-Domain Data</h2>
+        <p>COLMARvista features an integrated WebAssembly processing pipeline for raw Bruker 2D and Pseudo-3D time-domain FID data directly in the web browser, with full support for Non-Uniform Sampling (NUS).</p>
+
+        <h3>Supported Experiments & Required Files</h3>
+        <ul>
+          <li><b>Supported Experiments:</b> 2D and <b>Pseudo-3D</b> experiments from Bruker TopSpin console versions <b>&ge; 3.0</b>. Indirect dimension mode supports <b>Echo-antiecho</b> or <b>States-TPPI</b>.</li>
+          <li><b>Required Files:</b>
+            <ul>
+              <li>Direct dimension time-domain <code>fid</code> (or <code>ser</code>) and acquisition file <code>acqus</code>.</li>
+              <li>Indirect dimension acquisition file <code>acqu2s</code>.</li>
+              <li>Indirect dimension 2 acquisition file <code>acqu3s</code> (required for Pseudo-3D experiments).</li>
+              <li><b>NUS Experiments:</b> Upload the NUS schedule file <code>nuslist</code> for Non-Uniform Sampling experiments.</li>
+            </ul>
+          </li>
+          <li><b>Drag & Drop Folder:</b> Drag and drop the entire Bruker experiment directory containing all files.</li>
+        </ul>
+
+        <h3>Processing Parameters</h3>
+        <ul>
+          <li><b>Direct & Indirect Apodization:</b> Customizable nmrPipe syntax apodization strings (e.g., <code>SP off 0.5 end 0.98 pow 2 elb 0 c 0.5</code>).</li>
+          <li><b>Zero Filling Factor:</b> Select zero filling factors (2, 4, 8) independently for direct ($X$) and indirect ($Y$) dimensions.</li>
+          <li><b>Sub-Region Direct Extraction:</b> Specify chemical shift bounds in <i>Extract direct dimension from (ppm) to (ppm)</i> to process a targeted sub-region and accelerate transformation.</li>
+          <li><b>Water Suppression:</b> Check <i>Water suppression?</i> to attenuate solvent signals.</li>
+          <li><b>Negative Imaginary Data:</b> Check <i>Negative imaginary data</i> to invert indirect dimension phase and correct inverted/flipped spectra.</li>
+        </ul>
+
+        <div style="background-color: rgba(56, 189, 248, 0.1); border-left: 4px solid var(--accent-2d); padding: 16px; margin: 16px 0; border-radius: 4px;">
+          <h4 style="color: var(--accent-2d); margin-bottom: 8px;">Non-Uniform Sampling (NUS) Processing & Phase Estimation</h4>
+          <p>COLMARvista provides specialized processing controls for 2D and Pseudo-3D Non-Uniform Sampling (NUS) experiments:</p>
+          <ul>
+            <li><b>Automated Phase Correction for NUS (Direct Dimension Only):</b> For NUS datasets, automated phase correction functions on the <b>direct dimension only</b>.
+              <br><b>How it works:</b> To estimate direct dimension phase parameters ($P_0 / P_1$) on NUS data, the processing engine first executes a preliminary full direct Fourier Transform process (which contains NUS sampling artifacts) to calculate and optimize direct phase correction via ANN/entropy minimization. These phase parameters are then applied to the raw time-domain data before performing full 2D NUS reconstruction (SMILE / iterative reconstruction). Indirect dimension phase parameters cannot be automatically calculated on NUS data and must be set manually.
+            </li>
+            <li><b>FLATT Baseline Correction for NUS:</b> Check <i>Direct dimension FLATT baseline correction for NUS</i> to eliminate baseline distortion during NUS reconstruction.</li>
+            <li><b>Process NUS as Normal:</b> Check <i>Process NUS spectrum as normal (No NUS recon)</i> to bypass NUS reconstruction and perform rapid direct FT processing.</li>
+          </ul>
+        </div>
+
+        <h3>Pseudo-3D Processing Options</h3>
+        <ul>
+          <li><b>Process First Plane Only:</b> Rapid processing on plane 1 for parameter tuning.</li>
+          <li><b>Process All Planes:</b> Sequential batch processing across all planes in a Pseudo-3D dataset.</li>
+        </ul>
+
+        <h3>Process & Reprocess Workflow</h3>
+        <ul>
+          <li>Click <b>Upload experimental files and process</b> to start Fourier Transformation.</li>
+          <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Reprocess</b> to reload parameters into the form, adjust phase/apodization settings, re-run processing, and click <b>Quit reprocessing</b> when done.</li>
+        </ul>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-phase-correction">
+          <div class="card-header">
+            <span class="badge badge-2d">2D</span>
+            <h2 class="card-title">Automatic & Manual Phase Correction for 2D Spectra</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>2D Phase Correction Workflow</h2>
+
+        <h3>Automatic Phase Correction</h3>
+        <p>Click <b>Automatic PC</b> to run entropy-minimization or neural network automated phase correction on the active 2D spectrum.</p>
+
+        <h3>Interactive Manual Phase Correction</h3>
+        <p>Manual phase correction requires imaginary data to be retained during initial 2D FID processing.</p>
+        <ol>
+          <li><b>Select Spectrum:</b> Select the target spectrum in <i>Your spectra list</i> and click <b>Reprocess</b>.</li>
+          <li><b>Display 1D Cross Section:</b> Switch to <i>Cross section</i> mode. Hover the cursor over a strong peak for 3 seconds or right-click to display horizontal ($X$) and vertical ($Y$) 1D cross section slices.</li>
+          <li><b>Adjust Zero-Order Phase (P0):</b> Move the cursor onto either the direct ($X$) or indirect ($Y$) 1D cross-section plot. Hold <kbd>Shift</kbd> (1.0&deg; coarse adjustment) or <kbd>Ctrl</kbd> (0.2&deg; fine adjustment) and scroll the mouse wheel.</li>
+          <li><b>Set Anchor Point & Adjust P1:</b> Click on a peak in the cross-section plot to set an anchor point (indicated by an anchor line). Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> and scroll the mouse wheel to adjust first-order phase ($P_1$). Right-click to unset the anchor point.</li>
+          <li><b>Apply Phase Correction:</b> Click <b>Apply PC</b> to apply phase correction to the full 2D spectrum. The exact $P_0$ and $P_1$ values are updated in the processing form and displayed for export into nmrPipe scripts.</li>
+        </ol>
+        
+          </div>
+        </section>
+        
+        <section class="doc-card" id="2d-pseudo-3d">
+          <div class="card-header">
+            <span class="badge badge-3d">2D / Pseudo-3D</span>
+            <h2 class="card-title">Pseudo-3D Series Processing & 2D DOSY Diffusion Workflow</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Pseudo-3D Data Processing & 2D DOSY Workflow</h2>
+
+        <h3>Processing Pre-processed Planes or Time-Domain Datasets</h3>
+        <ol>
+          <li><b>Upload / Process Planes:</b> Upload pre-processed 2D planes or process raw Pseudo-3D time-domain data (selecting <i>Process all planes</i>).</li>
+          <li><b>Peak Picking & Fitting (Plane 1):</b> Perform peak picking (DEEP Picker) and Voigt/Gaussian peak fitting on Plane 1 to establish a master peak list guess.</li>
+          <li><b>Set Max Fitting Rounds:</b> Set <i>Max round of pseudo-3D fitting</i> (1–1000, default 50).</li>
+          <li><b>Run Pseudo-3D Fitting:</b> Click <b>Run Gaussian pseudo-3D fitting of all spectra</b> or <b>Run Voigt pseudo-3D fitting of all spectra</b> to fit all planes sequentially.</li>
+          <li><b>Transfer Assignments:</b> Upload a Sparky peak list (<code>.list</code>) with assignment labels in <i>Upload an peak file with assignment information</i> to automatically transfer peak labels to pseudo-3D fitted peaks.</li>
+          <li><b>Download Results:</b> Download the complete fitted pseudo-3D peak table (<code>.tab</code>).</li>
+        </ol>
+
+        <h3>2D DOSY Diffusion Analysis</h3>
+        <ol>
+          <li><b>Input Gradient Values:</b> Enter space-separated gradient strength values into <i>DOSY gradient values</i> (e.g., <code>0.963 8.474 15.986 23.497 31.009 38.520</code>).</li>
+          <li><b>Set Gradient Weights & Rescale Factor:</b> Enter space-separated gradient weight values (e.g. <code>1 0 0 1 1</code>) and set the <i>Rescale factor</i> (0.1–10, default 1000.0).</li>
+          <li><b>Run DOSY Fitting:</b> Click <b>Run DOSY fitting</b> to calculate diffusion constants ($D$) for all pseudo-3D fitted peaks.</li>
+          <li><b>Visualization & Decay Curves:</b> Fitted diffusion constants automatically color-code peak markers and populate peak labels. Hover the cursor over any pseudo-3D peak to display the 2D exponential diffusion decay fitting plot in a pop-up window.</li>
+        </ol>
+        
+          </div>
+        </section>
+        
+
+
+      <footer class="site-footer">
+        <p>&copy; COLMARvista NMR Web Server Documentation</p>
+      </footer>
+    </main>
+  </div>
+
+  <button id="back-to-top" title="Back to Top">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+    </svg>
+  </button>
+
+  <script src="doc.js"></script>
+</body>
+</html>

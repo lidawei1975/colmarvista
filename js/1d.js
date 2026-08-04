@@ -13,8 +13,26 @@
 */
 
 var webassembly_1d_worker_2;
+var webdp1d_module = null;
+var webdp1d_module_promise = null;
+
+if (typeof webdp1d_cpp === "function") {
+    webdp1d_module_promise = webdp1d_cpp().then((mod) => {
+        webdp1d_module = mod;
+        return mod;
+    });
+}
+
+const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
+
+function get_webassembly_job_flag(data) {
+    if (!data) {
+        return undefined;
+    }
+    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+}
 try {
-    webassembly_1d_worker_2 = new Worker('./js/webass1d_2.js');
+    webassembly_1d_worker_2 = new Worker('./js/webass_1d.js');
 }
 catch (err) {
     console.log(err);
@@ -178,10 +196,11 @@ $(document).ready(function () {
     */
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
-        .files_name(["acqus", "ser", "fid"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file", "fid_file", "fid_file"]) /** Corresponding file element IDs */
-        .file_extension([])  /** file extensions to be searched from upload */
-        .required_files([0, 1])
+        .files_name(["acqus", "ser", "fid", "acqu.par", "data.1d"])  /** file names to be searched from upload */
+        .files_id(["acquisition_file", "fid_file", "fid_file", "acquisition_file", "fid_file"]) /** Corresponding file element IDs */
+        .file_extension(["jdx", "dx"])  /** file extensions to be searched from upload */
+        .extension_files_id(["acquisition_file", "acquisition_file"])
+        .required_files([0])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
         .init();
 
@@ -373,7 +392,7 @@ $(document).ready(function () {
              */
             let fid_reduction_mode = document.querySelector('input[name="fid_reduction_mode"]:checked').value;
             // Get raw data on demand
-            let fid_data_preview = get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
+            let fid_data_preview = await get_fid_data_from_buffer(fid_process_parameters.fid_buffer, fid_process_parameters.acquisition_string);
 
             if (fid_reduction_mode === "auto" || fid_reduction_mode === "auto_confirm") {
                 if (fid_data_preview) {
@@ -421,9 +440,9 @@ $(document).ready(function () {
             let acquisition_file = document.getElementById('acquisition_file').files[0];
             let fid_file = document.getElementById('fid_file').files[0];
 
-            if (acquisition_file && fid_file) {
-                let acquisition_string = await read_file_text(acquisition_file);
-                let fid_buffer = await read_file(fid_file);
+            if (acquisition_file || fid_file) {
+                let acquisition_string = acquisition_file ? await read_file_text(acquisition_file) : "";
+                let fid_buffer = fid_file ? await read_file(fid_file) : new ArrayBuffer(0);
                 /**
                  * Convert fid_buffer to Float32Array
                  */
@@ -447,7 +466,7 @@ $(document).ready(function () {
                  * It will be saved here, in case we need to re-process the fid file
                  */
                 fid_process_parameters = {
-                    webassembly_job: "fid_processor_1d",
+                    [WEBASSEMBLY_JOB_KEY]: "fid_processor_1d",
                     reduced_fid_size: reduced_fid_size,
                     acquisition_string: acquisition_string,
                     fid_buffer: fid_buffer,
@@ -472,7 +491,7 @@ $(document).ready(function () {
 
                 // --- PREVIEW FID PLOT ---
                 try {
-                    let fid_data_preview = get_fid_data_from_buffer(fid_buffer, acquisition_string);
+                    let fid_data_preview = await get_fid_data_from_buffer(fid_buffer, acquisition_string);
 
                     if (fid_data_preview) {
                         let cutoff = fid_data_preview.length; // Default to full
@@ -550,8 +569,9 @@ $(document).ready(function () {
 });
 
 webassembly_1d_worker_2.onmessage = function (e) {
+    const webassembly_job = get_webassembly_job_flag(e.data);
 
-    if (e.data.webassembly_job === "fid_processor_1d") {
+    if (webassembly_job === "fid_processor_1d") {
         /**
          * Received fid processing result:
          *  webassembly_job: event.data.webassembly_job,
@@ -629,7 +649,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     }
 
 
-    else if (e.data.webassembly_job === "peak_picker") {
+    else if (webassembly_job === "peak_picker_1d") {
         let peaks = new cpeaks();
         peaks.process_peaks_tab(e.data.picked_peaks_tab);
         all_spectra[e.data.spectrum_index].picked_peaks_object = peaks;
@@ -662,7 +682,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
     /**
      * If result is fitted_peaks and recon_spectrum
      */
-    else if (e.data.webassembly_job === "peak_fitter") {
+    else if (webassembly_job === "peak_fitter_1d") {
         console.log("Fitted peaks and recon_spectrum received");
 
         /**
@@ -724,7 +744,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
 
     }
 
-    else if (e.data.webassembly_job === "generate_voigt_profiles") {
+    else if (webassembly_job === "generate_voigt_profiles_1d") {
 
         /**
          * If peak index == 0, we are receiving the first one from a new batch, remove all existing profiles first
@@ -738,7 +758,7 @@ webassembly_1d_worker_2.onmessage = function (e) {
         main_plot.add_peak_profile(e.data.profile_ppm, e.data.profile_data);
     }
 
-    else if (e.data.webassembly_job === "baseline_correction") {
+    else if (webassembly_job === "baseline_correction_1d") {
         let spectrum_index = e.data.spectrum_index;
         if (spectrum_index >= 0 && spectrum_index < all_spectra.length) {
             all_spectra[spectrum_index].baseline = e.data.baseline;
@@ -754,6 +774,12 @@ webassembly_1d_worker_2.onmessage = function (e) {
             main_plot.show_baseline(baseline, spectrum_index);
             disable_enable_phase_baseline_buttons(true);
         }
+    }
+
+    else if (e.data.error) {
+        console.error('1D worker error:', e.data.error);
+        document.getElementById("webassembly_message").innerText = e.data.error;
+        document.getElementById("button_fid_process").disabled = false;
     }
 
 
@@ -2008,10 +2034,18 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
 async function download_plot() {
     /**
-         * Generate a link to download main_plot as a SVG file
-         * The top SVG element has id = "plot_1d"
-         */
-    var svgData = document.getElementById("plot_1d").outerHTML;
+     * Generate a link to download main_plot as a SVG file
+     * The top SVG element has id = "main_plot"
+     */
+    var svgElement = document.getElementById("main_plot");
+    if (!svgElement) {
+        console.error("SVG element 'main_plot' not found.");
+        return;
+    }
+    var svgData = serializeAsXML(svgElement);
+    if (!svgData.startsWith('<?xml')) {
+        svgData = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgData;
+    }
     var svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
     var svgUrl = URL.createObjectURL(svgBlob);
     var downloadLink = document.createElement("a");
@@ -2108,12 +2142,19 @@ function disable_enable_peak_buttons(spectrum_index, flag) {
 
 
 
+function check_and_apply_manual_phase() {
+    if (main_plot && main_plot.current_actively_corrected_spectrum_index !== -1) {
+        permanently_apply_phase_correction();
+    }
+}
+
 /**
  * Call DEEP Picker to run peaks picking the spectrum
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  * @param {int} flag: 0 for DEEP Picker, 1 for Simple Picker
  */
 function run_DEEP_Picker(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     disable_enable_peak_buttons(spectrum_index, 0);
     disable_enable_fitted_peak_buttons(spectrum_index, 0);
 
@@ -2140,7 +2181,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: "peak_picker",
+        [WEBASSEMBLY_JOB_KEY]: "peak_picker_1d",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
@@ -2162,6 +2203,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
  * @param {int} spectrum_index: index of the spectrum in all_spectra array
  */
 function run_Voigt_fitter(spectrum_index, flag) {
+    check_and_apply_manual_phase();
     /**
      * Disable the buttons to run deep picker and voigt fitter
      */
@@ -2216,7 +2258,7 @@ function run_Voigt_fitter(spectrum_index, flag) {
 
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: "peak_fitter",
+        [WEBASSEMBLY_JOB_KEY]: "peak_fitter_1d",
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         picked_peaks: picked_peaks_copy_tab,
@@ -2982,6 +3024,7 @@ function get_center(peaks) {
  * On-call when button is clicked
  */
 function permanently_apply_phase_correction() {
+    if (main_plot === null) return;
     return_data = main_plot.permanently_apply_phase_correction();
     if (typeof return_data === "undefined" || return_data === null) return; //user didn't run phase correction
     let ndx = return_data.index;
@@ -3022,6 +3065,8 @@ function permanently_apply_phase_correction() {
      */
     document.getElementById("pc_left_end").textContent = "0.0";
     document.getElementById("pc_right_end").textContent = "0.0";
+    const p1_el = document.getElementById("pc_p1");
+    if (p1_el) p1_el.textContent = "0.0";
     document.getElementById("pivot").textContent = "not set";
 
     /**
@@ -3110,172 +3155,176 @@ async function run_auto_pc() {
  * @param {*} ndx 
  */
 async function run_ann_phase_correction(ndx) {
-    /**
-     * Our model was trained using data length of at least 32768,65536 and 131072 points
-     * If data length is less than 32768, alert user but still proceed
-     */
-    if (all_spectra[ndx].raw_data.length < 32768) {
-        alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
-    }
-    document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
-    /**
-     * Disable manual phase correction and myself button during auto phase correction
-     */
-    disable_enable_phase_baseline_buttons(false);
+    const original_console_log = console.log;
+    const log_div = document.getElementById("log");
 
-    document.getElementById("log").value += "Starting automatic phase correction using ANN model...\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-
-
-    let result = await get_best_location_diagonal(ndx, 0, 0);
-
-    let current_phase_left = result[0];
-    let current_phase_right = result[1];
-
-    let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
-
-    /**
-     * Now run p1 prediction on the new data to make sure we are at the maximum
-     */
-    const prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
-    let prediction = prediction_all[0];
-
-    /**
-     * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
-    */
-    if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
-        result = await get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, prediction[1]);
-    }
-    else {
-        /**
-         * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
-         * then we can run section search to find the cross point from negative to positive phase error
-         * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
-         * then we can run section search to find the cross point from negative to positive phase error
-         */
-        let b_cross = false;
-        let advance_direction_left = 1;
-        let advance_direction_right = -1;
-        let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
-        while (!b_cross) {
-            // Perform a small phase correction along anti-diagonal direction
-            let current_additional_phase_left = current_additional_phase * advance_direction_left
-            let current_additional_phase_right = current_additional_phase * advance_direction_right;
-            let phase_correction_left = current_phase_left + current_additional_phase_left;
-            let phase_correction_right = current_phase_right + current_additional_phase_right;
-
-            // move phase correction along diagonal line to reach optimal point
-            let p0_result = await get_best_location_diagonal(ndx, phase_correction_left, phase_correction_right);
-            phase_correction_left = p0_result[0];
-            phase_correction_right = p0_result[1];
-            /**
-             * Also use current data to update advance_direction_left and advance_direction_right
-             */
-            advance_direction_left = (phase_correction_left - current_phase_left) / current_additional_phase;
-            advance_direction_right = (phase_correction_right - current_phase_right) / current_additional_phase;
-
-            let data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
-
-            const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
-            let new_prediction = new_prediction_all[0];
-
-            console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
-            console.log("Current P1 prediction: " + new_prediction);
-            document.getElementById("log").value += "Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right + "\n";
-            document.getElementById("log").value += "Current P1 prediction: " + new_prediction + "\n";
-            document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-
-
-            if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
-                b_cross = true;
-                result = await get_maximum_pre1_location_p1(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
-            }
-            //check if we cross the boundary, no need to advance further
-            else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
-                b_cross = true;
-                result = await get_cross_point_p1(ndx, phase_correction_left - current_additional_phase_left, phase_correction_right - current_additional_phase_right, current_additional_phase_left, current_additional_phase_right);
-
-            }
-            else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
-                b_cross = true;
-                result = await get_cross_point_p1(ndx, phase_correction_left, phase_correction_right, -current_additional_phase_left, -current_additional_phase_right);
-
-            }
-            /**
-             * We haven't crossed yet, continue
-             */
-            prediction = new_prediction;
-            current_phase_left = phase_correction_left;
-            current_phase_right = phase_correction_right;
+    // Redirect console.log to the log div during processing
+    console.log = function (...args) {
+        original_console_log.apply(console, args);
+        if (log_div) {
+            log_div.value += args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ') + "\n";
+            log_div.scrollTop = log_div.scrollHeight;
         }
-    }
+    };
 
-    console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
-    document.getElementById("log").value += "Final phase correction: left end = " + result[0] + ", right end = " + result[1] + "\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-
-    /**
-     * result is the best location (phase correction at left end and right end)
-     * Apply the phase correction to raw_data and raw_data_i
-     */
-    let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
-    for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
-        phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
-        phase_array[i] = phase_array[i] * Math.PI / 180;
-    }
-    for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
-        all_spectra[ndx].raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
-        all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
-    }
-
-    /**
-     * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
-     */
-    if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
-        all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
-        /**
-         * If we are in reprocessing mode,
-         * Update input field phase_correction_direct_p0 and p1 to the new valu
-         */
-        if (current_reprocess_spectrum_index === ndx) {
-            document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
-            document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+    try {
+        if (all_spectra[ndx].raw_data.length < 32768) {
+            alert("Data length is too short for phase correction using ANN model. Performance may be affected. Minimum length is 32768 points.");
         }
-    }
-
-    /**
-     * Need to update the plot as well
-     */
-    if (main_plot !== null) {
+        document.getElementById("webassembly_message").innerText = "Running Automatic Phase Correction...";
         /**
-         * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
+         * Disable manual phase correction and myself button during auto phase correction
          */
-        let data = [];
-        if (all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length) {
-            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i], all_spectra[ndx].raw_data_i[i]]);
-            }
+        disable_enable_phase_baseline_buttons(false);
+
+        console.log("Starting automatic phase correction using ANN model...");
+
+        let result = await get_best_location_diagonal(ndx, 0, 0);
+
+        let current_phase_left = result[0];
+        let current_phase_right = result[1];
+
+        let data = get_data_from_phase_correction(ndx, current_phase_left, current_phase_right);
+
+        /**
+         * Now run p1 prediction on the new data to make sure we are at the maximum
+         */
+        const prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
+        let prediction = prediction_all[0];
+
+        /**
+         * If prediction[1] is the maximum, we are almost done, but still need to do a small grid search to find maximum
+        */
+        if (prediction[1] > prediction[0] && prediction[1] > prediction[2]) {
+            result = await get_maximum_pre1_location_p1(ndx, current_phase_left, current_phase_right, prediction[1]);
         }
         else {
-            for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
-                data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i]]);
+            /**
+             * If prediction[0] is the maximum, need to add positive phase correction to reach a point where prediction[2] is the maximum
+             * then we can run section search to find the cross point from negative to positive phase error
+             * If prediction[2] is the maximum, need to add negative phase correction to reach a point where prediction[0] is the maximum
+             * then we can run section search to find the cross point from negative to positive phase error
+             */
+            let b_cross = false;
+            let advance_direction_left = 1;
+            let advance_direction_right = -1;
+            let current_additional_phase = prediction[0] < prediction[2] ? 5.0 : -5.0;
+            while (!b_cross) {
+                // Perform a small phase correction along anti-diagonal direction
+                let current_additional_phase_left = current_additional_phase * advance_direction_left
+                let current_additional_phase_right = current_additional_phase * advance_direction_right;
+                let phase_correction_left = current_phase_left + current_additional_phase_left;
+                let phase_correction_right = current_phase_right + current_additional_phase_right;
+
+                // move phase correction along diagonal line to reach optimal point
+                let p0_result = await get_best_location_diagonal(ndx, phase_correction_left, phase_correction_right);
+                phase_correction_left = p0_result[0];
+                phase_correction_right = p0_result[1];
+                /**
+                 * Also use current data to update advance_direction_left and advance_direction_right
+                 */
+                advance_direction_left = (phase_correction_left - current_phase_left) / current_additional_phase;
+                advance_direction_right = (phase_correction_right - current_phase_right) / current_additional_phase;
+
+                let data = get_data_from_phase_correction(ndx, phase_correction_left, phase_correction_right);
+
+                const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
+                let new_prediction = new_prediction_all[0];
+
+                console.log("Current phase correction: left end = " + phase_correction_left + ", right end = " + phase_correction_right);
+                console.log("Current P1 prediction: " + new_prediction);
+
+                if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
+                    b_cross = true;
+                    result = await get_maximum_pre1_location_p1(ndx, phase_correction_left, phase_correction_right, new_prediction[1]);
+                }
+                //check if we cross the boundary, no need to advance further
+                else if (prediction[0] > prediction[2] && new_prediction[2] > new_prediction[0]) {
+                    b_cross = true;
+                    result = await get_cross_point_p1(ndx, phase_correction_left - current_additional_phase_left, phase_correction_right - current_additional_phase_right, current_additional_phase_left, current_additional_phase_right);
+
+                }
+                else if (prediction[2] > prediction[0] && new_prediction[0] > new_prediction[2]) {
+                    b_cross = true;
+                    result = await get_cross_point_p1(ndx, phase_correction_left, phase_correction_right, -current_additional_phase_left, -current_additional_phase_right);
+
+                }
+                /**
+                 * We haven't crossed yet, continue
+                 */
+                prediction = new_prediction;
+                current_phase_left = phase_correction_left;
+                current_phase_right = phase_correction_right;
             }
         }
-        main_plot.add_data(data, ndx);
-    }
-    /**
-     * Enable manual phase correction and myself button after auto phase correction
-     */
-    disable_enable_phase_baseline_buttons(true);
 
-    // Notify completion of TFJS phase correction
-    // Dispatch on the button so the tutorial listener which is attached to the button can catch it
-    const btn = document.getElementById("button_fid_process");
-    if (btn) {
-        btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+        console.log("Final phase correction: left end = " + result[0] + ", right end = " + result[1]);
+
+        /**
+         * result is the best location (phase correction at left end and right end)
+         * Apply the phase correction to raw_data and raw_data_i
+         */
+        let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
+        for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
+            phase_array[i] = result[0] + (result[1] - result[0]) * i / all_spectra[ndx].raw_data.length;
+            phase_array[i] = phase_array[i] * Math.PI / 180;
+        }
+        for (let m = 0; m < all_spectra[ndx].raw_data.length; m++) {
+            all_spectra[ndx].raw_data[m] = all_spectra[ndx].raw_data[m] * Math.cos(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.sin(phase_array[m]);
+            all_spectra[ndx].raw_data_i[m] = -all_spectra[ndx].raw_data[m] * Math.sin(phase_array[m]) + all_spectra[ndx].raw_data_i[m] * Math.cos(phase_array[m]);
+        }
+
+        /**
+         * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
+         */
+        if (all_spectra[ndx].spectrum_origin === -2 && typeof all_spectra[ndx].fid_process_parameters !== "undefined" && all_spectra[ndx].fid_process_parameters !== null) {
+            all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0 += result[0];
+            all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1 += (result[1] - result[0]);
+            /**
+             * If we are in reprocessing mode,
+             * Update input field phase_correction_direct_p0 and p1 to the new valu
+             */
+            if (current_reprocess_spectrum_index === ndx) {
+                document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+                document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+            }
+        }
+
+        /**
+         * Need to update the plot as well
+         */
+        if (main_plot !== null) {
+            /**
+             * When ndx is already in the plot, function add_data will update the data, instead of adding a new spectrum, and ignore the color parameter
+             */
+            let data = [];
+            if (all_spectra[ndx].raw_data_i.length === all_spectra[ndx].raw_data.length) {
+                for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                    data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i], all_spectra[ndx].raw_data_i[i]]);
+                }
+            }
+            else {
+                for (let i = 0; i < all_spectra[ndx].n_direct; i++) {
+                    data.push([all_spectra[ndx].x_ppm_start + all_spectra[ndx].x_ppm_step * i, all_spectra[ndx].raw_data[i]]);
+                }
+            }
+            main_plot.add_data(data, ndx);
+        }
+        /**
+         * Enable manual phase correction and myself button after auto phase correction
+         */
+        disable_enable_phase_baseline_buttons(true);
+
+        // Notify completion of TFJS phase correction
+        // Dispatch on the button so the tutorial listener which is attached to the button can catch it
+        const btn = document.getElementById("button_fid_process");
+        if (btn) {
+            btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
+        }
+    } finally {
+        console.log = original_console_log;
+        document.getElementById("webassembly_message").innerText = "";
     }
-    document.getElementById("webassembly_message").innerText = "";
 }
 
 /**
@@ -3563,9 +3612,9 @@ async function get_maximum_pre1_location_2(ndx, current_phase_left, current_phas
         /**
          * Begin to decrease, we are done.
          */
-        // console.log("Current phase correction: left end = " + current_phase_left + ", right end = " + current_phase_right);
-        // console.log("previous P0 prediction: " + current_prediction1);
-        // console.log("Current P0 prediction: " + new_prediction[1]);
+        console.log("Current phase correction: left end = " + current_phase_left + ", right end = " + current_phase_right);
+        console.log("previous P0 prediction: " + current_prediction1);
+        console.log("Current P0 prediction: " + new_prediction[1]);
         return [current_phase_left, current_phase_right];
     }
     else {
@@ -3587,7 +3636,7 @@ async function get_maximum_pre1_location_2(ndx, current_phase_left, current_phas
 async function runPrediction(data, data_length, flag = 0) {
     // 1. Load the model
     const model = await (flag === 0 ? tf.loadGraphModel('./saved_model_p0/model.json') : tf.loadGraphModel('./saved_model_p1/model.json'));
-    // console.log('Model loaded successfully!');
+    console.log('Model loaded successfully!');
 
     // 2. Preprocess Input Data (Example). n_data is batch size in our prediction
     // Because of limited resources in browser, we only process one or two spectrum at a time.
@@ -3628,14 +3677,14 @@ async function runPrediction(data, data_length, flag = 0) {
     // The output 'prediction' is a tensor.
 
     // 4. Process Output
-    // console.log('Processing output...');
+    console.log('Processing output...');
     const outputData = prediction.dataSync();
 
     const probabilities = Array.from(outputData);
 
-    // console.log(`Prediction finished.`);
-    // console.log("outputData: ", outputData);
-    // console.log('Output Probabilities:', probabilities);
+    console.log(`Prediction finished.`);
+    console.log("outputData: ", outputData);
+    console.log('Output Probabilities:', probabilities);
 
     /**
      * Convert probabilities_p0 from 1*27 to 9*3
@@ -3644,7 +3693,7 @@ async function runPrediction(data, data_length, flag = 0) {
     for (let i = 0; i < n_data; i++) {
         reshapedProbabilities.push(probabilities.slice(i * 3, (i + 1) * 3));
     }
-    // console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
+    console.log('Reshaped Probabilities (n_data x 3):', reshapedProbabilities);
 
     // Clean up memory by disposing of the tensors
     mainTensor.dispose();
@@ -3660,6 +3709,7 @@ async function runPrediction(data, data_length, flag = 0) {
  * User click button to run baseline estimation
  */
 function run_baseline_correction() {
+    check_and_apply_manual_phase();
     if (main_plot.current_spectrum_index < 0 || main_plot.current_spectrum_index >= all_spectra.length) {
         alert("No spectrum selected for baseline correction.");
         return;
@@ -3680,7 +3730,7 @@ function run_baseline_correction() {
     smooth_parameter = parseFloat(smooth_parameter);
 
     webassembly_1d_worker_2.postMessage({
-        webassembly_job: 'baseline_correction',
+        [WEBASSEMBLY_JOB_KEY]: 'baseline_correction',
         spectrum_header: header, //float32 array
         spectrum_data: all_spectra[spectrum_index].raw_data, //float32 array
         spectrum_index: spectrum_index,
@@ -4322,55 +4372,55 @@ function detect_signal_end(fid_data) {
 }
 
 /**
- * Helper to parse FID data from buffer
+ * Helper to parse FID data from buffer using WebAssembly (read_acqus_and_fid_from_memory and write_nmrpipe_fid_to_buffer)
  * @param {ArrayBuffer} fid_buffer 
  * @param {string} acquisition_string 
- * @returns {Int32Array|Float64Array}
+ * @returns {Promise<Float32Array>}
  */
-function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
-    let dtypa = 0; // Default Int32
-    let bytorda = 0; // Default Little Endian
-
-    const matchDtypa = acquisition_string.match(/##\$DTYPA=\s*(\d+)/);
-    if (matchDtypa) dtypa = parseInt(matchDtypa[1]);
-
-    const matchBytorda = acquisition_string.match(/##\$BYTORDA=\s*(\d+)/);
-    if (matchBytorda) bytorda = parseInt(matchBytorda[1]);
-
-    // Determine system endianness
-    const isLittleEndian = (function () {
-        const buffer = new ArrayBuffer(2);
-        new DataView(buffer).setInt16(0, 256, true);
-        return new Int16Array(buffer)[0] === 256;
-    })();
-
-    const fileIsLittleEndian = (bytorda === 0);
-    const swapBytes = (isLittleEndian !== fileIsLittleEndian);
-
-    let fid_data = null;
-
-    if (dtypa === 2) { // Float64
-        if (swapBytes) {
-            const dv = new DataView(fid_buffer);
-            fid_data = new Float64Array(fid_buffer.byteLength / 8);
-            for (let i = 0; i < fid_data.length; i++) {
-                fid_data[i] = dv.getFloat64(i * 8, fileIsLittleEndian);
-            }
-        } else {
-            fid_data = new Float64Array(fid_buffer);
-        }
-    } else { // Int32
-        if (swapBytes) {
-            const dv = new DataView(fid_buffer);
-            fid_data = new Int32Array(fid_buffer.byteLength / 4);
-            for (let i = 0; i < fid_data.length; i++) {
-                fid_data[i] = dv.getInt32(i * 4, fileIsLittleEndian);
-            }
-        } else {
-            fid_data = new Int32Array(fid_buffer);
-        }
+async function get_fid_data_from_buffer(fid_buffer, acquisition_string) {
+    if (!webdp1d_module && webdp1d_module_promise) {
+        await webdp1d_module_promise;
     }
-    return fid_data;
+
+    if (webdp1d_module) {
+        const obj = new webdp1d_module.spectrum_phasing_1d();
+
+        const fid_bytes = new webdp1d_module.VectorUChar();
+        if (fid_buffer && fid_buffer.byteLength > 0) {
+            const raw_bytes = new Uint8Array(fid_buffer);
+            for (let i = 0; i < raw_bytes.length; i++) {
+                fid_bytes.push_back(raw_bytes[i]);
+            }
+        }
+
+        obj.read_acqus_and_fid_from_memory(acquisition_string, fid_bytes);
+        fid_bytes.delete();
+
+        const nmrpipe_vec = new webdp1d_module.VectorUChar();
+        const write_ok = obj.write_nmrpipe_fid_to_buffer(nmrpipe_vec);
+
+        if (write_ok && nmrpipe_vec.size() > 2048) {
+            const nmrpipe_uint8 = new Uint8Array(nmrpipe_vec.size());
+            for (let i = 0; i < nmrpipe_vec.size(); i++) {
+                nmrpipe_uint8[i] = nmrpipe_vec.get(i);
+            }
+            nmrpipe_vec.delete();
+            obj.delete();
+
+            const total_floats = (nmrpipe_uint8.byteLength - 2048) / 4;
+            const n_real = total_floats / 2;
+
+            return new Float32Array(
+                nmrpipe_uint8.buffer,
+                nmrpipe_uint8.byteOffset + 2048,
+                n_real
+            );
+        }
+
+        nmrpipe_vec.delete();
+        obj.delete();
+    }
+    return null;
 }
 
 /**
@@ -4497,3 +4547,80 @@ function exit_reprocessing_ui(index) {
         if (div) div.style.backgroundColor = ""; // Reset to default (or remove inline style)
     }
 }
+
+/**
+ * Minimizes or restores the floating background log area.
+ */
+function toggle_log_minimize() {
+    const log_area = document.getElementById('log_area');
+    const log_textarea = document.getElementById('log');
+    const min_btn = document.getElementById('button_minimize_log');
+
+    if (!log_area || !log_textarea || !min_btn) return;
+
+    if (log_textarea.style.display === 'none') {
+        log_textarea.style.display = 'block';
+        log_area.style.height = log_area.dataset.lastHeight || '300px';
+        log_area.style.width = log_area.dataset.lastWidth || '500px';
+        log_area.style.resize = 'both';
+        min_btn.innerText = '—';
+    } else {
+        log_area.dataset.lastHeight = log_area.offsetHeight + 'px';
+        log_area.dataset.lastWidth = log_area.offsetWidth + 'px';
+        log_textarea.style.display = 'none';
+        log_area.style.height = 'auto';
+        log_area.style.width = '250px';
+        log_area.style.resize = 'none';
+        min_btn.innerText = '□';
+    }
+}
+
+/**
+ * Makes the floating background log area draggable by its header.
+ */
+function make_log_movable() {
+    const log_area = document.getElementById("log_area");
+    const header = log_area ? log_area.querySelector(".log-header") : null;
+    if (!log_area || !header) return;
+
+    let startX, startY, initialLeft, initialTop;
+
+    header.onmousedown = function (e) {
+        // If clicking on a button inside the header, don't drag
+        if (e.target.tagName.toLowerCase() === 'button') {
+            return;
+        }
+        e = e || window.event;
+        e.preventDefault();
+
+        // Initial mouse position
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // Current element position
+        let rect = log_area.getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        document.onmouseup = function () {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        };
+
+        document.onmousemove = function (e) {
+            e = e || window.event;
+            e.preventDefault();
+
+            // Calculate distance moved
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+
+            // Apply new position
+            log_area.style.top = (initialTop + dy) + "px";
+            log_area.style.left = (initialLeft + dx) + "px";
+        };
+    };
+}
+
+// Call this once to initialize log dragging
+setTimeout(make_log_movable, 100);

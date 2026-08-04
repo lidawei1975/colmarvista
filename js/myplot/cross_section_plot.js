@@ -1,4 +1,9 @@
 class cross_section_plot {
+    /**
+     * Constructor for class.
+     *
+     * @param {any} parent_plot - Parent plot
+     */
     constructor(parent_plot) {
 
         // test d3 exist
@@ -108,8 +113,8 @@ class cross_section_plot {
                 .attr("id", "clip" + this.orientation)
                 .append("rect")
                 .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", width - this.margin.left - this.margin.right)
-                .attr("height", height - this.margin.top - this.margin.bottom);
+                .attr("width", Math.max(0, width - this.margin.left - this.margin.right))
+                .attr("height", Math.max(0, height - this.margin.top - this.margin.bottom));
 
         /**
          * Add a line to show the 0 intensity
@@ -139,6 +144,18 @@ class cross_section_plot {
                 .style("stroke", "red")
                 .style("stroke-width", 1.5);
         }
+
+        /**
+         * Add a dashed line to show the pivot point (anchor ppm)
+         */
+        this.pivot_line = this.vis.append("g")
+            .attr("class", "pivot_line_g")
+            .append("line")
+            .attr("clip-path", "url(#clip" + this.orientation + ")")
+            .style("stroke", "blue")
+            .style("stroke-width", 1.5)
+            .style("stroke-dasharray", "4,4")
+            .style("display", "none");
 
         /**
          * Turn off the default right click menu
@@ -220,31 +237,17 @@ class cross_section_plot {
                      * and phase_correction_array[last] - phase_correction_array[0] = this.phase_correction_p1
                      */
                 this.make_phase_correction_array();
+                this.update_phase_ui();
                 /**
                  * Update real_data and imaginary_data with phase correction
                  */
                 if (orientation === "horizontal") {
-                    if(this.anchor_ppm < -99.0){
-                        document.getElementById('p0_direct').innerHTML = (this.phase_correction/Math.PI*180).toFixed(1);
-                    }
-                    else{
-                        document.getElementById('p1_direct').innerHTML = (this.phase_correction_p1/Math.PI*180).toFixed(1);
-                    }
-                    
                     for (var i = 0; i < this.data.length; i++) {
                         this.data[i][1] = this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i]);
-                
-                }
-                   
+                    }
                 }
                 else
                 {
-                    if(this.anchor_ppm < -99.0){
-                        document.getElementById('p0_indirect').innerHTML = (this.phase_correction/Math.PI*180).toFixed(1);
-                    }
-                    else{
-                        document.getElementById('p1_indirect').innerHTML = (this.phase_correction_p1/Math.PI*180).toFixed(1);
-                    }
                     for (var i = 0; i < this.data.length; i++) {
                         this.data[i][0] = this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i]);
                     }
@@ -372,16 +375,32 @@ class cross_section_plot {
         this.redraw();
     }
 
+    /**
+     * Zooms X.
+     *
+     * @param {any} x_domain - X domain
+     */
     zoom_x(x_domain) {
         this.x.domain(x_domain);
         this.redraw();
     }
 
+    /**
+     * Zooms Y.
+     *
+     * @param {any} y_domain - Y domain
+     */
     zoom_y(y_domain) {
         this.y.domain(y_domain);
         this.redraw();
     }
 
+    /**
+     * Resizes X.
+     *
+     * @param {any} width - Width
+     * @param {any} margin - Margin
+     */
     resize_x(width,margin) {
         this.width = width;
         this.margin = margin;
@@ -394,8 +413,8 @@ class cross_section_plot {
              */
             this.clip_space
                 .attr("transform", "translate(" + this.margin.left + "," + this.margin.top + ")")
-                .attr("width", this.width - this.margin.left - this.margin.right)
-                .attr("height", this.height - this.margin.top - this.margin.bottom);
+                .attr("width", Math.max(0, this.width - this.margin.left - this.margin.right))
+                .attr("height", Math.max(0, this.height - this.margin.top - this.margin.bottom));
 
         }
         else if(this.orientation === "vertical"){
@@ -412,6 +431,12 @@ class cross_section_plot {
         this.redraw();
     }
 
+    /**
+     * Resizes Y.
+     *
+     * @param {any} height - Height
+     * @param {any} margin - Margin
+     */
     resize_y(height,margin) {
         this.height = height;
         this.margin = margin;
@@ -428,7 +453,7 @@ class cross_section_plot {
         /**
          * Change height of the clip space according to the new height of the main_plot object
          */
-        this.clip_space.attr("height", height - this.margin.top - this.margin.bottom);
+        this.clip_space.attr("height", Math.max(0, height - this.margin.top - this.margin.bottom));
         this.redraw();
     }
     
@@ -467,6 +492,9 @@ class cross_section_plot {
         this.redraw();
     }
 
+    /**
+     * Clears data.
+     */
     clear_data() {
 
         this.vis.selectAll(".line_exp").remove();
@@ -611,6 +639,7 @@ class cross_section_plot {
         else
         {
             this.make_phase_correction_array();
+            this.update_phase_ui();
             if (this.orientation === "horizontal") {
                 for (var i = 0; i < data[0].length; i++) {
                     this.data[i] = [this.ppm[i], this.real_data[i] * Math.cos(this.phase_correction_array[i]) - this.imaginary_data[i] * Math.sin(this.phase_correction_array[i])];
@@ -638,6 +667,9 @@ class cross_section_plot {
         this.redraw();
     };
 
+    /**
+     * Clears.
+     */
     clear() {
         /**
          * Clear this.data
@@ -654,6 +686,9 @@ class cross_section_plot {
     }
 
 
+    /**
+     * Gets phase correction.
+     */
     get_phase_correction() {
         /**
          * Need to get phase_correction at index 0
@@ -666,6 +701,44 @@ class cross_section_plot {
         return [phase_correction_at_0, this.phase_correction_p1];
     }
 
+    /**
+     * Updates display elements for phase correction.
+     */
+    update_phase_ui() {
+        const p0_id = this.orientation === "horizontal" ? "p0_direct" : "p0_indirect";
+        const p1_id = this.orientation === "horizontal" ? "p1_direct" : "p1_indirect";
+        const anchor_phase_id = this.orientation === "horizontal" ? "anchor_phase_direct" : "anchor_phase_indirect";
+
+        const p0_el = document.getElementById(p0_id);
+        const p1_el = document.getElementById(p1_id);
+        const anchor_phase_el = document.getElementById(anchor_phase_id);
+
+        if (p0_el) {
+            let p0_val = 0.0;
+            if (this.phase_correction_array && this.phase_correction_array.length > 0) {
+                p0_val = this.phase_correction_array[0] * 180.0 / Math.PI;
+            } else {
+                p0_val = this.phase_correction * 180.0 / Math.PI;
+            }
+            p0_el.innerHTML = p0_val.toFixed(1);
+        }
+        if (p1_el) {
+            let p1_val = this.phase_correction_p1 * 180.0 / Math.PI;
+            p1_el.innerHTML = p1_val.toFixed(1);
+        }
+        if (anchor_phase_el) {
+            if (this.anchor_ppm >= -99.0) {
+                let anchor_phase_val = this.phase_correction * 180.0 / Math.PI;
+                anchor_phase_el.innerHTML = anchor_phase_val.toFixed(1) + "°";
+            } else {
+                anchor_phase_el.innerHTML = "N.A.";
+            }
+        }
+    }
+
+    /**
+     * Clears phase correction.
+     */
     clear_phase_correction() {
         this.phase_correction = 0.0;
         this.phase_correction_p1 = 0.0;
@@ -673,13 +746,13 @@ class cross_section_plot {
         this.phase_correction_array =[];
 
         if (this.orientation === "horizontal") {
-            document.getElementById('p0_direct').innerHTML = "0.0";
-            document.getElementById('p1_direct').innerHTML = "0.0";
+            document.getElementById('anchor_direct').innerHTML = "not set";
         }
         else {
-            document.getElementById('p0_indirect').innerHTML = "0.0";
-            document.getElementById('p1_indirect').innerHTML = "0.0";
+            document.getElementById('anchor_indirect').innerHTML = "not set";
         }
+        this.update_phase_ui();
+        this.redraw();
     }
 
     /**
@@ -721,6 +794,31 @@ class cross_section_plot {
                 .attr("y1", this.y.range()[0])
                 .attr("x2", this.x(0))
                 .attr("y2", this.y.range()[1]);
+        }
+
+        /**
+         * Update the line that shows the pivot point
+         */
+        if (this.pivot_line) {
+            if (this.anchor_ppm >= -99.0) {
+                if (this.orientation === "horizontal") {
+                    this.pivot_line
+                        .attr("x1", this.x(this.anchor_ppm))
+                        .attr("y1", this.y.range()[1])
+                        .attr("x2", this.x(this.anchor_ppm))
+                        .attr("y2", this.y.range()[0])
+                        .style("display", "block");
+                } else {
+                    this.pivot_line
+                        .attr("x1", this.x.range()[1])
+                        .attr("y1", this.y(this.anchor_ppm))
+                        .attr("x2", this.x.range()[0])
+                        .attr("y2", this.y(this.anchor_ppm))
+                        .style("display", "block");
+                }
+            } else {
+                this.pivot_line.style("display", "none");
+            }
         }
     }
 
@@ -817,6 +915,11 @@ class cross_section_plot {
         e.preventDefault();
     }
 
+    /**
+     * Handles mouse up.
+     *
+     * @param {any} e - E
+     */
     handleMouseUp(e) {
         e.preventDefault();
         var self = this;
@@ -827,43 +930,49 @@ class cross_section_plot {
          */
         if(this.mouse_is_moving === false && e.button === 0)
         {
-            /**
-             * If the mouse is not moving, we have a click event.
-             * Get the ppm value of the mouse position from the event x
-             */
-            
-            if(this.orientation === "horizontal")
-            {
-                let ppm = this.x.invert(e.offsetX);
-                this.anchor_ppm = ppm;
-                document.getElementById('anchor_direct').innerHTML = ppm.toFixed(2)+" ppm";
-            }
-            else
-            {
-                let ppm = this.y.invert(e.offsetY);
-                this.anchor_ppm = ppm;
-                document.getElementById('anchor_indirect').innerHTML = ppm.toFixed(2)+" ppm";
-            }
+            // Left click does not set/unset the pivot point anymore
         }
         /**
          * Right click event
          */
         else if(this.mouse_is_moving === false && e.button === 2)
         {
-            /**
-             * Clear anchor ppm
-             */
-            this.anchor_ppm = -100.0;
-            if(this.orientation === "horizontal"){
-                document.getElementById('anchor_direct').innerHTML = "not set";
+            if (this.anchor_ppm >= -99.0) {
+                // Already set, unset it
+                this.anchor_ppm = -100.0;
+                if(this.orientation === "horizontal"){
+                    document.getElementById('anchor_direct').innerHTML = "not set";
+                }
+                else{
+                    document.getElementById('anchor_indirect').innerHTML = "not set";
+                }
+            } else {
+                // Not set, set it
+                if(this.orientation === "horizontal")
+                {
+                    let ppm = this.x.invert(e.offsetX);
+                    this.anchor_ppm = ppm;
+                    document.getElementById('anchor_direct').innerHTML = ppm.toFixed(2)+" ppm";
+                }
+                else
+                {
+                    let ppm = this.y.invert(e.offsetY);
+                    this.anchor_ppm = ppm;
+                    document.getElementById('anchor_indirect').innerHTML = ppm.toFixed(2)+" ppm";
+                }
             }
-            else{
-                document.getElementById('anchor_indirect').innerHTML = "not set";
-            }
+            this.make_phase_correction_array();
+            this.update_phase_ui();
+            this.redraw();
         }
         return;
     }
 
+    /**
+     * Medians.
+     *
+     * @param {any} values - Values
+     */
     median(values) {
 
         if (values.length === 0) {

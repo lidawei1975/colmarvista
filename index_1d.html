@@ -51,19 +51,16 @@
 
             <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
                 <span>
-                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
-                        domain data for processing: <span class="information">(Console version >=3.0) </span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>1D time domain data for processing (Bruker, Magritek, Oxford): <span class="information">(Bruker console version >=3.0) </span>
                     </p>
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
-                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file"
+                        <label for="fid_file">fid file (usually called fid, ser, or data.1d): </label><input type="file"
                             name="fid_file" id="fid_file" multiple><br>
-                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called
-                            acqus):</label>
+                        <label for="acquisition_file">Direct dimension acquisition file (usually called acqus, acqu.par, or .jdx/.dx):</label>
                         <input type="file" name="acquisition_file" id="acquisition_file"><br>
-                        <span class="information"> You can also drag and drop Bruker folder (which contains required
-                            files here).</span><br>
+                        <span class="information"> You can also drag and drop folder (Bruker, Magritek, Oxford) containing required files here.</span><br>
                     </div>
 
                     <div class="input-section" id="input_options">
@@ -175,7 +172,7 @@
                             correction</button>
                         Pivot: <span id="pivot"> Not set </span>
                         Phase correction at left end: <span id="pc_left_end"> 0 </span>, at right end: <span
-                            id="pc_right_end"> 0 </span>.
+                            id="pc_right_end"> 0 </span>, P1: <span id="pc_p1"> 0 </span>.
                         <br>
 
                         <label for="smooth_parameter">Baseline smooth parameter(8-15): </label>
@@ -235,11 +232,16 @@
 
         </div>
 
-        <div id="log_area" class="drop-area-neighbor" style="width: min-content;">
-            <h4>Background server log:</h4>
-            <textarea id="log" rows="50" cols="120" readonly></textarea>
-            <button onclick="clear_log()">Clear log</button>
-            <button onclick="download_log()">Download log</button>
+        <div id="log_area" class="drop-area-neighbor">
+            <div class="log-header">
+                <strong>Background server log:</strong>
+                <div class="log-actions">
+                    <button onclick="clear_log()">Clear</button>
+                    <button onclick="download_log()">Download</button>
+                    <button id="button_minimize_log" onclick="toggle_log_minimize()">—</button>
+                </div>
+            </div>
+            <textarea id="log" readonly></textarea>
         </div>
 
     </div>
@@ -263,6 +265,7 @@
     <script type="text/javascript" src="js/myplot/myplot_1d.js"></script>
     <script type="text/javascript" src="js/make_table.js"></script>
     <script type="text/javascript" src="js/tutorial.js"></script>
+    <script type="text/javascript" src="js/webdp1d_cpp.js"></script>
     <script type="text/javascript" src="js/1d.js"></script>
     </div>
 </body>

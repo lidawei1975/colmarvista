@@ -1,0 +1,24 @@
+##TITLE= Parameter file, TopSpin 3.7.0
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 2	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= bruschweiler
+$$ 2025-08-01 18:00:40.744 -0400  bruschweiler@cbec850rb
+$$ /home/bruschweiler/Data/Mamata/data/Proteins/nmr/13C15N_BRBD_Assn_Aug01_2025/10/acqu3s
+$$ process /opt/topspin3.7.0/prog/mod/go4
+##$ACQT0= 0
+##$BF1= 213.772902
+##$FnILOOP= 0
+##$FnMODE= 5
+##$NUC1= <13C>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 138
+##$O1= 37089.598497
+##$ProjAngle= 0
+##$SFO1= 213.809991598497
+##$SW= 12.9990269617
+##$SW_h= 2779.32184546971
+##$TD= 1
+##END=

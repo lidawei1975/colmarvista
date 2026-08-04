@@ -13,6 +13,158 @@
  * first plot has 2 levels, second plot has 2 levels in the levels_length array
  * if overlays =[] means all levels are in one plot (no overlay), this is the default, equal to [0, levels_length.length]
  */
+const nmrpipe_dictionary = {
+    "FDBASEBLOCK": 361,
+    "FDBMAPBLOCK": 363,
+    "FDCOMMENT": 312,
+    "FDCONTBLOCK": 360,
+    "FDDAY": 295,
+    "FDDIMCOUNT": 9,
+    "FDDIMORDER1": 24,
+    "FDDIMORDER2": 25,
+    "FDDIMORDER3": 26,
+    "FDDIMORDER4": 27,
+    "FDF2AQSIGN": 64,
+    "FDF2APOD": 95,
+    "FDF2APODCODE": 413,
+    "FDF2APODQ1": 415,
+    "FDF2APODQ2": 416,
+    "FDF2APODQ3": 417,
+    "FDF2CAR": 66,
+    "FDF2CENTER": 79,
+    "FDF2C1": 418,
+    "FDF2FTFLAG": 220,
+    "FDF2FTSIZE": 96,
+    "FDF2LABEL": 16,
+    "FDF2LB": 111,
+    "FDF2OBS": 119,
+    "FDF2OFFPPM": 480,
+    "FDF2ORIG": 101,
+    "FDF2P0": 109,
+    "FDF2P1": 110,
+    "FDF2QUADFLAG": 56,
+    "FDF2SW": 100,
+    "FDF2TDSIZE": 386,
+    "FDF2UNITS": 152,
+    "FDF2X1": 257,
+    "FDF2XN": 258,
+    "FDF2ZF": 108,
+    "FDF3APOD": 50,
+    "FDF3APODCODE": 400,
+    "FDF3APODQ1": 401,
+    "FDF3APODQ2": 402,
+    "FDF3APODQ3": 403,
+    "FDF3AQSIGN": 476,
+    "FDF3CAR": 68,
+    "FDF3CENTER": 81,
+    "FDF3C1": 404,
+    "FDF3FTFLAG": 13,
+    "FDF3FTSIZE": 200,
+    "FDF3LABEL": 20,
+    "FDF3OBS": 10,
+    "FDF3OFFPPM": 482,
+    "FDF3ORIG": 12,
+    "FDF3P0": 60,
+    "FDF3P1": 61,
+    "FDF3QUADFLAG": 51,
+    "FDF3SIZE": 15,
+    "FDF3SW": 11,
+    "FDF3TDSIZE": 388,
+    "FDF3UNITS": 58,
+    "FDF3X1": 261,
+    "FDF3XN": 262,
+    "FDF3ZF": 438,
+    "FDF4APOD": 53,
+    "FDF4APODCODE": 405,
+    "FDF4APODQ1": 406,
+    "FDF4APODQ2": 407,
+    "FDF4APODQ3": 408,
+    "FDF4AQSIGN": 477,
+    "FDF4CAR": 69,
+    "FDF4CENTER": 82,
+    "FDF4C1": 409,
+    "FDF4FTFLAG": 31,
+    "FDF4FTSIZE": 201,
+    "FDF4LABEL": 22,
+    "FDF4OBS": 28,
+    "FDF4OFFPPM": 483,
+    "FDF4ORIG": 30,
+    "FDF4P0": 62,
+    "FDF4P1": 63,
+    "FDF4QUADFLAG": 54,
+    "FDF4SIZE": 32,
+    "FDF4SW": 29,
+    "FDF4TDSIZE": 389,
+    "FDF4UNITS": 59,
+    "FDF4X1": 263,
+    "FDF4XN": 264,
+    "FDF4ZF": 439,
+    "FDFILECOUNT": 442,
+    "FDFIRSTPLANE": 77,
+    "FDFLTFORMAT": 1,
+    "FDFLTORDER": 2,
+    "FDMAGIC": 0,
+    "FDMCFLAG": 135,
+    "FDMAX": 247,
+    "FDMIN": 248,
+    "FDMINS": 284,
+    "FDMONTH": 294,
+    "FDNOISE": 153,
+    "FDOPERNAME": 464,
+    "FDPARTITION": 65,
+    "FDPEAKBLOCK": 362,
+    "FDPIPECOUNT": 75,
+    "FDPIPEFLAG": 57,
+    "FDPLANELOC": 14,
+    "FDQUADFLAG": 106,
+    "FDRANK": 180,
+    "FDREALSIZE": 97,
+    "FDSCALEFLAG": 250,
+    "FDSECS": 285,
+    "FDSIZE": 99,
+    "FDSLICECOUNT": 443,
+    "FDSPECNUM": 219,
+    "FDSRCNAME": 286,
+    "FDTEMPERATURE": 157,
+    "FDTITLE": 297,
+    "FDTRANSPOSED": 221,
+    "FDUSER1": 70,
+    "FDUSER2": 71,
+    "FDUSER3": 72,
+    "FDUSER4": 73,
+    "FDUSER5": 74,
+    "FDUSER6": 76,
+    "FDUSERNAME": 290,
+    "FDYEAR": 296,
+    "FDF1APOD": 428,
+    "FDF1APODCODE": 414,
+    "FDF1APODQ1": 420,
+    "FDF1APODQ2": 421,
+    "FDF1APODQ3": 422,
+    "FDF1AQSIGN": 475,
+    "FDF1CAR": 67,
+    "FDF1CENTER": 80,
+    "FDF1C1": 423,
+    "FDF1FTFLAG": 222,
+    "FDF1FTSIZE": 98,
+    "FDF1LABEL": 18,
+    "FDF1LB": 243,
+    "FDF1OBS": 218,
+    "FDF1OFFPPM": 481,
+    "FDF1ORIG": 249,
+    "FDF1P0": 245,
+    "FDF1P1": 246,
+    "FDF1QUADFLAG": 55,
+    "FDF1SW": 229,
+    "FDF1TDSIZE": 387,
+    "FDF1UNITS": 234,
+    "FDF1X1": 259,
+    "FDF1XN": 260,
+    "FDF1ZF": 437,
+    "GRPDLY": 40
+};
+
+
 class spectrum_1d {
     constructor() {
         this.spectrum_format = "ft1"; //ft2 is the default format
@@ -108,8 +260,8 @@ class spectrum_1d {
     update_x_ppm_ref(x_ppm_ref) {
         let delta_ppm = x_ppm_ref - this.x_ppm_ref;
         this.x_ppm_ref = x_ppm_ref;
-        this.header[101] += delta_ppm * this.frq1;
-        this.ref1 = this.header[101];
+        this.header[nmrpipe_dictionary.FDF2ORIG] += delta_ppm * this.frq1;
+        this.ref1 = this.header[nmrpipe_dictionary.FDF2ORIG];
 
          /**
          * Update peaks as well if there are any
@@ -228,47 +380,47 @@ class spectrum_1d {
          * run DEEP_Picker, VoigtFit, etc.
          */
         this.header = new Float32Array(512); //empty array
-        this.header[0] = 0.0; //magic number for nmrPipe header
+        this.header[nmrpipe_dictionary.FDMAGIC] = 0.0; //magic number for nmrPipe header
 
-        this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
-        this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
-        this.header[221] = 0; // not transposed
-        this.header[56] = 1; //real data along both dimensions
-        this.header[55] = 1; //real data along both dimensions
+        this.header[nmrpipe_dictionary.FDSIZE] = this.n_direct; //size of direct dimension of the input spectrum
+        this.header[nmrpipe_dictionary.FDSPECNUM] = this.n_indirect; //size of indirect dimension of the input spectrum
+        this.header[nmrpipe_dictionary.FDTRANSPOSED] = 0; // not transposed
+        this.header[nmrpipe_dictionary.FDF2QUADFLAG] = 1; //real data along both dimensions
+        this.header[nmrpipe_dictionary.FDF1QUADFLAG] = 1; //real data along both dimensions
 
-        this.header[24] = 2; //direct dimension is the second dimension
-        this.header[25] = 1; //indirect dimension is the first dimension
+        this.header[nmrpipe_dictionary.FDDIMORDER1] = 2; //direct dimension is the second dimension
+        this.header[nmrpipe_dictionary.FDDIMORDER2] = 1; //indirect dimension is the first dimension
 
         
-        this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
-        this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
+        this.header[nmrpipe_dictionary.FDF2FTFLAG] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
+        this.header[nmrpipe_dictionary.FDF1FTFLAG] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
 
         /**
          * Suppose filed strength is 850 along direct dimension
          * and indirection dimension obs is 85.0
          */
-        this.header[119] = field_strength; //observed frequency of direct dimension
-        this.header[218] = 85.0; //observed frequency of indirect dimension
+        this.header[nmrpipe_dictionary.FDF2OBS] = field_strength; //observed frequency of direct dimension
+        this.header[nmrpipe_dictionary.FDF1OBS] = 85.0; //observed frequency of indirect dimension
 
-        this.header[100] = this.x_ppm_width * field_strength; //spectral width of direct dimension
-        this.header[229] = this.y_ppm_width * 85.0; //spectral width of indirect dimension
+        this.header[nmrpipe_dictionary.FDF2SW] = this.x_ppm_width * field_strength; //spectral width of direct dimension
+        this.header[nmrpipe_dictionary.FDF1SW] = this.y_ppm_width * 85.0; //spectral width of indirect dimension
 
         /**
          * Per topspin convention, First point is inclusive, last point is exclusive in [ppm_start, ppm_start+ppm_width)]
          * Notice x_ppm_step and y_ppm_step are negative
          */
-        this.header[101] = (this.x_ppm_start - this.x_ppm_width - this.x_ppm_step) * field_strength; //origin of direct dimension (last point frq in Hz)
-        this.header[249] = (this.y_ppm_start - this.y_ppm_width - this.y_ppm_step) * 85.0; //origin of indirect dimension (last point frq in Hz)
-        this.ref1 = this.header[101];
-        this.ref2 = this.header[249];
+        this.header[nmrpipe_dictionary.FDF2ORIG] = (this.x_ppm_start - this.x_ppm_width - this.x_ppm_step) * field_strength; //origin of direct dimension (last point frq in Hz)
+        this.header[nmrpipe_dictionary.FDF1ORIG] = (this.y_ppm_start - this.y_ppm_width - this.y_ppm_step) * 85.0; //origin of indirect dimension (last point frq in Hz)
+        this.ref1 = this.header[nmrpipe_dictionary.FDF2ORIG];
+        this.ref2 = this.header[nmrpipe_dictionary.FDF1ORIG];
 
         /**
          * We did not fill carrier frequency, because we do not need it for DEEP_Picker, VoigtFit, etc.
          * They are needed in fid processing, not in spectrum processing.
          */
 
-        this.frq1 = this.header[119];
-        this.frq2 = this.header[218];
+        this.frq1 = this.header[nmrpipe_dictionary.FDF2OBS];
+        this.frq2 = this.header[nmrpipe_dictionary.FDF1OBS];
 
     };
 
@@ -281,8 +433,8 @@ class spectrum_1d {
         this.spectrum_origin = spectrum_origin;
 
 
-        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
-        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
+        this.n_direct = this.header[nmrpipe_dictionary.FDSIZE]; //size of direct dimension of the input spectrum
+        this.n_indirect = this.header[nmrpipe_dictionary.FDSPECNUM]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
 
        
         /**
@@ -290,8 +442,8 @@ class spectrum_1d {
          * 0: complex
          * 1: real
          */
-        this.header[56] =1;
-        this.datatype_direct = this.header[56];
+        this.header[nmrpipe_dictionary.FDF2QUADFLAG] = 1;
+        this.datatype_direct = this.header[nmrpipe_dictionary.FDF2QUADFLAG];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
@@ -316,20 +468,20 @@ class spectrum_1d {
         this.frq = [];
         this.ref = [];
 
-        this.sw[0] = this.header[229];
-        this.sw[1] = this.header[100];
-        this.sw[2] = this.header[11];
-        this.sw[3] = this.header[29];
+        this.sw[0] = this.header[nmrpipe_dictionary.FDF1SW];
+        this.sw[1] = this.header[nmrpipe_dictionary.FDF2SW];
+        this.sw[2] = this.header[nmrpipe_dictionary.FDF3SW];
+        this.sw[3] = this.header[nmrpipe_dictionary.FDF4SW];
 
-        this.frq[0] = this.header[218];
-        this.frq[1] = this.header[119];
-        this.frq[2] = this.header[10];
-        this.frq[3] = this.header[28];
+        this.frq[0] = this.header[nmrpipe_dictionary.FDF1OBS];
+        this.frq[1] = this.header[nmrpipe_dictionary.FDF2OBS];
+        this.frq[2] = this.header[nmrpipe_dictionary.FDF3OBS];
+        this.frq[3] = this.header[nmrpipe_dictionary.FDF4OBS];
 
-        this.ref[0] = this.header[249];
-        this.ref[1] = this.header[101];
-        this.ref[2] = this.header[12];
-        this.ref[3] = this.header[30];
+        this.ref[0] = this.header[nmrpipe_dictionary.FDF1ORIG];
+        this.ref[1] = this.header[nmrpipe_dictionary.FDF2ORIG];
+        this.ref[2] = this.header[nmrpipe_dictionary.FDF3ORIG];
+        this.ref[3] = this.header[nmrpipe_dictionary.FDF4ORIG];
 
         /**
          * Get ppm_start, ppm_width, ppm_step for both direct and indirect dimensions
@@ -383,8 +535,8 @@ class spectrum_1d {
 
         this.header = new Float32Array(arrayBuffer, 0, 512);
 
-        this.n_direct = this.header[99]; //size of direct dimension of the input spectrum
-        this.n_indirect = this.header[219]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
+        this.n_direct = this.header[nmrpipe_dictionary.FDSIZE]; //size of direct dimension of the input spectrum
+        this.n_indirect = this.header[nmrpipe_dictionary.FDSPECNUM]; //size of indirect dimension of the input spectrum (must be 1 for 1D spectrum)
 
        
         /**
@@ -392,7 +544,7 @@ class spectrum_1d {
          * 0: complex
          * 1: real
          */
-        this.datatype_direct = this.header[56];
+        this.datatype_direct = this.header[nmrpipe_dictionary.FDF2QUADFLAG];
 
         /**
          * this.datatype_direct: 1 means real, 0 means complex
@@ -417,20 +569,20 @@ class spectrum_1d {
         this.frq = [];
         this.ref = [];
 
-        this.sw[0] = this.header[229];
-        this.sw[1] = this.header[100];
-        this.sw[2] = this.header[11];
-        this.sw[3] = this.header[29];
+        this.sw[0] = this.header[nmrpipe_dictionary.FDF1SW];
+        this.sw[1] = this.header[nmrpipe_dictionary.FDF2SW];
+        this.sw[2] = this.header[nmrpipe_dictionary.FDF3SW];
+        this.sw[3] = this.header[nmrpipe_dictionary.FDF4SW];
 
-        this.frq[0] = this.header[218];
-        this.frq[1] = this.header[119];
-        this.frq[2] = this.header[10];
-        this.frq[3] = this.header[28];
+        this.frq[0] = this.header[nmrpipe_dictionary.FDF1OBS];
+        this.frq[1] = this.header[nmrpipe_dictionary.FDF2OBS];
+        this.frq[2] = this.header[nmrpipe_dictionary.FDF3OBS];
+        this.frq[3] = this.header[nmrpipe_dictionary.FDF4OBS];
 
-        this.ref[0] = this.header[249];
-        this.ref[1] = this.header[101];
-        this.ref[2] = this.header[12];
-        this.ref[3] = this.header[30];
+        this.ref[0] = this.header[nmrpipe_dictionary.FDF1ORIG];
+        this.ref[1] = this.header[nmrpipe_dictionary.FDF2ORIG];
+        this.ref[2] = this.header[nmrpipe_dictionary.FDF3ORIG];
+        this.ref[3] = this.header[nmrpipe_dictionary.FDF4ORIG];
 
         /**
          * Get ppm_start, ppm_width, ppm_step for both direct and indirect dimensions
@@ -580,37 +732,37 @@ class spectrum_1d {
          * Setup fake nmrPipe header, so that we can use the same code to run DEEP_Picker, etc.
          */
         this.header = new Float32Array(512); //empty array
-        this.header[0] = 0.0; //magic number for nmrPipe header
+        this.header[nmrpipe_dictionary.FDMAGIC] = 0.0; //magic number for nmrPipe header
 
-        this.header[99] = this.n_direct; //size of direct dimension of the input spectrum
-        this.header[219] = this.n_indirect; //size of indirect dimension of the input spectrum
-        this.header[221] = 0; // not transposed
-        this.header[9] = 1; // # of dimensions
-        this.header[56] = 1; //real data along both dimensions
-        this.header[55] = 1; //real data along both dimensions
+        this.header[nmrpipe_dictionary.FDSIZE] = this.n_direct; //size of direct dimension of the input spectrum
+        this.header[nmrpipe_dictionary.FDSPECNUM] = this.n_indirect; //size of indirect dimension of the input spectrum
+        this.header[nmrpipe_dictionary.FDTRANSPOSED] = 0; // not transposed
+        this.header[nmrpipe_dictionary.FDDIMCOUNT] = 1; // # of dimensions
+        this.header[nmrpipe_dictionary.FDF2QUADFLAG] = 1; //real data along both dimensions
+        this.header[nmrpipe_dictionary.FDF1QUADFLAG] = 1; //real data along both dimensions
 
-        this.header[24] = 2; //direct dimension is the second dimension
-        this.header[25] = 1; //indirect dimension is the first dimension
+        this.header[nmrpipe_dictionary.FDDIMORDER1] = 2; //direct dimension is the second dimension
+        this.header[nmrpipe_dictionary.FDDIMORDER2] = 1; //indirect dimension is the first dimension
 
-        this.header[220] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
-        this.header[222] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
+        this.header[nmrpipe_dictionary.FDF2FTFLAG] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), indirect dimension
+        this.header[nmrpipe_dictionary.FDF1FTFLAG] = 1; // frequency domain data (1 for frequency domain, 0 for time domain), direct dimension
 
         /**
          * Suppose filed strength is 850 along direct dimension
          * and indirection dimension obs is 85.0
          */
-        this.header[119] = this.frq1; //observed frequency of direct dimension
-        this.header[218] = 85.0 //not used
+        this.header[nmrpipe_dictionary.FDF2OBS] = this.frq1; //observed frequency of direct dimension
+        this.header[nmrpipe_dictionary.FDF1OBS] = 85.0 //not used
 
-        this.header[100] = this.sw1; //spectral width of direct dimension
-        this.header[229] = 100.0; // //spectral width of indirect dimension, not used
+        this.header[nmrpipe_dictionary.FDF2SW] = this.sw1; //spectral width of direct dimension
+        this.header[nmrpipe_dictionary.FDF1SW] = 100.0; // //spectral width of indirect dimension, not used
 
         /**
          * Per topspin convention, First point is inclusive, last point is exclusive in [ppm_start, ppm_start+ppm_width)]
          * Notice x_ppm_step and y_ppm_step are negative
          */
-        this.header[101] = (this.x_ppm_start - this.x_ppm_width - this.x_ppm_step) * this.frq1; //origin of direct dimension (last point frq in Hz)
-        this.header[249] = 0.0; //origin of indirect dimension (last point frq in Hz, not used)
+        this.header[nmrpipe_dictionary.FDF2ORIG] = (this.x_ppm_start - this.x_ppm_width - this.x_ppm_step) * this.frq1; //origin of direct dimension (last point frq in Hz)
+        this.header[nmrpipe_dictionary.FDF1ORIG] = 0.0; //origin of indirect dimension (last point frq in Hz, not used)
         // this.ref1 = this.header[101];
         // this.ref2 = this.header[249];
 

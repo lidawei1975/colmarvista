@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COLMARvista Documentation - 1D NMR</title>
+  <meta name="description" content="Official 1D NMR documentation for COLMARvista">
+  <link rel="stylesheet" type="text/css" href="doc.css">
+</head>
+
+<body>
+
+  <header class="site-header">
+    <a href="index_document.html" class="header-brand">
+      <div class="brand-logo">C</div>
+      <span>COLMARvista Docs</span>
+    </a>
+
+    <div class="nav-tabs">
+      <a href="index_document.html" class="tab-link ">All Docs</a>
+      <a href="doc_3d.html" class="tab-link ">3D NMR</a>
+      <a href="doc_2d.html" class="tab-link ">2D & Pseudo-3D</a>
+      <a href="doc_1d.html" class="tab-link active">1D NMR</a>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+      <input type="text" id="doc-search" placeholder="Search documentation...">
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme">
+        <svg id="theme-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+          </path>
+        </svg>
+      </button>
+      <button class="btn-icon" onclick="window.print()" title="Print Page / Save PDF">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+          </path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+
+      <div>
+        <div class="nav-group-title">1D NMR Manual</div>
+        <ul class="nav-list">
+          <li><a href="#overview" class="nav-link active">1D Overview</a></li>
+          <li><a href="#1d-save-load" class="nav-link">1. Save & Load Workspace</a></li>
+          <li><a href="#1d-upload-view" class="nav-link">2. Upload & View 1D Spectra</a></li>
+          <li><a href="#1d-peak-picking" class="nav-link">3. Peak Picking & Fitting</a></li>
+          <li><a href="#1d-bruker-processing" class="nav-link">4. Process Raw 1D FID Data</a></li>
+          <li><a href="#1d-phase-correction" class="nav-link">5. Manual & Auto Phase Correction</a></li>
+        </ul>
+      </div>
+
+    </aside>
+
+    <main class="content-wrapper">
+      <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
+
+      <section class="hero-banner" id="overview">
+        <h1 class="hero-title">1D NMR Documentation</h1>
+        <p class="hero-subtitle">
+          Complete user guide for 1D NMR spectrum viewing, WebAssembly FID processing (Bruker, Magritek, Oxford
+          Instruments), neural network phase correction, DEEP Picker, and Parametric baseline correction.
+        </p>
+      </section>
+
+      <section class="doc-card" id="1d-save-load">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">1D Workspace Saving & Loading</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>Save and Load 1D Workspace</h2>
+          <p>COLMARvista 1D allows you to preserve and restore your exact analysis session, including frequency domain
+            spectra and peak fitting results.</p>
+          <ol>
+            <li><b>Save Session:</b> Click the <b>Save current session to a local file</b> button to export your
+              workspace to a binary/JSON formatted <code>.save</code> or <code>.colmar</code> file. This file can be
+              backed up or transferred to another computer.</li>
+            <li><b>Load Session:</b> Use the <b>Load previous session</b> file selector to select a previously saved
+              <code>.save</code> or <code>.colmar</code> file to restore your workspace state.</li>
+            <li><b>Data Included in Save:</b> Saving preserves all frequency domain 1D spectra, reconstructed spectra
+              from peak fitting, and all picked/fitted peak lists (including pseudo-2D fitted peaks).</li>
+            <li><b>FID Data Limitation:</b> Raw time-domain (FID) data is not saved in the session file. If un-processed
+              FID data remains in your workspace without being converted to frequency domain spectra, saving is disabled
+              until processing completes.</li>
+          </ol>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-upload-view">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Uploading, Interactive Viewing & Plot Controls for 1D Spectra</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>1D NMR Spectrum Viewer and Interactive Processor</h2>
+          <p>COLMARvista 1D provides a high-performance web-based interactive canvas for displaying single or multiple
+            stacked 1D NMR spectra.</p>
+
+          <h3>Interactive Guided Tutorial</h3>
+          <p>Click the orange <button
+              style="background-color: #ff9800; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Tutorial</button>
+            button at the top of the page at any time to start an interactive step-by-step UI walkthrough.</p>
+
+          <h3>Uploading Frequency Domain Spectra</h3>
+          <ul>
+            <li><b>Supported Formats:</b> Upload 1D NMR spectra in nmrPipe (<code>.ft1</code>), Sparky
+              (<code>.ucsf</code>), or Topspin ASCII (<code>.txt</code> converted using <code>totxt</code>).</li>
+            <li><b>Drag and Drop:</b> Select files via the file picker or drag and drop single files or an entire folder
+              containing 1D spectra directly into the <i>Frequency domain spectra</i> area.</li>
+          </ul>
+
+          <h3>Interactive Plot Controls & Shortcuts</h3>
+          <ul>
+            <li><b>Frequency Zooming (X-Axis):</b> Position the cursor over the plot area and use the mouse wheel to
+              zoom in and out along the frequency (ppm / Hz) axis.</li>
+            <li><b>Intensity Zooming (Y-Axis):</b> Position the cursor on the left side of the vertical Y-axis and use
+              the mouse wheel to adjust signal intensity scale.</li>
+            <li><b>Panning:</b> Click and drag anywhere on the plot to pan along the chemical shift axis.</li>
+            <li><b>Independent Spectrum Rescale & Referencing:</b> Hold <kbd>Alt</kbd> while dragging to adjust the
+              chemical shift reference of the active spectrum, or hold <kbd>Alt</kbd> while using the mouse wheel to
+              rescale the active spectrum independently of other loaded spectra.</li>
+            <li><b>Reordering & Color Customization:</b> Drag and drop spectra in the <i>Your spectra list</i> to change
+              display stack order. Spectra listed later are rendered on top.</li>
+          </ul>
+
+          <h3>Plot Group View Synchronization</h3>
+          <ul>
+            <li><b>Multi-Window / Tab Sync:</b> Set the <b>Plot group</b> (range 1–10). Open plots across different
+              browser windows or tabs sharing the same group number automatically synchronize their chemical shift
+              viewing range.</li>
+          </ul>
+
+          <h3>Export & Import Plot Bounds</h3>
+          <ul>
+            <li><b>Fill Plot Size and Zoom:</b> Click <b>Fill plot size and zoom</b> to export the current pixel
+              dimensions and zoom bounds string.</li>
+            <li><b>Apply Size and Zoom:</b> Paste or edit a bounds string into the text box and click <b>Apply plot size
+                and zoom</b> to restore an exact view.</li>
+            <li><b>Custom Font Size:</b> Adjust label font size (range 8–72 pt) and click <b>Apply</b>.</li>
+          </ul>
+
+          <h3>Automatic Baseline Correction (WebAssembly Accelerated)</h3>
+          <ul>
+            <li><b>Parametric Baseline Method:</b> COLMARvista 1D supports the <b>Parametric baseline correction</b>
+              method, implemented and accelerated directly in the web browser via WebAssembly. Polynomial baseline
+              methods are not used for 1D.</li>
+            <li><b>Algorithm Reference:</b> Parametric baseline correction is based on the algorithm described in:
+              <br><i>Baseline Correction for NMR Spectroscopic Metabolomics Data Analysis</i>, Yuanxin Xi and David M.
+              Rocke, <i>BMC Bioinformatics</i> (2008).
+            </li>
+            <li><b>Smooth Parameter:</b> Set the baseline smoothing parameter (range 8–16, default 11).</li>
+            <li><b>Exclude Water Region:</b> Check <i>Exclude water suppression region</i> to prevent solvent artifacts
+              from distorting the calculated baseline.</li>
+            <li><b>Calculate & Apply:</b> Click <b>Calculate baseline</b> to preview the baseline curve, then click
+              <b>Apply baseline correction</b> to subtract it from the spectrum.</li>
+          </ul>
+
+          <h3>Vector SVG Export for Publication</h3>
+          <ul>
+            <li>Click the <b>Download plot</b> button to export the current 1D plot in resolution-independent vector SVG
+              format suitable for publications.</li>
+          </ul>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-peak-picking">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Running DEEP Picker, Line-Shape Fitting & Peak Editing (1D)</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>DEEP Picker & Peak Fitting for 1D Spectra</h2>
+
+          <h3>1D Peak Picking</h3>
+          <ol>
+            <li><b>Cutoff Threshold:</b> Choose the minimum peak height cutoff (as a multiple of estimated spectral
+              noise) and click the <b>DEEP Picker</b> button to run deep neural network peak detection.</li>
+          </ol>
+
+          <h3>Voigt / Gaussian Line-Shape Fitting</h3>
+          <ol>
+            <li><b>Profile Selection:</b> Select either <b>Voigt</b> or <b>Gaussian</b> line shape fitting profile and
+              click <b>Peak Fitting</b>. Fitting is performed on the current visible spectral window.</li>
+            <li><b>Reconstructed Spectrum:</b> Upon completion, a synthetic reconstructed spectrum is generated and
+              overlaid on top of the experimental spectrum. The fitted peak list is associated with this new spectrum.
+            </li>
+          </ol>
+
+          <h3>Interactive Peak Editing & Visual Customization</h3>
+          <ul>
+            <li><b>Drag-and-Drop Peak Editing:</b> Check <i>Drag and drop to move (or remove) peak</i>. You can drag
+              peak markers to fine-tune positions or drag markers off the spectrum area to delete them.</li>
+            <li><b>Visual Customization:</b> Customize peak marker size (1–20), line thickness (1–10), toggle filled
+              peak symbols, and choose custom peak colors using the color picker.</li>
+            <li><b>Individual Line Profiles:</b> Zooming in reveals individual fitted peak component curves rendered as
+              gray line shapes.</li>
+          </ul>
+
+          <h3>Interactive Peak Table & Search</h3>
+          <ul>
+            <li><b>Search Peaks:</b> Filter picked peaks instantly by typing text or chemical shift values into the
+              <i>Search in peaks</i> input box.</li>
+            <li><b>Jump to Peak:</b> Click on any row in the peak table to automatically center and zoom the plot onto
+              that peak.</li>
+            <li><b>Download Results:</b> Download picked and fitted peak lists in tabular format for downstream
+              analysis.</li>
+          </ul>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-bruker-processing">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Processing Raw 1D Time-Domain (FID) Data (Bruker, Magritek, Oxford)</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>Processing Raw 1D Time-Domain Data</h2>
+          <p>COLMARvista 1D features a WebAssembly C++ processing engine to process raw 1D time-domain FID data directly
+            inside the browser across high-field and benchtop NMR formats.</p>
+
+          <h3>Supported Formats & Required Files</h3>
+          <ul>
+            <li><b>Supported Formats & Instruments:</b>
+              <ul>
+                <li><b>Bruker:</b> High-field TopSpin console version <b>&ge; 3.0</b>. Requires <code>fid</code> (or
+                  <code>ser</code>) and direct dimension acquisition parameter file <code>acqus</code>.</li>
+                <li><b>Magritek:</b> Benchtop 1D NMR time-domain data formats. Requires <code>data.1d</code> and direct
+                  dimension acquisition parameter file <code>acqu.par</code>.</li>
+                <li><b>Oxford Instruments:</b> Benchtop 1D NMR time-domain data formats. Usually in one .jdx file</li>
+              </ul>
+            </li>
+            <li><b>Drag & Drop Folder:</b> Drag and drop the entire experiment folder containing the required files into
+              the designated upload area.</li>
+          </ul>
+
+          <h3>FID Size Reduction Modes</h3>
+          <ul>
+            <li><b>Full:</b> Process complete time-domain dataset without truncation.</li>
+            <li><b>Auto (Default):</b> Automatically detects the signal decay end point to reduce noise accumulation
+              before Fourier Transformation.</li>
+            <li><b>Auto & Confirm:</b> Automated signal end detection with manual confirmation prompt.</li>
+            <li><b>Previous:</b> Reuses previous reduction parameters for batch processing.</li>
+          </ul>
+
+          <h3>Apodization & Zero Filling</h3>
+          <ul>
+            <li><b>Apodization String:</b> Supports standard nmrPipe apodization syntax (e.g.,
+              <code>SP off 0.5 end 0.98 pow 2 elb 0 c 0.5</code>).</li>
+            <li><b>Zero Filling Factor:</b> Select zero filling factor (2, 4, or 8).</li>
+          </ul>
+
+          <h3>Phase Correction Algorithms</h3>
+          <ul>
+            <li><b>Peak Centric CNN:</b> Convolutional neural network focusing on major peak region phases.</li>
+            <li><b>Full Spectrum ANN (Default):</b> Artificial neural network trained on full spectrum phase
+              optimization.
+              <br><span style="color: var(--accent-warn); font-size: 0.9em;"><b>Important Notice for Magritek Data:</b>
+                ANN-based automatic phase correction may not work well for Magritek benchtop NMR datasets. For Magritek
+                data, manual phase correction or alternative phase algorithms are recommended.</span>
+            </li>
+            <li><b>Entropy Based:</b> Automated minimum entropy optimization algorithm.</li>
+            <li><b>Manual:</b> Retains raw phases for user manual phase adjustment.</li>
+          </ul>
+
+          <h3>Pseudo-2D Processing Options</h3>
+          <ul>
+            <li><b>Process First 1D Experiment Only:</b> Rapid trial processing on the first trace.</li>
+            <li><b>Process All Pseudo-2D Traces:</b> Sequential batch processing across all 1D traces in a pseudo-2D
+              dataset.</li>
+          </ul>
+
+          <h3>Process & Reprocess Workflow</h3>
+          <ul>
+            <li>Click <b>Upload experimental files and process</b> to execute Fourier Transformation.</li>
+            <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Reprocess</b> to reload parameters
+              into the form, make adjustments, re-run, and click <b>Quit reprocessing</b> when done.</li>
+          </ul>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-phase-correction">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Automatic & Manual Phase Correction for 1D Spectra</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>1D Phase Correction Workflow</h2>
+
+          <h3>Automatic Phase Correction</h3>
+          <p>Click the <b>Run automatic phase correction</b> button to trigger TensorFlow.js neural network automated
+            phase optimization on the selected spectrum.</p>
+
+          <h3>Interactive Manual Phase Correction</h3>
+          <p>Manual phase correction requires imaginary data to be retained during initial FID processing.</p>
+          <ol>
+            <li><b>Select Spectrum:</b> Choose a spectrum containing imaginary data from the spectra list.</li>
+            <li><b>Zero-Order Phase (P0):</b> With pivot unset, hold <kbd>Shift</kbd> (coarse adjustment) or
+              <kbd>Ctrl</kbd> (fine adjustment) and scroll the mouse wheel to adjust P0.</li>
+            <li><b>Set Pivot Point:</b> Right-click on the spectrum at a major peak location to set a pivot anchor. A
+              line indicator marks the pivot chemical shift.</li>
+            <li><b>First-Order Phase (P1):</b> With the pivot set, hold <kbd>Shift</kbd> (coarse) or <kbd>Ctrl</kbd>
+              (fine) and scroll the mouse wheel to adjust P1. Right-click again to unset pivot.</li>
+            <li><b>Live Readout:</b> Watch the live parameter header showing <i>Pivot status</i>, <i>Phase correction at
+                left end</i>, <i>right end</i>, and <i>P1 value</i>.</li>
+            <li><b>Apply Phase Correction:</b> Click <b>Apply manual phase correction</b> to permanently update spectral
+              phases and frequency data.</li>
+          </ol>
+
+        </div>
+      </section>
+
+
+
+      <footer class="site-footer">
+        <p>&copy; COLMARvista NMR Web Server Documentation</p>
+      </footer>
+    </main>
+  </div>
+
+  <button id="back-to-top" title="Back to Top">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+    </svg>
+  </button>
+
+  <script src="doc.js"></script>
+</body>
+
+</html>

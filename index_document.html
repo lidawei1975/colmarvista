@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COLMARvista Documentation - Complete User Guide</title>
+  <meta name="description"
+    content="Official unified documentation for COLMARvista 1D, 2D, and 3D NMR spectrum viewer and processor.">
+  <link rel="stylesheet" type="text/css" href="doc.css">
+</head>
+
+<body>
+
+  <header class="site-header">
+    <a href="index_document.html" class="header-brand">
+      <div class="brand-logo">C</div>
+      <span>COLMARvista Docs</span>
+    </a>
+
+    <div class="nav-tabs">
+      <a href="index_document.html" class="tab-link active">All Docs</a>
+      <a href="doc_3d.html" class="tab-link">3D NMR</a>
+      <a href="doc_2d.html" class="tab-link">2D & Pseudo-3D</a>
+      <a href="doc_1d.html" class="tab-link">1D NMR</a>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+      <input type="text" id="doc-search" placeholder="Search documentation...">
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme">
+        <svg id="theme-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+          </path>
+        </svg>
+      </button>
+      <button class="btn-icon" onclick="window.print()" title="Print Page / Save PDF">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+          </path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+      <div>
+        <div class="nav-group-title">Overview</div>
+        <ul class="nav-list">
+          <li><a href="#overview" class="nav-link active">Getting Started & Home</a></li>
+          <li><a href="#known-limitations" class="nav-link">Known Limitations</a></li>
+        </ul>
+      </div>
+      <!-- 3D, 2D, and 1D TOC groups dynamically populated by JS -->
+    </aside>
+
+    <main class="content-wrapper">
+      <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
+
+      <section class="hero-banner" id="overview">
+        <h1 class="hero-title">COLMARvista Documentation Portal</h1>
+        <p class="hero-subtitle">
+          Unified documentation portal and user guide for interactive web-based 1D, 2D, and 3D NMR spectrum viewing,
+          WebAssembly FID processing, Non-Uniform Sampling (NUS), neural network phase correction, DEEP Picker, and
+          WebGL 3D isosurfaces.
+        </p>
+
+        <div class="quick-grid">
+          <a href="doc_3d.html" class="quick-card">
+            <div class="quick-card-title">
+              <span>3D NMR Manual</span>
+              <span class="badge badge-3d">3D</span>
+            </div>
+            <p class="quick-card-desc">Dedicated guide for 3D FID processing, NUS, orthogonal planes, 2D projections,
+              and WebGL isosurfaces.</p>
+          </a>
+
+          <a href="doc_2d.html" class="quick-card">
+            <div class="quick-card-title">
+              <span>2D NMR Manual</span>
+              <span class="badge badge-2d">2D</span>
+            </div>
+            <p class="quick-card-desc">Dedicated guide for contour viewing, zoom sync, 3D surface rendering, 2D NUS
+              processing, Pseudo-3D, and DOSY.</p>
+          </a>
+
+          <a href="doc_1d.html" class="quick-card">
+            <div class="quick-card-title">
+              <span>1D NMR Manual</span>
+              <span class="badge badge-1d">1D</span>
+            </div>
+            <p class="quick-card-desc">Dedicated guide for 1D spectrum viewer, benchtop NMR processing, DEEP Picker,
+              and parametric baseline.</p>
+          </a>
+        </div>
+      </section>
+
+      <div class="section-divider-header"
+        style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-3d);">
+        <h2 style="color: var(--accent-3d); font-size: 1.5rem;">3D NMR Spectra Instructions (<a href="doc_3d.html"
+            style="color: var(--accent-3d); font-size: 0.85em; text-decoration: underline;">Open Standalone 3D Page</a>)
+        </h2>
+      </div>
+      <div id="docs-3d-container"></div>
+
+      <div class="section-divider-header"
+        style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-2d);">
+        <h2 style="color: var(--accent-2d); font-size: 1.5rem;">2D NMR Spectra Instructions (<a href="doc_2d.html"
+            style="color: var(--accent-2d); font-size: 0.85em; text-decoration: underline;">Open Standalone 2D Page</a>)
+        </h2>
+      </div>
+      <div id="docs-2d-container"></div>
+
+      <div class="section-divider-header"
+        style="margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--accent-1d);">
+        <h2 style="color: var(--accent-1d); font-size: 1.5rem;">1D NMR Spectra Instructions (<a href="doc_1d.html"
+            style="color: var(--accent-1d); font-size: 0.85em; text-decoration: underline;">Open Standalone 1D Page</a>)
+        </h2>
+      </div>
+      <div id="docs-1d-container"></div>
+
+      <section class="doc-card" id="known-limitations">
+        <div class="card-header">
+          <span class="badge badge-info">Important Notes</span>
+          <h2 class="card-title">Known Limitations</h2>
+        </div>
+        <div class="card-body">
+          <ul>
+            <li><b>File Size Limit:</b> COLMARvista has an inherent total file size limit of 16GB. It may fail if your
+              spectral file is too large or if your pseudo-3D/3D experiments contain too many points.</li>
+            <li><b>Incomplete Experiments:</b> 3D/Pseudo-3D time-domain data processing does not function if the
+              experiment is incomplete (i.e., the actual number of traces along indirect dimensions is less than the
+              planned number).</li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <p>&copy; COLMARvista NMR Web Server Documentation</p>
+      </footer>
+    </main>
+  </div>
+
+  <button id="back-to-top" title="Back to Top">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+    </svg>
+  </button>
+
+  <script src="doc.js"></script>
+  <script>
+    async function loadDynamicDocs() {
+      const parser = new DOMParser();
+      const docConfigs = [
+        { url: 'doc_3d.html', containerId: 'docs-3d-container', title: '3D NMR Instructions' },
+        { url: 'doc_2d.html', containerId: 'docs-2d-container', title: '2D NMR Instructions' },
+        { url: 'doc_1d.html', containerId: 'docs-1d-container', title: '1D NMR Instructions' }
+      ];
+
+      const sidebar = document.getElementById('sidebar');
+
+      for (const config of docConfigs) {
+        try {
+          const response = await fetch(config.url);
+          if (!response.ok) continue;
+          const htmlText = await response.text();
+          const parsedDoc = parser.parseFromString(htmlText, 'text/html');
+
+          // Inject doc cards into appropriate container
+          const container = document.getElementById(config.containerId);
+          const cards = parsedDoc.querySelectorAll('section.doc-card');
+          cards.forEach(card => {
+            container.appendChild(card.cloneNode(true));
+          });
+
+          // Inject sidebar TOC group
+          const navList = parsedDoc.querySelector('aside.sidebar .nav-list');
+          if (navList) {
+            const groupDiv = document.createElement('div');
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'nav-group-title';
+            titleDiv.textContent = config.title;
+            groupDiv.appendChild(titleDiv);
+
+            const clonedNavList = navList.cloneNode(true);
+            const overviewItem = clonedNavList.querySelector('li a[href="#overview"]');
+            if (overviewItem && overviewItem.parentElement) {
+              overviewItem.parentElement.remove();
+            }
+            groupDiv.appendChild(clonedNavList);
+            sidebar.appendChild(groupDiv);
+          }
+        } catch (err) {
+          console.error(`Failed to load ${config.url}:`, err);
+        }
+      }
+
+      initInteractiveDocFeatures();
+
+      if (window.location.hash) {
+        const target = document.querySelector(window.location.hash);
+        if (target) {
+          setTimeout(() => {
+            target.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
+      }
+    }
+
+    loadDynamicDocs();
+  </script>
+</body>
+
+</html>

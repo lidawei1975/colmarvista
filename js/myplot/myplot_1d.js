@@ -349,10 +349,19 @@ class myplot_1d {
                 if (px > self.margin.left && px < self.width - self.margin.right
                     && py > self.margin.top && py < self.height - self.margin.bottom) {
                     let ppm = self.xscale.invert(px);
-                    this.anchor[this.current_spectrum_index] = true;
-                    this.anchor_ppm[this.current_spectrum_index] = ppm;
-                    console.log('Set pivot at ppm: ', ppm);
-                    document.getElementById("pivot").innerHTML = ppm.toFixed(4);
+                    
+                    if (this.anchor[this.current_spectrum_index]) {
+                        this.anchor[this.current_spectrum_index] = false;
+                        this.anchor_ppm[this.current_spectrum_index] = 0.0;
+                        document.getElementById("pivot").innerHTML = "not set";
+                        console.log('Unset pivot');
+                    } else {
+                        this.anchor[this.current_spectrum_index] = true;
+                        this.anchor_ppm[this.current_spectrum_index] = ppm;
+                        document.getElementById("pivot").innerHTML = ppm.toFixed(4);
+                        console.log('Set pivot at ppm: ', ppm);
+                    }
+                    this.redraw();
                 }
             }
             return false; // To prevent the context menu from appearing
@@ -503,29 +512,27 @@ class myplot_1d {
                  * Adjust p0 if anchor is not set
                  */
                 if (this.anchor[index] === false) {
-                    // document.getElementById("P0").innerHTML = P0.toFixed(2);
-
                     this.phase_correction_at_min_ppm[index] += phase_adjust;
                     this.phase_correction_at_max_ppm[index] += phase_adjust;
-                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
-                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
                 /**
                  * Adjust p1 if anchor is set
                  */
                 else {
-
                     let current_slop = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) / (this.right_end_ppm[index] - this.left_end_ppm[index]);
                     let phase_at_anchor = this.phase_correction_at_min_ppm[index] + current_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
                     let new_slop = current_slop + phase_adjust / (this.right_end_ppm[index] - this.left_end_ppm[index]);
 
-                    // let P1 = (this.phase1[this.current_spectrum_index] ) * 180.0 / Math.PI; //back to degree
-                    // document.getElementById("P1").innerHTML = P1.toFixed(2);
                     this.phase_correction_at_min_ppm[index] = phase_at_anchor - new_slop * (this.anchor_ppm[index] - this.left_end_ppm[index]);
                     this.phase_correction_at_max_ppm[index] = phase_at_anchor + new_slop * (this.right_end_ppm[index] - this.anchor_ppm[index]);
-                    document.getElementById("pc_left_end").innerHTML = (this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI).toFixed(2);
-                    document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
                 }
+
+                const p0 = this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI;
+                const p1 = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) * 180.0 / Math.PI;
+                document.getElementById("pc_left_end").innerHTML = p0.toFixed(2);
+                document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
+                const p1_el = document.getElementById("pc_p1");
+                if (p1_el) p1_el.innerHTML = p1.toFixed(2);
 
                 this.apply_phase_correction();
             }
@@ -668,6 +675,18 @@ class myplot_1d {
                 this.mouse_is_down = true;
             }
         });
+
+        /**
+         * Add a dashed line to show the pivot point (anchor ppm)
+         */
+        this.pivot_line = this.$vis.append("g")
+            .attr("class", "pivot_line_g")
+            .append("line")
+            .attr("clip-path", "url(#clip)")
+            .style("stroke", "blue")
+            .style("stroke-width", 1.5)
+            .style("stroke-dasharray", "4,4")
+            .style("display", "none");
 
     }
 
@@ -1178,6 +1197,25 @@ class myplot_1d {
         });
 
         /**
+         * Update the line that shows the pivot point
+         */
+        if (this.pivot_line) {
+            const index = this.current_spectrum_index;
+            if (index !== -1 && this.anchor[index] === true && this.anchor_ppm[index] !== undefined) {
+                const ppm = this.anchor_ppm[index];
+                const x_pixel = this.xscale(ppm);
+                this.pivot_line
+                    .attr("x1", x_pixel)
+                    .attr("y1", this.margin.top)
+                    .attr("x2", x_pixel)
+                    .attr("y2", this.height - this.margin.bottom)
+                    .style("display", "block");
+            } else {
+                this.pivot_line.style("display", "none");
+            }
+        }
+
+        /**
          * If baseline exists, redraw the baseline
          */
         if (this.baseline_index >= 0) {
@@ -1290,8 +1328,12 @@ class myplot_1d {
             this.phase_correction_at_max_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
             this.anchor[this.current_actively_corrected_spectrum_index] = false;
             this.anchor_ppm[this.current_actively_corrected_spectrum_index] = 0.0;
-            this.current_actively_corrected_spectrum_index = -1;
             this.current_actively_corrected_spectrum_data = [];
+            this.current_actively_corrected_spectrum_index = -1;
+            if (this.pivot_line) {
+                this.pivot_line.style("display", "none");
+            }
+            this.redraw();
             /**
              * IMPORTANT: we do not update all_spectra here, because all_spectra is defined outside of this class
              * We will update all_spectra in the function that calls $this->permanently_apply_phase_correction()
