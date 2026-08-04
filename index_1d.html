@@ -51,19 +51,16 @@
 
             <div id="fid_file_area" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
                 <span>
-                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>Bruker time
-                        domain data for processing: <span class="information">(Console version >=3.0) </span>
+                    <p><button id="button_minimize_fid_area" onclick="minimize_fid_area(this)">+</button>1D time domain data for processing (Bruker, Magritek, Oxford): <span class="information">(Bruker console version >=3.0) </span>
                     </p>
                 </span>
                 <form id="fid_file_form" action="" enctype="multipart/form-data">
                     <div class="drop-area input-section" id="input_files">
-                        <label for="fid_file">fid file (required, usually called fid or ser): </label><input type="file"
+                        <label for="fid_file">fid file (usually called fid, ser, or data.1d): </label><input type="file"
                             name="fid_file" id="fid_file" multiple><br>
-                        <label for="acquisition_file">Direct dimension acquisition file (required, usually called
-                            acqus):</label>
+                        <label for="acquisition_file">Direct dimension acquisition file (usually called acqus, acqu.par, or .jdx/.dx):</label>
                         <input type="file" name="acquisition_file" id="acquisition_file"><br>
-                        <span class="information"> You can also drag and drop Bruker folder (which contains required
-                            files here).</span><br>
+                        <span class="information"> You can also drag and drop folder (Bruker, Magritek, Oxford) containing required files here.</span><br>
                     </div>
 
                     <div class="input-section" id="input_options">

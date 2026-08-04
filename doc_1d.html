@@ -1,536 +1,14 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>COLMARvista Documentation - 1D NMR</title>
   <meta name="description" content="Official 1D NMR documentation for COLMARvista">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --font-code: 'Fira Code', monospace;
-      
-      --bg-main: #0f172a;
-      --bg-sidebar: #1e293b;
-      --bg-card: #1e293b;
-      --bg-card-hover: #334155;
-      --bg-code: #090d16;
-      --border-color: #334155;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-heading: #ffffff;
-      
-      --accent-primary: #38bdf8;
-      --accent-hover: #0284c7;
-      --accent-3d: #e76f51;
-      --accent-2d: #38bdf8;
-      --accent-1d: #a855f7;
-      --accent-warn: #f59e0b;
-      
-      --sidebar-width: 310px;
-      --header-height: 64px;
-      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
-      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
-      --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 16px;
-    }
-
-    [data-theme="light"] {
-      --bg-main: #f8fafc;
-      --bg-sidebar: #ffffff;
-      --bg-card: #ffffff;
-      --bg-card-hover: #f1f5f9;
-      --bg-code: #f1f5f9;
-      --border-color: #e2e8f0;
-      --text-main: #1e293b;
-      --text-muted: #64748b;
-      --text-heading: #0f172a;
-      
-      --accent-primary: #0284c7;
-      --accent-hover: #0369a1;
-      --accent-3d: #d97706;
-      --accent-2d: #0284c7;
-      --accent-1d: #7e22ce;
-      --accent-warn: #d97706;
-      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    html {
-      scroll-behavior: smooth;
-      scroll-padding-top: 80px;
-    }
-
-    body {
-      font-family: var(--font-family);
-      background-color: var(--bg-main);
-      color: var(--text-main);
-      line-height: 1.6;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    header.site-header {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: var(--header-height);
-      background-color: var(--bg-sidebar);
-      border-bottom: 1px solid var(--border-color);
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      backdrop-filter: blur(8px);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .header-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-weight: 700;
-      font-size: 1.15rem;
-      color: var(--text-heading);
-      text-decoration: none;
-    }
-
-    .brand-logo {
-      background: linear-gradient(135deg, var(--accent-3d), var(--accent-2d));
-      color: white;
-      width: 36px;
-      height: 36px;
-      border-radius: var(--radius-sm);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 1.1rem;
-      box-shadow: 0 2px 8px rgba(231, 111, 81, 0.3);
-    }
-
-    .nav-tabs {
-      display: flex;
-      gap: 6px;
-      margin-left: 12px;
-    }
-
-    .tab-link {
-      padding: 6px 12px;
-      border-radius: 20px;
-      text-decoration: none;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      transition: all 0.2s ease;
-    }
-
-    .tab-link:hover {
-      color: var(--text-main);
-      background-color: var(--bg-card-hover);
-    }
-
-    .tab-link.active {
-      color: white;
-      background-color: var(--accent-primary);
-    }
-
-    .search-box {
-      position: relative;
-      width: 260px;
-    }
-
-    .search-box input {
-      width: 100%;
-      padding: 8px 14px 8px 36px;
-      border-radius: 20px;
-      border: 1px solid var(--border-color);
-      background-color: var(--bg-main);
-      color: var(--text-main);
-      font-family: inherit;
-      font-size: 0.9rem;
-      outline: none;
-      transition: all 0.2s ease;
-    }
-
-    .search-box input:focus {
-      border-color: var(--accent-primary);
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-    }
-
-    .search-icon {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      pointer-events: none;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .btn-icon {
-      background: transparent;
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      width: 38px;
-      height: 38px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-    }
-
-    .btn-icon:hover {
-      background-color: var(--bg-card-hover);
-      border-color: var(--accent-primary);
-      color: var(--accent-primary);
-    }
-
-    .app-layout {
-      display: flex;
-      margin-top: var(--header-height);
-      min-height: calc(100vh - var(--header-height));
-    }
-
-    aside.sidebar {
-      width: var(--sidebar-width);
-      background-color: var(--bg-sidebar);
-      border-right: 1px solid var(--border-color);
-      position: fixed;
-      top: var(--header-height);
-      bottom: 0;
-      left: 0;
-      overflow-y: auto;
-      padding: 20px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      z-index: 90;
-    }
-
-    .nav-group-title {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      font-weight: 700;
-      margin-bottom: 8px;
-      padding-left: 8px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .nav-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .nav-link {
-      display: block;
-      padding: 8px 12px;
-      border-radius: var(--radius-sm);
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.88rem;
-      font-weight: 500;
-      transition: all 0.15s ease;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .nav-link:hover {
-      color: var(--text-main);
-      background-color: var(--bg-card-hover);
-    }
-
-    .nav-link.active {
-      color: var(--accent-primary);
-      background-color: rgba(56, 189, 248, 0.12);
-      font-weight: 600;
-      border-left: 3px solid var(--accent-primary);
-    }
-
-    main.content-wrapper {
-      margin-left: var(--sidebar-width);
-      flex: 1;
-      padding: 40px 48px 80px 48px;
-      max-width: 1080px;
-    }
-
-    .hero-banner {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95)), url('data:image/svg+xml;utf8,<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg"><path d="0 20 Q 10 5, 20 20 T 40 20" stroke="%23334155" fill="none" stroke-width="1.5"/></svg>');
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 36px 40px;
-      margin-bottom: 40px;
-      box-shadow: var(--shadow-md);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero-title {
-      font-size: 2.2rem;
-      font-weight: 800;
-      color: var(--text-heading);
-      letter-spacing: -0.02em;
-      margin-bottom: 12px;
-    }
-
-    .hero-subtitle {
-      font-size: 1.05rem;
-      color: var(--text-muted);
-      max-width: 750px;
-      line-height: 1.6;
-    }
-
-    .quick-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-top: 24px;
-    }
-
-    .quick-card {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 18px;
-      text-decoration: none;
-      color: var(--text-main);
-      transition: all 0.2s ease;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .quick-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
-      border-color: var(--accent-primary);
-    }
-
-    .quick-card-title {
-      font-weight: 700;
-      font-size: 1rem;
-      color: var(--text-heading);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .quick-card-desc {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-
-    .doc-card {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      padding: 32px;
-      margin-bottom: 32px;
-      box-shadow: var(--shadow-sm);
-      transition: border-color 0.2s ease;
-    }
-
-    .doc-card:hover {
-      border-color: rgba(56, 189, 248, 0.4);
-    }
-
-    .card-header {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-bottom: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .card-title {
-      font-size: 1.45rem;
-      font-weight: 700;
-      color: var(--text-heading);
-      letter-spacing: -0.01em;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      width: fit-content;
-    }
-
-    .badge-3d {
-      background-color: rgba(231, 111, 81, 0.15);
-      color: var(--accent-3d);
-      border: 1px solid rgba(231, 111, 81, 0.3);
-    }
-
-    .badge-2d {
-      background-color: rgba(56, 189, 248, 0.15);
-      color: var(--accent-2d);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-    }
-
-    .badge-1d {
-      background-color: rgba(168, 85, 247, 0.15);
-      color: var(--accent-1d);
-      border: 1px solid rgba(168, 85, 247, 0.3);
-    }
-
-    .badge-info {
-      background-color: rgba(245, 158, 11, 0.15);
-      color: var(--accent-warn);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-    }
-
-    .card-body h3 {
-      font-size: 1.15rem;
-      color: var(--text-heading);
-      margin: 20px 0 10px 0;
-      font-weight: 600;
-    }
-
-    .card-body p {
-      margin-bottom: 12px;
-      color: var(--text-main);
-    }
-
-    .card-body ul, .card-body ol {
-      margin-left: 20px;
-      margin-bottom: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .card-body li {
-      color: var(--text-main);
-    }
-
-    .card-body li strong, .card-body li b {
-      color: var(--text-heading);
-    }
-
-    kbd {
-      background-color: var(--bg-code);
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      padding: 2px 6px;
-      font-family: var(--font-code);
-      font-size: 0.8rem;
-      color: var(--accent-primary);
-      box-shadow: 0 1px 0 rgba(0,0,0,0.2);
-    }
-
-    code {
-      font-family: var(--font-code);
-      background-color: var(--bg-code);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 0.88rem;
-      color: var(--accent-primary);
-    }
-
-    #no-results-msg {
-      display: none;
-      padding: 40px;
-      text-align: center;
-      background-color: var(--bg-card);
-      border: 1px dashed var(--border-color);
-      border-radius: var(--radius-md);
-      color: var(--text-muted);
-      font-size: 1.1rem;
-      margin-bottom: 24px;
-    }
-
-    #back-to-top {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: var(--shadow-md);
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.25s ease;
-      z-index: 99;
-    }
-
-    #back-to-top.show {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    #back-to-top:hover {
-      background-color: var(--accent-primary);
-      color: white;
-      border-color: var(--accent-primary);
-      transform: translateY(-3px);
-    }
-
-    footer.site-footer {
-      margin-top: 40px;
-      padding: 24px 0;
-      border-top: 1px solid var(--border-color);
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.88rem;
-    }
-
-    @media (max-width: 900px) {
-      aside.sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-      }
-      main.content-wrapper {
-        margin-left: 0;
-        padding: 24px 16px;
-      }
-      .search-box {
-        width: 160px;
-      }
-    }
-  </style>
+  <link rel="stylesheet" type="text/css" href="doc.css">
 </head>
+
 <body>
 
   <header class="site-header">
@@ -548,7 +26,8 @@
 
     <div class="search-box">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
       </svg>
       <input type="text" id="doc-search" placeholder="Search documentation...">
     </div>
@@ -556,12 +35,16 @@
     <div class="header-actions">
       <button class="btn-icon" id="theme-toggle" title="Toggle Light/Dark Theme">
         <svg id="theme-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+          </path>
         </svg>
       </button>
       <button class="btn-icon" onclick="window.print()" title="Print Page / Save PDF">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+          </path>
         </svg>
       </button>
     </div>
@@ -569,233 +52,288 @@
 
   <div class="app-layout">
     <aside class="sidebar" id="sidebar">
-      
-<div>
-  <div class="nav-group-title">1D NMR Manual</div>
-  <ul class="nav-list">
-    <li><a href="#overview" class="nav-link active">1D Overview</a></li>
-    <li><a href="#1d-save-load" class="nav-link">1. Save & Load Workspace</a></li>
-    <li><a href="#1d-upload-view" class="nav-link">2. Upload & View 1D Spectra</a></li>
-    <li><a href="#1d-peak-picking" class="nav-link">3. Peak Picking & Fitting</a></li>
-    <li><a href="#1d-bruker-processing" class="nav-link">4. Process Raw 1D FID Data</a></li>
-    <li><a href="#1d-phase-correction" class="nav-link">5. Manual & Auto Phase Correction</a></li>
-  </ul>
-</div>
+
+      <div>
+        <div class="nav-group-title">1D NMR Manual</div>
+        <ul class="nav-list">
+          <li><a href="#overview" class="nav-link active">1D Overview</a></li>
+          <li><a href="#1d-save-load" class="nav-link">1. Save & Load Workspace</a></li>
+          <li><a href="#1d-upload-view" class="nav-link">2. Upload & View 1D Spectra</a></li>
+          <li><a href="#1d-peak-picking" class="nav-link">3. Peak Picking & Fitting</a></li>
+          <li><a href="#1d-bruker-processing" class="nav-link">4. Process Raw 1D FID Data</a></li>
+          <li><a href="#1d-phase-correction" class="nav-link">5. Manual & Auto Phase Correction</a></li>
+        </ul>
+      </div>
 
     </aside>
 
     <main class="content-wrapper">
       <div id="no-results-msg">No matching documentation topics found. Try a different search term.</div>
-      
-<section class="hero-banner" id="overview">
-  <h1 class="hero-title">1D NMR Documentation</h1>
-  <p class="hero-subtitle">
-    Complete user guide for 1D NMR spectrum viewing, WebAssembly FID processing (Bruker, Magritek, Oxford Instruments), neural network phase correction, DEEP Picker, and Parametric baseline correction.
-  </p>
-</section>
 
-        <section class="doc-card" id="1d-save-load">
-          <div class="card-header">
-            <span class="badge badge-1d">1D</span>
-            <h2 class="card-title">1D Workspace Saving & Loading</h2>
-          </div>
-          <div class="card-body">
-            
-        <h2>Save and Load 1D Workspace</h2>
-        <p>COLMARvista 1D allows you to preserve and restore your exact analysis session, including frequency domain spectra and peak fitting results.</p>
-        <ol>
-          <li><b>Save Session:</b> Click the <b>Save current session to a local file</b> button to export your workspace to a binary/JSON formatted <code>.save</code> or <code>.colmar</code> file. This file can be backed up or transferred to another computer.</li>
-          <li><b>Load Session:</b> Use the <b>Load previous session</b> file selector to select a previously saved <code>.save</code> or <code>.colmar</code> file to restore your workspace state.</li>
-          <li><b>Data Included in Save:</b> Saving preserves all frequency domain 1D spectra, reconstructed spectra from peak fitting, and all picked/fitted peak lists (including pseudo-2D fitted peaks).</li>
-          <li><b>FID Data Limitation:</b> Raw time-domain (FID) data is not saved in the session file. If un-processed FID data remains in your workspace without being converted to frequency domain spectra, saving is disabled until processing completes.</li>
-        </ol>
-        
-          </div>
-        </section>
-        
-        <section class="doc-card" id="1d-upload-view">
-          <div class="card-header">
-            <span class="badge badge-1d">1D</span>
-            <h2 class="card-title">Uploading, Interactive Viewing & Plot Controls for 1D Spectra</h2>
-          </div>
-          <div class="card-body">
-            
-        <h2>1D NMR Spectrum Viewer and Interactive Processor</h2>
-        <p>COLMARvista 1D provides a high-performance web-based interactive canvas for displaying single or multiple stacked 1D NMR spectra.</p>
+      <section class="hero-banner" id="overview">
+        <h1 class="hero-title">1D NMR Documentation</h1>
+        <p class="hero-subtitle">
+          Complete user guide for 1D NMR spectrum viewing, WebAssembly FID processing (Bruker, Magritek, Oxford
+          Instruments), neural network phase correction, DEEP Picker, and Parametric baseline correction.
+        </p>
+      </section>
 
-        <h3>Interactive Guided Tutorial</h3>
-        <p>Click the orange <button style="background-color: #ff9800; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Tutorial</button> button at the top of the page at any time to start an interactive step-by-step UI walkthrough.</p>
+      <section class="doc-card" id="1d-save-load">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">1D Workspace Saving & Loading</h2>
+        </div>
+        <div class="card-body">
 
-        <h3>Uploading Frequency Domain Spectra</h3>
-        <ul>
-          <li><b>Supported Formats:</b> Upload 1D NMR spectra in nmrPipe (<code>.ft1</code>), Sparky (<code>.ucsf</code>), or Topspin ASCII (<code>.txt</code> converted using <code>totxt</code>).</li>
-          <li><b>Drag and Drop:</b> Select files via the file picker or drag and drop single files or an entire folder containing 1D spectra directly into the <i>Frequency domain spectra</i> area.</li>
-        </ul>
+          <h2>Save and Load 1D Workspace</h2>
+          <p>COLMARvista 1D allows you to preserve and restore your exact analysis session, including frequency domain
+            spectra and peak fitting results.</p>
+          <ol>
+            <li><b>Save Session:</b> Click the <b>Save current session to a local file</b> button to export your
+              workspace to a binary/JSON formatted <code>.save</code> or <code>.colmar</code> file. This file can be
+              backed up or transferred to another computer.</li>
+            <li><b>Load Session:</b> Use the <b>Load previous session</b> file selector to select a previously saved
+              <code>.save</code> or <code>.colmar</code> file to restore your workspace state.</li>
+            <li><b>Data Included in Save:</b> Saving preserves all frequency domain 1D spectra, reconstructed spectra
+              from peak fitting, and all picked/fitted peak lists (including pseudo-2D fitted peaks).</li>
+            <li><b>FID Data Limitation:</b> Raw time-domain (FID) data is not saved in the session file. If un-processed
+              FID data remains in your workspace without being converted to frequency domain spectra, saving is disabled
+              until processing completes.</li>
+          </ol>
 
-        <h3>Interactive Plot Controls & Shortcuts</h3>
-        <ul>
-          <li><b>Frequency Zooming (X-Axis):</b> Position the cursor over the plot area and use the mouse wheel to zoom in and out along the frequency (ppm / Hz) axis.</li>
-          <li><b>Intensity Zooming (Y-Axis):</b> Position the cursor on the left side of the vertical Y-axis and use the mouse wheel to adjust signal intensity scale.</li>
-          <li><b>Panning:</b> Click and drag anywhere on the plot to pan along the chemical shift axis.</li>
-          <li><b>Independent Spectrum Rescale & Referencing:</b> Hold <kbd>Alt</kbd> while dragging to adjust the chemical shift reference of the active spectrum, or hold <kbd>Alt</kbd> while using the mouse wheel to rescale the active spectrum independently of other loaded spectra.</li>
-          <li><b>Reordering & Color Customization:</b> Drag and drop spectra in the <i>Your spectra list</i> to change display stack order. Spectra listed later are rendered on top.</li>
-        </ul>
+        </div>
+      </section>
 
-        <h3>Plot Group View Synchronization</h3>
-        <ul>
-          <li><b>Multi-Window / Tab Sync:</b> Set the <b>Plot group</b> (range 1–10). Open plots across different browser windows or tabs sharing the same group number automatically synchronize their chemical shift viewing range.</li>
-        </ul>
+      <section class="doc-card" id="1d-upload-view">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Uploading, Interactive Viewing & Plot Controls for 1D Spectra</h2>
+        </div>
+        <div class="card-body">
 
-        <h3>Export & Import Plot Bounds</h3>
-        <ul>
-          <li><b>Fill Plot Size and Zoom:</b> Click <b>Fill plot size and zoom</b> to export the current pixel dimensions and zoom bounds string.</li>
-          <li><b>Apply Size and Zoom:</b> Paste or edit a bounds string into the text box and click <b>Apply plot size and zoom</b> to restore an exact view.</li>
-          <li><b>Custom Font Size:</b> Adjust label font size (range 8–72 pt) and click <b>Apply</b>.</li>
-        </ul>
+          <h2>1D NMR Spectrum Viewer and Interactive Processor</h2>
+          <p>COLMARvista 1D provides a high-performance web-based interactive canvas for displaying single or multiple
+            stacked 1D NMR spectra.</p>
 
-        <h3>Automatic Baseline Correction (WebAssembly Accelerated)</h3>
-        <ul>
-          <li><b>Parametric Baseline Method:</b> COLMARvista 1D supports the <b>Parametric baseline correction</b> method, implemented and accelerated directly in the web browser via WebAssembly. Polynomial baseline methods are not used for 1D.</li>
-          <li><b>Algorithm Reference:</b> Parametric baseline correction is based on the algorithm described in:
-            <br><i>Baseline Correction for NMR Spectroscopic Metabolomics Data Analysis</i>, Yuanxin Xi and David M. Rocke, <i>BMC Bioinformatics</i> (2008).
-          </li>
-          <li><b>Smooth Parameter:</b> Set the baseline smoothing parameter (range 8–16, default 11).</li>
-          <li><b>Exclude Water Region:</b> Check <i>Exclude water suppression region</i> to prevent solvent artifacts from distorting the calculated baseline.</li>
-          <li><b>Calculate & Apply:</b> Click <b>Calculate baseline</b> to preview the baseline curve, then click <b>Apply baseline correction</b> to subtract it from the spectrum.</li>
-        </ul>
+          <h3>Interactive Guided Tutorial</h3>
+          <p>Click the orange <button
+              style="background-color: #ff9800; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Tutorial</button>
+            button at the top of the page at any time to start an interactive step-by-step UI walkthrough.</p>
 
-        <h3>Vector SVG Export for Publication</h3>
-        <ul>
-          <li>Click the <b>Download plot</b> button to export the current 1D plot in resolution-independent vector SVG format suitable for publications.</li>
-        </ul>
-        
-          </div>
-        </section>
-        
-        <section class="doc-card" id="1d-peak-picking">
-          <div class="card-header">
-            <span class="badge badge-1d">1D</span>
-            <h2 class="card-title">Running DEEP Picker, Line-Shape Fitting & Peak Editing (1D)</h2>
-          </div>
-          <div class="card-body">
-            
-        <h2>DEEP Picker & Peak Fitting for 1D Spectra</h2>
+          <h3>Uploading Frequency Domain Spectra</h3>
+          <ul>
+            <li><b>Supported Formats:</b> Upload 1D NMR spectra in nmrPipe (<code>.ft1</code>), Sparky
+              (<code>.ucsf</code>), or Topspin ASCII (<code>.txt</code> converted using <code>totxt</code>).</li>
+            <li><b>Drag and Drop:</b> Select files via the file picker or drag and drop single files or an entire folder
+              containing 1D spectra directly into the <i>Frequency domain spectra</i> area.</li>
+          </ul>
 
-        <h3>1D Peak Picking</h3>
-        <ol>
-          <li><b>Cutoff Threshold:</b> Choose the minimum peak height cutoff (as a multiple of estimated spectral noise) and click the <b>DEEP Picker</b> button to run deep neural network peak detection.</li>
-        </ol>
+          <h3>Interactive Plot Controls & Shortcuts</h3>
+          <ul>
+            <li><b>Frequency Zooming (X-Axis):</b> Position the cursor over the plot area and use the mouse wheel to
+              zoom in and out along the frequency (ppm / Hz) axis.</li>
+            <li><b>Intensity Zooming (Y-Axis):</b> Position the cursor on the left side of the vertical Y-axis and use
+              the mouse wheel to adjust signal intensity scale.</li>
+            <li><b>Panning:</b> Click and drag anywhere on the plot to pan along the chemical shift axis.</li>
+            <li><b>Independent Spectrum Rescale & Referencing:</b> Hold <kbd>Alt</kbd> while dragging to adjust the
+              chemical shift reference of the active spectrum, or hold <kbd>Alt</kbd> while using the mouse wheel to
+              rescale the active spectrum independently of other loaded spectra.</li>
+            <li><b>Reordering & Color Customization:</b> Drag and drop spectra in the <i>Your spectra list</i> to change
+              display stack order. Spectra listed later are rendered on top.</li>
+          </ul>
 
-        <h3>Voigt / Gaussian Line-Shape Fitting</h3>
-        <ol>
-          <li><b>Profile Selection:</b> Select either <b>Voigt</b> or <b>Gaussian</b> line shape fitting profile and click <b>Peak Fitting</b>. Fitting is performed on the current visible spectral window.</li>
-          <li><b>Reconstructed Spectrum:</b> Upon completion, a synthetic reconstructed spectrum is generated and overlaid on top of the experimental spectrum. The fitted peak list is associated with this new spectrum.</li>
-        </ol>
+          <h3>Plot Group View Synchronization</h3>
+          <ul>
+            <li><b>Multi-Window / Tab Sync:</b> Set the <b>Plot group</b> (range 1–10). Open plots across different
+              browser windows or tabs sharing the same group number automatically synchronize their chemical shift
+              viewing range.</li>
+          </ul>
 
-        <h3>Interactive Peak Editing & Visual Customization</h3>
-        <ul>
-          <li><b>Drag-and-Drop Peak Editing:</b> Check <i>Drag and drop to move (or remove) peak</i>. You can drag peak markers to fine-tune positions or drag markers off the spectrum area to delete them.</li>
-          <li><b>Visual Customization:</b> Customize peak marker size (1–20), line thickness (1–10), toggle filled peak symbols, and choose custom peak colors using the color picker.</li>
-          <li><b>Individual Line Profiles:</b> Zooming in reveals individual fitted peak component curves rendered as gray line shapes.</li>
-        </ul>
+          <h3>Export & Import Plot Bounds</h3>
+          <ul>
+            <li><b>Fill Plot Size and Zoom:</b> Click <b>Fill plot size and zoom</b> to export the current pixel
+              dimensions and zoom bounds string.</li>
+            <li><b>Apply Size and Zoom:</b> Paste or edit a bounds string into the text box and click <b>Apply plot size
+                and zoom</b> to restore an exact view.</li>
+            <li><b>Custom Font Size:</b> Adjust label font size (range 8–72 pt) and click <b>Apply</b>.</li>
+          </ul>
 
-        <h3>Interactive Peak Table & Search</h3>
-        <ul>
-          <li><b>Search Peaks:</b> Filter picked peaks instantly by typing text or chemical shift values into the <i>Search in peaks</i> input box.</li>
-          <li><b>Jump to Peak:</b> Click on any row in the peak table to automatically center and zoom the plot onto that peak.</li>
-          <li><b>Download Results:</b> Download picked and fitted peak lists in tabular format for downstream analysis.</li>
-        </ul>
-        
-          </div>
-        </section>
-        
-        <section class="doc-card" id="1d-bruker-processing">
-          <div class="card-header">
-            <span class="badge badge-1d">1D</span>
-            <h2 class="card-title">Processing Raw 1D Time-Domain (FID) Data (Bruker, Magritek, Oxford)</h2>
-          </div>
-          <div class="card-body">
-            
-        <h2>Processing Raw 1D Time-Domain Data</h2>
-        <p>COLMARvista 1D features a WebAssembly C++ processing engine to process raw 1D time-domain FID data directly inside the browser across high-field and benchtop NMR formats.</p>
+          <h3>Automatic Baseline Correction (WebAssembly Accelerated)</h3>
+          <ul>
+            <li><b>Parametric Baseline Method:</b> COLMARvista 1D supports the <b>Parametric baseline correction</b>
+              method, implemented and accelerated directly in the web browser via WebAssembly. Polynomial baseline
+              methods are not used for 1D.</li>
+            <li><b>Algorithm Reference:</b> Parametric baseline correction is based on the algorithm described in:
+              <br><i>Baseline Correction for NMR Spectroscopic Metabolomics Data Analysis</i>, Yuanxin Xi and David M.
+              Rocke, <i>BMC Bioinformatics</i> (2008).
+            </li>
+            <li><b>Smooth Parameter:</b> Set the baseline smoothing parameter (range 8–16, default 11).</li>
+            <li><b>Exclude Water Region:</b> Check <i>Exclude water suppression region</i> to prevent solvent artifacts
+              from distorting the calculated baseline.</li>
+            <li><b>Calculate & Apply:</b> Click <b>Calculate baseline</b> to preview the baseline curve, then click
+              <b>Apply baseline correction</b> to subtract it from the spectrum.</li>
+          </ul>
 
-        <h3>Supported Formats & Required Files</h3>
-        <ul>
-          <li><b>Supported Formats & Instruments:</b>
-            <ul>
-              <li><b>Bruker:</b> High-field TopSpin console version <b>&ge; 3.0</b>. Requires <code>fid</code> (or <code>ser</code>) and direct dimension acquisition parameter file <code>acqus</code>.</li>
-              <li><b>Magritek:</b> Benchtop 1D NMR time-domain data formats.</li>
-              <li><b>Oxford Instruments:</b> Benchtop 1D NMR time-domain data formats.</li>
-            </ul>
-          </li>
-          <li><b>Drag & Drop Folder:</b> Drag and drop the entire experiment folder containing the required files into the designated upload area.</li>
-        </ul>
+          <h3>Vector SVG Export for Publication</h3>
+          <ul>
+            <li>Click the <b>Download plot</b> button to export the current 1D plot in resolution-independent vector SVG
+              format suitable for publications.</li>
+          </ul>
 
-        <h3>FID Size Reduction Modes</h3>
-        <ul>
-          <li><b>Full:</b> Process complete time-domain dataset without truncation.</li>
-          <li><b>Auto (Default):</b> Automatically detects the signal decay end point to reduce noise accumulation before Fourier Transformation.</li>
-          <li><b>Auto & Confirm:</b> Automated signal end detection with manual confirmation prompt.</li>
-          <li><b>Previous:</b> Reuses previous reduction parameters for batch processing.</li>
-        </ul>
+        </div>
+      </section>
 
-        <h3>Apodization & Zero Filling</h3>
-        <ul>
-          <li><b>Apodization String:</b> Supports standard nmrPipe apodization syntax (e.g., <code>SP off 0.5 end 0.98 pow 2 elb 0 c 0.5</code>).</li>
-          <li><b>Zero Filling Factor:</b> Select zero filling factor (2, 4, or 8).</li>
-        </ul>
+      <section class="doc-card" id="1d-peak-picking">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Running DEEP Picker, Line-Shape Fitting & Peak Editing (1D)</h2>
+        </div>
+        <div class="card-body">
 
-        <h3>Phase Correction Algorithms</h3>
-        <ul>
-          <li><b>Peak Centric CNN:</b> Convolutional neural network focusing on major peak region phases.</li>
-          <li><b>Full Spectrum ANN (Default):</b> Artificial neural network trained on full spectrum phase optimization.
-            <br><span style="color: var(--accent-warn); font-size: 0.9em;"><b>Important Notice for Magritek Data:</b> ANN-based automatic phase correction may not work well for Magritek benchtop NMR datasets. For Magritek data, manual phase correction or alternative phase algorithms are recommended.</span>
-          </li>
-          <li><b>Entropy Based:</b> Automated minimum entropy optimization algorithm.</li>
-          <li><b>Manual:</b> Retains raw phases for user manual phase adjustment.</li>
-        </ul>
+          <h2>DEEP Picker & Peak Fitting for 1D Spectra</h2>
 
-        <h3>Pseudo-2D Processing Options</h3>
-        <ul>
-          <li><b>Process First 1D Experiment Only:</b> Rapid trial processing on the first trace.</li>
-          <li><b>Process All Pseudo-2D Traces:</b> Sequential batch processing across all 1D traces in a pseudo-2D dataset.</li>
-        </ul>
+          <h3>1D Peak Picking</h3>
+          <ol>
+            <li><b>Cutoff Threshold:</b> Choose the minimum peak height cutoff (as a multiple of estimated spectral
+              noise) and click the <b>DEEP Picker</b> button to run deep neural network peak detection.</li>
+          </ol>
 
-        <h3>Process & Reprocess Workflow</h3>
-        <ul>
-          <li>Click <b>Upload experimental files and process</b> to execute Fourier Transformation.</li>
-          <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Reprocess</b> to reload parameters into the form, make adjustments, re-run, and click <b>Quit reprocessing</b> when done.</li>
-        </ul>
-        
-          </div>
-        </section>
-        
-        <section class="doc-card" id="1d-phase-correction">
-          <div class="card-header">
-            <span class="badge badge-1d">1D</span>
-            <h2 class="card-title">Automatic & Manual Phase Correction for 1D Spectra</h2>
-          </div>
-          <div class="card-body">
-            
-        <h2>1D Phase Correction Workflow</h2>
+          <h3>Voigt / Gaussian Line-Shape Fitting</h3>
+          <ol>
+            <li><b>Profile Selection:</b> Select either <b>Voigt</b> or <b>Gaussian</b> line shape fitting profile and
+              click <b>Peak Fitting</b>. Fitting is performed on the current visible spectral window.</li>
+            <li><b>Reconstructed Spectrum:</b> Upon completion, a synthetic reconstructed spectrum is generated and
+              overlaid on top of the experimental spectrum. The fitted peak list is associated with this new spectrum.
+            </li>
+          </ol>
 
-        <h3>Automatic Phase Correction</h3>
-        <p>Click the <b>Run automatic phase correction</b> button to trigger TensorFlow.js neural network automated phase optimization on the selected spectrum.</p>
+          <h3>Interactive Peak Editing & Visual Customization</h3>
+          <ul>
+            <li><b>Drag-and-Drop Peak Editing:</b> Check <i>Drag and drop to move (or remove) peak</i>. You can drag
+              peak markers to fine-tune positions or drag markers off the spectrum area to delete them.</li>
+            <li><b>Visual Customization:</b> Customize peak marker size (1–20), line thickness (1–10), toggle filled
+              peak symbols, and choose custom peak colors using the color picker.</li>
+            <li><b>Individual Line Profiles:</b> Zooming in reveals individual fitted peak component curves rendered as
+              gray line shapes.</li>
+          </ul>
 
-        <h3>Interactive Manual Phase Correction</h3>
-        <p>Manual phase correction requires imaginary data to be retained during initial FID processing.</p>
-        <ol>
-          <li><b>Select Spectrum:</b> Choose a spectrum containing imaginary data from the spectra list.</li>
-          <li><b>Zero-Order Phase (P0):</b> With pivot unset, hold <kbd>Shift</kbd> (coarse adjustment) or <kbd>Ctrl</kbd> (fine adjustment) and scroll the mouse wheel to adjust P0.</li>
-          <li><b>Set Pivot Point:</b> Right-click on the spectrum at a major peak location to set a pivot anchor. A line indicator marks the pivot chemical shift.</li>
-          <li><b>First-Order Phase (P1):</b> With the pivot set, hold <kbd>Shift</kbd> (coarse) or <kbd>Ctrl</kbd> (fine) and scroll the mouse wheel to adjust P1. Right-click again to unset pivot.</li>
-          <li><b>Live Readout:</b> Watch the live parameter header showing <i>Pivot status</i>, <i>Phase correction at left end</i>, <i>right end</i>, and <i>P1 value</i>.</li>
-          <li><b>Apply Phase Correction:</b> Click <b>Apply manual phase correction</b> to permanently update spectral phases and frequency data.</li>
-        </ol>
-        
-          </div>
-        </section>
-        
+          <h3>Interactive Peak Table & Search</h3>
+          <ul>
+            <li><b>Search Peaks:</b> Filter picked peaks instantly by typing text or chemical shift values into the
+              <i>Search in peaks</i> input box.</li>
+            <li><b>Jump to Peak:</b> Click on any row in the peak table to automatically center and zoom the plot onto
+              that peak.</li>
+            <li><b>Download Results:</b> Download picked and fitted peak lists in tabular format for downstream
+              analysis.</li>
+          </ul>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-bruker-processing">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Processing Raw 1D Time-Domain (FID) Data (Bruker, Magritek, Oxford)</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>Processing Raw 1D Time-Domain Data</h2>
+          <p>COLMARvista 1D features a WebAssembly C++ processing engine to process raw 1D time-domain FID data directly
+            inside the browser across high-field and benchtop NMR formats.</p>
+
+          <h3>Supported Formats & Required Files</h3>
+          <ul>
+            <li><b>Supported Formats & Instruments:</b>
+              <ul>
+                <li><b>Bruker:</b> High-field TopSpin console version <b>&ge; 3.0</b>. Requires <code>fid</code> (or
+                  <code>ser</code>) and direct dimension acquisition parameter file <code>acqus</code>.</li>
+                <li><b>Magritek:</b> Benchtop 1D NMR time-domain data formats. Requires <code>data.1d</code> and direct
+                  dimension acquisition parameter file <code>acqu.par</code>.</li>
+                <li><b>Oxford Instruments:</b> Benchtop 1D NMR time-domain data formats. Usually in one .jdx file</li>
+              </ul>
+            </li>
+            <li><b>Drag & Drop Folder:</b> Drag and drop the entire experiment folder containing the required files into
+              the designated upload area.</li>
+          </ul>
+
+          <h3>FID Size Reduction Modes</h3>
+          <ul>
+            <li><b>Full:</b> Process complete time-domain dataset without truncation.</li>
+            <li><b>Auto (Default):</b> Automatically detects the signal decay end point to reduce noise accumulation
+              before Fourier Transformation.</li>
+            <li><b>Auto & Confirm:</b> Automated signal end detection with manual confirmation prompt.</li>
+            <li><b>Previous:</b> Reuses previous reduction parameters for batch processing.</li>
+          </ul>
+
+          <h3>Apodization & Zero Filling</h3>
+          <ul>
+            <li><b>Apodization String:</b> Supports standard nmrPipe apodization syntax (e.g.,
+              <code>SP off 0.5 end 0.98 pow 2 elb 0 c 0.5</code>).</li>
+            <li><b>Zero Filling Factor:</b> Select zero filling factor (2, 4, or 8).</li>
+          </ul>
+
+          <h3>Phase Correction Algorithms</h3>
+          <ul>
+            <li><b>Peak Centric CNN:</b> Convolutional neural network focusing on major peak region phases.</li>
+            <li><b>Full Spectrum ANN (Default):</b> Artificial neural network trained on full spectrum phase
+              optimization.
+              <br><span style="color: var(--accent-warn); font-size: 0.9em;"><b>Important Notice for Magritek Data:</b>
+                ANN-based automatic phase correction may not work well for Magritek benchtop NMR datasets. For Magritek
+                data, manual phase correction or alternative phase algorithms are recommended.</span>
+            </li>
+            <li><b>Entropy Based:</b> Automated minimum entropy optimization algorithm.</li>
+            <li><b>Manual:</b> Retains raw phases for user manual phase adjustment.</li>
+          </ul>
+
+          <h3>Pseudo-2D Processing Options</h3>
+          <ul>
+            <li><b>Process First 1D Experiment Only:</b> Rapid trial processing on the first trace.</li>
+            <li><b>Process All Pseudo-2D Traces:</b> Sequential batch processing across all 1D traces in a pseudo-2D
+              dataset.</li>
+          </ul>
+
+          <h3>Process & Reprocess Workflow</h3>
+          <ul>
+            <li>Click <b>Upload experimental files and process</b> to execute Fourier Transformation.</li>
+            <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Reprocess</b> to reload parameters
+              into the form, make adjustments, re-run, and click <b>Quit reprocessing</b> when done.</li>
+          </ul>
+
+        </div>
+      </section>
+
+      <section class="doc-card" id="1d-phase-correction">
+        <div class="card-header">
+          <span class="badge badge-1d">1D</span>
+          <h2 class="card-title">Automatic & Manual Phase Correction for 1D Spectra</h2>
+        </div>
+        <div class="card-body">
+
+          <h2>1D Phase Correction Workflow</h2>
+
+          <h3>Automatic Phase Correction</h3>
+          <p>Click the <b>Run automatic phase correction</b> button to trigger TensorFlow.js neural network automated
+            phase optimization on the selected spectrum.</p>
+
+          <h3>Interactive Manual Phase Correction</h3>
+          <p>Manual phase correction requires imaginary data to be retained during initial FID processing.</p>
+          <ol>
+            <li><b>Select Spectrum:</b> Choose a spectrum containing imaginary data from the spectra list.</li>
+            <li><b>Zero-Order Phase (P0):</b> With pivot unset, hold <kbd>Shift</kbd> (coarse adjustment) or
+              <kbd>Ctrl</kbd> (fine adjustment) and scroll the mouse wheel to adjust P0.</li>
+            <li><b>Set Pivot Point:</b> Right-click on the spectrum at a major peak location to set a pivot anchor. A
+              line indicator marks the pivot chemical shift.</li>
+            <li><b>First-Order Phase (P1):</b> With the pivot set, hold <kbd>Shift</kbd> (coarse) or <kbd>Ctrl</kbd>
+              (fine) and scroll the mouse wheel to adjust P1. Right-click again to unset pivot.</li>
+            <li><b>Live Readout:</b> Watch the live parameter header showing <i>Pivot status</i>, <i>Phase correction at
+                left end</i>, <i>right end</i>, and <i>P1 value</i>.</li>
+            <li><b>Apply Phase Correction:</b> Click <b>Apply manual phase correction</b> to permanently update spectral
+              phases and frequency data.</li>
+          </ol>
+
+        </div>
+      </section>
+
 
 
       <footer class="site-footer">
@@ -810,95 +348,7 @@
     </svg>
   </button>
 
-  <script>
-    const themeToggle = document.getElementById('theme-toggle');
-    const htmlElem = document.documentElement;
-    const savedTheme = localStorage.getItem('colmar_doc_theme') || 'dark';
-    htmlElem.setAttribute('data-theme', savedTheme);
-
-    themeToggle.addEventListener('click', () => {
-      const currentTheme = htmlElem.getAttribute('data-theme');
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      htmlElem.setAttribute('data-theme', newTheme);
-      localStorage.setItem('colmar_doc_theme', newTheme);
-    });
-
-    const backToTop = document.getElementById('back-to-top');
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 400) {
-        backToTop.classList.add('show');
-      } else {
-        backToTop.classList.remove('show');
-      }
-    });
-
-    backToTop.addEventListener('click', () => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
-    const sections = document.querySelectorAll('section.doc-card, section.hero-banner');
-    const navLinks = document.querySelectorAll('.nav-link');
-
-    window.addEventListener('scroll', () => {
-      let current = '';
-      sections.forEach(section => {
-        const sectionTop = section.offsetTop - 100;
-        if (window.scrollY >= sectionTop && section.style.display !== 'none') {
-          current = section.getAttribute('id');
-        }
-      });
-
-      navLinks.forEach(link => {
-        link.classList.remove('active');
-        const href = link.getAttribute('href');
-        if (href === '#' + current || href.endsWith('#' + current)) {
-          link.classList.add('active');
-        }
-      });
-    });
-
-    const searchInput = document.getElementById('doc-search');
-    const noResultsMsg = document.getElementById('no-results-msg');
-    const docCards = document.querySelectorAll('.doc-card');
-    const sectionHeaders = document.querySelectorAll('.section-divider-header');
-
-    function performSearch() {
-      const query = searchInput.value.toLowerCase().trim();
-      let visibleCount = 0;
-
-      docCards.forEach(card => {
-        const id = card.getAttribute('id');
-        const cardText = card.textContent.toLowerCase();
-        const navLink = document.querySelector(`.nav-link[href*="#${id}"]`);
-
-        if (query === '' || cardText.includes(query)) {
-          card.style.display = 'block';
-          if (navLink) navLink.style.display = 'block';
-          visibleCount++;
-        } else {
-          card.style.display = 'none';
-          if (navLink) navLink.style.display = 'none';
-        }
-      });
-
-      sectionHeaders.forEach(header => {
-        if (query === '') {
-          header.style.display = 'block';
-        } else {
-          const siblingCards = Array.from(docCards).filter(c => c.previousElementSibling === header || (c.previousElementSibling && c.previousElementSibling.previousElementSibling === header));
-          const hasVisible = siblingCards.some(c => c.style.display !== 'none');
-          header.style.display = hasVisible ? 'block' : 'none';
-        }
-      });
-
-      if (noResultsMsg) {
-        noResultsMsg.style.display = (visibleCount === 0 && query !== '') ? 'block' : 'none';
-      }
-    }
-
-    searchInput.addEventListener('input', performSearch);
-    searchInput.addEventListener('keyup', performSearch);
-    searchInput.addEventListener('search', performSearch);
-  </script>
+  <script src="doc.js"></script>
 </body>
+
 </html>
