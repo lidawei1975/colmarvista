@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pyodide & NumPy Test - Mean & Std Calculator</title>
-  <!-- Pyodide CDN -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+  <title>ChemEx WebAssembly Runner - In-Browser CEST 15N Analysis</title>
+  <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+  <!-- Chart.js CDN for interactive profile plotting -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -300,6 +301,151 @@
       background-color: #1e293b;
       color: #ffffff;
     }
+
+    /* Floating ChemEx Console Window */
+    #chemex_console_window {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 580px;
+      height: 360px;
+      box-sizing: border-box;
+      z-index: 9999;
+      background: #0f172a;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      resize: both;
+      overflow: hidden;
+      min-width: 280px;
+      min-height: 100px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chemex_console_header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      cursor: move;
+      user-select: none;
+      color: #f1f5f9;
+      font-size: 0.88rem;
+    }
+
+    #chemex_console_header strong {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .console-btn {
+      background: #334155;
+      color: #f1f5f9;
+      border: 1px solid #475569;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+
+    .console-btn:hover {
+      background: #475569;
+    }
+
+    #chemex_console_body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 8px;
+      background: #0f172a;
+      box-sizing: border-box;
+    }
+
+    #pythonStdout {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 8px 10px;
+      background: #020617;
+      color: #38bdf8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      border-radius: 4px;
+      border: 1px solid #1e293b;
+      overflow-y: auto;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-sizing: border-box;
+    }
+
+    /* Interactive Profile Simulator */
+    .interactive-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 840px) {
+      .interactive-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .param-control-group {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+
+    .param-control-group:hover {
+      border-color: #cbd5e1;
+    }
+
+    .param-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .param-input-num {
+      width: 86px;
+      padding: 4px 6px;
+      font-size: 0.85rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      text-align: right;
+      min-height: auto;
+      background: #fcfcfd;
+    }
+
+    .param-slider {
+      width: 100%;
+      cursor: pointer;
+      margin: 0;
+      accent-color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -308,82 +454,206 @@
     <div id="navbar-placeholder"></div>
 
     <header>
-      <h1>Pyodide & NumPy Virtual Filesystem Test</h1>
-      <p class="subtitle">JavaScript writes input to virtual filesystem (MEMFS) &rarr; Python reads the file to compute NumPy statistics</p>
+      <h1>ChemEx &amp; CEST_15N In-Browser Test</h1>
+      <p class="subtitle">Run ChemEx in Pyodide WebAssembly with virtual filesystem (MEMFS) on the CEST 15N dataset</p>
     </header>
 
     <!-- Status Banner -->
     <div id="statusBar" class="status-bar loading">
       <div id="statusSpinner" class="spinner"></div>
-      <span id="statusText">Initializing Pyodide runtime and loading NumPy...</span>
+      <span id="statusText">Initializing Pyodide runtime and loading ChemEx...</span>
     </div>
 
-    <!-- Input Section -->
+    <!-- Card 1: Virtual Filesystem Setup -->
     <div class="card">
-      <h2>📊 Input Data</h2>
-      <div class="form-group">
-        <label for="dataInput">Enter numbers (written by JS to virtual file <code>input_data.txt</code> via <code>pyodide.FS.writeFile</code>):</label>
-        <textarea id="dataInput" placeholder="e.g. 12.3, 45.6, 78.9, 23.1, 56.4">24.5, 31.2, 19.8, 45.0, 28.7, 33.4, 21.9, 39.5, 27.1, 35.8</textarea>
+      <h2>📁 Virtual Filesystem: CEST_15N Dataset</h2>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
+        The example dataset from <code>chemex/CEST_15N/</code> (Experiments, Parameters, 13Hz/26Hz Data) is loaded into Pyodide's virtual filesystem (MEMFS).
+      </p>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+        <div id="fsStatusBadge" class="status-bar loading" style="margin: 0; padding: 6px 14px; font-size: 0.85rem;">
+          Writing dataset to MEMFS...
+        </div>
+        <button id="btnWriteFs" class="btn-secondary" disabled style="padding: 6px 14px; font-size: 0.85rem;">
+          🔄 Re-sync Files to MEMFS
+        </button>
       </div>
+
+      <div id="virtualFilesList" style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; max-height: 140px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.82rem;">
+        Loading file list...
+      </div>
+    </div>
+
+    <!-- Card: Interactive NH Profile Simulation & Live Fit -->
+    <div class="card" id="interactiveProfileCard">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+        <h2>🔬 Individual NH Profile: Live Simulation &amp; Fit</h2>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <label for="interactiveResidueSelect" style="font-size: 0.9rem; margin: 0; font-weight: 600;">Select NH Residue:</label>
+          <select id="interactiveResidueSelect" style="padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.95rem; font-weight: 600; background: #ffffff; cursor: pointer;">
+            <option value="13N" selected>13N</option>
+            <option value="26N">26N</option>
+            <option value="28N">28N</option>
+            <option value="29N">29N</option>
+            <option value="33N">33N</option>
+            <option value="37N">37N</option>
+            <option value="41N">41N</option>
+            <option value="42N">42N</option>
+            <option value="43N">43N</option>
+            <option value="50N">50N</option>
+            <option value="52N">52N</option>
+            <option value="55N">55N</option>
+            <option value="59N">59N</option>
+            <option value="66N">66N</option>
+            <option value="67N">67N</option>
+            <option value="68N">68N</option>
+          </select>
+          <button id="btnReloadResidue" class="btn-secondary" style="padding: 7px 12px; font-size: 0.85rem;" title="Reload profile data">
+            🔄 Reload
+          </button>
+        </div>
+      </div>
+
+      <div class="interactive-grid">
+        <!-- Chart Column -->
+        <div class="chart-panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 0.85rem; font-weight: 500;">
+              <span style="display: inline-block; width: 10px; height: 10px; background: #2563eb; border-radius: 50%; margin-right: 4px;"></span>
+              <strong>13 Hz</strong> (Data &amp; Sim)
+              &nbsp;&nbsp;&nbsp;
+              <span style="display: inline-block; width: 10px; height: 10px; background: #dc2626; border-radius: 50%; margin-right: 4px;"></span>
+              <strong>26 Hz</strong> (Data &amp; Sim)
+            </div>
+            <div id="simLiveBadge" style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-weight: 600;">
+              Simulating on-the-fly
+            </div>
+          </div>
+          <div style="position: relative; height: 380px; width: 100%; background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-sizing: border-box;">
+            <canvas id="interactiveProfileChart"></canvas>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+            <span>X-axis: B1 offset (ppm, NMR standard)</span>
+            <span>Y-axis: Intensity (I/I₀)</span>
+          </div>
+        </div>
+
+        <!-- Parameters & Controls Column -->
+        <div class="params-panel" style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <strong style="font-size: 0.95rem; color: #1e293b;">⚙️ Starting Parameters</strong>
+              <span id="paramStatusTag" style="font-size: 0.75rem; color: var(--text-muted);">Initial guess</span>
+            </div>
+
+            <!-- pB -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_PB">p<sub>B</sub> (Minor Population):</label>
+                <input type="number" id="num_PB" step="0.001" min="0.001" max="0.200" value="0.015" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_PB" min="0.001" max="0.100" step="0.001" value="0.015" class="param-slider" />
+            </div>
+
+            <!-- kex -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_KEX">k<sub>ex</sub> (Exchange Rate, s⁻¹):</label>
+                <input type="number" id="num_KEX" step="1" min="1" max="500" value="70" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_KEX" min="5" max="300" step="1" value="70" class="param-slider" />
+            </div>
+
+            <!-- cs_a -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_CS">ϖ<sub>A</sub> (Major Shift, ppm):</label>
+                <input type="number" id="num_CS" step="0.01" value="108.21" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_CS" step="0.02" class="param-slider" />
+            </div>
+
+            <!-- dw_ab -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_DW">Δϖ<sub>AB</sub> (Shift Diff B - A, ppm):</label>
+                <input type="number" id="num_DW" step="0.1" min="-20" max="20" value="4.0" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_DW" min="-15" max="15" step="0.1" value="4.0" class="param-slider" />
+            </div>
+
+            <!-- tauc_a -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_TAUC">τ<sub>c</sub> (Correlation Time, ns):</label>
+                <input type="number" id="num_TAUC" step="0.5" min="1" max="50" value="10.0" class="param-input-num" />
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button id="btnFitFromParams" class="btn-primary" disabled style="width: 100%; padding: 10px 14px; font-size: 0.95rem; margin-bottom: 8px;">
+              ⚡ Fit from Current Parameters
+            </button>
+            <button id="btnResetParams" class="btn-secondary" style="width: 100%; padding: 6px 12px; font-size: 0.85rem;">
+              🔄 Reset to Defaults
+            </button>
+            <div id="fitResultNotice" style="display: none; margin-top: 8px; font-size: 0.8rem; padding: 6px 10px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; color: #065f46;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: ChemEx Run Controls -->
+    <div class="card">
+      <h2>⚡ Full ChemEx Global Fit (<a href="chemex/CEST_15N/run.sh" target="_blank" style="color: var(--primary); text-decoration: none;">run.sh</a>)</h2>
+      
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 6px;">
+        Executes global ChemEx fit across all 16 residues. Once completed, the optimized parameters are automatically saved to <code>Parameters/parameters.toml</code> and reflected in the individual initial guesses and simulation curves above.
+      </p>
+      <pre style="margin-top: 0; margin-bottom: 16px; padding: 12px;"><code id="commandDisplay">chemex fit -e Experiments/*.toml -p Parameters/parameters.toml -o Output</code></pre>
 
       <div class="btn-group">
-        <button id="calcBtn" class="btn-primary" disabled>
-          ▶ Calculate Mean & Std with NumPy
+        <button id="btnRunFit" class="btn-primary" disabled>
+          ▶ Run Full ChemEx Fit (All Residues - run.sh)
         </button>
-        <button id="genRandomBtn" class="btn-secondary">
-          🎲 Generate Random Data
-        </button>
-        <button id="clearBtn" class="btn-secondary">
-          Clear
+        <button id="btnToggleConsole" type="button" class="btn-secondary">
+          🖥️ Toggle Console Window
         </button>
       </div>
 
-      <div id="errorAlert" class="alert alert-error"></div>
-    </div>
-
-    <!-- Results Section -->
-    <div class="card" id="resultsCard" style="display: none;">
-      <h2>📈 Results from NumPy <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted); margin-left: auto;">(Read from virtual file: <code>input_data.txt</code>)</span></h2>
-      <div class="results-grid">
-        <div class="result-item">
-          <div class="result-label">Mean (&mu;)</div>
-          <div id="valMean" class="result-val highlight">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Std Dev (&sigma;)</div>
-          <div id="valStd" class="result-val highlight">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Count (N)</div>
-          <div id="valCount" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Variance (&sigma;&sup2;)</div>
-          <div id="valVar" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Min</div>
-          <div id="valMin" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Max</div>
-          <div id="valMax" class="result-val">-</div>
-        </div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Python stdout Console:</label>
-        <pre style="margin-top: 4px; padding: 12px; font-size: 0.85rem;"><code id="pythonStdout">Ready.</code></pre>
-      </div>
-    </div>
-
-    <!-- Python Script Details -->
-    <div class="card">
-      <h2>🐍 Python Script (<a href="calculate_stats.py" target="_blank" style="color: var(--primary); text-decoration: none;">calculate_stats.py</a>)</h2>
-      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px;">
-        Separated into <a href="calculate_stats.py" target="_blank"><code>calculate_stats.py</code></a>. JavaScript writes input text to <code>input_data.txt</code> in MEMFS via <code>pyodide.FS.writeFile()</code>, then loads and executes the module:
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; margin-bottom: 0;">
+        💡 Output streams in real-time to the floating console window (bottom-right). You can drag the header or click <strong>—</strong> / <strong>□</strong> to minimize/restore.
       </p>
-      <pre><code id="pythonScriptPreview"># Loading calculate_stats.py...</code></pre>
+
+      <div id="errorAlert" class="alert alert-error" style="margin-top: 14px;"></div>
+    </div>
+
+    <!-- Card 3: Output Files from Virtual Filesystem -->
+    <div class="card" id="outputFilesCard" style="display: none;">
+      <h2>📄 Output Files Generated in Virtual Filesystem</h2>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
+        Click any generated file to inspect its content in the viewer below:
+      </p>
+
+      <div id="outputFilesBadges" class="btn-group" style="margin-bottom: 16px;"></div>
+
+      <div id="fileViewerContainer" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+          <strong id="fileViewerTitle" style="font-size: 0.9rem; color: #334155;"></strong>
+          <div class="btn-group" style="gap: 8px;">
+            <a id="btnOpenPdfNewTab" class="btn-secondary" target="_blank" rel="noopener noreferrer" style="display: none; font-size: 0.8rem; padding: 4px 10px; text-decoration: none;">
+              ↗ Open in New Tab
+            </a>
+            <button id="btnDownloadFile" class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">
+              ⬇ Download File
+            </button>
+          </div>
+        </div>
+        <pre id="fileViewerPre" style="margin-top: 0; max-height: 380px; overflow-y: auto;"><code id="fileViewerContent"></code></pre>
+        <iframe id="fileViewerPdf" style="display: none; width: 100%; height: 500px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 10px; background: #ffffff;"></iframe>
+      </div>
     </div>
 
     <div class="links">
@@ -393,7 +663,23 @@
     </div>
   </div>
 
+  <!-- Floating ChemEx Console Window (Movable, Resizable, Minimizable) -->
+  <div id="chemex_console_window">
+    <div id="chemex_console_header">
+      <strong id="chemex_console_title" onclick="toggle_console_minimize()" title="Click to minimize / restore">
+        💻 ChemEx Console (stdout)
+      </strong>
+      <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+        <button type="button" class="console-btn" id="button_clear_console" onclick="clear_console()" title="Clear console output">Clear</button>
+        <button type="button" class="console-btn" id="button_minimize_console" onclick="toggle_console_minimize()" title="Minimize / Restore console window">—</button>
+      </div>
+    </div>
+    <div id="chemex_console_body">
+      <pre id="pythonStdout">Initializing ChemEx Web Worker...</pre>
+    </div>
+  </div>
+
   <!-- Application Logic (Separated into js/index_test.js) -->
-  <script src="js/index_test.js"></script>
+  <script src="js/index_test.js?v=2026.9.1"></script>
 </body>
 </html>

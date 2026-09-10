@@ -1,0 +1,1097 @@
+"""Module for command-line interface functionalities in ChemEx software package.
+
+This module is an integral part of the ChemEx software, dedicated to enhancing user
+interaction with a command-line interface for analyzing NMR chemical exchange data.
+It leverages the 'rich' Python library to provide rich text and table formatting,
+making the data presentation more readable and engaging. The module includes various
+functions for displaying progress, handling errors, and showing results of data
+analysis steps such as dataset loading, fitting processes, simulations, and plotting.
+
+Typical usage example:
+
+  from your_module import print_logo, print_loading_experiments
+  print_logo()
+  print_loading_experiments()
+"""
+
+from collections.abc import Callable, Mapping
+from contextlib import suppress
+from dataclasses import replace
+from pathlib import Path
+from time import monotonic
+
+from rich import box
+from rich.console import Console
+from rich.live import Live
+from rich.padding import Padding
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+from rich.progress import Progress as RichProgress
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
+
+from chemex import __version__
+from chemex.optimize.progress import (
+    FitProgressContext,
+    McmcProgressEvent,
+    McmcProgressObserver,
+    McmcProgressPhase,
+    ProgressEvent,
+    ProgressPhase,
+    ProgressRateLimiter,
+    ProgressUpdate,
+)
+from chemex.optimize.statistics import FitStatisticsCounts
+
+console = Console()
+error_console = Console(stderr=True)
+
+
+def print_cli_diagnostic(message: str) -> None:
+    """Render one literal terminal diagnostic to stderr."""
+    error_console.print(Text(message, style="red"), soft_wrap=True)
+
+
+class MinimizationProgressReporter:
+    """Own Rich rendering and UX policy for one visible deterministic fit."""
+
+    def __init__(
+        self,
+        output_console: Console,
+        *,
+        interactive: bool,
+        retained_observation_count: int,
+        controlled_parameter_count: int,
+        profiled_normalization_count: int,
+        component_labels: Mapping[frozenset[str], str] | None = None,
+        grid: bool = False,
+        enabled: bool = True,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._console = output_console
+        self._interactive = interactive
+        self._retained_observation_count = retained_observation_count
+        self._controlled_parameter_count = controlled_parameter_count
+        self._profiled_normalization_count = profiled_normalization_count
+        self._component_labels = (
+            {} if component_labels is None else dict(component_labels)
+        )
+        self._grid = grid
+        self._enabled = enabled
+        self._clock = clock
+        self._started_at: float | None = None
+        self._live: Live | None = None
+        self._limiters: dict[FitProgressContext, ProgressRateLimiter] = {}
+        self._noninteractive_limiter = ProgressRateLimiter(interactive=False)
+        self._noninteractive_started = False
+        self._noninteractive_reported_best: dict[FitProgressContext, float] = {}
+        self._grid_limiter = ProgressRateLimiter(interactive=interactive)
+        self._grid_started = False
+        self._completed_by_context: dict[FitProgressContext, int] = {}
+        self._finished = False
+        self._active = False
+
+    @property
+    def is_active(self) -> bool:
+        """Whether the reporter currently owns an active rendering scope."""
+        return self._active
+
+    def __enter__(self) -> "MinimizationProgressReporter":
+        self._active = True
+        if not self._enabled:
+            return self
+        self._started_at = self._clock()
+        if self._interactive:
+            try:
+                self._live = Live(
+                    "",
+                    console=self._console,
+                    auto_refresh=False,
+                    transient=True,
+                )
+                self._live.start(refresh=True)
+            except Exception:  # noqa: BLE001 - reporting is non-scientific
+                self._disable()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        _exc_value: BaseException | None,
+        _traceback: object,
+    ) -> bool:
+        if self._enabled and exc_type is not None and not self._finished:
+            status = (
+                "interrupted" if issubclass(exc_type, KeyboardInterrupt) else "failed"
+            )
+            self._stop_live()
+            with suppress(Exception):
+                self._render_final(None, status)
+        else:
+            self._stop_live()
+        self._active = False
+        return False
+
+    def observe(self, context: FitProgressContext, event: ProgressEvent) -> None:
+        """Observe one contextual scalar event without affecting the fit."""
+        if not self._enabled:
+            return
+        try:
+            event = replace(event, elapsed_seconds=self._elapsed())
+            self._completed_by_context[context] = max(
+                event.objective_evaluations_completed,
+                self._completed_by_context.get(context, 0),
+            )
+            update = (
+                self._observe_grid(event)
+                if self._grid
+                else (
+                    self._limiter(context).observe(event)
+                    if self._interactive
+                    else self._observe_noninteractive(context, event)
+                )
+            )
+            if event.phase is ProgressPhase.TERMINATED and context.component_total == 1:
+                update = None
+            if update is not None:
+                renderable = (
+                    _progress_table(
+                        context,
+                        update,
+                        self._context_label(context),
+                    )
+                    if self._interactive
+                    else _format_progress(
+                        context,
+                        update,
+                        self._context_label(context),
+                    )
+                )
+                self._render(renderable)
+        except KeyboardInterrupt:
+            self._stop_live()
+            raise
+        except Exception:  # noqa: BLE001 - reporting failure is non-scientific
+            self._disable()
+
+    def finish(
+        self,
+        *,
+        final_chi_square: float | None,
+        terminal_status: str,
+    ) -> None:
+        """Close live rendering and emit one persistent aggregate terminal line."""
+        if not self._enabled or self._finished:
+            return
+        self._finished = True
+        self._stop_live()
+        try:
+            self._render_final(final_chi_square, terminal_status)
+        except KeyboardInterrupt:
+            raise
+        except Exception:  # noqa: BLE001 - reporting is non-scientific
+            self._disable()
+
+    def _limiter(self, context: FitProgressContext) -> ProgressRateLimiter:
+        return self._limiters.setdefault(
+            context,
+            ProgressRateLimiter(interactive=self._interactive),
+        )
+
+    def _observe_grid(self, event: ProgressEvent) -> ProgressUpdate | None:
+        if event.phase is ProgressPhase.STARTED:
+            if self._grid_started:
+                return None
+            self._grid_started = True
+            return self._grid_limiter.observe(event)
+        if event.phase is ProgressPhase.TERMINATED:
+            return None
+        probe = replace(
+            event,
+            current_chi_square=None,
+            best_chi_square=None,
+        )
+        selected = self._grid_limiter.observe(probe)
+        return None if selected is None else ProgressUpdate(event, None)
+
+    def _observe_noninteractive(
+        self,
+        context: FitProgressContext,
+        event: ProgressEvent,
+    ) -> ProgressUpdate | None:
+        phase = (
+            ProgressPhase.STARTED
+            if not self._noninteractive_started
+            else ProgressPhase.EVALUATED
+        )
+        self._noninteractive_started = True
+        elapsed = event.elapsed_seconds
+        probe = replace(
+            event,
+            phase=phase,
+            current_chi_square=None,
+            best_chi_square=None,
+            elapsed_seconds=elapsed,
+            terminal_status=None,
+        )
+        if self._noninteractive_limiter.observe(probe) is None:
+            return None
+        previous = self._noninteractive_reported_best.get(context)
+        best = event.best_chi_square
+        relative_change = (
+            None
+            if best is None or previous is None
+            else 0.0
+            if previous == 0.0
+            else (best - previous) / abs(previous)
+        )
+        if best is not None:
+            self._noninteractive_reported_best[context] = best
+        return ProgressUpdate(
+            replace(event, phase=phase, elapsed_seconds=elapsed, terminal_status=None),
+            relative_change,
+        )
+
+    def _context_label(self, context: FitProgressContext) -> str:
+        return self._component_labels.get(frozenset(context.controlled_ids), "")
+
+    def _elapsed(self) -> float:
+        return (
+            0.0
+            if self._started_at is None
+            else max(0.0, self._clock() - self._started_at)
+        )
+
+    def _render(self, renderable: str | Table | Padding) -> None:
+        display = Text(renderable) if isinstance(renderable, str) else renderable
+        if self._live is not None:
+            self._live.update(display, refresh=True)
+        else:
+            self._console.print(display)
+
+    def _render_final(self, chi_square: float | None, status: str) -> None:
+        reduced = (
+            None
+            if chi_square is None
+            else FitStatisticsCounts(
+                self._retained_observation_count,
+                self._controlled_parameter_count,
+                self._profiled_normalization_count,
+            ).reduced_chi_square(chi_square)
+        )
+        table = Table(box=box.SIMPLE_HEAD)
+        table.add_column("Evaluations", justify="right", style="blue")
+        if chi_square is not None:
+            table.add_column("χ²", justify="right")
+            table.add_column("Reduced χ²", justify="right")
+        table.add_column("Time", justify="right")
+        if status != "committed":
+            table.add_column("Status", style="red")
+        row = [str(sum(self._completed_by_context.values()))]
+        if chi_square is not None:
+            row.extend(
+                (
+                    _format_scalar(chi_square),
+                    "" if reduced is None else _format_scalar(reduced),
+                )
+            )
+        row.append(f"{self._elapsed():.1f} s")
+        if status != "committed":
+            row.append(status)
+        table.add_row(*row)
+        self._console.print(Padding.indent(table, 3))
+
+    def _stop_live(self) -> None:
+        if self._live is None:
+            return
+        live, self._live = self._live, None
+        with suppress(Exception):
+            live.stop()
+
+    def _disable(self) -> None:
+        self._enabled = False
+        self._stop_live()
+
+
+class McmcProgressReporter:
+    """Report completed ensemble transitions without affecting sampling."""
+
+    def __init__(
+        self,
+        output_console: Console,
+        *,
+        requested_steps: int,
+        interactive: bool,
+        observer: McmcProgressObserver | None = None,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._console = output_console
+        self._requested_steps = requested_steps
+        self._interactive = interactive
+        self._observer = observer
+        self._clock = clock
+        self._started_at: float | None = None
+        self._completed_steps = 0
+        self._progress: RichProgress | None = None
+        self._task_id: TaskID | None = None
+        self._finished = False
+        self._enabled = True
+
+    def start(self) -> None:
+        """Start one sampling progress scope at zero completed transitions."""
+        if self._started_at is not None or self._finished:
+            return
+        self._started_at = self._clock()
+        try:
+            if self._interactive:
+                self._progress = RichProgress(
+                    TextColumn("  • MCMC sampling"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    TimeRemainingColumn(),
+                    console=self._console,
+                    transient=True,
+                    auto_refresh=False,
+                )
+                self._progress.start()
+                self._task_id = self._progress.add_task(
+                    "MCMC sampling",
+                    total=self._requested_steps,
+                    completed=0,
+                )
+            else:
+                self._console.print(f"  • MCMC sampling 0/{self._requested_steps}...")
+            self._emit(McmcProgressPhase.STARTED)
+        except KeyboardInterrupt:
+            self._stop()
+            raise
+        except Exception:  # noqa: BLE001 - reporting is non-scientific
+            self._disable()
+
+    def observe(self, completed_steps: int) -> None:
+        """Advance to one atomically completed ensemble-transition count."""
+        if not self._enabled or self._finished:
+            return
+        if self._started_at is None:
+            self.start()
+        if (
+            completed_steps <= self._completed_steps
+            or completed_steps > self._requested_steps
+        ):
+            return
+        self._completed_steps = completed_steps
+        try:
+            if self._progress is not None and self._task_id is not None:
+                self._progress.update(
+                    self._task_id,
+                    completed=self._completed_steps,
+                    refresh=True,
+                )
+            self._emit(McmcProgressPhase.ADVANCED)
+        except KeyboardInterrupt:
+            self._stop()
+            raise
+        except Exception:  # noqa: BLE001 - reporting is non-scientific
+            self._disable()
+
+    def finish(self, terminal_status: str) -> None:
+        """Close rendering and persist one concise terminal status line."""
+        if self._finished:
+            return
+        self._finished = True
+        try:
+            self._emit(McmcProgressPhase.TERMINATED, terminal_status)
+        except KeyboardInterrupt:
+            self._stop()
+            raise
+        except Exception:  # noqa: BLE001 - reporting is non-scientific
+            self._enabled = False
+        self._stop()
+        if not self._enabled:
+            return
+        try:
+            style = "blue" if terminal_status == "completed" else "yellow"
+            self._console.print(
+                Text.from_markup(
+                    "  • MCMC sampling "
+                    f"{self._completed_steps}/{self._requested_steps} -> "
+                    f"[{style}]{terminal_status}[/] ({self._elapsed():.1f} s)"
+                )
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception:  # noqa: BLE001 - reporting is non-scientific
+            self._enabled = False
+
+    def _emit(
+        self,
+        phase: McmcProgressPhase,
+        terminal_status: str | None = None,
+    ) -> None:
+        if self._observer is not None:
+            self._observer(
+                McmcProgressEvent(
+                    phase,
+                    self._completed_steps,
+                    self._requested_steps,
+                    self._elapsed(),
+                    terminal_status,
+                )
+            )
+
+    def _elapsed(self) -> float:
+        return (
+            0.0
+            if self._started_at is None
+            else max(0.0, self._clock() - self._started_at)
+        )
+
+    def _stop(self) -> None:
+        if self._progress is None:
+            return
+        progress, self._progress = self._progress, None
+        self._task_id = None
+        with suppress(Exception):
+            progress.stop()
+
+    def _disable(self) -> None:
+        self._enabled = False
+        self._stop()
+
+
+class UncertaintyProgressReporter:
+    """Render the single automatic post-fit uncertainty phase."""
+
+    def __init__(
+        self,
+        output_console: Console,
+        *,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._console = output_console
+        self._clock = clock
+        self._started_at: float | None = None
+        self._finished = False
+
+    def start(self) -> None:
+        """Start timing immediately before automatic uncertainty derivation."""
+        if self._started_at is not None:
+            return
+        self._started_at = self._clock()
+
+    def finish(self, status: str) -> None:
+        """Emit one concise terminal status without affecting scientific work."""
+        if self._finished:
+            return
+        self._finished = True
+        elapsed = (
+            0.0
+            if self._started_at is None
+            else max(0.0, self._clock() - self._started_at)
+        )
+        with suppress(Exception):
+            style = "blue" if status == "covariance available" else "yellow"
+            self._console.print(
+                Text.from_markup(
+                    "  • Estimating parameter uncertainties -> "
+                    f"[{style}]{status}[/] ({elapsed:.1f} s)"
+                )
+            )
+
+    def skip_grid(self) -> None:
+        """Report that GRID intentionally has no automatic covariance phase."""
+        if self._finished:
+            return
+        self._finished = True
+        with suppress(Exception):
+            self._console.print(
+                Text.from_markup(
+                    "  • Parameter uncertainties -> [yellow]not estimated for GRID[/]"
+                )
+            )
+
+
+class GridOutputProgressReporter:
+    """Report the two user-visible GRID publication phases."""
+
+    def __init__(
+        self,
+        output_console: Console,
+        *,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._console = output_console
+        self._clock = clock
+        self._started_at: float | None = None
+        self._label: str | None = None
+
+    def start_writing(self) -> None:
+        """Report that numerical GRID products are being written."""
+        self._start("Writing GRID results")
+
+    def finish_writing(self) -> None:
+        """Report completion of numerical GRID product writing."""
+        self._finish()
+
+    def start_plotting(self, count_1d: int, count_2d: int) -> None:
+        """Report that GRID PDFs are being generated."""
+        counts = [f"{count_1d} 1D"]
+        if count_2d:
+            counts.append(f"{count_2d} 2D")
+        self._start(f"Generating GRID plots ({', '.join(counts)})")
+
+    def finish_plotting(self) -> None:
+        """Report completion of GRID PDF generation."""
+        self._finish()
+
+    def _start(self, label: str) -> None:
+        self._label = label
+        self._started_at = self._clock()
+        with suppress(Exception):
+            self._console.print(Text(f"  • {label}..."))
+
+    def _finish(self) -> None:
+        label = self._label or "GRID output"
+        elapsed = (
+            0.0
+            if self._started_at is None
+            else max(0.0, self._clock() - self._started_at)
+        )
+        self._label = None
+        self._started_at = None
+        with suppress(Exception):
+            self._console.print(
+                Text.from_markup(f"  • {label} -> [blue]complete[/] ({elapsed:.1f} s)")
+            )
+
+
+def _format_scalar(value: float) -> str:
+    return f"{value:.6g}"
+
+
+def _progress_table(
+    context: FitProgressContext,
+    update: ProgressUpdate,
+    component_label: str,
+) -> Padding:
+    """Build the transient Rich view for the currently executing component."""
+    event = update.event
+    table = Table(box=box.SIMPLE_HEAD)
+    row: list[str] = []
+    is_grid_point = (
+        context.grid_seed_ordinal is not None and context.grid_seed_total is not None
+    )
+    if is_grid_point:
+        table.add_column("GRID point", style="blue")
+        row.append(f"{context.grid_seed_ordinal}/{context.grid_seed_total}")
+    if context.component_total > 1:
+        table.add_column("Factor" if is_grid_point else "Component", style="blue")
+        component = f"{context.component_ordinal}/{context.component_total}"
+        if component_label:
+            component += f" · {component_label}"
+        row.append(component)
+    table.add_column("Evaluation", justify="right", style="blue")
+    table.add_column("Best χ²", justify="right")
+    table.add_column("Reduced χ²", justify="right")
+    table.add_column("Time", justify="right")
+    row.extend(
+        (
+            (
+                f"{event.objective_evaluations_completed} / "
+                f"{event.objective_request_budget}"
+            ),
+            (
+                "—"
+                if event.best_chi_square is None
+                else _format_scalar(event.best_chi_square)
+            ),
+            (
+                "—"
+                if event.reduced_chi_square is None
+                else _format_scalar(event.reduced_chi_square)
+            ),
+            f"{event.elapsed_seconds:.1f} s",
+        )
+    )
+    table.add_row(*row)
+    return Padding.indent(table, 3)
+
+
+def _format_progress(
+    context: FitProgressContext,
+    update: ProgressUpdate,
+    component_label: str,
+) -> str:
+    event = update.event
+    labels: list[str] = []
+    is_grid_point = (
+        context.grid_seed_ordinal is not None and context.grid_seed_total is not None
+    )
+    if is_grid_point:
+        labels.append(
+            f"GRID point {context.grid_seed_ordinal}/{context.grid_seed_total}"
+        )
+    if context.component_total > 1:
+        labels.append(
+            f"{'factor' if is_grid_point else 'component'} "
+            f"{context.component_ordinal}/{context.component_total}"
+        )
+        if component_label:
+            labels.append(component_label)
+    prefix = f"[{' · '.join(labels)}] " if labels else ""
+    parts = [
+        (
+            f"eval {event.objective_evaluations_completed}/"
+            f"{event.objective_request_budget}"
+        )
+    ]
+    if event.best_chi_square is None:
+        parts.append("starting")
+    else:
+        parts.append(f"best χ² {_format_scalar(event.best_chi_square)}")
+        reduced = event.reduced_chi_square
+        if reduced is not None:
+            parts.append(f"red. χ² {_format_scalar(reduced)}")
+    if update.relative_best_change is not None:
+        parts.append(f"Δχ² {100.0 * update.relative_best_change:+.2f}%")
+    parts.append(f"{event.elapsed_seconds:.1f} s")
+    if event.terminal_status:
+        parts.append(event.terminal_status)
+    return prefix + " · ".join(parts)
+
+
+LOGO = r"""
+   ________                   ______
+  / ____/ /_  ___  ____ ___  / ____/  __
+ / /   / __ \/ _ \/ __ `__ \/ __/ | |/_/
+/ /___/ / / /  __/ / / / / / /____>  <
+\____/_/ /_/\___/_/ /_/ /_/_____/_/|_|
+
+
+"""
+"""ASCII art logo of the ChemEx software."""
+
+
+def print_logo() -> None:
+    """Print the ChemEx software logo with version information."""
+    logo = Text(LOGO, style="blue")
+    description = "Analysis of NMR chemical exchange data\n\n"
+    version = "Version: "
+    version_number = Text(f"{__version__}", style="red")
+    all_text = Text.assemble(logo, description, version, version_number)
+    panel = Panel.fit(all_text)
+    console.print(panel)
+
+
+def print_loading_experiments() -> None:
+    """Display a loading message for datasets."""
+    console.print("\nLoading datasets...", style="bold yellow")
+
+
+def get_reading_exp_text(filename: Path, name: str = "", total_nb: int = 0) -> Text:
+    """Generate a formatted message for reading an experiment file.
+
+    Args:
+        filename (Path): The path of the file being read.
+        name (str, optional): The experiment name. Defaults to an empty string.
+        total_nb (int, optional): The total number of profiles. Defaults to 0.
+
+    Returns:
+        Text: A formatted message indicating the file name, type, and profile count.
+
+    """
+    parts = (
+        "  • Reading ",
+        (f"{filename}", "green"),
+        " (",
+        (f"{name}", "blue"),
+        ")",
+    )
+
+    if total_nb == 0:
+        return Text.assemble(*parts, " ...")
+
+    nb_text = Text(f"{total_nb}", style="bold")
+
+    return Text.assemble(*parts, " -> ", nb_text, " profiles")
+
+
+def print_reading_defaults() -> None:
+    """Print a message indicating the reading of default parameters."""
+    console.print("\nReading default parameters...", style="bold yellow")
+
+
+def print_reading_methods() -> None:
+    """Display a message indicating that methods are being read."""
+    console.print("\nReading methods...", style="bold yellow")
+
+
+def print_method_v1_deprecation_warning() -> None:
+    """Warn that an explicitly supplied method uses the deprecated v1 format."""
+    console.print(
+        "[yellow] -- WARNING: Method format v1 is deprecated and is supported "
+        "only during the frozen compatibility window. V1-only spellings, "
+        'including FITMETHOD and its "least_squares" alias, follow the same '
+        "removal boundary. Use FORMAT_VERSION = 2 for new method files. --"
+    )
+
+
+def print_start_fit() -> None:
+    """Display a message indicating the start of the fitting process."""
+    console.print("\nStarting the fits...", style="bold yellow")
+
+
+def print_running_simulations() -> None:
+    """Display a message indicating that simulations are running."""
+    console.print("\nRunning simulations...", style="bold yellow")
+
+
+def print_step_name(name: str, index: int, total: int) -> None:
+    """Print the name of the current step in the analysis process.
+
+    Args:
+        name (str): Name of the step.
+        index (int): Current step index.
+        total (int): Total number of steps.
+
+    """
+    text = Text.assemble(
+        "Running ",
+        (f"{name}", "magenta"),
+        f" ({index}/{total})\n",
+    )
+    console.print(Padding(Rule(text, end="\n\n"), (1, 0, 0, 1)), width=51)
+
+
+def print_selecting_profiles(selected_nb: int) -> None:
+    """Display a message indicating the number of profiles selected.
+
+    Args:
+        selected_nb (int): The number of selected profiles.
+
+    """
+    console.print(
+        Text.from_markup(f"  • Selecting profiles -> [blue]{selected_nb}[/] profiles"),
+    )
+
+
+def print_no_data() -> None:
+    """Inform the user that no data is available for fitting."""
+    console.print("  • No data to fit")
+
+
+def print_fitmethod(fit_method: str) -> None:
+    """Display the chosen method for fitting.
+
+    Args:
+        fit_method (str): The method being used for fitting.
+
+    """
+    console.print(Text.assemble("  • Fit method -> ", (f"{fit_method}", "blue")))
+
+
+def print_minimizing() -> None:
+    """Display a message indicating that the minimization process is running."""
+    console.print(Text("  • Running the minimization..."))
+
+
+def print_running_grid() -> None:
+    """Inform the user that the grid search is in progress."""
+    console.print(Text("  • Running the grid search..."))
+
+
+def print_running_de() -> None:
+    """Inform the user that selected-coordinate basin search is in progress."""
+    console.print(Text("  • Running selected-coordinate DE search..."))
+
+
+def print_running_statistics(name: str) -> None:
+    """Display a message indicating that statistical simulations are running.
+
+    Args:
+        name (str): The name of the statistical simulation.
+
+    """
+    console.print(Text(f"  • Running {name} simulations..."))
+
+
+def print_section(name: str) -> None:
+    """Print the name of the current section in the analysis process.
+
+    Args:
+        name (str): Name of the section.
+
+    """
+    console.print(Text(f"  • Section {name}"))
+
+
+def print_chi2_table_header() -> None:
+    """Print the header for the chi-squared table."""
+    header = Text(f"{'Evaluation':>10s}  {'χ²':>12s}  {'Reduced χ²':>12s}")
+    console.print()
+    console.print(Padding.indent(header, 5), style="bold")
+    console.print(Padding.indent("─" * 39, 4))
+
+
+def print_chi2_table_line(iteration: int, chisqr: float, redchi: float) -> None:
+    """Print a line in the chi-squared table with evaluation and chi-squared values.
+
+    Args:
+        iteration (int): Objective evaluation number (legacy keyword name).
+        chisqr (float): Chi-squared value.
+        redchi (float): Reduced chi-squared value.
+
+    """
+    line = Text(f"{iteration:>9d}  {chisqr:>12.1f}  {redchi:>12.3f}")
+    console.print(Padding.indent(line, 5))
+
+
+def print_chi2_table_footer(iteration: int, chisqr: float, redchi: float) -> None:
+    """Print the footer for the chi-squared table.
+
+    Args:
+        iteration (int): Objective evaluation number (legacy keyword name).
+        chisqr (float): Chi-squared value.
+        redchi (float): Reduced chi-squared value.
+
+    """
+    footer = Text(f"{iteration:>9d}  {chisqr:>12.1f}  {redchi:>12.3f}")
+    console.print(Padding.indent("─" * 39, 4))
+    console.print(Padding.indent(footer, 5), style="bold")
+    console.print()
+
+
+def print_writing_results(path: Path) -> None:
+    """Inform the user about the location where results are being written.
+
+    Args:
+        path (Path): Path to the file or directory where results are saved.
+
+    """
+    console.print(f"  • Writing results in [green]{path}")
+
+
+def print_making_plots() -> None:
+    """Display a message indicating that plots are being generated."""
+    console.print(Text("  • Making plots..."))
+
+
+def print_plot_filename(filename: Path, *, extra: bool = True) -> None:
+    """Display the filename of the plot being generated.
+
+    Args:
+        filename (Path): The path of the plot file.
+        extra (bool, optional): Indicates if extra information is included.
+                                Defaults to True.
+
+    """
+    text = f"    ‣ [green]{filename}[/]"
+
+    if extra:
+        text += " [[green].fit[/], [green].exp[/]]"
+
+    console.print(Text.from_markup(text))
+
+
+def print_warning_positive_jnh() -> None:
+    """Warn about positive 1J(NH) coupling values."""
+    console.print()
+    console.print(
+        "[yellow] -- WARNING: Some 1J(NH) couplings are set with positive values --",
+    )
+    console.print(
+        "This can cause the TROSY and anti-TROSY components to be switched in some"
+        " experiments.",
+    )
+    console.print()
+
+
+def print_warning_negative_jch() -> None:
+    """Warn about negative 1J(CH) coupling values."""
+    console.print()
+    console.print(
+        "[yellow] -- WARNING: Some 1J(CH) couplings are set with negative values --",
+    )
+    console.print(
+        "This can cause the TROSY and anti-TROSY components to be switched in some"
+        " experiments.",
+    )
+    console.print()
+
+
+def print_mcmc_no_vary_warning() -> None:
+    """Warn that MCMC was requested without fitted parameters."""
+    console.print()
+    console.print(
+        "[yellow] -- WARNING: MCMC was requested, but no parameters are marked "
+        "as fitted. Skipping MCMC.",
+    )
+    console.print()
+
+
+def print_mcmc_unbounded_warning(parameters: list[str]) -> None:
+    """Warn that MCMC was requested with unbounded parameters."""
+    console.print()
+    console.print(
+        "[yellow] -- WARNING: Some fitted parameters do not have finite MCMC bounds.",
+    )
+    console.print(
+        "Uniform priors are inferred from parameter bounds; finite lower and "
+        "upper bounds are recommended for MCMC.",
+    )
+    console.print("Affected parameters:")
+    for parameter in parameters:
+        console.print(f"    - {parameter}")
+    console.print()
+
+
+def print_mcmc_tentative_burn_warning(
+    sampled_steps: int,
+    recommended_min_steps: int | None,
+) -> None:
+    """Warn that automatic MCMC burn and autocorrelation evidence are tentative."""
+    console.print()
+    console.print(
+        "[yellow] -- WARNING: MCMC completed, but the chain is shorter than 50 "
+        "autocorrelation times; automatic burn-in and autocorrelation estimates "
+        "are tentative.",
+        soft_wrap=True,
+    )
+    if recommended_min_steps is not None:
+        console.print(
+            f"    {sampled_steps} sampled steps; at least {recommended_min_steps} "
+            "recommended for 50 autocorrelation times.",
+            soft_wrap=True,
+        )
+    console.print()
+
+
+def print_not_implemented_noise_method_warning(
+    filename: Path,
+    kind: str,
+    implemented: tuple[str, ...],
+) -> None:
+    """Warn about unimplemented noise methods for an experiment.
+
+    Args:
+        filename (Path): Path of the experiment file.
+        kind (str): The kind of noise method that is not implemented.
+        implemented (tuple[str, ...]): Tuple of implemented methods.
+
+    """
+    warning_message = (
+        f"[yellow] -- WARNING: Experiment {filename.name}[/yellow]: "
+        f"The '{kind}' method is not implemented. "
+        f"Please choose one of the following methods: {', '.join(implemented)}. "
+        f"Defaulting to 'file' method."
+    )
+    console.print()
+    console.print(warning_message)
+    console.print()
+
+
+def print_no_duplicate_warning(filename: Path) -> None:
+    """Warn about the absence of duplicate points in some profiles.
+
+    Args:
+        filename (Path): Path of the experiment file.
+
+    """
+    warning_message = (
+        f"[yellow] -- WARNING: Experiment {filename.name}[/yellow]: "
+        f"Some profiles do not have duplicate points. "
+        f"Uncertainties cannot be estimated and will be directly taken from the files. "
+        f"Defaulting to 'file' method."
+    )
+    console.print()
+    console.print(warning_message)
+    console.print()
+
+
+FITMETHOD_ERROR_MESSAGE = """\
+  - "FITMETHOD" is deprecated v1-only syntax and supports only "trf".
+    "least_squares" remains an alias only during the v1 compatibility window.
+    Canonical v2 omits FITMETHOD because TRF is implicit.
+    Historical optimizer names, including "leastsq" and
+    "differential_evolution", are not supported."""
+
+INCLUDE_ERROR_MESSAGE = """\
+  - "INCLUDE" must be a list of nuclei to be included or '*' to select all the profiles.
+    Example: ['G3H', 'S4H', 'W5H'] or [3, 4, 5]"""
+
+EXCLUDE_ERROR_MESSAGE = """\
+  - "EXCLUDE" must be a list of nuclei to be excluded.
+
+    Example: ['G3H', 'S4H', 'W5H'] or [3, 4, 5]"""
+
+FIT_ERROR_MESSAGE = """\
+  - "FIT" must be a list of parameters to be fitted.
+
+    Example: ["PB", "KEX_AB"]"""
+
+FIX_ERROR_MESSAGE = """\
+  - "FIX" must be a list of parameters to be fixed.
+
+    Example: ["PB", "KEX_AB"]"""
+
+CONSTRAINTS_ERROR_MESSAGE = """\
+  - "CONSTRAINTS" must be a list of expressions.
+
+    Example: ["[R2_B] = [R2_A] / 2", "[R1_B] = [R1_A]"]"""
+
+GRID_ERROR_MESSAGE = """\
+  - "GRID" must be a list of parameters to be gridded with the associated grid
+    definition.
+
+    Example: GRID    = [
+        "[KEX_AB] = log(100.0, 600.0, 10)",
+        "[PB] = log(0.03, 0.15, 10)",
+        "[DW_AB] = lin(0.0, 10.0, 5)",
+    ]"""
+
+STATISTICS_ERROR_MESSAGE = """\
+  - "STATISTICS" must be a dictionary with keys 'MC', 'BS', 'BSN', 'MCMC'
+
+    Example: { "MC"=10 }, { "MCMC"=5000 }, or { "MC"=10, "BS"=10 }"""
+
+METHOD_ERROR_MESSAGES = {
+    "fitmethod": FITMETHOD_ERROR_MESSAGE,
+    "include": INCLUDE_ERROR_MESSAGE,
+    "exclude": EXCLUDE_ERROR_MESSAGE,
+    "fit": FIT_ERROR_MESSAGE,
+    "fix": FIX_ERROR_MESSAGE,
+    "constraints": CONSTRAINTS_ERROR_MESSAGE,
+    "grid": GRID_ERROR_MESSAGE,
+    "statistics": STATISTICS_ERROR_MESSAGE,
+}
+
+
+def print_wrong_option(option: str) -> str:
+    """Display a message for an invalid option in configuration files.
+
+    Args:
+        option (str): The option that is invalid or incorrectly formatted.
+
+    Returns:
+        str: A message indicating the error with the specific option.
+
+    """
+    return (
+        f"\n  - '{option.upper()}' is not a valid option.\n"
+        "\nPlease check the website "
+        "[link]"
+        "https://gbouvignies.github.io/ChemEx/docs/user_guide/fitting/method_files"
+        "[/] "
+        "for a complete list of valid options."
+    )

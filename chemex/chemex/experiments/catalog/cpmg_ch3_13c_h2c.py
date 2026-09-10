@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+from typing import Literal
+
+import numpy as np
+from numpy.linalg import matrix_power
+from pydantic import Field, computed_field
+
+from chemex.configuration.base import ExperimentConfiguration, ToBeFitted
+from chemex.configuration.conditions import ConditionsWithValidations
+from chemex.configuration.data import RelaxationDataSettings
+from chemex.configuration.experiment import CpmgSettingsEvenNcycs
+from chemex.configuration.types import Delay, Frequency, PulseWidth
+from chemex.containers.data import Data
+from chemex.experiments.experiment_types import (
+    ProfileCalculation,
+    cpmg_type,
+    register_experiment_type,
+)
+from chemex.nmr.basis import Basis
+from chemex.nmr.spectrometer import Spectrometer
+from chemex.parameters.spin_system import SpinSystem
+from chemex.typing import Array
+
+EXPERIMENT_NAME = "cpmg_ch3_13c_h2c"
+
+
+class CpmgCh313CH2cSettings(CpmgSettingsEvenNcycs):
+    """Settings for CH3 13C H2C CPMG relaxation dispersion experiment."""
+
+    name: Literal["cpmg_ch3_13c_h2c"]
+    time_t2: Delay = Field(description="Total CPMG relaxation delay in seconds")
+    carrier: Frequency = Field(description="13C carrier position in Hz")
+    pw90: PulseWidth = Field(description="90-degree pulse width in seconds")
+    taub: float = 2.0e-3
+    time_equil: Delay = 0.0
+
+    @computed_field
+    @property
+    def t_neg(self) -> float:
+        """Negative time delay for CPMG element."""
+        return -2.0 * self.pw90 / np.pi
+
+    @computed_field
+    @property
+    def start_terms(self) -> list[str]:
+        """Starting magnetization terms (anti-phase)."""
+        return self.get_start_terms("2izsz")
+
+    @computed_field
+    @property
+    def detection(self) -> str:
+        """Detection operator (in-phase)."""
+        return self.get_detection_expression("[iz]")
+
+
+class CpmgCh313CH2cConfig(
+    ExperimentConfiguration[
+        CpmgCh313CH2cSettings,
+        ConditionsWithValidations,
+        RelaxationDataSettings,
+    ],
+):
+    @property
+    def to_be_fitted(self) -> ToBeFitted:
+        state = self.experiment.primary_state
+        return ToBeFitted(rates=[f"r2_i_{state}"], model_free=[f"tauc_{state}"])
+
+
+def build_spectrometer(
+    config: CpmgCh313CH2cConfig,
+    spin_system: SpinSystem,
+) -> Spectrometer:
+    settings = config.experiment
+    conditions = config.conditions
+
+    basis = Basis(type="ixyzsz", spin_system="ch", model=config.model)
+    spectrometer = Spectrometer.from_spin_system(spin_system, basis, conditions)
+
+    spectrometer.carrier_i = settings.carrier
+    spectrometer.b1_i = 1 / (4.0 * settings.pw90)
+    spectrometer.detection = settings.detection
+
+    return spectrometer
+
+
+class CpmgCh313CH2cSequence:
+    """Sequence for CH3 13C H2C CPMG relaxation dispersion experiment."""
+
+    def __init__(self, settings: CpmgCh313CH2cSettings) -> None:
+        self.settings = settings
+
+    def _get_delays(self, ncycs: Array) -> tuple[dict[float, float], list[float]]:
+        ncycs_no_ref = ncycs[ncycs > 0]
+        tau_cps = {
+            ncyc: self.settings.time_t2 / (4.0 * ncyc) - self.settings.pw90
+            for ncyc in ncycs_no_ref
+        }
+        delays = [
+            self.settings.t_neg,
+            self.settings.taub,
+            self.settings.time_equil,
+            *tau_cps.values(),
+        ]
+        return tau_cps, delays
+
+    def calculate(self, spectrometer: Spectrometer, data: Data) -> Array:
+        ncycs = data.metadata
+
+        # Calculation of the spectrometers corresponding to all the delays
+        tau_cps, all_delays = self._get_delays(ncycs)
+        delays = dict(zip(all_delays, spectrometer.delays(all_delays), strict=True))
+        d_neg = delays[self.settings.t_neg]
+        d_eq = delays[self.settings.time_equil]
+        d_taub = delays[self.settings.taub]
+        d_cp = {ncyc: delays[delay] for ncyc, delay in tau_cps.items()}
+
+        # Calculation of the spectrometers corresponding to all the pulses
+        p90 = spectrometer.p90_i
+        p180 = spectrometer.p180_i
+        p180_sx = spectrometer.perfect180_s[0]
+
+        # Getting the starting magnetization
+        start = spectrometer.get_start_magnetization(terms=self.settings.start_terms)
+
+        # Calculating the p-element
+        palmer = d_taub @ p90[0] @ p180_sx @ p90[0] @ d_taub
+
+        # Calculating the instensities as a function of ncyc
+        intensities = {
+            0.0: spectrometer.detect(d_eq @ p90[1] @ palmer @ p90[0] @ start),
+        }
+        part1 = d_neg @ p90[0] @ start
+        part2 = d_eq @ p90[1] @ d_neg
+        for ncyc in set(ncycs) - {0.0}:
+            echo = d_cp[ncyc] @ p180[[1, 0]] @ d_cp[ncyc]
+            cpmg1, cpmg2 = matrix_power(echo, int(ncyc))
+            end = part2 @ cpmg2 @ palmer @ cpmg1 @ part1
+            intensities[ncyc] = spectrometer.detect(end)
+
+        # Return profile
+        return np.array([intensities[ncyc] for ncyc in ncycs])
+
+    @staticmethod
+    def is_reference(metadata: Array) -> Array:
+        return metadata == 0
+
+
+def create_profile_calculation(
+    config: CpmgCh313CH2cConfig,
+    spin_system: SpinSystem,
+) -> ProfileCalculation:
+    return ProfileCalculation(
+        spectrometer=build_spectrometer(config, spin_system),
+        pulse_sequence=CpmgCh313CH2cSequence(config.experiment),
+    )
+
+
+EXPERIMENT_TYPE = cpmg_type(
+    name=EXPERIMENT_NAME,
+    config_type=CpmgCh313CH2cConfig,
+)(create_profile_calculation)
+
+
+def register() -> None:
+    register_experiment_type(EXPERIMENT_TYPE)

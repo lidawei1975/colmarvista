@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+from typing import Literal
+
+import numpy as np
+from numpy.linalg import matrix_power
+from pydantic import Field, computed_field
+
+from chemex.configuration.base import ExperimentConfiguration, ToBeFitted
+from chemex.configuration.conditions import ConditionsWithValidations
+from chemex.configuration.data import CestDataSettings
+from chemex.configuration.experiment import B1InhomogeneityMixin, MFCestSettings
+from chemex.configuration.types import Delay, Frequency
+from chemex.containers.data import Data
+from chemex.experiments.experiment_types import (
+    ProfileCalculation,
+    cest_type,
+    register_experiment_type,
+)
+from chemex.nmr.basis import Basis
+from chemex.nmr.constants import get_multiplet
+from chemex.nmr.spectrometer import Spectrometer
+from chemex.parameters.spin_system import SpinSystem
+from chemex.typing import Array
+
+EXPERIMENT_NAME = "coscest_13c"
+
+OFFSET_REF = 1e4
+
+
+class CosCest13CSettings(MFCestSettings, B1InhomogeneityMixin):
+    """Settings for cosine-modulated 13C CEST experiment."""
+
+    name: Literal["coscest_13c"]
+    time_t1: float = Field(description="Length of the CEST block in seconds")
+    time_equil: Delay = 0.0
+    carrier: Frequency = Field(description="13C carrier position in Hz")
+    cos_n: int = Field(description="Number of cosine cycles")
+    cos_res: int = 10
+
+    @computed_field
+    @property
+    def start_terms(self) -> list[str]:
+        """Starting magnetization terms for the experiment."""
+        return self.get_start_terms("iz")
+
+    @computed_field
+    @property
+    def detection(self) -> str:
+        """Detection operator for the experiment."""
+        return self.get_detection_expression("[iz]")
+
+
+class CosCest13CConfig(
+    ExperimentConfiguration[
+        CosCest13CSettings, ConditionsWithValidations, CestDataSettings
+    ],
+):
+    @property
+    def to_be_fitted(self) -> ToBeFitted:
+        state = self.experiment.primary_state
+        return ToBeFitted(
+            rates=["r2_i", f"r1_i_{state}"],
+            model_free=[f"tauc_{state}", f"s2_{state}"],
+        )
+
+
+def build_spectrometer(
+    config: CosCest13CConfig,
+    spin_system: SpinSystem,
+) -> Spectrometer:
+    settings = config.experiment
+    conditions = config.conditions
+
+    basis = Basis(type="ixyz", spin_system="ch", model=config.model)
+    spectrometer = Spectrometer.from_spin_system(spin_system, basis, conditions)
+
+    spectrometer.carrier_i = settings.carrier
+
+    spectrometer.set_b1_i_inhomogeneity(
+        settings.get_b1_nominal(),
+        settings.b1_distribution,
+    )
+
+    spectrometer.detection = settings.detection
+
+    if "13c" in conditions.label:
+        symbol = spin_system.symbols["i"]
+        atom = spin_system.atoms["i"]
+        spectrometer.jeff_i = get_multiplet(symbol, atom.name)
+
+    return spectrometer
+
+
+class CosCest13CSequence:
+    """Sequence for cosine-modulated 13C CEST experiment."""
+
+    def __init__(self, settings: CosCest13CSettings) -> None:
+        self.settings = settings
+
+    @staticmethod
+    def is_reference(metadata: Array) -> Array:
+        return np.abs(metadata) > OFFSET_REF
+
+    def _calc_cosine_shape(self, spectrometer: Spectrometer) -> Array:
+        time_t1 = self.settings.time_t1
+        sw = self.settings.sw
+        cos_n = self.settings.cos_n
+        cos_res = self.settings.cos_res
+
+        dt = 1.0 / (cos_res * sw)
+        n_periods = int(time_t1 * sw)
+        n_left = int((time_t1 * sw - n_periods) * cos_res)
+        double_periods = n_periods // 2
+        extra_period = n_periods % 2
+        phase1 = 2 if cos_n % 2 == 0 else 0
+        phase_left = 0 if extra_period else phase1
+
+        grid = np.linspace(-np.pi, np.pi, cos_res, endpoint=False)
+
+        n_values = (np.arange(cos_n) - 0.5 * (cos_n - 1)).reshape(-1, 1)
+        amplitudes = np.cos(n_values * grid).sum(axis=0)
+        phases = np.zeros(cos_res)
+
+        base_pulse = spectrometer.shaped_pulse_i(cos_res * dt, amplitudes, phases)
+
+        pulse = matrix_power(base_pulse[0] @ base_pulse[phase1], double_periods)
+
+        if extra_period:
+            pulse = base_pulse[phase1] @ pulse
+
+        if n_left:
+            pulse_left = spectrometer.shaped_pulse_i(
+                n_left * dt,
+                amplitudes[:n_left],
+                phases[:n_left],
+            )
+            pulse = pulse_left[phase_left] @ pulse
+
+        return pulse
+
+    def calculate(self, spectrometer: Spectrometer, data: Data) -> Array:
+        offsets = data.metadata
+
+        start = spectrometer.get_equilibrium()
+
+        d_eq = (
+            spectrometer.delays(self.settings.time_equil)
+            if self.settings.time_equil > 0
+            else spectrometer.identity
+        )
+
+        intensities: dict[float, Array] = {}
+
+        for offset in set(offsets):
+            if self.is_reference(offset):
+                intensities[offset] = d_eq @ start
+                continue
+
+            spectrometer.offset_i = offset
+
+            intensities[offset] = d_eq @ self._calc_cosine_shape(spectrometer) @ start
+
+        return np.array(
+            [spectrometer.detect(intensities[offset]) for offset in offsets],
+        )
+
+
+def create_profile_calculation(
+    config: CosCest13CConfig,
+    spin_system: SpinSystem,
+) -> ProfileCalculation:
+    return ProfileCalculation(
+        spectrometer=build_spectrometer(config, spin_system),
+        pulse_sequence=CosCest13CSequence(config.experiment),
+    )
+
+
+EXPERIMENT_TYPE = cest_type(
+    name=EXPERIMENT_NAME,
+    config_type=CosCest13CConfig,
+)(create_profile_calculation)
+
+
+def register() -> None:
+    register_experiment_type(EXPERIMENT_TYPE)

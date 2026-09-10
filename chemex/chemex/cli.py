@@ -1,0 +1,298 @@
+"""The parsing module contains the code for the parsing of command-line arguments."""
+
+from argparse import SUPPRESS, ArgumentParser, ArgumentTypeError
+from pathlib import Path
+
+from chemex import __version__
+from chemex.parameters.spin_system import SpinSystem
+from chemex.runtime.execution import ExecutionCount
+from chemex.tools.pick_cest import pick_cest
+from chemex.tools.plot_param import plot_param
+
+
+def _execution_count(value: str) -> ExecutionCount:
+    if value.lower() == "auto":
+        return "auto"
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        msg = "must be 'auto' or a non-negative integer"
+        raise ArgumentTypeError(msg) from error
+    if parsed < 0:
+        msg = "must be 'auto' or a non-negative integer"
+        raise ArgumentTypeError(msg)
+    return parsed
+
+
+def _add_debug_argument(
+    parser: ArgumentParser,
+    *,
+    inherit_default: bool = False,
+) -> None:
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=SUPPRESS if inherit_default else False,
+        help="Show tracebacks and chained causes for unexpected internal errors",
+    )
+
+
+def _add_fit_execution_arguments(parser: ArgumentParser) -> None:
+    parser.add_argument(
+        "--workers",
+        type=_execution_count,
+        metavar="N|auto",
+        default="auto",
+        help=(
+            "Number of ChemEx worker processes for fit statistics; "
+            "'auto' chooses a conservative CPU count and 0 uses all available "
+            "CPUs (default: auto)"
+        ),
+    )
+
+    parser.add_argument(
+        "--native-threads",
+        type=_execution_count,
+        metavar="N|auto",
+        default="auto",
+        help=(
+            "Advanced: native BLAS/OpenMP threads per worker; 'auto' uses "
+            "one native thread for parallel worker pools and leaves serial "
+            "runs unmanaged (default: auto)"
+        ),
+    )
+
+
+def build_parser() -> ArgumentParser:
+    """Parse the command-line arguments."""
+    description = (
+        "ChemEx is an analysis program for chemical exchange detected by "
+        "NMR. It is designed to take almost any kind of NMR data to aid the "
+        "analysis, but the principle techniques are CPMG relaxation "
+        "dispersion and Chemical Exchange Saturation Transfer."
+    )
+
+    parser = ArgumentParser(description=description, prog="chemex")
+
+    _add_debug_argument(parser)
+
+    parser.set_defaults(func=lambda _: parser.print_usage())
+    parser.set_defaults(analysis_command=False)
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{parser.prog} {__version__}",
+    )
+
+    subparsers = parser.add_subparsers(dest="commands")
+
+    # parser for the positional argument "fit"
+    fit_parser = subparsers.add_parser("fit", help="Start a fit")
+
+    _add_debug_argument(fit_parser, inherit_default=True)
+
+    fit_parser.set_defaults(analysis_command=True)
+
+    fit_parser.add_argument(
+        "-e",
+        "--experiments",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file(s) containing experimental setup and data location",
+    )
+
+    fit_parser.add_argument(
+        "-p",
+        "--parameters",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file(s) containing the initial values of fitting parameters",
+    )
+
+    fit_parser.add_argument(
+        "-m",
+        "--method",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        help="Input file(s) containing the fitting method",
+    )
+
+    fit_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="DIR",
+        default="./Output",
+        help="Directory for output files (default: './Output')",
+    )
+
+    fit_parser.add_argument(
+        "-d",
+        "--model",
+        metavar="MODEL",
+        default="2st",
+        help="Exchange model used to fit the data (default: '2st')",
+    )
+
+    fit_parser.add_argument(
+        "--plot",
+        type=str,
+        choices=["nothing", "normal", "all"],
+        default="normal",
+        help="Plotting level (default: 'normal')",
+    )
+
+    fit_parser.add_argument(
+        "--include",
+        dest="include",
+        metavar="ID",
+        nargs="+",
+        help="Residue(s) to include in the fit",
+        type=SpinSystem.from_name,
+    )
+
+    fit_parser.add_argument(
+        "--exclude",
+        dest="exclude",
+        metavar="ID",
+        nargs="+",
+        help="Residue(s) to exclude from the fit",
+        type=SpinSystem.from_name,
+    )
+
+    _add_fit_execution_arguments(fit_parser)
+
+    # parser for the positional argument "simulate"
+    simulate_parser = subparsers.add_parser("simulate", help="Start a simulation")
+
+    _add_debug_argument(simulate_parser, inherit_default=True)
+
+    simulate_parser.set_defaults(analysis_command=True)
+
+    simulate_parser.add_argument(
+        "-e",
+        "--experiments",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file(s) containing experimental setup and data location",
+    )
+
+    simulate_parser.add_argument(
+        "-p",
+        "--parameters",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file(s) containing the values of parameters",
+    )
+
+    simulate_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="DIR",
+        default="./OutputSim",
+        help="Directory for output files (default: './OutputSim')",
+    )
+
+    simulate_parser.add_argument(
+        "-d",
+        "--model",
+        metavar="MODEL",
+        default="2st",
+        help="Exchange model used to simulate the data (default: '2st')",
+    )
+
+    simulate_parser.add_argument(
+        "--plot",
+        type=str,
+        choices=["nothing", "normal"],
+        default="normal",
+        help="Plotting level (default: 'normal')",
+    )
+
+    simulate_parser.add_argument(
+        "--include",
+        dest="include",
+        metavar="ID",
+        nargs="+",
+        help="Residue(s) to include in the simulation",
+        type=SpinSystem.from_name,
+    )
+
+    simulate_parser.add_argument(
+        "--exclude",
+        dest="exclude",
+        metavar="ID",
+        nargs="+",
+        help="Residue(s) to exclude from the simulation",
+        type=SpinSystem.from_name,
+    )
+
+    # parser for the positional argument "pick_cest"
+    pick_cest_parser = subparsers.add_parser(
+        "pick_cest",
+        help="Plot CEST profiles for dip picking",
+    )
+
+    _add_debug_argument(pick_cest_parser, inherit_default=True)
+
+    pick_cest_parser.set_defaults(func=pick_cest)
+
+    pick_cest_parser.add_argument(
+        "-e",
+        "--experiments",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file(s) containing experimental setup and data location",
+    )
+
+    pick_cest_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="DIR",
+        default="./Sandbox",
+        help="Directory for output files (default: './Sandbox')",
+    )
+
+    # parser for the positional argument "pick_cest"
+    plot_param_parser = subparsers.add_parser(
+        "plot_param",
+        help="Plot one selected parameter from a 'Parameters/fitted.toml' file",
+    )
+
+    _add_debug_argument(plot_param_parser, inherit_default=True)
+
+    plot_param_parser.set_defaults(func=plot_param)
+
+    plot_param_parser.add_argument(
+        "-p",
+        "--parameters",
+        type=Path,
+        metavar="FILE",
+        nargs="+",
+        required=True,
+        help="Input file containing the fitted parameters to be plotted",
+    )
+
+    plot_param_parser.add_argument(
+        "-n",
+        "--parname",
+        metavar="NAME",
+        required=True,
+        help="Name of the parameter to plot",
+    )
+
+    return parser
