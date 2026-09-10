@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+from functools import reduce
+from typing import Literal
+
+import numpy as np
+from pydantic import Field, computed_field
+
+from chemex.configuration.base import ExperimentConfiguration, ToBeFitted
+from chemex.configuration.conditions import ConditionsWithValidations
+from chemex.configuration.data import RelaxationDataSettings
+from chemex.configuration.experiment import CpmgSettings
+from chemex.configuration.types import Delay, Frequency, PulseWidth
+from chemex.containers.data import Data
+from chemex.containers.dataset import load_relaxation_dataset
+from chemex.experiments.factories import Creators, factories
+from chemex.filterers import PlanesFilterer
+from chemex.nmr.basis import Basis
+from chemex.nmr.liouvillian import LiouvillianIS
+from chemex.nmr.spectrometer import Spectrometer
+from chemex.parameters.spin_system import SpinSystem
+from chemex.plotters.cpmg import CpmgPlotter
+from chemex.printers.data import CpmgPrinter
+from chemex.typing import Array
+
+EXPERIMENT_NAME = "cpmg_ch3_1h_sq"
+
+
+class CpmgCh31HSqSettings(CpmgSettings):
+    """Settings for CH3 1H single-quantum CPMG relaxation dispersion experiment."""
+
+    name: Literal["cpmg_ch3_1h_sq"]
+    time_t2: Delay = Field(description="Total CPMG relaxation delay in seconds")
+    carrier: Frequency = Field(description="1H carrier position in Hz")
+    pw90: PulseWidth = Field(description="90-degree pulse width in seconds")
+    ncyc_max: int = Field(description="Maximum number of CPMG cycles")
+    taua: float = 2.0e-3
+    comp180_flg: bool = True
+    ipap_flg: bool = False
+    cs_evolution_prior: bool = True
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def start_terms(self) -> list[str]:
+        """Starting magnetization terms (transverse components)."""
+        return [f"2ixsz{self.suffix_start}", f"2iysz{self.suffix_start}"]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def detection(self) -> str:
+        """Detection operator."""
+        return f"[iy{self.suffix_detect}]"
+
+
+class CpmgCh31HSqConfig(
+    ExperimentConfiguration[
+        CpmgCh31HSqSettings,
+        ConditionsWithValidations,
+        RelaxationDataSettings,
+    ],
+):
+    @property
+    def to_be_fitted(self) -> ToBeFitted:
+        state = self.experiment.observed_state
+
+        to_be_fitted = ToBeFitted(rates=[f"r2_i_{state}"], model_free=[f"tauc_{state}"])
+
+        if self.experiment.ipap_flg:
+            to_be_fitted.rates.append(f"r2a_i_{state}")
+            to_be_fitted.model_free.append(f"s2_{state}")
+
+        return to_be_fitted
+
+
+def build_spectrometer(
+    config: CpmgCh31HSqConfig,
+    spin_system: SpinSystem,
+) -> Spectrometer:
+    settings = config.experiment
+    conditions = config.conditions
+
+    basis = Basis(type="ixyzsz", spin_system="hc")
+    liouvillian = LiouvillianIS(spin_system, basis, conditions)
+    spectrometer = Spectrometer(liouvillian)
+
+    spectrometer.carrier_i = settings.carrier
+    spectrometer.b1_i = 1 / (4.0 * settings.pw90)
+    spectrometer.detection = settings.detection
+
+    return spectrometer
+
+
+class CpmgCh31HSqSequence:
+    """Sequence for CH3 1H single-quantum CPMG relaxation dispersion experiment."""
+
+    def __init__(self, settings: CpmgCh31HSqSettings) -> None:
+        self.settings = settings
+        self._phase_cache: tuple[Array, Array] | None = None
+
+    def _get_delays(self, ncycs: Array) -> tuple[dict[float, float], list[float]]:
+        frac = 7.0 / 3.0 if self.settings.comp180_flg else 1.0
+        ncyc_no_ref = ncycs[ncycs > 0]
+        tau_cps = {
+            ncyc: (
+                self.settings.time_t2
+                - frac * self.settings.pw90 * 4.0 * self.settings.ncyc_max
+            )
+            / (4.0 * ncyc)
+            for ncyc in ncyc_no_ref
+        }
+        delays = [self.settings.taua, *tau_cps.values()]
+        return tau_cps, delays
+
+    def _get_phases(self) -> tuple[Array, Array]:
+        if self._phase_cache is None:
+            cp_phases1 = np.array([[0, 1], [1, 0]])
+            cp_phases2 = np.array([[0, 3], [3, 0]])
+            indexes = np.arange(int(self.settings.ncyc_max))
+            phases1 = np.take(cp_phases1, np.flip(indexes), mode="wrap", axis=1)
+            phases2 = np.take(cp_phases2, indexes, mode="wrap", axis=1)
+            self._phase_cache = (phases1, phases2)
+        return self._phase_cache
+
+    def calculate(self, spectrometer: Spectrometer, data: Data) -> Array:
+        ncycs = data.metadata
+
+        # Calculation of the spectrometers corresponding to all the delays
+        tau_cps, all_delays = self._get_delays(ncycs)
+        delays = dict(zip(all_delays, spectrometer.delays(all_delays), strict=True))
+        d_cp = {ncyc: delays[delay] for ncyc, delay in tau_cps.items()}
+        d_taua = delays[self.settings.taua]
+
+        # Calculation of the spectrometers corresponding to all the pulses
+        perfect180y = spectrometer.perfect180_i[1]
+        p180 = spectrometer.p180_i
+        p180c_py = spectrometer.p9018090_i_1[1]
+        p180c_my = spectrometer.p9018090_i_2[3]
+        p180pmy = 0.5 * (p180[1] + p180[3])  # +/- phase cycling
+        if self.settings.comp180_flg:
+            p180_cp1 = spectrometer.p9024090_i_1
+            p180_cp2 = spectrometer.p9024090_i_2
+        else:
+            p180_cp1 = p180_cp2 = p180
+
+        # Getting the starting magnetization
+        start = spectrometer.get_start_magnetization(terms=["iy"])
+        start = perfect180y @ d_taua @ d_taua @ start
+        start = spectrometer.keep(start, self.settings.start_terms)
+
+        # Calculating the intensities as a function of ncyc
+        if self.settings.ipap_flg:
+            intensities = {
+                0.0: spectrometer.detect(
+                    d_taua @ (p180pmy @ p180c_py + p180c_my @ p180pmy) @ d_taua @ start,
+                ),
+            }
+        else:
+            intensities = {
+                0.0: spectrometer.detect(d_taua @ d_taua @ p180pmy @ p180c_py @ start),
+            }
+
+        phases1, phases2 = self._get_phases()
+        for ncyc in set(ncycs) - {0.0}:
+            phases1_1 = phases1.T[-int(ncyc) :]
+            phases1_2 = phases1.T[: -int(ncyc)]
+            phases2_1 = phases2.T[: int(ncyc)]
+            phases2_2 = phases2.T[int(ncyc) :]
+            echo1 = d_cp[ncyc] @ p180_cp1 @ d_cp[ncyc]
+            echo2 = d_cp[ncyc] @ p180_cp2 @ d_cp[ncyc]
+            cpmg1 = reduce(np.matmul, echo1[phases1_1])
+            cpmg2 = reduce(np.matmul, echo2[phases2_1])
+            if ncyc < self.settings.ncyc_max:
+                cpmg1 = reduce(np.matmul, p180_cp1[phases1_2]) @ cpmg1
+                cpmg2 = cpmg2 @ reduce(np.matmul, p180_cp2[phases2_2])
+            centre = cpmg2 @ p180pmy @ cpmg1
+            if self.settings.ipap_flg:
+                intensities[ncyc] = spectrometer.detect(
+                    d_taua @ (centre @ p180c_py + p180c_my @ centre) @ d_taua @ start,
+                )
+            else:
+                intensities[ncyc] = spectrometer.detect(
+                    d_taua @ d_taua @ centre @ p180c_py @ start,
+                )
+
+        # Return profile
+        return np.array([intensities[ncyc] for ncyc in ncycs])
+
+    @staticmethod
+    def is_reference(metadata: Array) -> Array:
+        return metadata == 0
+
+
+def register() -> None:
+    creators = Creators(
+        config_creator=CpmgCh31HSqConfig,
+        spectrometer_creator=build_spectrometer,
+        sequence_creator=CpmgCh31HSqSequence,
+        dataset_creator=load_relaxation_dataset,
+        filterer_creator=PlanesFilterer,
+        printer_creator=CpmgPrinter,
+        plotter_creator=CpmgPlotter,
+    )
+    factories.register(name=EXPERIMENT_NAME, creators=creators)

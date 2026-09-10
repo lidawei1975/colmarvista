@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pyodide & NumPy Test - Mean & Std Calculator</title>
-  <!-- Pyodide CDN -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+  <!-- Pyodide CDN (v0.28.0 with Python 3.13 support) -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js"></script>
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -308,82 +308,94 @@
     <div id="navbar-placeholder"></div>
 
     <header>
-      <h1>Pyodide & NumPy Virtual Filesystem Test</h1>
-      <p class="subtitle">JavaScript writes input to virtual filesystem (MEMFS) &rarr; Python reads the file to compute NumPy statistics</p>
+      <h1>ChemEx &amp; CEST_15N In-Browser Test</h1>
+      <p class="subtitle">Run ChemEx in Pyodide WebAssembly with virtual filesystem (MEMFS) on the CEST 15N dataset</p>
     </header>
 
     <!-- Status Banner -->
     <div id="statusBar" class="status-bar loading">
       <div id="statusSpinner" class="spinner"></div>
-      <span id="statusText">Initializing Pyodide runtime and loading NumPy...</span>
+      <span id="statusText">Initializing Pyodide runtime and loading ChemEx...</span>
     </div>
 
-    <!-- Input Section -->
+    <!-- Card 1: Virtual Filesystem Setup -->
     <div class="card">
-      <h2>📊 Input Data</h2>
-      <div class="form-group">
-        <label for="dataInput">Enter numbers (written by JS to virtual file <code>input_data.txt</code> via <code>pyodide.FS.writeFile</code>):</label>
-        <textarea id="dataInput" placeholder="e.g. 12.3, 45.6, 78.9, 23.1, 56.4">24.5, 31.2, 19.8, 45.0, 28.7, 33.4, 21.9, 39.5, 27.1, 35.8</textarea>
+      <h2>📁 Virtual Filesystem: CEST_15N Dataset</h2>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
+        The example dataset from <code>chemex/CEST_15N/</code> (Experiments, Parameters, 13Hz/26Hz Data) is loaded into Pyodide's virtual filesystem (MEMFS).
+      </p>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+        <div id="fsStatusBadge" class="status-bar loading" style="margin: 0; padding: 6px 14px; font-size: 0.85rem;">
+          Writing dataset to MEMFS...
+        </div>
+        <button id="btnWriteFs" class="btn-secondary" disabled style="padding: 6px 14px; font-size: 0.85rem;">
+          🔄 Re-sync Files to MEMFS
+        </button>
+      </div>
+
+      <div id="virtualFilesList" style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; max-height: 140px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.82rem;">
+        Loading file list...
+      </div>
+    </div>
+
+    <!-- Card 2: ChemEx Run Controls -->
+    <div class="card">
+      <h2>⚡ ChemEx Execution (<a href="chemex/CEST_15N/run.sh" target="_blank" style="color: var(--primary); text-decoration: none;">run.sh</a> / <a href="chemex/CEST_15N/simulate.sh" target="_blank" style="color: var(--primary); text-decoration: none;">simulate.sh</a>)</h2>
+      
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 6px;">
+        Equivalent CLI command executing in the virtual filesystem:
+      </p>
+      <pre style="margin-top: 0; margin-bottom: 16px; padding: 12px;"><code id="commandDisplay">chemex fit -e Experiments/*.toml -p Parameters/parameters.toml -o Output</code></pre>
+
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+        <label for="residueSelect" style="font-size: 0.9rem; margin: 0; font-weight: 600;">Residue Filter:</label>
+        <select id="residueSelect" style="padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.9rem; background: #ffffff;">
+          <option value="13N" selected>13N (Fast browser test: single residue)</option>
+          <option value="26N">26N</option>
+          <option value="28N">28N</option>
+          <option value="29N">29N</option>
+          <option value="33N">33N</option>
+          <option value="ALL">ALL (Full fit: all 16 residues - may take 2-3 mins)</option>
+        </select>
       </div>
 
       <div class="btn-group">
-        <button id="calcBtn" class="btn-primary" disabled>
-          ▶ Calculate Mean & Std with NumPy
+        <button id="btnRunFit" class="btn-primary" disabled>
+          ▶ Run ChemEx Fit (run.sh)
         </button>
-        <button id="genRandomBtn" class="btn-secondary">
-          🎲 Generate Random Data
-        </button>
-        <button id="clearBtn" class="btn-secondary">
-          Clear
+        <button id="btnRunSim" class="btn-secondary" disabled>
+          ▶ Run ChemEx Simulate (simulate.sh)
         </button>
       </div>
 
-      <div id="errorAlert" class="alert alert-error"></div>
+      <div id="errorAlert" class="alert alert-error" style="margin-top: 14px;"></div>
     </div>
 
-    <!-- Results Section -->
-    <div class="card" id="resultsCard" style="display: none;">
-      <h2>📈 Results from NumPy <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted); margin-left: auto;">(Read from virtual file: <code>input_data.txt</code>)</span></h2>
-      <div class="results-grid">
-        <div class="result-item">
-          <div class="result-label">Mean (&mu;)</div>
-          <div id="valMean" class="result-val highlight">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Std Dev (&sigma;)</div>
-          <div id="valStd" class="result-val highlight">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Count (N)</div>
-          <div id="valCount" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Variance (&sigma;&sup2;)</div>
-          <div id="valVar" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Min</div>
-          <div id="valMin" class="result-val">-</div>
-        </div>
-        <div class="result-item">
-          <div class="result-label">Max</div>
-          <div id="valMax" class="result-val">-</div>
-        </div>
-      </div>
-
-      <div style="margin-top: 20px;">
-        <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Python stdout Console:</label>
-        <pre style="margin-top: 4px; padding: 12px; font-size: 0.85rem;"><code id="pythonStdout">Ready.</code></pre>
-      </div>
-    </div>
-
-    <!-- Python Script Details -->
-    <div class="card">
-      <h2>🐍 Python Script (<a href="calculate_stats.py" target="_blank" style="color: var(--primary); text-decoration: none;">calculate_stats.py</a>)</h2>
-      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px;">
-        Separated into <a href="calculate_stats.py" target="_blank"><code>calculate_stats.py</code></a>. JavaScript writes input text to <code>input_data.txt</code> in MEMFS via <code>pyodide.FS.writeFile()</code>, then loads and executes the module:
+    <!-- Card 3: Output Files from Virtual Filesystem -->
+    <div class="card" id="outputFilesCard" style="display: none;">
+      <h2>📄 Output Files Generated in Virtual Filesystem</h2>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
+        Click any generated file to inspect its content in the viewer below:
       </p>
-      <pre><code id="pythonScriptPreview"># Loading calculate_stats.py...</code></pre>
+
+      <div id="outputFilesBadges" class="btn-group" style="margin-bottom: 16px;"></div>
+
+      <div id="fileViewerContainer" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <strong id="fileViewerTitle" style="font-size: 0.9rem; color: #334155;"></strong>
+          <button id="btnDownloadFile" class="btn-secondary" style="font-size: 0.8rem; padding: 4px 10px;">
+            ⬇ Download File
+          </button>
+        </div>
+        <pre style="margin-top: 0; max-height: 380px; overflow-y: auto;"><code id="fileViewerContent"></code></pre>
+      </div>
+    </div>
+
+    <!-- Card 4: Console Output -->
+    <div class="card">
+      <h2>💻 ChemEx Console Output (stdout)</h2>
+      <pre style="margin-top: 6px; max-height: 320px; overflow-y: auto;"><code id="pythonStdout">Initializing Pyodide and mounting ChemEx...</code></pre>
     </div>
 
     <div class="links">
