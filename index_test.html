@@ -308,8 +308,8 @@
     <div id="navbar-placeholder"></div>
 
     <header>
-      <h1>Pyodide & NumPy In-Browser Test</h1>
-      <p class="subtitle">Run client-side Python script with NumPy to compute statistical metrics</p>
+      <h1>Pyodide & NumPy Virtual Filesystem Test</h1>
+      <p class="subtitle">JavaScript writes input to virtual filesystem (MEMFS) &rarr; Python reads the file to compute NumPy statistics</p>
     </header>
 
     <!-- Status Banner -->
@@ -322,7 +322,7 @@
     <div class="card">
       <h2>📊 Input Data</h2>
       <div class="form-group">
-        <label for="dataInput">Enter numbers (comma, space, or newline separated):</label>
+        <label for="dataInput">Enter numbers (written by JS to virtual file <code>input_data.txt</code> via <code>pyodide.FS.writeFile</code>):</label>
         <textarea id="dataInput" placeholder="e.g. 12.3, 45.6, 78.9, 23.1, 56.4">24.5, 31.2, 19.8, 45.0, 28.7, 33.4, 21.9, 39.5, 27.1, 35.8</textarea>
       </div>
 
@@ -343,7 +343,7 @@
 
     <!-- Results Section -->
     <div class="card" id="resultsCard" style="display: none;">
-      <h2>📈 Results from NumPy</h2>
+      <h2>📈 Results from NumPy <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted); margin-left: auto;">(Read from virtual file: <code>input_data.txt</code>)</span></h2>
       <div class="results-grid">
         <div class="result-item">
           <div class="result-label">Mean (&mu;)</div>
@@ -379,40 +379,11 @@
 
     <!-- Python Script Details -->
     <div class="card">
-      <h2>🐍 Python Script Executed</h2>
+      <h2>🐍 Python Script (<a href="calculate_stats.py" target="_blank" style="color: var(--primary); text-decoration: none;">calculate_stats.py</a>)</h2>
       <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px;">
-        The Python code executed via <code>pyodide.runPython()</code>:
+        Separated into <a href="calculate_stats.py" target="_blank"><code>calculate_stats.py</code></a>. JavaScript writes input text to <code>input_data.txt</code> in MEMFS via <code>pyodide.FS.writeFile()</code>, then loads and executes the module:
       </p>
-      <pre><code>import numpy as np
-import re
-import json
-
-# Parse numbers from raw input
-tokens = [t for t in re.split(r'[\s,;]+', raw_input.strip()) if t]
-data = np.array([float(x) for x in tokens])
-
-mean_val = float(np.mean(data))
-std_val = float(np.std(data))
-var_val = float(np.var(data))
-min_val = float(np.min(data))
-max_val = float(np.max(data))
-
-print(f"> NumPy array initialized with {len(data)} items.")
-print(f"> Mean (np.mean)               : {mean_val:.6f}")
-print(f"> Standard Deviation (np.std) : {std_val:.6f}")
-print(f"> Variance (np.var)           : {var_val:.6f}")
-print(f"> Range                       : [{min_val:.4f}, {max_val:.4f}]")
-
-results = {
-    "count": int(len(data)),
-    "mean": mean_val,
-    "std": std_val,
-    "var": var_val,
-    "min": min_val,
-    "max": max_val
-}
-
-json.dumps(results)</code></pre>
+      <pre><code id="pythonScriptPreview"># Loading calculate_stats.py...</code></pre>
     </div>
 
     <div class="links">
@@ -422,191 +393,7 @@ json.dumps(results)</code></pre>
     </div>
   </div>
 
-  <script>
-    let pyodide = null;
-    let isReady = false;
-
-    const statusBar = document.getElementById("statusBar");
-    const statusSpinner = document.getElementById("statusSpinner");
-    const statusText = document.getElementById("statusText");
-    const calcBtn = document.getElementById("calcBtn");
-    const genRandomBtn = document.getElementById("genRandomBtn");
-    const clearBtn = document.getElementById("clearBtn");
-    const dataInput = document.getElementById("dataInput");
-    const resultsCard = document.getElementById("resultsCard");
-    const errorAlert = document.getElementById("errorAlert");
-    const pythonStdout = document.getElementById("pythonStdout");
-
-    // Initialize Pyodide and load numpy
-    async function initPyodide() {
-      try {
-        statusText.textContent = "Loading Pyodide runtime from CDN...";
-        pyodide = await loadPyodide();
-
-        statusText.textContent = "Loading NumPy package in WebAssembly...";
-        await pyodide.loadPackage("numpy");
-
-        isReady = true;
-        statusBar.className = "status-bar ready";
-        statusSpinner.style.display = "none";
-        statusText.textContent = "✅ Pyodide & NumPy loaded successfully and ready!";
-        calcBtn.disabled = false;
-
-        // Auto-run on load with default data
-        calculateStats();
-      } catch (err) {
-        console.error("Pyodide loading error:", err);
-        statusBar.className = "status-bar error";
-        statusSpinner.style.display = "none";
-        statusText.textContent = "❌ Failed to load Pyodide/NumPy: " + (err.message || err);
-      }
-    }
-
-    // Run Python calculation
-    function calculateStats() {
-      if (!isReady || !pyodide) return;
-
-      errorAlert.style.display = "none";
-      errorAlert.textContent = "";
-
-      const rawText = dataInput.value.trim();
-      if (!rawText) {
-        showError("Please enter some numbers or click 'Generate Random Data'.");
-        return;
-      }
-
-      try {
-        let stdoutBuffer = "";
-        pyodide.setStdout({
-          batched: (msg) => {
-            stdoutBuffer += msg + "\n";
-          }
-        });
-
-        // Pass data string into Python namespace
-        pyodide.globals.set("raw_input", rawText);
-
-        // Execute Python snippet
-        const pythonCode = `
-import numpy as np
-import re
-import json
-
-tokens = [t for t in re.split(r'[\\s,;]+', raw_input.strip()) if t]
-if not tokens:
-    raise ValueError("No valid numeric tokens found.")
-
-try:
-    data = np.array([float(x) for x in tokens])
-except ValueError as e:
-    raise ValueError(f"Could not parse one or more values into numbers: {e}")
-
-if len(data) == 0:
-    raise ValueError("Empty array after parsing.")
-
-mean_val = float(np.mean(data))
-std_val = float(np.std(data))
-var_val = float(np.var(data))
-min_val = float(np.min(data))
-max_val = float(np.max(data))
-
-print(f"> NumPy array initialized with {len(data)} items.")
-print(f"> Mean (np.mean)               : {mean_val:.6f}")
-print(f"> Standard Deviation (np.std) : {std_val:.6f}")
-print(f"> Variance (np.var)           : {var_val:.6f}")
-print(f"> Range                       : [{min_val:.4f}, {max_val:.4f}]")
-
-results = {
-    "count": int(len(data)),
-    "mean": mean_val,
-    "std": std_val,
-    "var": var_val,
-    "min": min_val,
-    "max": max_val
-}
-
-json.dumps(results)
-`;
-
-        const jsonStr = pyodide.runPython(pythonCode);
-        const res = JSON.parse(jsonStr);
-
-        // Display results
-        document.getElementById("valCount").textContent = res.count;
-        document.getElementById("valMean").textContent = res.mean.toFixed(4);
-        document.getElementById("valStd").textContent = res.std.toFixed(4);
-        document.getElementById("valVar").textContent = res.var.toFixed(4);
-        document.getElementById("valMin").textContent = res.min.toFixed(4);
-        document.getElementById("valMax").textContent = res.max.toFixed(4);
-
-        if (pythonStdout) {
-          pythonStdout.textContent = stdoutBuffer.trim() || "Script completed successfully.";
-        }
-
-        resultsCard.style.display = "block";
-      } catch (err) {
-        console.error("Execution error:", err);
-        // Clean Pyodide error message for user display
-        let msg = err.message || String(err);
-        if (msg.includes("ValueError:")) {
-          msg = msg.split("ValueError:").pop().trim();
-        }
-        showError(msg);
-      }
-    }
-
-    function showError(message) {
-      errorAlert.textContent = "Error: " + message;
-      errorAlert.style.display = "block";
-      resultsCard.style.display = "none";
-    }
-
-    // Generate random numbers
-    function generateRandomData(count = 15) {
-      const arr = [];
-      for (let i = 0; i < count; i++) {
-        // Normal-ish or uniform distribution rounded to 2 decimal places
-        const val = (Math.random() * 100).toFixed(2);
-        arr.push(val);
-      }
-      dataInput.value = arr.join(", ");
-      if (isReady) {
-        calculateStats();
-      }
-    }
-
-    // Event listeners
-    calcBtn.addEventListener("click", calculateStats);
-    genRandomBtn.addEventListener("click", () => generateRandomData(15));
-    clearBtn.addEventListener("click", () => {
-      dataInput.value = "";
-      resultsCard.style.display = "none";
-      errorAlert.style.display = "none";
-    });
-
-    dataInput.addEventListener("keydown", (e) => {
-      // Allow Ctrl+Enter to trigger calculation
-      if (e.ctrlKey && e.key === "Enter") {
-        calculateStats();
-      }
-    });
-
-    // Start loading on page ready
-    window.addEventListener("DOMContentLoaded", () => {
-      initPyodide();
-      fetch('navbar.html')
-        .then(res => {
-          if (res.ok) return res.text();
-          throw new Error('Not found');
-        })
-        .then(html => {
-          const el = document.getElementById('navbar-placeholder');
-          if (el) el.innerHTML = html;
-        })
-        .catch(() => {
-          // Gracefully ignore fetch error (e.g. if opened via direct file://)
-        });
-    });
-  </script>
+  <!-- Application Logic (Separated into js/index_test.js) -->
+  <script src="js/index_test.js"></script>
 </body>
 </html>
