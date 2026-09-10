@@ -69,14 +69,24 @@ async function initPyodide() {
     const runnerCode = await runnerRes.text();
     pyodide.FS.writeFile("chemex_runner.py", runnerCode);
 
-    // Initialize environment in Python
+    // Initialize environment in Python: install wheel into site-packages
     pyodide.runPython(`
-import sys
-if "chemex-2026.1.0-py3-none-any.whl" not in sys.path:
-    sys.path.insert(0, "chemex-2026.1.0-py3-none-any.whl")
+import sys, os, zipfile, site
+
+home_dir = os.path.abspath("/home/pyodide")
+if home_dir not in sys.path:
+    sys.path.insert(0, home_dir)
+
+wheel_file = os.path.join(home_dir, "chemex-2026.1.0-py3-none-any.whl")
+site_pkgs = site.getsitepackages()
+target_dir = site_pkgs[0] if site_pkgs else "/lib/python3.13/site-packages"
+
+with zipfile.ZipFile(wheel_file, "r") as zf:
+    zf.extractall(target_dir)
+
 import chemex
 import chemex_runner
-print(f"> [ChemEx] Successfully mounted ChemEx v{chemex.__version__}")
+print(f"> [ChemEx] Installed ChemEx v{chemex.__version__} into {target_dir}")
 `);
 
     statusText.textContent = "Writing CEST_15N dataset to virtual filesystem...";

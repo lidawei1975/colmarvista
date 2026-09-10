@@ -53,7 +53,46 @@ def run_chemex_command(command="fit", include_residue=None, output_dir="Output")
     Matches simulate.sh:
       chemex simulate -e Experiments/*.toml -p Parameters/parameters.toml -o OutputSim
     """
-    # Provide lightweight rapidfuzz shim if rapidfuzz is not installed in the WASM environment
+    # WebAssembly (Pyodide) single-threaded environment compatibility:
+    # 1. Disable background animation threads in Rich Live and Progress
+    try:
+        import rich.live
+        def _safe_live_start(self, *args, **kwargs):
+            self._is_started = True
+            self.auto_refresh = False
+            self._refresh_thread = None
+            if getattr(self, "_renderable", None) is not None:
+                self.refresh()
+        rich.live.Live.start = _safe_live_start
+
+        def _safe_live_stop(self, *args, **kwargs):
+            if getattr(self, "_is_started", False):
+                try:
+                    self.refresh()
+                except Exception:
+                    pass
+                self._is_started = False
+        rich.live.Live.stop = _safe_live_stop
+    except Exception:
+        pass
+
+    # 2. Prevent RuntimeError: can't start new thread in WASM
+    try:
+        import threading
+        _orig_start = threading.Thread.start
+        def _safe_thread_start(self, *args, **kwargs):
+            try:
+                return _orig_start(self, *args, **kwargs)
+            except RuntimeError as e:
+                if "can't start new thread" in str(e).lower():
+                    pass
+                else:
+                    raise
+        threading.Thread.start = _safe_thread_start
+    except Exception:
+        pass
+
+    # 3. Provide lightweight rapidfuzz shim if rapidfuzz is not installed in the WASM environment
     if "rapidfuzz" not in sys.modules:
         try:
             import rapidfuzz
