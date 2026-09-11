@@ -21,6 +21,9 @@ const outputFilesBadges = document.getElementById("outputFilesBadges");
 const fileViewerContainer = document.getElementById("fileViewerContainer");
 const fileViewerTitle = document.getElementById("fileViewerTitle");
 const fileViewerContent = document.getElementById("fileViewerContent");
+const fileViewerPre = document.getElementById("fileViewerPre");
+const fileViewerPdf = document.getElementById("fileViewerPdf");
+const btnOpenPdfNewTab = document.getElementById("btnOpenPdfNewTab");
 const btnDownloadFile = document.getElementById("btnDownloadFile");
 
 const pythonStdout = document.getElementById("pythonStdout");
@@ -241,9 +244,10 @@ function displayOutputFiles(outputDir, fileList) {
   }
 
   fileList.forEach(filename => {
+    const isPdf = filename.toLowerCase().endsWith(".pdf");
     const badge = document.createElement("button");
     badge.className = "btn-secondary file-badge";
-    badge.textContent = `📄 ${filename}`;
+    badge.textContent = `${isPdf ? "📊" : "📄"} ${filename}`;
     badge.style.fontSize = "0.85rem";
     badge.style.padding = "6px 12px";
 
@@ -261,24 +265,122 @@ function displayOutputFiles(outputDir, fileList) {
   }
 }
 
+// Read binary file from virtual filesystem as Uint8Array
+function readVirtualFileBytes(relPath, baseDir = "CEST_15N") {
+  // First attempt: direct Pyodide FS read
+  try {
+    if (pyodide && pyodide.FS) {
+      pyodide.globals.set("_query_path", relPath);
+      pyodide.globals.set("_query_base", baseDir);
+      const absPath = pyodide.runPython(`
+import chemex_runner
+chemex_runner.get_virtual_file_abs_path(_query_path, base_dir=_query_base)
+`);
+      if (absPath) {
+        const data = pyodide.FS.readFile(absPath);
+        if (data && data.length > 0) {
+          return data;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Direct FS.readFile attempt failed, using base64 fallback:", e);
+  }
+
+  // Fallback: Read binary in Python and return base64 string
+  pyodide.globals.set("_b64_path", relPath);
+  pyodide.globals.set("_b64_base", baseDir);
+  const b64 = pyodide.runPython(`
+import chemex_runner
+chemex_runner.read_virtual_file_bytes(_b64_path, base_dir=_b64_base)
+`);
+  const binStr = atob(b64);
+  const len = binStr.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
 // View file content from virtual filesystem
 function viewVirtualFile(outputDir, filename) {
   if (!pyodide) return;
   try {
     const fullRelPath = `${outputDir}/${filename}`;
-    pyodide.globals.set("view_path", fullRelPath);
+    const isPdf = filename.toLowerCase().endsWith(".pdf");
 
-    const content = pyodide.runPython(`
+    // Clean up previous blob URL if exists
+    if (currentSelectedFile && currentSelectedFile.blobUrl) {
+      URL.revokeObjectURL(currentSelectedFile.blobUrl);
+    }
+
+    if (isPdf) {
+      const pdfBytes = readVirtualFileBytes(fullRelPath, "CEST_15N");
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+
+      currentSelectedFile = {
+        path: fullRelPath,
+        filename: filename,
+        isBinary: true,
+        bytes: pdfBytes,
+        blob: blob,
+        blobUrl: blobUrl,
+        mimeType: "application/pdf"
+      };
+
+      if (fileViewerContainer && fileViewerTitle) {
+        fileViewerContainer.style.display = "block";
+        fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (PDF Document, ${(pdfBytes.length / 1024).toFixed(1)} KB)`;
+      }
+
+      if (fileViewerPre) fileViewerPre.style.display = "none";
+      if (fileViewerPdf) {
+        fileViewerPdf.style.display = "block";
+        fileViewerPdf.src = blobUrl;
+      }
+      if (btnOpenPdfNewTab) {
+        btnOpenPdfNewTab.style.display = "inline-flex";
+        btnOpenPdfNewTab.href = blobUrl;
+      }
+      if (btnDownloadFile) {
+        btnDownloadFile.textContent = "⬇ Download PDF";
+      }
+    } else {
+      pyodide.globals.set("view_path", fullRelPath);
+      const content = pyodide.runPython(`
 import chemex_runner
 chemex_runner.read_virtual_file(view_path, base_dir="CEST_15N")
 `);
 
-    currentSelectedFile = { path: fullRelPath, filename: filename, content: content };
+      currentSelectedFile = {
+        path: fullRelPath,
+        filename: filename,
+        isBinary: false,
+        content: content,
+        mimeType: "text/plain;charset=utf-8"
+      };
 
-    if (fileViewerContainer && fileViewerTitle && fileViewerContent) {
-      fileViewerContainer.style.display = "block";
-      fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (Virtual MEMFS)`;
-      fileViewerContent.textContent = content;
+      if (fileViewerContainer && fileViewerTitle && fileViewerContent) {
+        fileViewerContainer.style.display = "block";
+        fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (Virtual MEMFS)`;
+        fileViewerContent.textContent = content;
+      }
+
+      if (fileViewerPdf) {
+        fileViewerPdf.style.display = "none";
+        fileViewerPdf.src = "";
+      }
+      if (btnOpenPdfNewTab) {
+        btnOpenPdfNewTab.style.display = "none";
+      }
+      if (fileViewerPre) {
+        fileViewerPre.style.display = "block";
+      }
+      if (btnDownloadFile) {
+        btnDownloadFile.textContent = "⬇ Download File";
+      }
     }
   } catch (err) {
     console.error("Error reading virtual file:", err);
@@ -289,15 +391,23 @@ chemex_runner.read_virtual_file(view_path, base_dir="CEST_15N")
 // Download selected file to local computer
 function downloadSelectedFile() {
   if (!currentSelectedFile) return;
-  const blob = new Blob([currentSelectedFile.content], { type: "text/plain;charset=utf-8" });
+
+  const downloadFilename = currentSelectedFile.filename.split("/").pop() || "download";
+  let blob;
+  if (currentSelectedFile.isBinary) {
+    blob = currentSelectedFile.blob || new Blob([currentSelectedFile.bytes], { type: currentSelectedFile.mimeType });
+  } else {
+    blob = new Blob([currentSelectedFile.content], { type: currentSelectedFile.mimeType || "text/plain;charset=utf-8" });
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = currentSelectedFile.filename;
+  a.download = downloadFilename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 function showError(msg) {

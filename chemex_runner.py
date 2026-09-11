@@ -45,6 +45,24 @@ def read_virtual_file(relative_path, base_dir="CEST_15N"):
     with open(full_path, "r", encoding="utf-8", errors="replace") as f:
         return f.read()
 
+def read_virtual_file_bytes(relative_path, base_dir="CEST_15N"):
+    """
+    Reads binary content of a file in the virtual filesystem and returns base64 string.
+    """
+    import base64
+    full_path = os.path.join(base_dir, relative_path)
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"File not found: {full_path}")
+    with open(full_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("ascii")
+
+def get_virtual_file_abs_path(relative_path, base_dir="CEST_15N"):
+    """
+    Returns normalized absolute path of a file in the virtual filesystem.
+    """
+    full_path = os.path.join(base_dir, relative_path)
+    return os.path.abspath(full_path).replace("\\", "/")
+
 def run_chemex_command(command="fit", include_residue=None, output_dir="Output"):
     """
     Executes chemex fit or simulate from the virtual filesystem.
