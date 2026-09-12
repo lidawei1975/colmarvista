@@ -49,7 +49,7 @@ async function initWorker() {
     pyodide.FS.writeFile("/home/pyodide/chemex-2026.1.0-py3-none-any.whl", wheelBytes);
 
     self.postMessage({ type: "status", text: "Loading chemex_runner.py helper..." });
-    const runnerUrl = getUrl("../chemex_runner.py");
+    const runnerUrl = getUrl("../chemex_runner.py?t=" + Date.now());
     const runnerRes = await fetch(runnerUrl);
     if (!runnerRes.ok) throw new Error(`Could not fetch chemex_runner.py from ${runnerUrl}: HTTP ${runnerRes.status}`);
     const runnerCode = await runnerRes.text();

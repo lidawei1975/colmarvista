@@ -63,15 +63,11 @@ def get_virtual_file_abs_path(relative_path, base_dir="CEST_15N"):
     full_path = os.path.join(base_dir, relative_path)
     return os.path.abspath(full_path).replace("\\", "/")
 
-def run_chemex_command(command="fit", include_residue=None, output_dir="Output"):
+def apply_compat_patches():
     """
-    Executes chemex fit or simulate from the virtual filesystem.
-    Matches run.sh:
-      chemex fit -e Experiments/*.toml -p Parameters/parameters.toml -o Output
-    Matches simulate.sh:
-      chemex simulate -e Experiments/*.toml -p Parameters/parameters.toml -o OutputSim
+    Applies WebAssembly and runtime compatibility patches without modifying
+    the upstream ChemEx wheel.
     """
-    # WebAssembly (Pyodide) single-threaded environment compatibility:
     # 1. Disable background animation threads in Rich Live and Progress
     try:
         import rich.live
@@ -127,6 +123,44 @@ def run_chemex_command(command="fit", include_residue=None, output_dir="Output")
             rf.process = rf_process
             sys.modules["rapidfuzz"] = rf
             sys.modules["rapidfuzz.process"] = rf_process
+
+    # 4. ChemEx Data positional arguments compatibility:
+    # In chemex/plotters/cest.py (line 270) and chemex/plotters/cpmg.py (line 193),
+    # Data(np.array([]), np.array([]), np.array([])) is called with 3 positional arguments: (exp, err, metadata).
+    # Since chemex.containers.data.Data inherits from pydantic.BaseModel and defines __init__(self, **data: Array),
+    # passing positional arguments raises TypeError: Data.__init__() takes 1 positional argument but 4 were given.
+    try:
+        import chemex.containers.data
+        _orig_data_init = getattr(chemex.containers.data.Data, "_unpatched_init", chemex.containers.data.Data.__init__)
+        chemex.containers.data.Data._unpatched_init = _orig_data_init
+
+        def _safe_data_init(self, *args, **kwargs):
+            if args:
+                keys = ["exp", "err", "metadata"]
+                for k, v in zip(keys, args):
+                    kwargs[k] = v
+                args = ()
+            return _orig_data_init(self, *args, **kwargs)
+
+        chemex.containers.data.Data.__init__ = _safe_data_init
+    except Exception as e:
+        print(f"> [Shim Notice] Could not patch chemex.containers.data.Data: {e}")
+
+# Apply patches upon import if possible
+try:
+    apply_compat_patches()
+except Exception:
+    pass
+
+def run_chemex_command(command="fit", include_residue=None, output_dir="Output"):
+    """
+    Executes chemex fit or simulate from the virtual filesystem.
+    Matches run.sh:
+      chemex fit -e Experiments/*.toml -p Parameters/parameters.toml -o Output
+    Matches simulate.sh:
+      chemex simulate -e Experiments/*.toml -p Parameters/parameters.toml -o OutputSim
+    """
+    apply_compat_patches()
 
     import chemex.chemex
 

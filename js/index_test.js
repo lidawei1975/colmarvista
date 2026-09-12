@@ -159,7 +159,7 @@ function initChemexWorker() {
   }
 
   try {
-    worker = new Worker("js/chemex_worker.js");
+    worker = new Worker("js/chemex_worker.js?t=" + Date.now());
     worker.onmessage = handleWorkerMessage;
     worker.onerror = handleWorkerError;
 
