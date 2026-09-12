@@ -1,6 +1,10 @@
-let pyodide = null;
+// Controller for ChemEx Web Worker and Floating Console UI
+
+let worker = null;
 let isReady = false;
-let manifestData = null;
+let isRunning = false;
+let currentVirtualFiles = [];
+let currentSelectedFile = null;
 
 // DOM Elements
 const statusBar = document.getElementById("statusBar");
@@ -13,6 +17,7 @@ const virtualFilesList = document.getElementById("virtualFilesList");
 
 const btnRunFit = document.getElementById("btnRunFit");
 const btnRunSim = document.getElementById("btnRunSim");
+const btnToggleConsole = document.getElementById("btnToggleConsole");
 const residueSelect = document.getElementById("residueSelect");
 const commandDisplay = document.getElementById("commandDisplay");
 
@@ -26,10 +31,15 @@ const fileViewerPdf = document.getElementById("fileViewerPdf");
 const btnOpenPdfNewTab = document.getElementById("btnOpenPdfNewTab");
 const btnDownloadFile = document.getElementById("btnDownloadFile");
 
-const pythonStdout = document.getElementById("pythonStdout");
 const errorAlert = document.getElementById("errorAlert");
 
-let currentSelectedFile = null;
+// Floating Console Elements
+const consoleWindow = document.getElementById("chemex_console_window");
+const consoleHeader = document.getElementById("chemex_console_header");
+const consoleBody = document.getElementById("chemex_console_body");
+const pythonStdout = document.getElementById("pythonStdout");
+const buttonMinimizeConsole = document.getElementById("button_minimize_console");
+const buttonClearConsole = document.getElementById("button_clear_console");
 
 // Update command display based on options
 function updateCommandDisplay() {
@@ -40,198 +50,245 @@ function updateCommandDisplay() {
   }
 }
 
-// Initialize Pyodide, install dependencies, load ChemEx, and write CEST_15N into MEMFS
-async function initPyodide() {
-  try {
-    statusText.textContent = "Loading Pyodide v0.28.0 (Python 3.13) from CDN...";
-    pyodide = await loadPyodide({
-      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.0/full/"
-    });
+// -------------------------------------------------------------
+// Floating Console Window Controller (Drag, Minimize, Clear)
+// -------------------------------------------------------------
 
-    statusText.textContent = "Loading scientific packages (numpy, scipy, matplotlib, pygments, micropip)...";
-    await pyodide.loadPackage(["numpy", "scipy", "matplotlib", "pygments", "micropip"]);
+function appendConsole(text) {
+  if (!pythonStdout) return;
+  pythonStdout.textContent += text;
+  pythonStdout.scrollTop = pythonStdout.scrollHeight;
+}
 
-    const micropip = pyodide.pyimport("micropip");
-
-    statusText.textContent = "Installing ChemEx dependencies (pydantic, lmfit, rich, numdifftools)...";
-    try {
-      await micropip.install(["pydantic", "lmfit", "rich", "annotated-types", "cachetools", "emcee"]);
-    } catch (e) {
-      console.warn("Some optional micropip packages could not be installed from PyPI:", e);
-    }
-
-    statusText.textContent = "Mounting ChemEx package in virtual filesystem (MEMFS)...";
-    const wheelRes = await fetch("chemex/chemex-2026.1.0-py3-none-any.whl");
-    if (!wheelRes.ok) throw new Error(`Could not fetch chemex wheel: HTTP ${wheelRes.status}`);
-    const wheelBytes = new Uint8Array(await wheelRes.arrayBuffer());
-    pyodide.FS.writeFile("chemex-2026.1.0-py3-none-any.whl", wheelBytes);
-
-    statusText.textContent = "Loading chemex_runner.py helper...";
-    const runnerRes = await fetch("chemex_runner.py");
-    if (!runnerRes.ok) throw new Error(`Could not fetch chemex_runner.py: HTTP ${runnerRes.status}`);
-    const runnerCode = await runnerRes.text();
-    pyodide.FS.writeFile("chemex_runner.py", runnerCode);
-
-    // Initialize environment in Python: install wheel into site-packages
-    pyodide.runPython(`
-import sys, os, zipfile, site
-
-home_dir = os.path.abspath("/home/pyodide")
-if home_dir not in sys.path:
-    sys.path.insert(0, home_dir)
-
-wheel_file = os.path.join(home_dir, "chemex-2026.1.0-py3-none-any.whl")
-site_pkgs = site.getsitepackages()
-target_dir = site_pkgs[0] if site_pkgs else "/lib/python3.13/site-packages"
-
-with zipfile.ZipFile(wheel_file, "r") as zf:
-    zf.extractall(target_dir)
-
-import chemex
-import chemex_runner
-print(f"> [ChemEx] Installed ChemEx v{chemex.__version__} into {target_dir}")
-`);
-
-    statusText.textContent = "Writing CEST_15N dataset to virtual filesystem...";
-    await writeCestDataset();
-
-    isReady = true;
-    statusBar.className = "status-bar ready";
-    statusSpinner.style.display = "none";
-    const pyVer = pyodide.runPython("import sys; sys.version.split()[0]");
-    const chemexVer = pyodide.runPython("import chemex; chemex.__version__");
-    statusText.textContent = `✅ Ready! Python ${pyVer} | ChemEx v${chemexVer} | MEMFS populated with CEST_15N`;
-
-    btnRunFit.disabled = false;
-    btnRunSim.disabled = false;
-    if (btnWriteFs) btnWriteFs.disabled = false;
-  } catch (err) {
-    console.error("Initialization error:", err);
-    statusBar.className = "status-bar error";
-    statusSpinner.style.display = "none";
-    statusText.textContent = "❌ Error initializing: " + (err.message || err);
-    showError(err.message || String(err));
+function clear_console() {
+  if (pythonStdout) {
+    pythonStdout.textContent = "";
   }
 }
 
-// Write the CEST_15N files into MEMFS from files_manifest.json
-async function writeCestDataset() {
-  try {
-    const res = await fetch("chemex/CEST_15N/files_manifest.json");
-    if (!res.ok) throw new Error(`Could not fetch files_manifest.json: HTTP ${res.status}`);
-    const manifestJsonText = await res.text();
-    manifestData = JSON.parse(manifestJsonText);
+function toggle_console_minimize() {
+  if (!consoleWindow || !consoleBody || !buttonMinimizeConsole) return;
 
-    pyodide.globals.set("manifest_str", manifestJsonText);
-    const filesWritten = pyodide.runPython(`
-import chemex_runner
-chemex_runner.write_virtual_files(manifest_str)
-`);
-
-    if (fsStatusBadge) {
-      fsStatusBadge.className = "status-badge success";
-      fsStatusBadge.textContent = `✅ ${filesWritten} files written to virtual filesystem (CEST_15N/)`;
-    }
-
-    refreshVirtualFilesList();
-  } catch (err) {
-    console.error("Error writing CEST_15N dataset:", err);
-    if (fsStatusBadge) {
-      fsStatusBadge.className = "status-badge error";
-      fsStatusBadge.textContent = `⚠️ Filesystem notice: ${err.message || err}`;
-    }
+  if (consoleBody.style.display === "none") {
+    // Restore
+    consoleBody.style.display = "flex";
+    consoleWindow.style.height = consoleWindow.dataset.lastHeight || "360px";
+    consoleWindow.style.width = consoleWindow.dataset.lastWidth || "580px";
+    consoleWindow.style.resize = "both";
+    buttonMinimizeConsole.innerText = "—";
+    buttonMinimizeConsole.title = "Minimize console window";
+  } else {
+    // Minimize
+    consoleWindow.dataset.lastHeight = consoleWindow.offsetHeight + "px";
+    consoleWindow.dataset.lastWidth = consoleWindow.offsetWidth + "px";
+    consoleBody.style.display = "none";
+    consoleWindow.style.height = "auto";
+    consoleWindow.style.width = "300px";
+    consoleWindow.style.resize = "none";
+    buttonMinimizeConsole.innerText = "□";
+    buttonMinimizeConsole.title = "Restore console window";
   }
 }
 
-// Refresh virtual file list display
-function refreshVirtualFilesList() {
-  if (!pyodide || !virtualFilesList) return;
-  try {
-    const jsonStr = pyodide.runPython(`
-import json, chemex_runner
-json.dumps(chemex_runner.get_virtual_files("CEST_15N"))
-`);
-    const files = JSON.parse(jsonStr);
-    virtualFilesList.innerHTML = "";
-
-    const experiments = files.filter(f => f.startsWith("Experiments/"));
-    const params = files.filter(f => f.startsWith("Parameters/"));
-    const data13 = files.filter(f => f.startsWith("Data/13Hz/"));
-    const data26 = files.filter(f => f.startsWith("Data/26Hz/"));
-    const outputs = files.filter(f => f.startsWith("Output") || f.startsWith("OutputSim"));
-
-    const summary = document.createElement("div");
-    summary.style.fontSize = "0.9rem";
-    summary.style.marginBottom = "8px";
-    summary.innerHTML = `<strong>Total Files:</strong> ${files.length} (Experiments: ${experiments.length}, Parameters: ${params.length}, 13Hz Data: ${data13.length}, 26Hz Data: ${data26.length}, Outputs: ${outputs.length})`;
-    virtualFilesList.appendChild(summary);
-  } catch (err) {
-    console.warn("Could not list virtual files:", err);
+function show_console() {
+  if (!consoleWindow) return;
+  consoleWindow.style.display = "flex";
+  if (consoleBody && consoleBody.style.display === "none") {
+    toggle_console_minimize();
   }
 }
 
-// Run ChemEx Command (fit or simulate)
-async function executeChemex(command = "fit") {
-  if (!isReady || !pyodide) return;
+function make_console_movable() {
+  if (!consoleWindow || !consoleHeader) return;
 
-  hideError();
-  btnRunFit.disabled = true;
-  btnRunSim.disabled = true;
+  let startX, startY, initialLeft, initialTop;
 
-  const residue = residueSelect ? residueSelect.value : "";
-  const includeResidue = (residue && residue !== "ALL") ? residue : null;
-  const outputDir = command === "simulate" ? "OutputSim" : "Output";
+  consoleHeader.onmousedown = function (e) {
+    e = e || window.event;
+    // Do not initiate drag if user clicked one of the header buttons
+    if (e.target.tagName === "BUTTON") return;
+    e.preventDefault();
 
-  const originalStatus = statusText.textContent;
-  statusText.textContent = `⏳ Running ChemEx ${command.toUpperCase()} on CEST_15N dataset... (this may take a moment)`;
-  statusBar.className = "status-bar loading";
-  statusSpinner.style.display = "block";
+    startX = e.clientX;
+    startY = e.clientY;
+
+    const rect = consoleWindow.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+
+    // Convert CSS right/bottom fixed positioning to explicit top/left
+    consoleWindow.style.right = "auto";
+    consoleWindow.style.bottom = "auto";
+    consoleWindow.style.left = initialLeft + "px";
+    consoleWindow.style.top = initialTop + "px";
+
+    document.onmouseup = function () {
+      document.onmouseup = null;
+      document.onmousemove = null;
+    };
+
+    document.onmousemove = function (ev) {
+      ev = ev || window.event;
+      ev.preventDefault();
+
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+
+      const newLeft = Math.max(0, Math.min(window.innerWidth - 120, initialLeft + dx));
+      const newTop = Math.max(0, Math.min(window.innerHeight - 40, initialTop + dy));
+
+      consoleWindow.style.left = newLeft + "px";
+      consoleWindow.style.top = newTop + "px";
+    };
+  };
+}
+
+// -------------------------------------------------------------
+// Web Worker Initialization and Communication
+// -------------------------------------------------------------
+
+function initChemexWorker() {
+  if (!window.Worker) {
+    showError("Your browser does not support Web Workers.");
+    if (statusText) statusText.textContent = "❌ Error: Web Workers unsupported.";
+    return;
+  }
+
+  if (pythonStdout) {
+    pythonStdout.textContent = "Spawning ChemEx Web Worker (js/chemex_worker.js)...\n";
+  }
 
   try {
-    let stdoutBuffer = "";
-    pyodide.setStdout({
-      batched: (msg) => {
-        stdoutBuffer += msg + "\n";
-        if (pythonStdout) {
-          pythonStdout.textContent = stdoutBuffer;
-          pythonStdout.scrollTop = pythonStdout.scrollHeight;
-        }
+    worker = new Worker("js/chemex_worker.js");
+    worker.onmessage = handleWorkerMessage;
+    worker.onerror = handleWorkerError;
+
+    // Tell worker to initialize Pyodide runtime & packages
+    worker.postMessage({ type: "init" });
+  } catch (err) {
+    console.error("Worker spawn error:", err);
+    showError("Could not start Web Worker: " + err.message);
+  }
+}
+
+function handleWorkerMessage(e) {
+  const data = e.data || {};
+
+  switch (data.type) {
+    case "status":
+      if (statusText) statusText.textContent = data.text;
+      break;
+
+    case "stdout":
+      appendConsole(data.text);
+      break;
+
+    case "stderr":
+      appendConsole(data.text);
+      break;
+
+    case "ready":
+      isReady = true;
+      if (statusBar) statusBar.className = "status-bar ready";
+      if (statusSpinner) statusSpinner.style.display = "none";
+      if (statusText) {
+        statusText.textContent = `✅ Ready! Python ${data.pythonVersion} | ChemEx v${data.chemexVersion} | MEMFS populated with CEST_15N`;
       }
-    });
+      if (btnRunFit) btnRunFit.disabled = false;
+      if (btnRunSim) btnRunSim.disabled = false;
+      if (btnWriteFs) btnWriteFs.disabled = false;
 
-    pyodide.globals.set("cmd_type", command);
-    pyodide.globals.set("inc_res", includeResidue);
-    pyodide.globals.set("out_dir", outputDir);
+      if (fsStatusBadge) {
+        fsStatusBadge.className = "status-bar ready";
+        fsStatusBadge.textContent = `✅ ${data.filesWritten} files loaded in MEMFS (CEST_15N/)`;
+      }
 
-    const pyScript = `
-import chemex_runner
-result_json = chemex_runner.run_chemex_command(command=cmd_type, include_residue=inc_res, output_dir=out_dir)
-result_json
-`;
+      currentVirtualFiles = data.virtualFiles || [];
+      renderVirtualFilesList(currentVirtualFiles);
+      break;
 
-    const resultStr = pyodide.runPython(pyScript);
-    const result = JSON.parse(resultStr);
+    case "dataset_synced":
+      if (fsStatusBadge) {
+        fsStatusBadge.className = "status-bar ready";
+        fsStatusBadge.textContent = `✅ ${data.count} files synced to MEMFS (CEST_15N/)`;
+      }
+      currentVirtualFiles = data.virtualFiles || [];
+      renderVirtualFilesList(currentVirtualFiles);
+      break;
 
-    statusText.textContent = `✅ ChemEx ${command.toUpperCase()} completed successfully! Output saved to '${outputDir}' in MEMFS.`;
-    statusBar.className = "status-bar ready";
-    statusSpinner.style.display = "none";
+    case "run_complete":
+      isRunning = false;
+      setRunningState(false);
+      if (statusBar) statusBar.className = "status-bar ready";
+      if (statusSpinner) statusSpinner.style.display = "none";
+      if (statusText) {
+        statusText.textContent = `✅ ChemEx ${data.command.toUpperCase()} completed successfully! Output saved to '${data.outputDir}/'`;
+      }
+      currentVirtualFiles = data.virtualFiles || [];
+      renderVirtualFilesList(currentVirtualFiles);
+      displayOutputFiles(data.outputDir, data.result.output_files || []);
+      break;
 
-    // Display output files in UI
-    displayOutputFiles(outputDir, result.output_files);
-    refreshVirtualFilesList();
-  } catch (err) {
-    console.error("Execution error:", err);
-    statusBar.className = "status-bar error";
-    statusSpinner.style.display = "none";
-    statusText.textContent = "❌ ChemEx execution error: " + (err.message || err);
-    showError(err.message || String(err));
-  } finally {
-    btnRunFit.disabled = false;
-    btnRunSim.disabled = false;
+    case "run_error":
+      isRunning = false;
+      setRunningState(false);
+      if (statusBar) statusBar.className = "status-bar error";
+      if (statusSpinner) statusSpinner.style.display = "none";
+      if (statusText) {
+        statusText.textContent = "❌ ChemEx execution error (see console output)";
+      }
+      showError(data.error);
+      appendConsole(`\n❌ Error: ${data.error}\n`);
+      show_console();
+      break;
+
+    case "file_content":
+      handleFileContentResponse(data);
+      break;
+
+    case "file_error":
+      showError(`Could not read file ${data.filename}: ${data.error}`);
+      break;
+
+    case "init_error":
+      if (statusBar) statusBar.className = "status-bar error";
+      if (statusSpinner) statusSpinner.style.display = "none";
+      if (statusText) statusText.textContent = "❌ Initialization failed: " + data.error;
+      showError(data.error);
+      break;
+
+    default:
+      console.log("Worker message received:", data);
   }
 }
 
-// Display output files as interactive badges
+function handleWorkerError(err) {
+  console.error("Worker error:", err);
+  if (statusBar) statusBar.className = "status-bar error";
+  if (statusSpinner) statusSpinner.style.display = "none";
+  if (statusText) statusText.textContent = "❌ Worker error: " + (err.message || "Unknown error");
+  showError("Worker encountered an error: " + (err.message || err));
+}
+
+// -------------------------------------------------------------
+// Virtual Filesystem & File Viewer Helpers
+// -------------------------------------------------------------
+
+function renderVirtualFilesList(files) {
+  if (!virtualFilesList) return;
+  if (!files || files.length === 0) {
+    virtualFilesList.innerHTML = `<span style="color: var(--text-muted); font-style: italic;">No files in virtual filesystem yet</span>`;
+    return;
+  }
+
+  const items = files.map(f => {
+    const isOut = f.startsWith("Output/") || f.startsWith("OutputSim/");
+    const color = isOut ? "#16a34a" : "#2563eb";
+    return `<div style="padding: 2px 0;"><span style="color: ${color};">📄 ${f}</span></div>`;
+  });
+  virtualFilesList.innerHTML = items.join("");
+}
+
 function displayOutputFiles(outputDir, fileList) {
   if (!outputFilesCard || !outputFilesBadges) return;
 
@@ -252,143 +309,110 @@ function displayOutputFiles(outputDir, fileList) {
     badge.style.padding = "6px 12px";
 
     badge.addEventListener("click", () => {
-      viewVirtualFile(outputDir, filename);
+      requestVirtualFile(outputDir, filename);
     });
 
     outputFilesBadges.appendChild(badge);
   });
 
-  // Automatically view parameters.fit or the first file
+  // Automatically request view of parameters.fit or the first output file
   const defaultFile = fileList.find(f => f.endsWith("parameters.fit") || f.endsWith(".fit") || f.endsWith(".toml")) || fileList[0];
   if (defaultFile) {
-    viewVirtualFile(outputDir, defaultFile);
+    requestVirtualFile(outputDir, defaultFile);
   }
 }
 
-// Read binary file from virtual filesystem as Uint8Array
-function readVirtualFileBytes(relPath, baseDir = "CEST_15N") {
-  // First attempt: direct Pyodide FS read
-  try {
-    if (pyodide && pyodide.FS) {
-      pyodide.globals.set("_query_path", relPath);
-      pyodide.globals.set("_query_base", baseDir);
-      const absPath = pyodide.runPython(`
-import chemex_runner
-chemex_runner.get_virtual_file_abs_path(_query_path, base_dir=_query_base)
-`);
-      if (absPath) {
-        const data = pyodide.FS.readFile(absPath);
-        if (data && data.length > 0) {
-          return data;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Direct FS.readFile attempt failed, using base64 fallback:", e);
+function requestVirtualFile(outputDir, filename) {
+  if (!worker) return;
+  if (fileViewerContainer && fileViewerTitle) {
+    fileViewerContainer.style.display = "block";
+    fileViewerTitle.textContent = `Loading CEST_15N/${outputDir}/${filename}...`;
   }
-
-  // Fallback: Read binary in Python and return base64 string
-  pyodide.globals.set("_b64_path", relPath);
-  pyodide.globals.set("_b64_base", baseDir);
-  const b64 = pyodide.runPython(`
-import chemex_runner
-chemex_runner.read_virtual_file_bytes(_b64_path, base_dir=_b64_base)
-`);
-  const binStr = atob(b64);
-  const len = binStr.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binStr.charCodeAt(i);
-  }
-  return bytes;
+  worker.postMessage({
+    type: "read_file",
+    outputDir: outputDir,
+    filename: filename
+  });
 }
 
-// View file content from virtual filesystem
-function viewVirtualFile(outputDir, filename) {
-  if (!pyodide) return;
-  try {
-    const fullRelPath = `${outputDir}/${filename}`;
-    const isPdf = filename.toLowerCase().endsWith(".pdf");
+function handleFileContentResponse(data) {
+  const { outputDir, filename, isBinary, content } = data;
+  const fullRelPath = `${outputDir}/${filename}`;
 
-    // Clean up previous blob URL if exists
-    if (currentSelectedFile && currentSelectedFile.blobUrl) {
-      URL.revokeObjectURL(currentSelectedFile.blobUrl);
+  // Clean up previous blob URL if needed
+  if (currentSelectedFile && currentSelectedFile.blobUrl) {
+    URL.revokeObjectURL(currentSelectedFile.blobUrl);
+  }
+
+  if (isBinary) {
+    // Decode base64 to binary bytes
+    const binStr = atob(content);
+    const len = binStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binStr.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const blobUrl = URL.createObjectURL(blob);
+
+    currentSelectedFile = {
+      path: fullRelPath,
+      filename: filename,
+      isBinary: true,
+      bytes: bytes,
+      blob: blob,
+      blobUrl: blobUrl,
+      mimeType: "application/pdf"
+    };
+
+    if (fileViewerContainer && fileViewerTitle) {
+      fileViewerContainer.style.display = "block";
+      fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (PDF Document, ${(bytes.length / 1024).toFixed(1)} KB)`;
     }
 
-    if (isPdf) {
-      const pdfBytes = readVirtualFileBytes(fullRelPath, "CEST_15N");
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const blobUrl = URL.createObjectURL(blob);
-
-      currentSelectedFile = {
-        path: fullRelPath,
-        filename: filename,
-        isBinary: true,
-        bytes: pdfBytes,
-        blob: blob,
-        blobUrl: blobUrl,
-        mimeType: "application/pdf"
-      };
-
-      if (fileViewerContainer && fileViewerTitle) {
-        fileViewerContainer.style.display = "block";
-        fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (PDF Document, ${(pdfBytes.length / 1024).toFixed(1)} KB)`;
-      }
-
-      if (fileViewerPre) fileViewerPre.style.display = "none";
-      if (fileViewerPdf) {
-        fileViewerPdf.style.display = "block";
-        fileViewerPdf.src = blobUrl;
-      }
-      if (btnOpenPdfNewTab) {
-        btnOpenPdfNewTab.style.display = "inline-flex";
-        btnOpenPdfNewTab.href = blobUrl;
-      }
-      if (btnDownloadFile) {
-        btnDownloadFile.textContent = "⬇ Download PDF";
-      }
-    } else {
-      pyodide.globals.set("view_path", fullRelPath);
-      const content = pyodide.runPython(`
-import chemex_runner
-chemex_runner.read_virtual_file(view_path, base_dir="CEST_15N")
-`);
-
-      currentSelectedFile = {
-        path: fullRelPath,
-        filename: filename,
-        isBinary: false,
-        content: content,
-        mimeType: "text/plain;charset=utf-8"
-      };
-
-      if (fileViewerContainer && fileViewerTitle && fileViewerContent) {
-        fileViewerContainer.style.display = "block";
-        fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (Virtual MEMFS)`;
-        fileViewerContent.textContent = content;
-      }
-
-      if (fileViewerPdf) {
-        fileViewerPdf.style.display = "none";
-        fileViewerPdf.src = "";
-      }
-      if (btnOpenPdfNewTab) {
-        btnOpenPdfNewTab.style.display = "none";
-      }
-      if (fileViewerPre) {
-        fileViewerPre.style.display = "block";
-      }
-      if (btnDownloadFile) {
-        btnDownloadFile.textContent = "⬇ Download File";
-      }
+    if (fileViewerPre) fileViewerPre.style.display = "none";
+    if (fileViewerPdf) {
+      fileViewerPdf.style.display = "block";
+      fileViewerPdf.src = blobUrl;
     }
-  } catch (err) {
-    console.error("Error reading virtual file:", err);
-    showError(`Could not read file ${filename}: ` + err.message);
+    if (btnOpenPdfNewTab) {
+      btnOpenPdfNewTab.style.display = "inline-flex";
+      btnOpenPdfNewTab.href = blobUrl;
+    }
+    if (btnDownloadFile) {
+      btnDownloadFile.textContent = "⬇ Download PDF";
+    }
+  } else {
+    currentSelectedFile = {
+      path: fullRelPath,
+      filename: filename,
+      isBinary: false,
+      content: content,
+      mimeType: "text/plain;charset=utf-8"
+    };
+
+    if (fileViewerContainer && fileViewerTitle && fileViewerContent) {
+      fileViewerContainer.style.display = "block";
+      fileViewerTitle.textContent = `CEST_15N/${fullRelPath} (Virtual MEMFS)`;
+      fileViewerContent.textContent = content;
+    }
+
+    if (fileViewerPdf) {
+      fileViewerPdf.style.display = "none";
+      fileViewerPdf.src = "";
+    }
+    if (btnOpenPdfNewTab) {
+      btnOpenPdfNewTab.style.display = "none";
+    }
+    if (fileViewerPre) {
+      fileViewerPre.style.display = "block";
+    }
+    if (btnDownloadFile) {
+      btnDownloadFile.textContent = "⬇ Download File";
+    }
   }
 }
 
-// Download selected file to local computer
 function downloadSelectedFile() {
   if (!currentSelectedFile) return;
 
@@ -410,6 +434,56 @@ function downloadSelectedFile() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// -------------------------------------------------------------
+// Execution & UI Controls
+// -------------------------------------------------------------
+
+function setRunningState(running) {
+  if (btnRunFit) btnRunFit.disabled = running;
+  if (btnRunSim) btnRunSim.disabled = running;
+  if (btnWriteFs) btnWriteFs.disabled = running;
+  if (residueSelect) residueSelect.disabled = running;
+}
+
+function executeChemex(command) {
+  if (!isReady || !worker || isRunning) return;
+
+  hideError();
+  isRunning = true;
+  setRunningState(true);
+
+  const residue = residueSelect ? residueSelect.value : "13N";
+  const includeResidue = residue === "ALL" ? null : residue;
+  const outputDir = command === "simulate" ? "OutputSim" : "Output";
+
+  if (statusBar) statusBar.className = "status-bar loading";
+  if (statusSpinner) statusSpinner.style.display = "inline-block";
+  if (statusText) {
+    statusText.textContent = `Running 'chemex ${command}' in Worker (Residue: ${residue})... Output streaming to console.`;
+  }
+
+  appendConsole(`\n========================================================\n> Executing ChemEx ${command.toUpperCase()} (Residue: ${residue})\n========================================================\n`);
+
+  // Ensure floating console is visible so user sees the output streaming
+  show_console();
+
+  worker.postMessage({
+    type: "run_chemex",
+    command: command,
+    includeResidue: includeResidue,
+    outputDir: outputDir
+  });
+}
+
+function syncCestDataset() {
+  if (!worker || isRunning) return;
+  if (fsStatusBadge) {
+    fsStatusBadge.className = "status-bar loading";
+    fsStatusBadge.textContent = "Syncing dataset to MEMFS...";
+  }
+  worker.postMessage({ type: "sync_dataset" });
+}
+
 function showError(msg) {
   if (errorAlert) {
     errorAlert.textContent = "Error: " + msg;
@@ -424,17 +498,22 @@ function hideError() {
   }
 }
 
-// Event Listeners
-btnRunFit.addEventListener("click", () => executeChemex("fit"));
-btnRunSim.addEventListener("click", () => executeChemex("simulate"));
-if (btnWriteFs) btnWriteFs.addEventListener("click", writeCestDataset);
+// -------------------------------------------------------------
+// Event Listeners & Startup
+// -------------------------------------------------------------
+
+if (btnRunFit) btnRunFit.addEventListener("click", () => executeChemex("fit"));
+if (btnRunSim) btnRunSim.addEventListener("click", () => executeChemex("simulate"));
+if (btnWriteFs) btnWriteFs.addEventListener("click", syncCestDataset);
 if (btnDownloadFile) btnDownloadFile.addEventListener("click", downloadSelectedFile);
 if (residueSelect) residueSelect.addEventListener("change", updateCommandDisplay);
+if (btnToggleConsole) btnToggleConsole.addEventListener("click", toggle_console_minimize);
 
-// Start on page load
 window.addEventListener("DOMContentLoaded", () => {
   updateCommandDisplay();
-  initPyodide();
+  make_console_movable();
+  initChemexWorker();
+
   fetch("navbar.html")
     .then(res => (res.ok ? res.text() : ""))
     .then(html => {

@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pyodide & NumPy Test - Mean & Std Calculator</title>
-  <!-- Pyodide CDN (v0.28.0 with Python 3.13 support) -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js"></script>
+  <title>ChemEx WebAssembly Runner - In-Browser CEST 15N Analysis</title>
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -300,6 +298,94 @@
       background-color: #1e293b;
       color: #ffffff;
     }
+
+    /* Floating ChemEx Console Window */
+    #chemex_console_window {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 580px;
+      height: 360px;
+      box-sizing: border-box;
+      z-index: 9999;
+      background: #0f172a;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      resize: both;
+      overflow: hidden;
+      min-width: 280px;
+      min-height: 100px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chemex_console_header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      cursor: move;
+      user-select: none;
+      color: #f1f5f9;
+      font-size: 0.88rem;
+    }
+
+    #chemex_console_header strong {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .console-btn {
+      background: #334155;
+      color: #f1f5f9;
+      border: 1px solid #475569;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+
+    .console-btn:hover {
+      background: #475569;
+    }
+
+    #chemex_console_body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 8px;
+      background: #0f172a;
+      box-sizing: border-box;
+    }
+
+    #pythonStdout {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 8px 10px;
+      background: #020617;
+      color: #38bdf8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      border-radius: 4px;
+      border: 1px solid #1e293b;
+      overflow-y: auto;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -367,7 +453,14 @@
         <button id="btnRunSim" class="btn-secondary" disabled>
           ▶ Run ChemEx Simulate (simulate.sh)
         </button>
+        <button id="btnToggleConsole" type="button" class="btn-secondary">
+          🖥️ Toggle Console Window
+        </button>
       </div>
+
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 12px; margin-bottom: 0;">
+        💡 Output streams in real-time to the floating console window (bottom-right). You can drag the header or click <strong>—</strong> / <strong>□</strong> to minimize/restore.
+      </p>
 
       <div id="errorAlert" class="alert alert-error" style="margin-top: 14px;"></div>
     </div>
@@ -398,16 +491,26 @@
       </div>
     </div>
 
-    <!-- Card 4: Console Output -->
-    <div class="card">
-      <h2>💻 ChemEx Console Output (stdout)</h2>
-      <pre style="margin-top: 6px; max-height: 320px; overflow-y: auto;"><code id="pythonStdout">Initializing Pyodide and mounting ChemEx...</code></pre>
-    </div>
-
     <div class="links">
       <a href="index.html">← Return to COLMARvista 2D</a> |
       <a href="index_1d.html">COLMARvista 1D</a> |
       <a href="about.html">About</a>
+    </div>
+  </div>
+
+  <!-- Floating ChemEx Console Window (Movable, Resizable, Minimizable) -->
+  <div id="chemex_console_window">
+    <div id="chemex_console_header">
+      <strong id="chemex_console_title" onclick="toggle_console_minimize()" title="Click to minimize / restore">
+        💻 ChemEx Console (stdout)
+      </strong>
+      <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+        <button type="button" class="console-btn" id="button_clear_console" onclick="clear_console()" title="Clear console output">Clear</button>
+        <button type="button" class="console-btn" id="button_minimize_console" onclick="toggle_console_minimize()" title="Minimize / Restore console window">—</button>
+      </div>
+    </div>
+    <div id="chemex_console_body">
+      <pre id="pythonStdout">Initializing ChemEx Web Worker...</pre>
     </div>
   </div>
 
