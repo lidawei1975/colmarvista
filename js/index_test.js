@@ -1,12 +1,16 @@
-// Controller for ChemEx Web Worker and Floating Console UI
+// Controller for ChemEx Web Worker, Floating Console UI, and Interactive NH Profile Simulation
 
 let worker = null;
 let isReady = false;
 let isRunning = false;
+let isInteractiveFitting = false;
 let currentVirtualFiles = [];
 let currentSelectedFile = null;
+let profileChart = null;
+let currentResidueDefaults = null;
+let simDebounceTimer = null;
 
-// DOM Elements
+// DOM Elements: Status & Filesystem
 const statusBar = document.getElementById("statusBar");
 const statusSpinner = document.getElementById("statusSpinner");
 const statusText = document.getElementById("statusText");
@@ -15,12 +19,14 @@ const fsStatusBadge = document.getElementById("fsStatusBadge");
 const btnWriteFs = document.getElementById("btnWriteFs");
 const virtualFilesList = document.getElementById("virtualFilesList");
 
+// DOM Elements: ChemEx Run Controls
 const btnRunFit = document.getElementById("btnRunFit");
 const btnRunSim = document.getElementById("btnRunSim");
 const btnToggleConsole = document.getElementById("btnToggleConsole");
 const residueSelect = document.getElementById("residueSelect");
 const commandDisplay = document.getElementById("commandDisplay");
 
+// DOM Elements: Output Files
 const outputFilesCard = document.getElementById("outputFilesCard");
 const outputFilesBadges = document.getElementById("outputFilesBadges");
 const fileViewerContainer = document.getElementById("fileViewerContainer");
@@ -40,6 +46,27 @@ const consoleBody = document.getElementById("chemex_console_body");
 const pythonStdout = document.getElementById("pythonStdout");
 const buttonMinimizeConsole = document.getElementById("button_minimize_console");
 const buttonClearConsole = document.getElementById("button_clear_console");
+
+// Interactive Profile Simulation Elements
+const interactiveResidueSelect = document.getElementById("interactiveResidueSelect");
+const btnReloadResidue = document.getElementById("btnReloadResidue");
+const interactiveProfileChartCanvas = document.getElementById("interactiveProfileChart");
+const simLiveBadge = document.getElementById("simLiveBadge");
+const paramStatusTag = document.getElementById("paramStatusTag");
+const fitResultNotice = document.getElementById("fitResultNotice");
+
+const num_PB = document.getElementById("num_PB");
+const slider_PB = document.getElementById("slider_PB");
+const num_KEX = document.getElementById("num_KEX");
+const slider_KEX = document.getElementById("slider_KEX");
+const num_CS = document.getElementById("num_CS");
+const slider_CS = document.getElementById("slider_CS");
+const num_DW = document.getElementById("num_DW");
+const slider_DW = document.getElementById("slider_DW");
+const num_TAUC = document.getElementById("num_TAUC");
+
+const btnFitFromParams = document.getElementById("btnFitFromParams");
+const btnResetParams = document.getElementById("btnResetParams");
 
 // Update command display based on options
 function updateCommandDisplay() {
@@ -105,7 +132,6 @@ function make_console_movable() {
 
   consoleHeader.onmousedown = function (e) {
     e = e || window.event;
-    // Do not initiate drag if user clicked one of the header buttons
     if (e.target.tagName === "BUTTON") return;
     e.preventDefault();
 
@@ -116,7 +142,6 @@ function make_console_movable() {
     initialLeft = rect.left;
     initialTop = rect.top;
 
-    // Convert CSS right/bottom fixed positioning to explicit top/left
     consoleWindow.style.right = "auto";
     consoleWindow.style.bottom = "auto";
     consoleWindow.style.left = initialLeft + "px";
@@ -141,6 +166,243 @@ function make_console_movable() {
       consoleWindow.style.top = newTop + "px";
     };
   };
+}
+
+// -------------------------------------------------------------
+// Interactive NH Profile Chart & Simulation Controls
+// -------------------------------------------------------------
+
+function renderProfileChart(exp13, calc13, exp26, calc26) {
+  if (!interactiveProfileChartCanvas || typeof Chart === "undefined") return;
+
+  const chartData = {
+    datasets: [
+      {
+        label: "13 Hz Data",
+        data: exp13,
+        type: "scatter",
+        backgroundColor: "#2563eb",
+        borderColor: "#2563eb",
+        pointRadius: 3.5,
+        pointHoverRadius: 6,
+        showLine: false,
+        order: 1
+      },
+      {
+        label: "13 Hz Sim",
+        data: calc13,
+        type: "line",
+        borderColor: "#2563eb",
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+        order: 2
+      },
+      {
+        label: "26 Hz Data",
+        data: exp26,
+        type: "scatter",
+        backgroundColor: "#dc2626",
+        borderColor: "#dc2626",
+        pointRadius: 3.5,
+        pointHoverRadius: 6,
+        showLine: false,
+        order: 3
+      },
+      {
+        label: "26 Hz Sim",
+        data: calc26,
+        type: "line",
+        borderColor: "#dc2626",
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.1,
+        order: 4
+      }
+    ]
+  };
+
+  if (profileChart) {
+    profileChart.data = chartData;
+    profileChart.update("none");
+    return;
+  }
+
+  profileChart = new Chart(interactiveProfileChartCanvas, {
+    type: "scatter",
+    data: chartData,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          position: "top",
+          labels: {
+            boxWidth: 12,
+            font: { size: 11, family: "-apple-system, sans-serif" }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function (ctx) {
+              const xVal = ctx.parsed.x ? ctx.parsed.x.toFixed(2) : "";
+              const yVal = ctx.parsed.y ? ctx.parsed.y.toFixed(3) : "";
+              return `${ctx.dataset.label}: ${xVal} ppm, I/I₀ = ${yVal}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: "linear",
+          position: "bottom",
+          reverse: true, // NMR standard: ppm descending
+          title: {
+            display: true,
+            text: "B1 Offset (ppm)",
+            font: { weight: "bold", size: 12 }
+          },
+          grid: { color: "#f1f5f9" }
+        },
+        y: {
+          min: 0,
+          max: 1.15,
+          title: {
+            display: true,
+            text: "Intensity (I/I₀)",
+            font: { weight: "bold", size: 12 }
+          },
+          grid: { color: "#f1f5f9" }
+        }
+      }
+    }
+  });
+}
+
+function updateProfileChartLines(calc13, calc26) {
+  if (!profileChart) return;
+  profileChart.data.datasets[1].data = calc13 || [];
+  profileChart.data.datasets[3].data = calc26 || [];
+  profileChart.update("none");
+}
+
+function getParamValuesFromUI() {
+  return {
+    PB: parseFloat(num_PB ? num_PB.value : 0.015) || 0.015,
+    KEX_AB: parseFloat(num_KEX ? num_KEX.value : 70.0) || 70.0,
+    CS_A: parseFloat(num_CS ? num_CS.value : 108.0) || 108.0,
+    DW_AB: parseFloat(num_DW ? num_DW.value : 4.0) || 4.0,
+    TAUC_A: parseFloat(num_TAUC ? num_TAUC.value : 10.0) || 10.0
+  };
+}
+
+function setParamValuesToUI(params) {
+  if (!params) return;
+  if (params.PB !== undefined && num_PB && slider_PB) {
+    num_PB.value = Number(params.PB).toFixed(3);
+    slider_PB.value = params.PB;
+  }
+  if (params.KEX_AB !== undefined && num_KEX && slider_KEX) {
+    num_KEX.value = Math.round(params.KEX_AB);
+    slider_KEX.value = params.KEX_AB;
+  }
+  if (params.CS_A !== undefined && num_CS && slider_CS) {
+    const csVal = parseFloat(params.CS_A);
+    num_CS.value = csVal.toFixed(2);
+    slider_CS.min = (csVal - 4.0).toFixed(2);
+    slider_CS.max = (csVal + 4.0).toFixed(2);
+    slider_CS.value = csVal.toFixed(2);
+  }
+  if (params.DW_AB !== undefined && num_DW && slider_DW) {
+    const dwVal = parseFloat(params.DW_AB);
+    num_DW.value = dwVal.toFixed(1);
+    slider_DW.value = dwVal;
+  }
+  if (params.TAUC_A !== undefined && num_TAUC) {
+    num_TAUC.value = parseFloat(params.TAUC_A).toFixed(1);
+  }
+}
+
+function triggerInteractiveSimulation() {
+  if (!worker || !isReady || isRunning || isInteractiveFitting) return;
+  if (simDebounceTimer) clearTimeout(simDebounceTimer);
+
+  if (simLiveBadge) {
+    simLiveBadge.textContent = "Calculating...";
+    simLiveBadge.style.background = "#fef3c7";
+    simLiveBadge.style.color = "#92400e";
+  }
+
+  simDebounceTimer = setTimeout(() => {
+    const residue = interactiveResidueSelect ? interactiveResidueSelect.value : "13N";
+    const params = getParamValuesFromUI();
+    worker.postMessage({
+      type: "simulate_residue",
+      residue: residue,
+      params: params
+    });
+  }, 35);
+}
+
+function bindSliderAndInput(slider, numInput) {
+  if (!slider || !numInput) return;
+  slider.addEventListener("input", () => {
+    numInput.value = slider.value;
+    if (paramStatusTag) paramStatusTag.textContent = "Modified by user";
+    triggerInteractiveSimulation();
+  });
+  numInput.addEventListener("input", () => {
+    slider.value = numInput.value;
+    if (paramStatusTag) paramStatusTag.textContent = "Modified by user";
+    triggerInteractiveSimulation();
+  });
+}
+
+function loadInteractiveResidue(residue) {
+  if (!worker || !isReady) return;
+  if (fitResultNotice) fitResultNotice.style.display = "none";
+  if (paramStatusTag) paramStatusTag.textContent = "Loading...";
+  if (btnFitFromParams) btnFitFromParams.disabled = true;
+
+  worker.postMessage({
+    type: "get_residue_data",
+    residue: residue
+  });
+}
+
+function fitFromCurrentParams() {
+  if (!worker || !isReady || isRunning || isInteractiveFitting) return;
+
+  const residue = interactiveResidueSelect ? interactiveResidueSelect.value : "13N";
+  const params = getParamValuesFromUI();
+
+  isInteractiveFitting = true;
+  setRunningState(true);
+
+  if (btnFitFromParams) {
+    btnFitFromParams.disabled = true;
+    btnFitFromParams.textContent = `⏳ Fitting ${residue}...`;
+  }
+  if (fitResultNotice) {
+    fitResultNotice.style.display = "block";
+    fitResultNotice.style.background = "#eff6ff";
+    fitResultNotice.style.borderColor = "#bfdbfe";
+    fitResultNotice.style.color = "#1e40af";
+    fitResultNotice.textContent = `Running ChemEx fit for ${residue} starting from your custom parameters... (see console for details)`;
+  }
+
+  appendConsole(`\n========================================================\n> Fitting residue ${residue} starting from user parameters:\n> PB = ${params.PB}, KEX_AB = ${params.KEX_AB}, CS_A = ${params.CS_A}, DW_AB = ${params.DW_AB}\n========================================================\n`);
+  show_console();
+
+  worker.postMessage({
+    type: "fit_from_user_params",
+    residue: residue,
+    params: params,
+    outputDir: "Output"
+  });
 }
 
 // -------------------------------------------------------------
@@ -205,6 +467,112 @@ function handleWorkerMessage(e) {
 
       currentVirtualFiles = data.virtualFiles || [];
       renderVirtualFilesList(currentVirtualFiles);
+
+      // Automatically load the initial residue for interactive simulation
+      const initialRes = interactiveResidueSelect ? interactiveResidueSelect.value : "13N";
+      loadInteractiveResidue(initialRes);
+      break;
+
+    case "residue_data_result":
+      if (data.data && data.data.status === "success") {
+        const res = data.data;
+        currentResidueDefaults = { ...res.params };
+        setParamValuesToUI(res.params);
+        renderProfileChart(res.exp_13hz, res.calc_13hz, res.exp_26hz, res.calc_26hz);
+
+        if (btnFitFromParams) btnFitFromParams.disabled = false;
+        if (paramStatusTag) paramStatusTag.textContent = "Initial guess (Parameters.toml)";
+        if (simLiveBadge) {
+          simLiveBadge.textContent = "Simulating on-the-fly";
+          simLiveBadge.style.background = "#e0f2fe";
+          simLiveBadge.style.color = "#0369a1";
+        }
+      }
+      break;
+
+    case "simulation_update_result":
+      if (data.data && data.data.status === "success") {
+        updateProfileChartLines(data.data.calc_13hz, data.data.calc_26hz);
+        if (simLiveBadge) {
+          simLiveBadge.textContent = "Updated on-the-fly";
+          simLiveBadge.style.background = "#dcfce7";
+          simLiveBadge.style.color = "#166534";
+        }
+      }
+      break;
+
+    case "fit_complete_with_params":
+      isInteractiveFitting = false;
+      setRunningState(false);
+      if (btnFitFromParams) {
+        btnFitFromParams.disabled = false;
+        btnFitFromParams.textContent = "⚡ Fit from Current Parameters";
+      }
+
+      if (data.data) {
+        const res = data.data;
+        // Update chart lines with newly fitted curves
+        updateProfileChartLines(res.calc_13hz, res.calc_26hz);
+
+        // Update parameters if fitted results found
+        if (res.fitted_params) {
+          const fp = res.fitted_params;
+          const updated = {};
+          if (fp.PB) updated.PB = fp.PB.value;
+          if (fp.KEX_AB) updated.KEX_AB = fp.KEX_AB.value;
+          if (fp.CS_A) updated.CS_A = fp.CS_A.value;
+          if (fp.DW_AB) updated.DW_AB = fp.DW_AB.value;
+          setParamValuesToUI(updated);
+        }
+
+        if (paramStatusTag) paramStatusTag.textContent = "✅ Fitted Result";
+        if (fitResultNotice) {
+          fitResultNotice.style.display = "block";
+          fitResultNotice.style.background = "#ecfdf5";
+          fitResultNotice.style.borderColor = "#a7f3d0";
+          fitResultNotice.style.color = "#065f46";
+
+          let noticeText = `✅ Fit completed successfully for ${data.residue}!`;
+          if (res.fitted_params) {
+            const parts = [];
+            if (res.fitted_params.PB) parts.push(`pB = ${res.fitted_params.PB.value.toFixed(4)}`);
+            if (res.fitted_params.KEX_AB) parts.push(`kex = ${res.fitted_params.KEX_AB.value.toFixed(1)} s⁻¹`);
+            if (res.fitted_params.DW_AB) parts.push(`Δϖ = ${res.fitted_params.DW_AB.value.toFixed(2)} ppm`);
+            if (parts.length > 0) noticeText += " (" + parts.join(", ") + ")";
+          }
+          fitResultNotice.textContent = noticeText;
+        }
+
+        if (res.virtual_files) {
+          currentVirtualFiles = res.virtual_files;
+          renderVirtualFilesList(currentVirtualFiles);
+        }
+        if (res.run_result && res.run_result.output_files) {
+          displayOutputFiles(data.outputDir, res.run_result.output_files);
+        }
+      }
+      break;
+
+    case "user_fit_error":
+      isInteractiveFitting = false;
+      setRunningState(false);
+      if (btnFitFromParams) {
+        btnFitFromParams.disabled = false;
+        btnFitFromParams.textContent = "⚡ Fit from Current Parameters";
+      }
+      showError(`Fit error: ${data.error}`);
+      if (fitResultNotice) {
+        fitResultNotice.style.display = "block";
+        fitResultNotice.style.background = "#fee2e2";
+        fitResultNotice.style.borderColor = "#fecaca";
+        fitResultNotice.style.color = "#991b1b";
+        fitResultNotice.textContent = `❌ Error during fit: ${data.error}`;
+      }
+      break;
+
+    case "residue_data_error":
+      console.warn("Could not load residue data:", data.error);
+      if (paramStatusTag) paramStatusTag.textContent = "Error loading";
       break;
 
     case "dataset_synced":
@@ -339,13 +707,11 @@ function handleFileContentResponse(data) {
   const { outputDir, filename, isBinary, content } = data;
   const fullRelPath = `${outputDir}/${filename}`;
 
-  // Clean up previous blob URL if needed
   if (currentSelectedFile && currentSelectedFile.blobUrl) {
     URL.revokeObjectURL(currentSelectedFile.blobUrl);
   }
 
   if (isBinary) {
-    // Decode base64 to binary bytes
     const binStr = atob(content);
     const len = binStr.length;
     const bytes = new Uint8Array(len);
@@ -442,7 +808,9 @@ function setRunningState(running) {
   if (btnRunFit) btnRunFit.disabled = running;
   if (btnRunSim) btnRunSim.disabled = running;
   if (btnWriteFs) btnWriteFs.disabled = running;
+  if (btnFitFromParams) btnFitFromParams.disabled = running;
   if (residueSelect) residueSelect.disabled = running;
+  if (interactiveResidueSelect) interactiveResidueSelect.disabled = running;
 }
 
 function executeChemex(command) {
@@ -463,8 +831,6 @@ function executeChemex(command) {
   }
 
   appendConsole(`\n========================================================\n> Executing ChemEx ${command.toUpperCase()} (Residue: ${residue})\n========================================================\n`);
-
-  // Ensure floating console is visible so user sees the output streaming
   show_console();
 
   worker.postMessage({
@@ -502,11 +868,55 @@ function hideError() {
 // Event Listeners & Startup
 // -------------------------------------------------------------
 
+// Sliders and Number Inputs bindings
+bindSliderAndInput(slider_PB, num_PB);
+bindSliderAndInput(slider_KEX, num_KEX);
+bindSliderAndInput(slider_CS, num_CS);
+bindSliderAndInput(slider_DW, num_DW);
+if (num_TAUC) num_TAUC.addEventListener("input", triggerInteractiveSimulation);
+
+// Interactive Residue Select change
+if (interactiveResidueSelect) {
+  interactiveResidueSelect.addEventListener("change", (e) => {
+    const res = e.target.value;
+    if (residueSelect) residueSelect.value = res;
+    updateCommandDisplay();
+    loadInteractiveResidue(res);
+  });
+}
+
+if (btnReloadResidue) {
+  btnReloadResidue.addEventListener("click", () => {
+    const res = interactiveResidueSelect ? interactiveResidueSelect.value : "13N";
+    loadInteractiveResidue(res);
+  });
+}
+
+if (btnFitFromParams) {
+  btnFitFromParams.addEventListener("click", fitFromCurrentParams);
+}
+
+if (btnResetParams) {
+  btnResetParams.addEventListener("click", () => {
+    if (currentResidueDefaults) {
+      setParamValuesToUI(currentResidueDefaults);
+      if (paramStatusTag) paramStatusTag.textContent = "Reset to defaults";
+      triggerInteractiveSimulation();
+    }
+  });
+}
+
 if (btnRunFit) btnRunFit.addEventListener("click", () => executeChemex("fit"));
 if (btnRunSim) btnRunSim.addEventListener("click", () => executeChemex("simulate"));
 if (btnWriteFs) btnWriteFs.addEventListener("click", syncCestDataset);
 if (btnDownloadFile) btnDownloadFile.addEventListener("click", downloadSelectedFile);
-if (residueSelect) residueSelect.addEventListener("change", updateCommandDisplay);
+if (residueSelect) residueSelect.addEventListener("change", (e) => {
+  updateCommandDisplay();
+  if (interactiveResidueSelect && e.target.value !== "ALL") {
+    interactiveResidueSelect.value = e.target.value;
+    loadInteractiveResidue(e.target.value);
+  }
+});
 if (btnToggleConsole) btnToggleConsole.addEventListener("click", toggle_console_minimize);
 
 window.addEventListener("DOMContentLoaded", () => {

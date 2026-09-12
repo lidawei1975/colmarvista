@@ -195,6 +195,115 @@ chemex_runner.read_virtual_file(view_path, base_dir="CEST_15N")
         error: err.message || String(err)
       });
     }
+  } else if (data.type === "get_residue_data") {
+    if (!isReady || !pyodide) {
+      self.postMessage({ type: "residue_data_error", error: "Worker not ready yet." });
+      return;
+    }
+    try {
+      const residue = data.residue || "13N";
+      pyodide.globals.set("res_name", residue);
+      const pyScript = `
+import chemex_runner
+chemex_runner.get_residue_profile_data(residue=res_name)
+`;
+      const resJson = pyodide.runPython(pyScript);
+      const resData = JSON.parse(resJson);
+      self.postMessage({
+        type: "residue_data_result",
+        residue: residue,
+        data: resData
+      });
+    } catch (err) {
+      console.error("Error fetching residue profile:", err);
+      self.postMessage({
+        type: "residue_data_error",
+        residue: data.residue,
+        error: err.message || String(err)
+      });
+    }
+  } else if (data.type === "simulate_residue") {
+    if (!isReady || !pyodide) {
+      return;
+    }
+    try {
+      const residue = data.residue || "13N";
+      pyodide.globals.set("res_name", residue);
+      pyodide.globals.set("res_params", JSON.stringify(data.params || {}));
+      const pyScript = `
+import chemex_runner, json
+chemex_runner.simulate_residue_lines(residue=res_name, params_override=json.loads(res_params))
+`;
+      const resJson = pyodide.runPython(pyScript);
+      const resData = JSON.parse(resJson);
+      self.postMessage({
+        type: "simulation_update_result",
+        residue: residue,
+        data: resData
+      });
+    } catch (err) {
+      console.error("Error calculating live simulation:", err);
+    }
+  } else if (data.type === "fit_from_user_params") {
+    if (!isReady || !pyodide) {
+      self.postMessage({ type: "user_fit_error", error: "Worker not ready yet." });
+      return;
+    }
+    try {
+      const residue = data.residue || "13N";
+      const outputDir = data.outputDir || "Output";
+      pyodide.globals.set("fit_res", residue);
+      pyodide.globals.set("fit_params", JSON.stringify(data.params || {}));
+      pyodide.globals.set("fit_out_dir", outputDir);
+
+      const pyScript = `
+import chemex_runner, json
+params_dict = json.loads(fit_params)
+# 1. Update starting parameters in Parameters/parameters.toml
+chemex_runner.update_parameters_toml("Parameters/parameters.toml", fit_res, params_dict)
+
+# 2. Run ChemEx Fit for this residue
+run_res_str = chemex_runner.run_chemex_command(command="fit", include_residue=fit_res, output_dir=fit_out_dir)
+run_res = json.loads(run_res_str)
+
+# 3. Read fitted parameters and errors
+fitted_params = chemex_runner.read_fitted_parameters(output_dir=fit_out_dir, residue=fit_res)
+
+# 4. Generate updated curve with best-fit values
+prof_res_str = chemex_runner.get_residue_profile_data(residue=fit_res)
+prof_res = json.loads(prof_res_str)
+
+virtual_files = chemex_runner.get_virtual_files("CEST_15N")
+
+json.dumps({
+    "status": "success",
+    "residue": fit_res,
+    "output_dir": fit_out_dir,
+    "run_result": run_res,
+    "fitted_params": fitted_params,
+    "calc_13hz": prof_res.get("calc_13hz", []),
+    "calc_26hz": prof_res.get("calc_26hz", []),
+    "params": prof_res.get("params", {}),
+    "virtual_files": virtual_files
+})
+`;
+      const resJson = pyodide.runPython(pyScript);
+      const resData = JSON.parse(resJson);
+
+      self.postMessage({
+        type: "fit_complete_with_params",
+        residue: residue,
+        outputDir: outputDir,
+        data: resData
+      });
+    } catch (err) {
+      console.error("Error during user fit:", err);
+      self.postMessage({
+        type: "user_fit_error",
+        residue: data.residue,
+        error: err.message || String(err)
+      });
+    }
   }
 };
 

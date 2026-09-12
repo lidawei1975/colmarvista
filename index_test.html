@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChemEx WebAssembly Runner - In-Browser CEST 15N Analysis</title>
+  <!-- Chart.js CDN for interactive profile plotting -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -386,6 +388,63 @@
       word-break: break-all;
       box-sizing: border-box;
     }
+
+    /* Interactive Profile Simulator */
+    .interactive-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 840px) {
+      .interactive-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .param-control-group {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+
+    .param-control-group:hover {
+      border-color: #cbd5e1;
+    }
+
+    .param-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .param-input-num {
+      width: 86px;
+      padding: 4px 6px;
+      font-size: 0.85rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      text-align: right;
+      min-height: auto;
+      background: #fcfcfd;
+    }
+
+    .param-slider {
+      width: 100%;
+      cursor: pointer;
+      margin: 0;
+      accent-color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -422,6 +481,126 @@
 
       <div id="virtualFilesList" style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; max-height: 140px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.82rem;">
         Loading file list...
+      </div>
+    </div>
+
+    <!-- Card: Interactive NH Profile Simulation & Live Fit -->
+    <div class="card" id="interactiveProfileCard">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+        <h2>🔬 Individual NH Profile: Live Simulation &amp; Fit</h2>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <label for="interactiveResidueSelect" style="font-size: 0.9rem; margin: 0; font-weight: 600;">Select NH Residue:</label>
+          <select id="interactiveResidueSelect" style="padding: 7px 12px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.95rem; font-weight: 600; background: #ffffff; cursor: pointer;">
+            <option value="13N" selected>13N</option>
+            <option value="26N">26N</option>
+            <option value="28N">28N</option>
+            <option value="29N">29N</option>
+            <option value="33N">33N</option>
+            <option value="37N">37N</option>
+            <option value="41N">41N</option>
+            <option value="42N">42N</option>
+            <option value="43N">43N</option>
+            <option value="50N">50N</option>
+            <option value="52N">52N</option>
+            <option value="55N">55N</option>
+            <option value="59N">59N</option>
+            <option value="66N">66N</option>
+            <option value="67N">67N</option>
+            <option value="68N">68N</option>
+          </select>
+          <button id="btnReloadResidue" class="btn-secondary" style="padding: 7px 12px; font-size: 0.85rem;" title="Reload profile data">
+            🔄 Reload
+          </button>
+        </div>
+      </div>
+
+      <div class="interactive-grid">
+        <!-- Chart Column -->
+        <div class="chart-panel">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 0.85rem; font-weight: 500;">
+              <span style="display: inline-block; width: 10px; height: 10px; background: #2563eb; border-radius: 50%; margin-right: 4px;"></span>
+              <strong>13 Hz</strong> (Data &amp; Sim)
+              &nbsp;&nbsp;&nbsp;
+              <span style="display: inline-block; width: 10px; height: 10px; background: #dc2626; border-radius: 50%; margin-right: 4px;"></span>
+              <strong>26 Hz</strong> (Data &amp; Sim)
+            </div>
+            <div id="simLiveBadge" style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-weight: 600;">
+              Simulating on-the-fly
+            </div>
+          </div>
+          <div style="position: relative; height: 380px; width: 100%; background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-sizing: border-box;">
+            <canvas id="interactiveProfileChart"></canvas>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+            <span>X-axis: B1 offset (ppm, NMR standard)</span>
+            <span>Y-axis: Intensity (I/I₀)</span>
+          </div>
+        </div>
+
+        <!-- Parameters & Controls Column -->
+        <div class="params-panel" style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <strong style="font-size: 0.95rem; color: #1e293b;">⚙️ Starting Parameters</strong>
+              <span id="paramStatusTag" style="font-size: 0.75rem; color: var(--text-muted);">Initial guess</span>
+            </div>
+
+            <!-- pB -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_PB">p<sub>B</sub> (Minor Population):</label>
+                <input type="number" id="num_PB" step="0.001" min="0.001" max="0.200" value="0.015" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_PB" min="0.001" max="0.100" step="0.001" value="0.015" class="param-slider" />
+            </div>
+
+            <!-- kex -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_KEX">k<sub>ex</sub> (Exchange Rate, s⁻¹):</label>
+                <input type="number" id="num_KEX" step="1" min="1" max="500" value="70" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_KEX" min="5" max="300" step="1" value="70" class="param-slider" />
+            </div>
+
+            <!-- cs_a -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_CS">ϖ<sub>A</sub> (Major Shift, ppm):</label>
+                <input type="number" id="num_CS" step="0.01" value="108.21" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_CS" step="0.02" class="param-slider" />
+            </div>
+
+            <!-- dw_ab -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_DW">Δϖ<sub>AB</sub> (Shift Diff B - A, ppm):</label>
+                <input type="number" id="num_DW" step="0.1" min="-20" max="20" value="4.0" class="param-input-num" />
+              </div>
+              <input type="range" id="slider_DW" min="-15" max="15" step="0.1" value="4.0" class="param-slider" />
+            </div>
+
+            <!-- tauc_a -->
+            <div class="param-control-group">
+              <div class="param-header">
+                <label for="num_TAUC">τ<sub>c</sub> (Correlation Time, ns):</label>
+                <input type="number" id="num_TAUC" step="0.5" min="1" max="50" value="10.0" class="param-input-num" />
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button id="btnFitFromParams" class="btn-primary" disabled style="width: 100%; padding: 10px 14px; font-size: 0.95rem; margin-bottom: 8px;">
+              ⚡ Fit from Current Parameters
+            </button>
+            <button id="btnResetParams" class="btn-secondary" style="width: 100%; padding: 6px 12px; font-size: 0.85rem;">
+              🔄 Reset to Defaults
+            </button>
+            <div id="fitResultNotice" style="display: none; margin-top: 8px; font-size: 0.8rem; padding: 6px 10px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; color: #065f46;"></div>
+          </div>
+        </div>
       </div>
     </div>
 

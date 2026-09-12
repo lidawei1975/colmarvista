@@ -205,3 +205,220 @@ def run_chemex_command(command="fit", include_residue=None, output_dir="Output")
         })
     finally:
         os.chdir(original_cwd)
+
+def read_parameters_toml(path="Parameters/parameters.toml", residue="13N"):
+    """
+    Parses initial parameters from Parameters/parameters.toml.
+    """
+    import tomllib
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    global_sec = data.get("GLOBAL", {})
+    cs_sec = data.get("CS_A", {})
+    dw_sec = data.get("DW_AB", {})
+
+    pb = float(global_sec.get("PB", 0.015))
+    kex = float(global_sec.get("KEX_AB", 70.0))
+    tauc = float(global_sec.get("TAUC_A", 10.0))
+    cs_a = float(cs_sec.get(residue, 108.0))
+    dw_ab = float(dw_sec.get(residue, 4.0))
+
+    return {
+        "PB": pb,
+        "KEX_AB": kex,
+        "TAUC_A": tauc,
+        "CS_A": cs_a,
+        "DW_AB": dw_ab
+    }
+
+def update_parameters_toml(path="Parameters/parameters.toml", residue="13N", params=None):
+    """
+    Updates initial parameters for a residue in Parameters/parameters.toml.
+    """
+    if not params:
+        return
+    import tomllib
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    if "GLOBAL" not in data:
+        data["GLOBAL"] = {}
+    if "CS_A" not in data:
+        data["CS_A"] = {}
+    if "DW_AB" not in data:
+        data["DW_AB"] = {}
+
+    if "PB" in params:
+        data["GLOBAL"]["PB"] = float(params["PB"])
+    if "KEX_AB" in params:
+        data["GLOBAL"]["KEX_AB"] = float(params["KEX_AB"])
+    if "TAUC_A" in params:
+        data["GLOBAL"]["TAUC_A"] = float(params["TAUC_A"])
+    if "CS_A" in params:
+        data["CS_A"][residue] = float(params["CS_A"])
+    if "DW_AB" in params:
+        data["DW_AB"][residue] = float(params["DW_AB"])
+
+    lines = ["[GLOBAL]"]
+    for k, v in data["GLOBAL"].items():
+        lines.append(f"{k} = {v}")
+    lines.append("")
+    lines.append("[CS_A]")
+    for k, v in data["CS_A"].items():
+        lines.append(f"{k} = {v}")
+    lines.append("")
+    lines.append("[DW_AB]")
+    for k, v in data["DW_AB"].items():
+        lines.append(f"{k} = {v}")
+    lines.append("")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def get_residue_profile_data(residue="13N", params_override=None, base_dir="CEST_15N"):
+    """
+    Returns experimental points and simulated lines for the given residue and parameters.
+    """
+    apply_compat_patches()
+    original_cwd = os.getcwd()
+    try:
+        cest_dir = base_dir if os.path.isdir(base_dir) else "."
+        os.chdir(cest_dir)
+
+        if params_override:
+            if isinstance(params_override, str):
+                params_override = json.loads(params_override)
+            update_parameters_toml("Parameters/parameters.toml", residue, params_override)
+
+        from pathlib import Path
+        from chemex.models.model import model
+        from chemex.configuration.methods import Selection
+        from chemex.experiments.builder import build_experiments
+        from chemex.configuration.parameters import read_defaults
+        from chemex.parameters import database
+        from chemex.parameters.spin_system import SpinSystem
+        from chemex.plotters.cest import create_plot_data_calc, create_plot_data_exp
+
+        model.set_model("2st")
+
+        exp_files = sorted(glob.glob("Experiments/*.toml") + glob.glob("experiments/*.toml"))
+        param_files = sorted(glob.glob("Parameters/*.toml") + glob.glob("parameters/*.toml"))
+        if not param_files and os.path.isfile("Parameters/parameters.toml"):
+            param_files = ["Parameters/parameters.toml"]
+
+        defaults = read_defaults([Path(p) for p in param_files])
+        database.set_param_defaults(defaults)
+        database.fix_all_parameters()
+
+        selection = Selection(include=[SpinSystem.from_name(residue)], exclude=None)
+        experiments = build_experiments([Path(p) for p in exp_files], selection)
+        experiments.prepare_for_simulation()
+
+        exp_13hz = []
+        calc_13hz = []
+        exp_26hz = []
+        calc_26hz = []
+
+        for experiment in experiments:
+            exp_name = str(experiment.filename).lower()
+            for profile in experiment.profiles:
+                if str(profile.spin_system) != residue:
+                    continue
+                d_exp = create_plot_data_exp(profile)
+                d_calc = create_plot_data_calc(profile)
+
+                exp_pts = []
+                for x, y, err in zip(d_exp.metadata, d_exp.exp, d_exp.err):
+                    err_val = float(err[0]) if hasattr(err, "__len__") else float(err)
+                    if abs(err_val) < 1e10:
+                        exp_pts.append({
+                            "x": round(float(x), 4),
+                            "y": round(float(y), 4),
+                            "err": round(err_val, 4)
+                        })
+                exp_pts.sort(key=lambda p: p["x"], reverse=True)
+
+                calc_pts = []
+                for x, y in zip(d_calc.metadata, d_calc.calc):
+                    calc_pts.append({
+                        "x": round(float(x), 4),
+                        "y": round(float(y), 4)
+                    })
+                calc_pts.sort(key=lambda p: p["x"], reverse=True)
+
+                if "13" in exp_name:
+                    exp_13hz = exp_pts
+                    calc_13hz = calc_pts
+                else:
+                    exp_26hz = exp_pts
+                    calc_26hz = calc_pts
+
+        current_params = read_parameters_toml("Parameters/parameters.toml", residue)
+
+        return json.dumps({
+            "status": "success",
+            "residue": residue,
+            "params": current_params,
+            "exp_13hz": exp_13hz,
+            "calc_13hz": calc_13hz,
+            "exp_26hz": exp_26hz,
+            "calc_26hz": calc_26hz
+        })
+    finally:
+        os.chdir(original_cwd)
+
+def simulate_residue_lines(residue="13N", params_override=None, base_dir="CEST_15N"):
+    """
+    Lightweight simulation calculation returning only the updated calculated lines for 13Hz and 26Hz.
+    """
+    res_str = get_residue_profile_data(residue=residue, params_override=params_override, base_dir=base_dir)
+    res = json.loads(res_str)
+    return json.dumps({
+        "status": "success",
+        "residue": residue,
+        "calc_13hz": res.get("calc_13hz", []),
+        "calc_26hz": res.get("calc_26hz", []),
+        "params": res.get("params", {})
+    })
+
+def read_fitted_parameters(output_dir="Output", residue="13N", base_dir="CEST_15N"):
+    """
+    Parses fitted parameters and uncertainties from Output/parameters.fit or Output/<residue>/parameters.fit.
+    """
+    import re
+    fitted = {}
+    search_paths = [
+        os.path.join(base_dir, output_dir, "parameters.fit"),
+        os.path.join(base_dir, output_dir, residue, "parameters.fit"),
+        os.path.join(base_dir, output_dir, "All", "parameters.fit"),
+    ]
+    target_file = None
+    for p in search_paths:
+        if os.path.isfile(p):
+            target_file = p
+            break
+
+    if not target_file:
+        return fitted
+
+    current_section = ""
+    line_pattern = re.compile(r"^\s*([A-Za-z0-9_]+)\s*=\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)(?:\s*#\s*(?:(?:±|\+/-)\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?))?)?")
+    with open(target_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line_str = line.strip()
+            if line_str.startswith("[") and line_str.endswith("]"):
+                current_section = line_str[1:-1].strip().upper()
+                continue
+            m = line_pattern.match(line_str)
+            if m:
+                key = m.group(1).strip()
+                val = float(m.group(2))
+                err = float(m.group(3)) if m.group(3) else None
+
+                if current_section == "GLOBAL":
+                    fitted[key] = {"value": val, "error": err}
+                elif current_section in ("CS_A", "DW_AB") and key == residue:
+                    fitted[current_section] = {"value": val, "error": err}
+
+    return fitted
