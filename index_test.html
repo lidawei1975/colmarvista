@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ChemEx WebAssembly Runner - In-Browser CEST 15N Analysis</title>
   <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
-  <!-- Chart.js CDN for interactive profile plotting -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- D3.js v7 for interactive spectrum/profile plotting (matching other pages) -->
+  <script type="text/javascript" src="js/d3.7.min.js"></script>
   <style>
     :root {
       --bg-color: #f8fafc;
@@ -518,7 +518,7 @@
       <div class="interactive-grid">
         <!-- Chart Column -->
         <div class="chart-panel">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
             <div style="font-size: 0.85rem; font-weight: 500;">
               <span style="display: inline-block; width: 10px; height: 10px; background: #2563eb; border-radius: 50%; margin-right: 4px;"></span>
               <strong>13 Hz</strong> (Data &amp; Sim)
@@ -526,15 +526,21 @@
               <span style="display: inline-block; width: 10px; height: 10px; background: #dc2626; border-radius: 50%; margin-right: 4px;"></span>
               <strong>26 Hz</strong> (Data &amp; Sim)
             </div>
-            <div id="simLiveBadge" style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-weight: 600;">
-              Simulating on-the-fly
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button id="btnResetPlotZoom" class="btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; display: flex; align-items: center; gap: 4px;" title="Reset zoom and pan to full view (or double-click plot)">
+                ⟲ Reset Zoom
+              </button>
+              <div id="simLiveBadge" style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-weight: 600;">
+                Simulating on-the-fly
+              </div>
             </div>
           </div>
-          <div style="position: relative; height: 380px; width: 100%; background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; box-sizing: border-box;">
-            <canvas id="interactiveProfileChart"></canvas>
+          <div id="interactiveProfilePlotContainer" style="position: relative; height: 380px; width: 100%; background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius); padding: 0; box-sizing: border-box; overflow: hidden;">
+            <div id="interactiveProfilePlot" style="width: 100%; height: 100%;"></div>
+            <div id="d3PlotTooltip" style="position: absolute; display: none; pointer-events: none; background: rgba(15, 23, 42, 0.92); color: #ffffff; padding: 5px 9px; border-radius: 5px; font-size: 0.75rem; font-family: -apple-system, sans-serif; z-index: 20; box-shadow: 0 4px 10px rgba(0,0,0,0.25); white-space: nowrap;"></div>
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
-            <span>X-axis: B1 offset (ppm, NMR standard)</span>
+            <span>X-axis: B1 offset (ppm) • <em>Scroll below X-axis to zoom X, left of Y-axis to zoom Y, or in plot to zoom both</em></span>
             <span>Y-axis: Intensity (I/I₀)</span>
           </div>
         </div>
@@ -680,6 +686,6 @@
   </div>
 
   <!-- Application Logic (Separated into js/index_test.js) -->
-  <script src="js/index_test.js?v=2026.9.1"></script>
+  <script src="js/index_test.js?v=2026.9.2"></script>
 </body>
 </html>

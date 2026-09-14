@@ -6,7 +6,6 @@ let isRunning = false;
 let isInteractiveFitting = false;
 let currentVirtualFiles = [];
 let currentSelectedFile = null;
-let profileChart = null;
 let currentResidueDefaults = null;
 let simDebounceTimer = null;
 
@@ -50,7 +49,9 @@ const buttonClearConsole = document.getElementById("button_clear_console");
 // Interactive Profile Simulation Elements
 const interactiveResidueSelect = document.getElementById("interactiveResidueSelect");
 const btnReloadResidue = document.getElementById("btnReloadResidue");
-const interactiveProfileChartCanvas = document.getElementById("interactiveProfileChart");
+const interactiveProfilePlotDiv = document.getElementById("interactiveProfilePlot");
+const btnResetPlotZoom = document.getElementById("btnResetPlotZoom");
+const d3PlotTooltip = document.getElementById("d3PlotTooltip");
 const simLiveBadge = document.getElementById("simLiveBadge");
 const paramStatusTag = document.getElementById("paramStatusTag");
 const fitResultNotice = document.getElementById("fitResultNotice");
@@ -167,124 +168,572 @@ function make_console_movable() {
 }
 
 // -------------------------------------------------------------
-// Interactive NH Profile Chart & Simulation Controls
+// Interactive NH Profile D3 Plot & Simulation Controls
 // -------------------------------------------------------------
 
-function renderProfileChart(exp13, calc13, exp26, calc26) {
-  if (!interactiveProfileChartCanvas || typeof Chart === "undefined") return;
+let d3PlotData = {
+  exp13: [],
+  calc13: [],
+  exp26: [],
+  calc26: []
+};
 
-  const chartData = {
-    datasets: [
-      {
-        label: "13 Hz Data",
-        data: exp13,
-        type: "scatter",
-        backgroundColor: "#2563eb",
-        borderColor: "#2563eb",
-        pointRadius: 3.5,
-        pointHoverRadius: 6,
-        showLine: false,
-        order: 1
-      },
-      {
-        label: "13 Hz Sim",
-        data: calc13,
-        type: "line",
-        borderColor: "#2563eb",
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false,
-        tension: 0.1,
-        order: 2
-      },
-      {
-        label: "26 Hz Data",
-        data: exp26,
-        type: "scatter",
-        backgroundColor: "#dc2626",
-        borderColor: "#dc2626",
-        pointRadius: 3.5,
-        pointHoverRadius: 6,
-        showLine: false,
-        order: 3
-      },
-      {
-        label: "26 Hz Sim",
-        data: calc26,
-        type: "line",
-        borderColor: "#dc2626",
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false,
-        tension: 0.1,
-        order: 4
-      }
-    ]
-  };
+let d3PlotObj = {
+  svg: null,
+  gPlot: null,
+  zoomBehavior: null,
+  xOrig: null,
+  yOrig: null,
+  currentXScale: null,
+  currentYScale: null,
+  xAxisGroup: null,
+  yAxisGroup: null,
+  xGridGroup: null,
+  yGridGroup: null,
+  line13Path: null,
+  line26Path: null,
+  err13Path: null,
+  err26Path: null,
+  dots13Group: null,
+  dots26Group: null,
+  innerWidth: 0,
+  innerHeight: 0,
+  currentTransform: null
+};
 
-  if (profileChart) {
-    profileChart.data = chartData;
-    profileChart.update("none");
-    return;
+function positionPlotTooltip(event) {
+  if (!d3PlotTooltip) return;
+  const container = document.getElementById("interactiveProfilePlotContainer");
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  let x = event.clientX - rect.left + 12;
+  let y = event.clientY - rect.top - 28;
+
+  const tipWidth = d3PlotTooltip.offsetWidth || 140;
+  const tipHeight = d3PlotTooltip.offsetHeight || 50;
+
+  if (x + tipWidth > rect.width - 8) {
+    x = event.clientX - rect.left - tipWidth - 12;
+  }
+  if (y < 8) {
+    y = event.clientY - rect.top + 16;
+  }
+  if (y + tipHeight > rect.height - 8) {
+    y = rect.height - tipHeight - 8;
   }
 
-  profileChart = new Chart(interactiveProfileChartCanvas, {
-    type: "scatter",
-    data: chartData,
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        legend: {
-          position: "top",
-          labels: {
-            boxWidth: 12,
-            font: { size: 11, family: "-apple-system, sans-serif" }
-          }
-        },
-        tooltip: {
-          callbacks: {
-            label: function (ctx) {
-              const xVal = ctx.parsed.x ? ctx.parsed.x.toFixed(2) : "";
-              const yVal = ctx.parsed.y ? ctx.parsed.y.toFixed(3) : "";
-              return `${ctx.dataset.label}: ${xVal} ppm, I/I₀ = ${yVal}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          type: "linear",
-          position: "bottom",
-          reverse: true, // NMR standard: ppm descending
-          title: {
-            display: true,
-            text: "B1 Offset (ppm)",
-            font: { weight: "bold", size: 12 }
-          },
-          grid: { color: "#f1f5f9" }
-        },
-        y: {
-          min: 0,
-          max: 1.15,
-          title: {
-            display: true,
-            text: "Intensity (I/I₀)",
-            font: { weight: "bold", size: 12 }
-          },
-          grid: { color: "#f1f5f9" }
-        }
-      }
+  d3PlotTooltip.style.left = `${Math.max(6, x)}px`;
+  d3PlotTooltip.style.top = `${Math.max(6, y)}px`;
+}
+
+function showPlotTooltip(event, d, label) {
+  if (!d3PlotTooltip) return;
+  d3PlotTooltip.style.display = "block";
+  const errText = (d.err !== undefined && d.err !== null && !isNaN(d.err))
+    ? ` ± ${Number(d.err).toFixed(3)}`
+    : "";
+  d3PlotTooltip.innerHTML = `<strong>${label}</strong><br/>Offset: <b>${Number(d.x).toFixed(2)} ppm</b><br/>I/I₀: <b>${Number(d.y).toFixed(3)}</b>${errText}`;
+  positionPlotTooltip(event);
+}
+
+function hidePlotTooltip() {
+  if (d3PlotTooltip) d3PlotTooltip.style.display = "none";
+}
+
+function resetProfileZoom() {
+  if (!d3PlotObj.xOrig || !d3PlotObj.yOrig || !d3PlotObj.currentXScale || !d3PlotObj.currentYScale) return;
+
+  const startXDomain = [...d3PlotObj.currentXScale.domain()];
+  const endXDomain = [...d3PlotObj.xOrig.domain()];
+  const startYDomain = [...d3PlotObj.currentYScale.domain()];
+  const endYDomain = [...d3PlotObj.yOrig.domain()];
+
+  if (d3PlotObj.svg) {
+    d3PlotObj.svg.transition("resetZoom")
+      .duration(300)
+      .tween("resetScales", () => {
+        return function(t) {
+          d3PlotObj.currentXScale.domain([
+            startXDomain[0] + (endXDomain[0] - startXDomain[0]) * t,
+            startXDomain[1] + (endXDomain[1] - startXDomain[1]) * t
+          ]);
+          d3PlotObj.currentYScale.domain([
+            startYDomain[0] + (endYDomain[0] - startYDomain[0]) * t,
+            startYDomain[1] + (endYDomain[1] - startYDomain[1]) * t
+          ]);
+          updateD3PlotElements();
+        };
+      });
+  } else {
+    d3PlotObj.currentXScale = d3PlotObj.xOrig.copy();
+    d3PlotObj.currentYScale = d3PlotObj.yOrig.copy();
+    updateD3PlotElements();
+  }
+}
+
+function zoomScale(scale, origScale, pointerPos, factor) {
+  if (!scale || !origScale) return false;
+  const [v1, v2] = scale.domain();
+  const origSpan = Math.abs(origScale.domain()[1] - origScale.domain()[0]);
+  const currentSpan = Math.abs(v2 - v1);
+  const newSpan = currentSpan / factor;
+
+  // Zoom bounds: 0.5x to 50x
+  if (factor > 1 && newSpan < origSpan / 50) return false;
+  if (factor < 1 && newSpan > origSpan * 2.5) return false;
+
+  const v0 = scale.invert(pointerPos);
+  const newV1 = v0 + (v1 - v0) / factor;
+  const newV2 = v0 + (v2 - v0) / factor;
+  scale.domain([newV1, newV2]);
+  return true;
+}
+
+function panScale(scale, pixelDelta) {
+  if (!scale || !pixelDelta) return;
+  const dDomain = scale.invert(0) - scale.invert(pixelDelta);
+  const [v1, v2] = scale.domain();
+  scale.domain([v1 + dDomain, v2 + dDomain]);
+}
+
+function renderProfileChart(exp13, calc13, exp26, calc26) {
+  d3PlotData = {
+    exp13: exp13 || [],
+    calc13: calc13 || [],
+    exp26: exp26 || [],
+    calc26: calc26 || []
+  };
+  drawD3ProfilePlot(false);
+}
+
+function drawD3ProfilePlot(preserveTransform = false) {
+  if (!interactiveProfilePlotDiv || typeof d3 === "undefined") return;
+
+  const container = document.getElementById("interactiveProfilePlotContainer") || interactiveProfilePlotDiv;
+  const containerWidth = container.clientWidth || 550;
+  const containerHeight = container.clientHeight || 380;
+
+  const margin = { top: 15, right: 25, bottom: 45, left: 55 };
+  const innerWidth = Math.max(50, containerWidth - margin.left - margin.right);
+  const innerHeight = Math.max(50, containerHeight - margin.top - margin.bottom);
+
+  d3PlotObj.innerWidth = innerWidth;
+  d3PlotObj.innerHeight = innerHeight;
+
+  // Calculate scale domains
+  const allPts = [
+    ...d3PlotData.exp13,
+    ...d3PlotData.calc13,
+    ...d3PlotData.exp26,
+    ...d3PlotData.calc26
+  ];
+
+  let xDomain;
+  if (allPts.length > 0) {
+    const minX = d3.min(allPts, d => d.x);
+    const maxX = d3.max(allPts, d => d.x);
+    const span = maxX - minX;
+    const pad = span > 0 ? span * 0.05 : 2;
+    // NMR standard: ppm descending (high ppm on left, low ppm on right)
+    xDomain = [maxX + pad, minX - pad];
+  } else {
+    xDomain = [130, 90];
+  }
+
+  let yDomain;
+  if (allPts.length > 0) {
+    const minYVal = d3.min(allPts, d => (d.err ? d.y - d.err : d.y));
+    const maxYVal = d3.max(allPts, d => (d.err ? d.y + d.err : d.y));
+    yDomain = [
+      Math.min(0, minYVal < 0 ? minYVal * 1.05 : 0),
+      Math.max(1.15, (maxYVal || 1.0) * 1.08)
+    ];
+  } else {
+    yDomain = [0, 1.15];
+  }
+
+  const xOrig = d3.scaleLinear().domain(xDomain).range([0, innerWidth]);
+  const yOrig = d3.scaleLinear().domain(yDomain).range([innerHeight, 0]);
+
+  d3PlotObj.xOrig = xOrig;
+  d3PlotObj.yOrig = yOrig;
+
+  if (preserveTransform && d3PlotObj.currentXScale && d3PlotObj.currentYScale) {
+    d3PlotObj.currentXScale.range([0, innerWidth]);
+    d3PlotObj.currentYScale.range([innerHeight, 0]);
+  } else {
+    d3PlotObj.currentXScale = xOrig.copy();
+    d3PlotObj.currentYScale = yOrig.copy();
+  }
+
+  // Clear previous SVG
+  d3.select(interactiveProfilePlotDiv).selectAll("svg").remove();
+
+  const svg = d3.select(interactiveProfilePlotDiv)
+    .append("svg")
+    .attr("width", "100%")
+    .attr("height", "100%")
+    .attr("viewBox", `0 0 ${containerWidth} ${containerHeight}`)
+    .style("display", "block")
+    .style("user-select", "none");
+
+  d3PlotObj.svg = svg;
+
+  // Clip-path for plotted data (prevents data from overflowing outside margins on zoom/pan)
+  const clipId = "cest-profile-clip";
+  const defs = svg.append("defs");
+  defs.append("clipPath")
+    .attr("id", clipId)
+    .append("rect")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", innerWidth)
+    .attr("height", innerHeight);
+
+  const gPlot = svg.append("g")
+    .attr("transform", `translate(${margin.left}, ${margin.top})`);
+  d3PlotObj.gPlot = gPlot;
+
+  // Interactive Background Rect
+  gPlot.append("rect")
+    .attr("class", "plot-bg")
+    .attr("width", innerWidth)
+    .attr("height", innerHeight)
+    .attr("fill", "#ffffff");
+
+  // Subtle grid lines
+  d3PlotObj.xGridGroup = gPlot.append("g")
+    .attr("class", "x-grid")
+    .attr("transform", `translate(0, ${innerHeight})`)
+    .style("color", "#f1f5f9");
+
+  d3PlotObj.yGridGroup = gPlot.append("g")
+    .attr("class", "y-grid")
+    .style("color", "#f1f5f9");
+
+  // Clipped layer for data elements
+  const clippedLayer = gPlot.append("g")
+    .attr("clip-path", `url(#${clipId})`)
+    .style("cursor", "crosshair");
+
+  // Error bars (paths)
+  d3PlotObj.err13Path = clippedLayer.append("path")
+    .attr("class", "err-bar-13")
+    .attr("stroke", "#2563eb")
+    .attr("stroke-width", 1.2)
+    .attr("fill", "none")
+    .attr("opacity", 0.65);
+
+  d3PlotObj.err26Path = clippedLayer.append("path")
+    .attr("class", "err-bar-26")
+    .attr("stroke", "#dc2626")
+    .attr("stroke-width", 1.2)
+    .attr("fill", "none")
+    .attr("opacity", 0.65);
+
+  // Simulation curves (lines)
+  d3PlotObj.line13Path = clippedLayer.append("path")
+    .attr("class", "line-13")
+    .attr("fill", "none")
+    .attr("stroke", "#2563eb")
+    .attr("stroke-width", 2);
+
+  d3PlotObj.line26Path = clippedLayer.append("path")
+    .attr("class", "line-26")
+    .attr("fill", "none")
+    .attr("stroke", "#dc2626")
+    .attr("stroke-width", 2);
+
+  // Scatter dots groups
+  d3PlotObj.dots13Group = clippedLayer.append("g").attr("class", "dots-13");
+  d3PlotObj.dots26Group = clippedLayer.append("g").attr("class", "dots-26");
+
+  // Axes
+  d3PlotObj.xAxisGroup = gPlot.append("g")
+    .attr("class", "x-axis")
+    .attr("transform", `translate(0, ${innerHeight})`);
+
+  d3PlotObj.yAxisGroup = gPlot.append("g")
+    .attr("class", "y-axis");
+
+  // Axis Labels
+  gPlot.append("text")
+    .attr("class", "x-axis-label")
+    .attr("text-anchor", "middle")
+    .attr("x", innerWidth / 2)
+    .attr("y", innerHeight + 36)
+    .attr("fill", "#475569")
+    .attr("font-size", "11px")
+    .attr("font-weight", "600")
+    .text("B1 Offset (ppm)");
+
+  gPlot.append("text")
+    .attr("class", "y-axis-label")
+    .attr("text-anchor", "middle")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -innerHeight / 2)
+    .attr("y", -40)
+    .attr("fill", "#475569")
+    .attr("font-size", "11px")
+    .attr("font-weight", "600")
+    .text("Intensity (I/I₀)");
+
+  // -----------------------------------------------------------
+  // Multi-Region Interaction Overlays:
+  // 1. Plot Area: crosshair cursor, 2D zoom (wheel) & 2D pan (drag)
+  // 2. Below X-Axis: ew-resize cursor, X-only zoom (wheel) & X-only pan (drag)
+  // 3. Left of Y-Axis: ns-resize cursor, Y-only zoom (wheel) & Y-only pan (drag)
+  // -----------------------------------------------------------
+
+  const plotBox = gPlot.append("rect")
+    .attr("class", "zoom-plot-box")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", innerWidth)
+    .attr("height", innerHeight)
+    .attr("fill", "transparent")
+    .style("cursor", "crosshair")
+    .style("pointer-events", "all");
+
+  const xAxisBox = gPlot.append("rect")
+    .attr("class", "zoom-x-box")
+    .attr("x", 0)
+    .attr("y", innerHeight)
+    .attr("width", innerWidth)
+    .attr("height", margin.bottom)
+    .attr("fill", "transparent")
+    .style("cursor", "ew-resize")
+    .style("pointer-events", "all");
+
+  const yAxisBox = gPlot.append("rect")
+    .attr("class", "zoom-y-box")
+    .attr("x", -margin.left)
+    .attr("y", 0)
+    .attr("width", margin.left)
+    .attr("height", innerHeight)
+    .attr("fill", "transparent")
+    .style("cursor", "ns-resize")
+    .style("pointer-events", "all");
+
+  // Drag behaviors
+  const dragPlot = d3.drag()
+    .on("drag", function (event) {
+      panScale(d3PlotObj.currentXScale, event.dx);
+      panScale(d3PlotObj.currentYScale, event.dy);
+      updateD3PlotElements();
+    });
+  plotBox.call(dragPlot);
+  clippedLayer.call(dragPlot);
+
+  const dragX = d3.drag()
+    .on("drag", function (event) {
+      panScale(d3PlotObj.currentXScale, event.dx);
+      updateD3PlotElements();
+    });
+  xAxisBox.call(dragX);
+
+  const dragY = d3.drag()
+    .on("drag", function (event) {
+      panScale(d3PlotObj.currentYScale, event.dy);
+      updateD3PlotElements();
+    });
+  yAxisBox.call(dragY);
+
+  // Wheel zoom handler across entire SVG (determines region from cursor position)
+  svg.on("wheel", function (event) {
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.15 : (1 / 1.15);
+    const [px, py] = d3.pointer(event, gPlot.node());
+
+    const w = d3PlotObj.innerWidth;
+    const h = d3PlotObj.innerHeight;
+
+    let changed = false;
+    if (py >= h) {
+      // Cursor is below X axis: Zoom X ONLY
+      changed = zoomScale(d3PlotObj.currentXScale, d3PlotObj.xOrig, px, factor);
+    } else if (px <= 0) {
+      // Cursor is on the left of Y axis: Zoom Y ONLY
+      changed = zoomScale(d3PlotObj.currentYScale, d3PlotObj.yOrig, py, factor);
+    } else if (px > 0 && px < w && py > 0 && py < h) {
+      // Cursor is inside plot area: Zoom BOTH X and Y
+      const zx = zoomScale(d3PlotObj.currentXScale, d3PlotObj.xOrig, px, factor);
+      const zy = zoomScale(d3PlotObj.currentYScale, d3PlotObj.yOrig, py, factor);
+      changed = zx || zy;
     }
+
+    if (changed) {
+      updateD3PlotElements();
+    }
+  }, { passive: false });
+
+  // Double click anywhere resets zoom to full view
+  svg.on("dblclick", function (event) {
+    event.preventDefault();
+    resetProfileZoom();
   });
+
+  updateD3PlotElements();
+}
+
+function updateD3PlotElements() {
+  if (!d3PlotObj.gPlot) return;
+
+  const x = d3PlotObj.currentXScale || d3PlotObj.xOrig;
+  const y = d3PlotObj.currentYScale || d3PlotObj.yOrig;
+  const innerWidth = d3PlotObj.innerWidth;
+  const innerHeight = d3PlotObj.innerHeight;
+
+  // Update Axes
+  if (d3PlotObj.xAxisGroup) {
+    d3PlotObj.xAxisGroup.call(d3.axisBottom(x).ticks(8));
+    d3PlotObj.xAxisGroup.select(".domain").attr("stroke", "#cbd5e1");
+    d3PlotObj.xAxisGroup.selectAll(".tick line").attr("stroke", "#cbd5e1");
+    d3PlotObj.xAxisGroup.selectAll("text").style("font-size", "10px").style("fill", "#475569");
+  }
+  if (d3PlotObj.yAxisGroup) {
+    d3PlotObj.yAxisGroup.call(d3.axisLeft(y).ticks(6));
+    d3PlotObj.yAxisGroup.select(".domain").attr("stroke", "#cbd5e1");
+    d3PlotObj.yAxisGroup.selectAll(".tick line").attr("stroke", "#cbd5e1");
+    d3PlotObj.yAxisGroup.selectAll("text").style("font-size", "10px").style("fill", "#475569");
+  }
+
+  // Update Grid lines
+  if (d3PlotObj.xGridGroup) {
+    d3PlotObj.xGridGroup.call(
+      d3.axisBottom(x)
+        .ticks(8)
+        .tickSize(-innerHeight)
+        .tickFormat("")
+    );
+    d3PlotObj.xGridGroup.select(".domain").remove();
+    d3PlotObj.xGridGroup.selectAll("line").attr("stroke", "#f1f5f9").attr("stroke-dasharray", "3,3");
+  }
+  if (d3PlotObj.yGridGroup) {
+    d3PlotObj.yGridGroup.call(
+      d3.axisLeft(y)
+        .ticks(6)
+        .tickSize(-innerWidth)
+        .tickFormat("")
+    );
+    d3PlotObj.yGridGroup.select(".domain").remove();
+    d3PlotObj.yGridGroup.selectAll("line").attr("stroke", "#f1f5f9").attr("stroke-dasharray", "3,3");
+  }
+
+  // Line Generator
+  const lineGen = d3.line()
+    .defined(d => d && !isNaN(d.x) && !isNaN(d.y))
+    .x(d => x(d.x))
+    .y(d => y(d.y))
+    .curve(d3.curveLinear);
+
+  if (d3PlotObj.line13Path) {
+    d3PlotObj.line13Path.datum(d3PlotData.calc13).attr("d", lineGen);
+  }
+  if (d3PlotObj.line26Path) {
+    d3PlotObj.line26Path.datum(d3PlotData.calc26).attr("d", lineGen);
+  }
+
+  // Error Bar Path Generator
+  const capW = 3;
+  const buildErrPath = (pts) => {
+    if (!pts || !pts.length) return "";
+    return pts
+      .filter(d => d.err !== undefined && d.err !== null && d.err > 0 && !isNaN(d.err))
+      .map(d => {
+        const px = x(d.x);
+        const yTop = y(d.y + d.err);
+        const yBot = y(d.y - d.err);
+        return `M ${px} ${yTop} L ${px} ${yBot} M ${px - capW} ${yTop} L ${px + capW} ${yTop} M ${px - capW} ${yBot} L ${px + capW} ${yBot}`;
+      })
+      .join(" ");
+  };
+
+  if (d3PlotObj.err13Path) {
+    d3PlotObj.err13Path.attr("d", buildErrPath(d3PlotData.exp13));
+  }
+  if (d3PlotObj.err26Path) {
+    d3PlotObj.err26Path.attr("d", buildErrPath(d3PlotData.exp26));
+  }
+
+  // Scatter points 13 Hz
+  if (d3PlotObj.dots13Group) {
+    const dots13 = d3PlotObj.dots13Group.selectAll("circle.dot-13")
+      .data(d3PlotData.exp13, d => d.x);
+
+    dots13.enter()
+      .append("circle")
+      .attr("class", "dot-13")
+      .attr("r", 3.5)
+      .attr("fill", "#2563eb")
+      .attr("stroke", "#ffffff")
+      .attr("stroke-width", 1)
+      .on("mouseenter", function (e, d) {
+        d3.select(this).attr("r", 5.5);
+        showPlotTooltip(e, d, "13 Hz Data");
+      })
+      .on("mousemove", (e) => positionPlotTooltip(e))
+      .on("mouseleave", function () {
+        d3.select(this).attr("r", 3.5);
+        hidePlotTooltip();
+      })
+      .merge(dots13)
+      .attr("cx", d => x(d.x))
+      .attr("cy", d => y(d.y));
+
+    dots13.exit().remove();
+  }
+
+  // Scatter points 26 Hz
+  if (d3PlotObj.dots26Group) {
+    const dots26 = d3PlotObj.dots26Group.selectAll("circle.dot-26")
+      .data(d3PlotData.exp26, d => d.x);
+
+    dots26.enter()
+      .append("circle")
+      .attr("class", "dot-26")
+      .attr("r", 3.5)
+      .attr("fill", "#dc2626")
+      .attr("stroke", "#ffffff")
+      .attr("stroke-width", 1)
+      .on("mouseenter", function (e, d) {
+        d3.select(this).attr("r", 5.5);
+        showPlotTooltip(e, d, "26 Hz Data");
+      })
+      .on("mousemove", (e) => positionPlotTooltip(e))
+      .on("mouseleave", function () {
+        d3.select(this).attr("r", 3.5);
+        hidePlotTooltip();
+      })
+      .merge(dots26)
+      .attr("cx", d => x(d.x))
+      .attr("cy", d => y(d.y));
+
+    dots26.exit().remove();
+  }
 }
 
 function updateProfileChartLines(calc13, calc26) {
-  if (!profileChart) return;
-  profileChart.data.datasets[1].data = calc13 || [];
-  profileChart.data.datasets[3].data = calc26 || [];
-  profileChart.update("none");
+  d3PlotData.calc13 = calc13 || [];
+  d3PlotData.calc26 = calc26 || [];
+
+  if (!d3PlotObj.line13Path || !d3PlotObj.line26Path) {
+    drawD3ProfilePlot(true);
+    return;
+  }
+
+  const x = d3PlotObj.currentXScale || d3PlotObj.xOrig;
+  const y = d3PlotObj.currentYScale || d3PlotObj.yOrig;
+  if (!x || !y) return;
+
+  const lineGen = d3.line()
+    .defined(d => d && !isNaN(d.x) && !isNaN(d.y))
+    .x(d => x(d.x))
+    .y(d => y(d.y))
+    .curve(d3.curveLinear);
+
+  d3PlotObj.line13Path.datum(d3PlotData.calc13).attr("d", lineGen);
+  d3PlotObj.line26Path.datum(d3PlotData.calc26).attr("d", lineGen);
 }
 
 function getParamValuesFromUI() {
@@ -916,6 +1365,19 @@ if (btnRunFit) btnRunFit.addEventListener("click", () => executeChemex("fit"));
 if (btnWriteFs) btnWriteFs.addEventListener("click", syncCestDataset);
 if (btnDownloadFile) btnDownloadFile.addEventListener("click", downloadSelectedFile);
 if (btnToggleConsole) btnToggleConsole.addEventListener("click", toggle_console_minimize);
+if (btnResetPlotZoom) btnResetPlotZoom.addEventListener("click", resetProfileZoom);
+
+// Observe container resizing to keep SVG responsive
+if (typeof ResizeObserver !== "undefined" && interactiveProfilePlotDiv) {
+  const resizeObserver = new ResizeObserver(entries => {
+    for (let entry of entries) {
+      if (entry.contentRect.width > 0 && d3PlotData.exp13.length > 0) {
+        drawD3ProfilePlot(true);
+      }
+    }
+  });
+  resizeObserver.observe(interactiveProfilePlotDiv);
+}
 
 window.addEventListener("DOMContentLoaded", () => {
   updateCommandDisplay();
