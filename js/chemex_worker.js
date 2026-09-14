@@ -70,9 +70,9 @@ target_dir = site_pkgs[0] if site_pkgs else "/lib/python3.13/site-packages"
 with zipfile.ZipFile(wheel_file, "r") as zf:
     zf.extractall(target_dir)
 
-import chemex
 import chemex_runner
 chemex_runner.apply_compat_patches()
+import chemex
 print(f"> [ChemEx Worker] Installed ChemEx v{chemex.__version__} into {target_dir}")
 `);
 

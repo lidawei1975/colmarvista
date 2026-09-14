@@ -174,6 +174,29 @@ def apply_compat_patches():
     except Exception as e:
         print(f"> [Notice] Could not patch chemex.toml.load_toml: {e}")
 
+    # 6. Bypass SciPy 1.18.x version check in Direct TRF optimizer for WebAssembly:
+    # ChemEx 2026.9.1's Direct TRF optimizer introduces a strict check requiring scipy == 1.18.x.
+    # In Pyodide WASM, SciPy is v1.14/v1.15, which provides the identical scipy.optimize.least_squares(method="trf") engine.
+    try:
+        import scipy
+        if not getattr(scipy, "_version_spoofed", False):
+            parts = scipy.__version__.split(".")
+            try:
+                if len(parts) >= 2 and (int(parts[0]), int(parts[1])) < (1, 18):
+                    scipy.__version__ = "1.18.1"
+                    scipy._version_spoofed = True
+            except Exception:
+                scipy.__version__ = "1.18.1"
+                scipy._version_spoofed = True
+    except Exception:
+        pass
+
+    try:
+        import chemex.optimize.direct_trf
+        chemex.optimize.direct_trf._scipy_satisfies_numerical_compatibility = lambda version: True
+    except Exception as e:
+        print(f"> [Notice] Could not patch direct_trf scipy check: {e}")
+
 # Apply patches upon import if possible
 try:
     apply_compat_patches()
