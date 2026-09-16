@@ -185,6 +185,22 @@
               <li>Automatically synchronizes the NMRPipe header parameters: updates the Carrier frequency (<code>CAR</code> in PPM) and the Origin frequency offset (<code>ORIG</code> in Hz) together, ensuring consistent referencing across downstream NMR software (NMRPipe, Sparky, etc.) when saving or downloading the <code>.ft3</code> file.</li>
             </ul>
           </li>
+          <li><b>2nd (Parallel) Axis System (for $^{15}\text{N}$ or $^{13}\text{C}$ Indirect Dimensions):</b>
+            <ul>
+              <li>Click <b>+ 2nd Axis</b> in the spectrum information table on either Indirect Dimension 1 ($y$) or Indirect Dimension 2 / Planes ($z$).</li>
+              <li><b>Different Nucleus & Presets:</b> Set an alternate nucleus (e.g., $^{13}\text{CO}$, $^{13}\text{C}\alpha$, $^{13}\text{C}\beta$, $^{13}\text{C}_{\text{ali}}$, $^{13}\text{C}_{\text{aro}}$, or $^{15}\text{N}$). Spectrometer frequencies automatically compute via standard IUPAC $\Xi$ ratios from the direct $^1\text{H}$ channel.</li>
+              <li><b>PPM & Hz Range Configuration:</b> Define start and end boundaries in either <b>PPM Range</b> or <b>Hz Range</b>.</li>
+              <li><b>Folding / Aliasing Controls:</b> Use <b>+1 SW (Folded)</b> and <b>-1 SW (Folded)</b> buttons to immediately shift the axis boundaries by exact spectral width multiples for aliased / folded peaks, or <b>Mirror Primary</b> to duplicate the primary range.</li>
+              <li><b>Display Units:</b> Select whether the secondary axis displays in <b>ppm</b> or <b>Hz</b>.</li>
+              <li><b>Automatic Axis Placement Rule:</b>
+                <ul>
+                  <li>If the 1st primary axis is on the <i>left</i>, the 2nd axis is drawn on the <b>right</b> (e.g. Indirect 1 $y$ on the XY plane and ZY plane; Indirect 2 $z$ on the XZ plane).</li>
+                  <li>If the 1st primary axis is on the <i>bottom</i>, the 2nd axis is drawn on the <b>top</b> (e.g. Indirect 2 $z$ on the ZY plane).</li>
+                </ul>
+              </li>
+              <li><b>Non-Destructive Visualization:</b> The 2nd parallel axis is purely a visual overlay for analysis and comparison. It stays synchronized in real-time during panning, zooming, and slice browsing, without modifying the underlying binary data or exported <code>.ft3</code> files.</li>
+            </ul>
+          </li>
         </ul>
 
         <h3>Synchronized 2D Slice Planes</h3>

@@ -19,8 +19,8 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#container_spectrum_info h2').should('contain.text', '3D Spectrum Information');
         cy.get('#container_spectrum_info h4').should('contain.text', '1. Nuclear, Hz and PPM Range of Each Dimension');
 
-        // 4. Verify table headers
-        cy.get('#table_spectrum_info_3d th').should('have.length', 8);
+        // 4. Verify table headers (10 headers including Shift Calibration and 2nd Parallel Axis)
+        cy.get('#table_spectrum_info_3d th').should('have.length', 10);
         cy.get('#table_spectrum_info_3d th').eq(0).should('contain.text', 'Dimension');
         cy.get('#table_spectrum_info_3d th').eq(1).should('contain.text', 'Axis');
         cy.get('#table_spectrum_info_3d th').eq(2).should('contain.text', 'Nuclear (Nucleus)');
@@ -29,6 +29,8 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#table_spectrum_info_3d th').eq(5).should('contain.text', 'PPM Range');
         cy.get('#table_spectrum_info_3d th').eq(6).should('contain.text', 'Hz Range');
         cy.get('#table_spectrum_info_3d th').eq(7).should('contain.text', 'Points');
+        cy.get('#table_spectrum_info_3d th').eq(8).should('contain.text', 'Shift Calibration');
+        cy.get('#table_spectrum_info_3d th').eq(9).should('contain.text', '2nd Parallel Axis');
 
         // 5. Test dynamic update with simulated 3D spectrum metadata
         cy.window().then((win) => {
@@ -92,7 +94,26 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#spec_info_hz_range_z').should('contain.text', 'Hz').and('contain.text', 'SW: 2,779.3 Hz');
         cy.get('#spec_info_points_z').should('contain.text', '32');
 
-        // 7. Test Reset State
+        // 7. Test Secondary Axis Modal and Configuration for Indirect 1 (y)
+        cy.get('#btn_open_sec_axis_y').click();
+        cy.get('#modal_secondary_axis').should('be.visible');
+        cy.get('#sec_axis_modal_title').should('contain.text', 'Indirect 1 (y)');
+        cy.get('#sec_axis_nuclear').clear().type('13CO');
+        cy.get('#sec_axis_start_ppm').clear().type('185.0');
+        cy.get('#sec_axis_end_ppm').clear().type('165.0');
+        cy.get('#sec_axis_preview_box').should('contain.text', '13CO');
+
+        // Click Apply 2nd Axis
+        cy.contains('button', 'Apply 2nd Axis').click();
+        cy.get('#modal_secondary_axis').should('not.be.visible');
+
+        // Verify sub-row for y is now visible and populated
+        cy.get('#row_dim_y_sec').should('be.visible');
+        cy.get('#spec_info_nuc_y_sec').should('contain.text', '13CO');
+        cy.get('#spec_info_ppm_range_y_sec').should('contain.text', '185.000 to 165.000 ppm');
+        cy.get('#btn_open_sec_axis_y').should('contain.text', 'Edit (13CO)');
+
+        // 8. Test Reset State
         cy.window().then((win) => {
             win.reset_3d_dataset_state();
         });
@@ -100,6 +121,8 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#spec_info_sw_hz_x').should('contain.text', '-');
         cy.get('#spec_info_ppm_range_x').should('contain.text', '-');
         cy.get('#spec_info_points_x').should('contain.text', '-');
+        cy.get('#row_dim_y_sec').should('not.be.visible');
+        cy.get('#btn_open_sec_axis_y').should('contain.text', '+ 2nd Axis');
     });
 });
 

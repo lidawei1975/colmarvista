@@ -330,6 +330,11 @@ function reset_3d_dataset_state(keepNuclei = false) {
     let shift_msg = document.getElementById("shift_status_msg");
     if (shift_msg) shift_msg.innerText = "";
 
+    window.secondary_axis_config = { y: null, z: null };
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
+
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
         update_all_plot_axis_labels();
@@ -796,6 +801,20 @@ function update_3d_spectrum_info() {
          el_nuc_z, el_sw_z, el_frq_z, el_ppm_z, el_hz_z, el_pts_z].forEach(el => {
             if (el) el.innerText = "-";
         });
+        const row_y = document.getElementById("row_dim_y_sec");
+        if (row_y) row_y.style.display = "none";
+        const row_z = document.getElementById("row_dim_z_sec");
+        if (row_z) row_z.style.display = "none";
+        const btn_y = document.getElementById("btn_open_sec_axis_y");
+        if (btn_y) {
+            btn_y.innerText = "+ 2nd Axis";
+            btn_y.style.backgroundColor = "#0369a1";
+        }
+        const btn_z = document.getElementById("btn_open_sec_axis_z");
+        if (btn_z) {
+            btn_z.innerText = "+ 2nd Axis";
+            btn_z.style.backgroundColor = "#0369a1";
+        }
         return;
     }
 
@@ -899,8 +918,713 @@ function update_3d_spectrum_info() {
         el_ppm_z.innerText = "-";
         el_hz_z.innerText = "-";
     }
+
+    // --- 2nd Parallel Axis rows & buttons ---
+    const cfg_y = (window.secondary_axis_config) ? window.secondary_axis_config.y : null;
+    const row_y_sec = document.getElementById("row_dim_y_sec");
+    if (row_y_sec) {
+        if (cfg_y) {
+            row_y_sec.style.display = "";
+            const el_nuc = document.getElementById("spec_info_nuc_y_sec");
+            const el_sw = document.getElementById("spec_info_sw_hz_y_sec");
+            const el_frq = document.getElementById("spec_info_frq_y_sec");
+            const el_ppm = document.getElementById("spec_info_ppm_range_y_sec");
+            const el_hz = document.getElementById("spec_info_hz_range_y_sec");
+            const el_pts = document.getElementById("spec_info_points_y_sec");
+
+            if (el_nuc) el_nuc.innerText = cfg_y.nucleus || "-";
+            if (el_sw) el_sw.innerText = cfg_y.sw_hz ? `${formatNumber(cfg_y.sw_hz, 2)} Hz` : "-";
+            if (el_frq) el_frq.innerText = cfg_y.frq_mhz ? `${formatNumber(cfg_y.frq_mhz, 3)} MHz` : "-";
+            if (el_ppm) {
+                const dppm = Math.abs(cfg_y.ppm_start - cfg_y.ppm_end);
+                el_ppm.innerText = `${cfg_y.ppm_start.toFixed(3)} to ${cfg_y.ppm_end.toFixed(3)} ppm (Δ ${dppm.toFixed(3)} ppm)`;
+            }
+            if (el_hz) {
+                el_hz.innerText = `${formatNumber(cfg_y.hz_start, 1)} to ${formatNumber(cfg_y.hz_end, 1)} Hz`;
+            }
+            if (el_pts) el_pts.innerText = pts_y ? pts_y.toLocaleString() : "-";
+        } else {
+            row_y_sec.style.display = "none";
+        }
+    }
+    const btn_y = document.getElementById("btn_open_sec_axis_y");
+    if (btn_y) {
+        if (cfg_y) {
+            btn_y.innerText = `Edit (${cfg_y.nucleus})`;
+            btn_y.style.backgroundColor = "#059669";
+        } else {
+            btn_y.innerText = "+ 2nd Axis";
+            btn_y.style.backgroundColor = "#0369a1";
+        }
+    }
+
+    const cfg_z = (window.secondary_axis_config) ? window.secondary_axis_config.z : null;
+    const row_z_sec = document.getElementById("row_dim_z_sec");
+    if (row_z_sec) {
+        if (cfg_z) {
+            row_z_sec.style.display = "";
+            const el_nuc = document.getElementById("spec_info_nuc_z_sec");
+            const el_sw = document.getElementById("spec_info_sw_hz_z_sec");
+            const el_frq = document.getElementById("spec_info_frq_z_sec");
+            const el_ppm = document.getElementById("spec_info_ppm_range_z_sec");
+            const el_hz = document.getElementById("spec_info_hz_range_z_sec");
+            const el_pts = document.getElementById("spec_info_points_z_sec");
+
+            if (el_nuc) el_nuc.innerText = cfg_z.nucleus || "-";
+            if (el_sw) el_sw.innerText = cfg_z.sw_hz ? `${formatNumber(cfg_z.sw_hz, 2)} Hz` : "-";
+            if (el_frq) el_frq.innerText = cfg_z.frq_mhz ? `${formatNumber(cfg_z.frq_mhz, 3)} MHz` : "-";
+            if (el_ppm) {
+                const dppm = Math.abs(cfg_z.ppm_start - cfg_z.ppm_end);
+                el_ppm.innerText = `${cfg_z.ppm_start.toFixed(3)} to ${cfg_z.ppm_end.toFixed(3)} ppm (Δ ${dppm.toFixed(3)} ppm)`;
+            }
+            if (el_hz) {
+                el_hz.innerText = `${formatNumber(cfg_z.hz_start, 1)} to ${formatNumber(cfg_z.hz_end, 1)} Hz`;
+            }
+            if (el_pts) el_pts.innerText = pts_z ? pts_z.toLocaleString() : "-";
+        } else {
+            row_z_sec.style.display = "none";
+        }
+    }
+    const btn_z = document.getElementById("btn_open_sec_axis_z");
+    if (btn_z) {
+        if (cfg_z) {
+            btn_z.innerText = `Edit (${cfg_z.nucleus})`;
+            btn_z.style.backgroundColor = "#059669";
+        } else {
+            btn_z.innerText = "+ 2nd Axis";
+            btn_z.style.backgroundColor = "#0369a1";
+        }
+    }
 }
 window.update_3d_spectrum_info = update_3d_spectrum_info;
+
+// =========================================================================
+// 2nd (Parallel) Axis System Configuration & Controllers
+// =========================================================================
+window.secondary_axis_config = {
+    y: null,
+    z: null
+};
+
+/**
+ * Opens the modal dialog to define or edit a 2nd parallel axis for indirect dimension y or z.
+ * @param {string} dim - 'y' or 'z'
+ */
+function open_secondary_axis_modal(dim) {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("Please load a 3D spectrum first.");
+        return;
+    }
+    const normAxis = String(dim).toLowerCase();
+    if (normAxis !== 'y' && normAxis !== 'z') return;
+
+    const s0 = spectra_3d[0];
+    const ny = (window.last_fid_nuclei && window.last_fid_nuclei.y) ? window.last_fid_nuclei.y : "Indirect 1";
+    const nz = (window.last_fid_nuclei && window.last_fid_nuclei.z) ? window.last_fid_nuclei.z : "Indirect 2";
+
+    const targetDimElem = document.getElementById("sec_axis_target_dim");
+    if (targetDimElem) targetDimElem.value = normAxis;
+
+    const titleElem = document.getElementById("sec_axis_modal_title");
+    const descElem = document.getElementById("sec_axis_current_dim_desc");
+    const removeBtn = document.getElementById("btn_sec_axis_remove");
+
+    const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+        if (!s0.header) return 0;
+        const d = Math.round(s0.header[dimOrderIdx]);
+        if (d === 1) return s0.header[f1Offset] || 0;
+        if (d === 2) return s0.header[f2Offset] || 0;
+        if (d === 3) return s0.header[f3Offset] || 0;
+        return 0;
+    };
+    const frq_x = s0.frq1 || getDimHeaderVal(24, 218, 119, 10) || 600.0;
+
+    if (normAxis === 'y') {
+        if (titleElem) titleElem.innerText = "Define 2nd (Parallel) Axis System — Indirect 1 (y)";
+        if (descElem) descElem.innerHTML = `Primary axis: <b>${ny}</b> (Indirect Dimension 1 - y). Placement: 2nd axis displays on the <b>RIGHT</b> of XY slice and ZY slice plots.`;
+    } else {
+        if (titleElem) titleElem.innerText = "Define 2nd (Parallel) Axis System — Indirect 2 / Planes (z)";
+        if (descElem) descElem.innerHTML = `Primary axis: <b>${nz}</b> (Indirect Dimension 2 - z). Placement: 2nd axis displays on the <b>RIGHT</b> of XZ slice and <b>TOP</b> of ZY slice plot.`;
+    }
+
+    const existing = window.secondary_axis_config ? window.secondary_axis_config[normAxis] : null;
+
+    const nucInput = document.getElementById("sec_axis_nuclear");
+    const frqInput = document.getElementById("sec_axis_frq");
+    const startPpmInput = document.getElementById("sec_axis_start_ppm");
+    const endPpmInput = document.getElementById("sec_axis_end_ppm");
+    const startHzInput = document.getElementById("sec_axis_start_hz");
+    const endHzInput = document.getElementById("sec_axis_end_hz");
+    const unitSelect = document.getElementById("sec_axis_display_unit");
+    const presetSelect = document.getElementById("sec_axis_nuc_preset");
+
+    if (presetSelect) presetSelect.value = "";
+
+    if (existing) {
+        if (nucInput) nucInput.value = existing.nucleus || "";
+        if (frqInput) frqInput.value = existing.frq_mhz || "";
+        if (startPpmInput) startPpmInput.value = (existing.ppm_start !== undefined) ? existing.ppm_start : "";
+        if (endPpmInput) endPpmInput.value = (existing.ppm_end !== undefined) ? existing.ppm_end : "";
+        if (startHzInput) startHzInput.value = (existing.hz_start !== undefined) ? existing.hz_start.toFixed(1) : "";
+        if (endHzInput) endHzInput.value = (existing.hz_end !== undefined) ? existing.hz_end.toFixed(1) : "";
+        if (unitSelect) unitSelect.value = existing.unit || "ppm";
+        if (removeBtn) removeBtn.style.display = "inline-block";
+    } else {
+        // Smart defaults based on primary dimension
+        const curNuc = (normAxis === 'y' ? ny : nz).toUpperCase();
+        let defNuc = "13C";
+        let defStartPpm = 185.0;
+        let defEndPpm = 165.0;
+        if (curNuc.includes("15N")) {
+            defNuc = "13C";
+            defStartPpm = 72.0;
+            defEndPpm = 48.0;
+        } else if (curNuc.includes("13C")) {
+            defNuc = "15N";
+            defStartPpm = 135.0;
+            defEndPpm = 105.0;
+        }
+        let defFrq = frq_x * 0.25144953;
+        if (defNuc === "15N") defFrq = frq_x * 0.10132912;
+
+        if (nucInput) nucInput.value = defNuc;
+        if (frqInput) frqInput.value = defFrq.toFixed(3);
+        if (startPpmInput) startPpmInput.value = defStartPpm;
+        if (endPpmInput) endPpmInput.value = defEndPpm;
+        if (startHzInput) startHzInput.value = (defStartPpm * defFrq).toFixed(1);
+        if (endHzInput) endHzInput.value = (defEndPpm * defFrq).toFixed(1);
+        if (unitSelect) unitSelect.value = "ppm";
+        if (removeBtn) removeBtn.style.display = "none";
+    }
+
+    // Set default mode radio to PPM
+    const radPpm = document.querySelector('input[name="sec_axis_input_mode"][value="ppm"]');
+    if (radPpm) radPpm.checked = true;
+    toggle_sec_axis_input_mode('ppm');
+
+    update_sec_axis_modal_preview();
+
+    const modal = document.getElementById("modal_secondary_axis");
+    if (modal) modal.style.display = "block";
+}
+
+/**
+ * Closes the secondary axis modal dialog.
+ */
+function close_secondary_axis_modal() {
+    const modal = document.getElementById("modal_secondary_axis");
+    if (modal) modal.style.display = "none";
+}
+
+/**
+ * Applies a preset nucleus and frequency/range when selected from dropdown.
+ * @param {string} [optPreset] - Optional preset name
+ */
+function on_sec_axis_preset_change(optPreset) {
+    const presetSelect = document.getElementById("sec_axis_nuc_preset");
+    const val = optPreset || (presetSelect ? presetSelect.value : "");
+    if (!val) return;
+
+    const nucInput = document.getElementById("sec_axis_nuclear");
+    const frqInput = document.getElementById("sec_axis_frq");
+    const startPpmInput = document.getElementById("sec_axis_start_ppm");
+    const endPpmInput = document.getElementById("sec_axis_end_ppm");
+    const startHzInput = document.getElementById("sec_axis_start_hz");
+    const endHzInput = document.getElementById("sec_axis_end_hz");
+
+    if (nucInput) nucInput.value = val;
+
+    const s0 = (spectra_3d && spectra_3d.length > 0) ? spectra_3d[0] : null;
+    let frq_1h = 600.0;
+    if (s0) {
+        if (s0.frq1) frq_1h = s0.frq1;
+        else if (s0.header) {
+            const d = Math.round(s0.header[24]);
+            if (d === 1) frq_1h = s0.header[218] || 600.0;
+            else if (d === 2) frq_1h = s0.header[119] || 600.0;
+            else if (d === 3) frq_1h = s0.header[10] || 600.0;
+        }
+    }
+
+    let frq = 0;
+    let rStart = 0;
+    let rEnd = 0;
+
+    switch (val) {
+        case "13CO":
+            rStart = 185.0; rEnd = 165.0; frq = frq_1h * 0.25144953; break;
+        case "13CA":
+            rStart = 72.0; rEnd = 48.0; frq = frq_1h * 0.25144953; break;
+        case "13CB":
+            rStart = 45.0; rEnd = 15.0; frq = frq_1h * 0.25144953; break;
+        case "13Cali":
+            rStart = 80.0; rEnd = 10.0; frq = frq_1h * 0.25144953; break;
+        case "13Caro":
+            rStart = 140.0; rEnd = 110.0; frq = frq_1h * 0.25144953; break;
+        case "15N":
+            rStart = 135.0; rEnd = 105.0; frq = frq_1h * 0.10132912; break;
+        case "13C":
+        default:
+            rStart = 180.0; rEnd = 10.0; frq = frq_1h * 0.25144953; break;
+    }
+
+    if (frqInput) frqInput.value = frq.toFixed(3);
+    if (startPpmInput) startPpmInput.value = rStart;
+    if (endPpmInput) endPpmInput.value = rEnd;
+    if (startHzInput) startHzInput.value = (rStart * frq).toFixed(1);
+    if (endHzInput) endHzInput.value = (rEnd * frq).toFixed(1);
+
+    update_sec_axis_modal_preview();
+}
+
+/**
+ * Toggles input mode between PPM and Hz in modal.
+ * @param {string} [targetMode] - 'ppm' or 'hz'
+ */
+function toggle_sec_axis_input_mode(targetMode) {
+    let mode = targetMode;
+    if (!mode) {
+        const rad = document.querySelector('input[name="sec_axis_input_mode"]:checked');
+        mode = rad ? rad.value : 'ppm';
+    }
+    const ppmContainer = document.getElementById("sec_axis_ppm_inputs");
+    const hzContainer = document.getElementById("sec_axis_hz_inputs");
+    const frqInput = document.getElementById("sec_axis_frq");
+    const frq = frqInput ? parseFloat(frqInput.value) || 0 : 0;
+
+    const startPpm = document.getElementById("sec_axis_start_ppm");
+    const endPpm = document.getElementById("sec_axis_end_ppm");
+    const startHz = document.getElementById("sec_axis_start_hz");
+    const endHz = document.getElementById("sec_axis_end_hz");
+
+    if (mode === 'ppm') {
+        if (ppmContainer) ppmContainer.style.display = "grid";
+        if (hzContainer) hzContainer.style.display = "none";
+        if (frq > 0 && startHz && startHz.value !== "" && (!startPpm.value || document.activeElement === startHz)) {
+            startPpm.value = (parseFloat(startHz.value) / frq).toFixed(3);
+            endPpm.value = (parseFloat(endHz.value) / frq).toFixed(3);
+        }
+    } else {
+        if (ppmContainer) ppmContainer.style.display = "none";
+        if (hzContainer) hzContainer.style.display = "grid";
+        if (frq > 0 && startPpm && startPpm.value !== "") {
+            startHz.value = (parseFloat(startPpm.value) * frq).toFixed(1);
+            endHz.value = (parseFloat(endPpm.value) * frq).toFixed(1);
+        }
+    }
+    update_sec_axis_modal_preview();
+}
+
+/**
+ * Offsets the secondary axis range by +1 or -1 spectral width (for folded/aliased peaks).
+ * @param {number} multiplier - +1 or -1
+ */
+function sec_axis_offset_sw(multiplier) {
+    const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    const s0 = (spectra_3d && spectra_3d.length > 0) ? spectra_3d[0] : null;
+    if (!s0) return;
+
+    let prim_width_ppm = 0;
+    if (targetDim === 'y') {
+        const pts_y = s0.n_indirect || (s0.header ? Math.round(s0.header[219]) : 0);
+        prim_width_ppm = (s0.y_ppm_start !== undefined && s0.y_ppm_step !== undefined && pts_y > 0)
+            ? Math.abs((pts_y - 1) * s0.y_ppm_step)
+            : 0;
+    } else {
+        const pts_z = spectra_3d.length || s0.n_indirect2 || (s0.header ? Math.round(s0.header[15]) : 0);
+        prim_width_ppm = (s0.z_ppm_start !== undefined && s0.z_ppm_step !== undefined && pts_z > 0)
+            ? Math.abs((pts_z - 1) * s0.z_ppm_step)
+            : 0;
+    }
+
+    const startPpm = document.getElementById("sec_axis_start_ppm");
+    const endPpm = document.getElementById("sec_axis_end_ppm");
+    const frqInput = document.getElementById("sec_axis_frq");
+    const frq = frqInput ? parseFloat(frqInput.value) || 0 : 0;
+
+    let p0 = parseFloat(startPpm.value) || 0;
+    let p1 = parseFloat(endPpm.value) || 0;
+    let delta = prim_width_ppm > 0 ? (prim_width_ppm * multiplier) : (Math.abs(p1 - p0) * multiplier);
+
+    p0 += delta;
+    p1 += delta;
+
+    startPpm.value = p0.toFixed(3);
+    endPpm.value = p1.toFixed(3);
+
+    const startHz = document.getElementById("sec_axis_start_hz");
+    const endHz = document.getElementById("sec_axis_end_hz");
+    if (startHz && frq > 0) startHz.value = (p0 * frq).toFixed(1);
+    if (endHz && frq > 0) endHz.value = (p1 * frq).toFixed(1);
+
+    update_sec_axis_modal_preview();
+}
+
+/**
+ * Copies the primary dimension's exact start ppm, end ppm, and spectrometer frequency.
+ */
+function sec_axis_copy_primary() {
+    const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    const s0 = (spectra_3d && spectra_3d.length > 0) ? spectra_3d[0] : null;
+    if (!s0) return;
+
+    let p_start = 0, p_end = 0, frq = 0;
+    const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+        if (!s0.header) return 0;
+        const d = Math.round(s0.header[dimOrderIdx]);
+        if (d === 1) return s0.header[f1Offset] || 0;
+        if (d === 2) return s0.header[f2Offset] || 0;
+        if (d === 3) return s0.header[f3Offset] || 0;
+        return 0;
+    };
+
+    if (targetDim === 'y') {
+        const pts_y = s0.n_indirect || (s0.header ? Math.round(s0.header[219]) : 0);
+        frq = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+        p_start = s0.y_ppm_start;
+        p_end = (s0.y_ppm_start !== undefined && s0.y_ppm_step !== undefined && pts_y > 0)
+            ? (s0.y_ppm_start + (pts_y - 1) * s0.y_ppm_step)
+            : s0.y_ppm_start;
+    } else {
+        const pts_z = spectra_3d.length || s0.n_indirect2 || (s0.header ? Math.round(s0.header[15]) : 0);
+        frq = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+        p_start = s0.z_ppm_start;
+        p_end = (s0.z_ppm_start !== undefined && s0.z_ppm_step !== undefined && pts_z > 0)
+            ? (s0.z_ppm_start + (pts_z - 1) * s0.z_ppm_step)
+            : s0.z_ppm_start;
+    }
+
+    const startPpm = document.getElementById("sec_axis_start_ppm");
+    const endPpm = document.getElementById("sec_axis_end_ppm");
+    const frqInput = document.getElementById("sec_axis_frq");
+    const startHz = document.getElementById("sec_axis_start_hz");
+    const endHz = document.getElementById("sec_axis_end_hz");
+
+    if (startPpm) startPpm.value = (p_start !== undefined) ? p_start.toFixed(3) : "0.000";
+    if (endPpm) endPpm.value = (p_end !== undefined) ? p_end.toFixed(3) : "0.000";
+    if (frqInput && frq > 0) frqInput.value = frq.toFixed(3);
+    if (startHz && frq > 0) startHz.value = (p_start * frq).toFixed(1);
+    if (endHz && frq > 0) endHz.value = (p_end * frq).toFixed(1);
+
+    update_sec_axis_modal_preview();
+}
+
+/**
+ * Updates the live preview box inside the secondary axis modal.
+ */
+function update_sec_axis_modal_preview() {
+    const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    const nuc = (document.getElementById("sec_axis_nuclear") || {}).value || '2nd Axis';
+    const frq = parseFloat((document.getElementById("sec_axis_frq") || {}).value) || 0;
+    const unit = (document.getElementById("sec_axis_display_unit") || {}).value || 'ppm';
+
+    const rad = document.querySelector('input[name="sec_axis_input_mode"]:checked');
+    const mode = rad ? rad.value : 'ppm';
+
+    let p0 = 0, p1 = 0, h0 = 0, h1 = 0;
+    if (mode === 'ppm') {
+        p0 = parseFloat((document.getElementById("sec_axis_start_ppm") || {}).value);
+        p1 = parseFloat((document.getElementById("sec_axis_end_ppm") || {}).value);
+        if (!isNaN(p0) && !isNaN(p1)) {
+            h0 = frq > 0 ? (p0 * frq) : 0;
+            h1 = frq > 0 ? (p1 * frq) : 0;
+        }
+    } else {
+        h0 = parseFloat((document.getElementById("sec_axis_start_hz") || {}).value);
+        h1 = parseFloat((document.getElementById("sec_axis_end_hz") || {}).value);
+        if (!isNaN(h0) && !isNaN(h1)) {
+            p0 = frq > 0 ? (h0 / frq) : 0;
+            p1 = frq > 0 ? (h1 / frq) : 0;
+        }
+    }
+
+    const summaryEl = document.getElementById("sec_axis_preview_summary");
+    const detailsEl = document.getElementById("sec_axis_preview_details");
+    const placementEl = document.getElementById("sec_axis_preview_placement");
+
+    if (isNaN(p0) || isNaN(p1)) {
+        if (summaryEl) summaryEl.innerText = `${nuc} (${unit}) — Preview`;
+        if (detailsEl) detailsEl.innerText = "Please enter valid start and end values.";
+        if (placementEl) placementEl.innerText = "";
+        return;
+    }
+
+    const sw_ppm = Math.abs(p0 - p1);
+    const sw_hz = (frq > 0) ? (sw_ppm * frq) : Math.abs(h0 - h1);
+
+    if (summaryEl) {
+        summaryEl.innerText = `${nuc} (${unit}) — SW: ${sw_ppm.toFixed(3)} ppm (${sw_hz.toLocaleString(undefined, { maximumFractionDigits: 1 })} Hz)`;
+    }
+    if (detailsEl) {
+        detailsEl.innerText = `Range: ${p0.toFixed(3)} to ${p1.toFixed(3)} ppm | ${h0.toFixed(1)} to ${h1.toFixed(1)} Hz (at ${frq.toFixed(2)} MHz)`;
+    }
+    if (placementEl) {
+        if (targetDim === 'y') {
+            placementEl.innerText = `Placement: Displayed on RIGHT of XY Slice and RIGHT of ZY Slice plots.`;
+        } else {
+            placementEl.innerText = `Placement: Displayed on RIGHT of XZ Slice and TOP of ZY Slice plots.`;
+        }
+    }
+}
+
+/**
+ * Validates inputs and saves the secondary axis configuration for the current dimension.
+ */
+function save_secondary_axis_from_modal() {
+    const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    const nucElem = document.getElementById("sec_axis_nuclear");
+    const nuc = nucElem ? nucElem.value.trim() : "";
+    if (!nuc) {
+        alert("Please enter a Nuclear name (e.g., 13C, 15N, 13CO).");
+        if (nucElem) nucElem.focus();
+        return;
+    }
+
+    const frqElem = document.getElementById("sec_axis_frq");
+    const frq = frqElem ? parseFloat(frqElem.value) || 0 : 0;
+
+    const rad = document.querySelector('input[name="sec_axis_input_mode"]:checked');
+    const mode = rad ? rad.value : 'ppm';
+    const unit = (document.getElementById("sec_axis_display_unit") || {}).value || 'ppm';
+
+    let p0 = 0, p1 = 0, h0 = 0, h1 = 0;
+    if (mode === 'ppm') {
+        p0 = parseFloat((document.getElementById("sec_axis_start_ppm") || {}).value);
+        p1 = parseFloat((document.getElementById("sec_axis_end_ppm") || {}).value);
+        if (isNaN(p0) || isNaN(p1)) {
+            alert("Please enter valid start and end PPM values.");
+            return;
+        }
+        h0 = (frq > 0) ? (p0 * frq) : 0;
+        h1 = (frq > 0) ? (p1 * frq) : 0;
+    } else {
+        h0 = parseFloat((document.getElementById("sec_axis_start_hz") || {}).value);
+        h1 = parseFloat((document.getElementById("sec_axis_end_hz") || {}).value);
+        if (isNaN(h0) || isNaN(h1)) {
+            alert("Please enter valid start and end Hz values.");
+            return;
+        }
+        if (frq <= 0) {
+            alert("Please enter a valid spectrometer frequency (MHz) to compute chemical shift.");
+            return;
+        }
+        p0 = h0 / frq;
+        p1 = h1 / frq;
+    }
+
+    if (Math.abs(p0 - p1) < 1e-6) {
+        alert("Start and End values cannot be equal. Please enter a valid range.");
+        return;
+    }
+
+    if (!window.secondary_axis_config) {
+        window.secondary_axis_config = { y: null, z: null };
+    }
+
+    const s0 = (spectra_3d && spectra_3d.length > 0) ? spectra_3d[0] : null;
+    let prim_start = 0, prim_end = 0;
+    if (s0) {
+        if (targetDim === 'y') {
+            const pts_y = s0.n_indirect || (s0.header ? Math.round(s0.header[219]) : 0);
+            prim_start = s0.y_ppm_start;
+            prim_end = (s0.y_ppm_start !== undefined && s0.y_ppm_step !== undefined && pts_y > 0)
+                ? (s0.y_ppm_start + (pts_y - 1) * s0.y_ppm_step)
+                : s0.y_ppm_start;
+        } else {
+            const pts_z = spectra_3d.length || s0.n_indirect2 || (s0.header ? Math.round(s0.header[15]) : 0);
+            prim_start = s0.z_ppm_start;
+            prim_end = (s0.z_ppm_start !== undefined && s0.z_ppm_step !== undefined && pts_z > 0)
+                ? (s0.z_ppm_start + (pts_z - 1) * s0.z_ppm_step)
+                : s0.z_ppm_start;
+        }
+    }
+
+    const isHz = (String(unit).toLowerCase() === 'hz');
+    const cfg = {
+        dimension: targetDim,
+        nucleus: nuc,
+        frq_mhz: frq,
+        ppm_start: p0,
+        ppm_end: p1,
+        hz_start: h0,
+        hz_end: h1,
+        sw_hz: Math.abs(h0 - h1),
+        unit: isHz ? 'Hz' : 'ppm',
+        primary_start: prim_start,
+        primary_end: prim_end,
+        label: `${nuc} (${isHz ? 'Hz' : 'ppm'})`
+    };
+
+    window.secondary_axis_config[targetDim] = cfg;
+
+    close_secondary_axis_modal();
+    update_all_secondary_axes();
+    update_3d_spectrum_info();
+
+    const statusElem = document.getElementById("shift_status_msg");
+    if (statusElem) {
+        statusElem.style.color = "#15803d";
+        statusElem.innerText = `Defined 2nd parallel axis (${nuc}, ${cfg.unit}) for Indirect Dimension ${targetDim.toUpperCase()}.`;
+    }
+}
+
+/**
+ * Removes the secondary axis configuration from modal.
+ */
+function remove_secondary_axis_from_modal() {
+    const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    remove_secondary_axis(targetDim);
+    close_secondary_axis_modal();
+}
+
+/**
+ * Removes the secondary axis configuration for a specific dimension ('y' or 'z').
+ * @param {string} dim - 'y' or 'z'
+ */
+function remove_secondary_axis(dim) {
+    const normAxis = String(dim).toLowerCase();
+    if (!window.secondary_axis_config) {
+        window.secondary_axis_config = { y: null, z: null };
+    }
+    window.secondary_axis_config[normAxis] = null;
+
+    update_all_secondary_axes();
+    update_3d_spectrum_info();
+
+    const statusElem = document.getElementById("shift_status_msg");
+    if (statusElem) {
+        statusElem.style.color = "#475569";
+        statusElem.innerText = `Removed 2nd parallel axis for Indirect Dimension ${normAxis.toUpperCase()}.`;
+    }
+}
+
+/**
+ * Updates all plot instances (main_plot, main_plot_xz, main_plot_yz, projections)
+ * with the current secondary axis configuration.
+ *
+ * Rules:
+ *  - 2nd axis on top (if 1st is on bottom)
+ *  - 2nd axis on right (if 1st is on left)
+ */
+function update_all_secondary_axes() {
+    if (!spectra_3d || spectra_3d.length === 0) return;
+    const s0 = spectra_3d[0];
+    const pts_y = s0.n_indirect || (s0.header ? Math.round(s0.header[219]) : 0);
+    const pts_z = spectra_3d.length || s0.n_indirect2 || (s0.header ? Math.round(s0.header[15]) : 0);
+
+    const prim_y_start = s0.y_ppm_start;
+    const prim_y_end = (s0.y_ppm_start !== undefined && s0.y_ppm_step !== undefined && pts_y > 0)
+        ? (s0.y_ppm_start + (pts_y - 1) * s0.y_ppm_step)
+        : s0.y_ppm_start;
+
+    const prim_z_start = s0.z_ppm_start;
+    const prim_z_end = (s0.z_ppm_start !== undefined && s0.z_ppm_step !== undefined && pts_z > 0)
+        ? (s0.z_ppm_start + (pts_z - 1) * s0.z_ppm_step)
+        : s0.z_ppm_start;
+
+    const cfg_y = window.secondary_axis_config ? window.secondary_axis_config.y : null;
+    const cfg_z = window.secondary_axis_config ? window.secondary_axis_config.z : null;
+
+    const makeAxisConfig = (cfg, primStart, primEnd) => {
+        if (!cfg) return null;
+        const isHz = (String(cfg.unit).toLowerCase() === 'hz');
+        const sStart = isHz ? cfg.hz_start : cfg.ppm_start;
+        const sEnd = isHz ? cfg.hz_end : cfg.ppm_end;
+        return {
+            label: `${cfg.nucleus} (${isHz ? 'Hz' : 'ppm'})`,
+            primary_range: [primStart, primEnd],
+            secondary_range: [sStart, sEnd],
+            unit: isHz ? 'Hz' : 'ppm'
+        };
+    };
+
+    const plotCfg_y = makeAxisConfig(cfg_y, prim_y_start, prim_y_end);
+    const plotCfg_z = makeAxisConfig(cfg_z, prim_z_start, prim_z_end);
+
+    // 1. main_plot (XY Slice view):
+    //    Primary X is Direct (x). Primary Y is Indirect 1 (y) on LEFT.
+    //    Secondary Y axis on the RIGHT for y.
+    if (main_plot) {
+        if (typeof main_plot.set_secondary_y_axis === 'function' && plotCfg_y) {
+            main_plot.set_secondary_y_axis(plotCfg_y);
+        } else if (typeof main_plot.remove_secondary_y_axis === 'function') {
+            main_plot.remove_secondary_y_axis();
+        }
+    }
+
+    // 2. main_plot_xz (XZ Slice view):
+    //    Primary X is Direct (x). Primary Y is Indirect 2 (z) on LEFT.
+    //    Secondary Y axis on the RIGHT for z.
+    if (main_plot_xz) {
+        if (typeof main_plot_xz.set_secondary_y_axis === 'function' && plotCfg_z) {
+            main_plot_xz.set_secondary_y_axis(plotCfg_z);
+        } else if (typeof main_plot_xz.remove_secondary_y_axis === 'function') {
+            main_plot_xz.remove_secondary_y_axis();
+        }
+    }
+
+    // 3. main_plot_yz (ZY Slice view):
+    //    Primary X is Indirect 2 (z) on BOTTOM -> Secondary X on TOP.
+    //    Primary Y is Indirect 1 (y) on LEFT   -> Secondary Y on RIGHT.
+    if (main_plot_yz) {
+        if (typeof main_plot_yz.set_secondary_x_axis === 'function' && plotCfg_z) {
+            main_plot_yz.set_secondary_x_axis(plotCfg_z);
+        } else if (typeof main_plot_yz.remove_secondary_x_axis === 'function') {
+            main_plot_yz.remove_secondary_x_axis();
+        }
+
+        if (typeof main_plot_yz.set_secondary_y_axis === 'function' && plotCfg_y) {
+            main_plot_yz.set_secondary_y_axis(plotCfg_y);
+        } else if (typeof main_plot_yz.remove_secondary_y_axis === 'function') {
+            main_plot_yz.remove_secondary_y_axis();
+        }
+    }
+
+    // 4. Projections (if active):
+    // XY projection (main_plot_proj): Y is y (left) -> Secondary Y on RIGHT
+    if (main_plot_proj) {
+        if (plotCfg_y && typeof main_plot_proj.set_secondary_y_axis === 'function') {
+            main_plot_proj.set_secondary_y_axis(plotCfg_y);
+        } else if (typeof main_plot_proj.remove_secondary_y_axis === 'function') {
+            main_plot_proj.remove_secondary_y_axis();
+        }
+    }
+
+    // XZ projection (main_plot_proj_y): Y is z (left) -> Secondary Y on RIGHT
+    if (main_plot_proj_y) {
+        if (plotCfg_z && typeof main_plot_proj_y.set_secondary_y_axis === 'function') {
+            main_plot_proj_y.set_secondary_y_axis(plotCfg_z);
+        } else if (typeof main_plot_proj_y.remove_secondary_y_axis === 'function') {
+            main_plot_proj_y.remove_secondary_y_axis();
+        }
+    }
+
+    // ZY projection (main_plot_proj_x): X is y (bottom) -> Secondary X on TOP; Y is z (left) -> Secondary Y on RIGHT
+    if (main_plot_proj_x) {
+        if (plotCfg_y && typeof main_plot_proj_x.set_secondary_x_axis === 'function') {
+            main_plot_proj_x.set_secondary_x_axis(plotCfg_y);
+        } else if (typeof main_plot_proj_x.remove_secondary_x_axis === 'function') {
+            main_plot_proj_x.remove_secondary_x_axis();
+        }
+        if (plotCfg_z && typeof main_plot_proj_x.set_secondary_y_axis === 'function') {
+            main_plot_proj_x.set_secondary_y_axis(plotCfg_z);
+        } else if (typeof main_plot_proj_x.remove_secondary_y_axis === 'function') {
+            main_plot_proj_x.remove_secondary_y_axis();
+        }
+    }
+}
+
+window.open_secondary_axis_modal = open_secondary_axis_modal;
+window.close_secondary_axis_modal = close_secondary_axis_modal;
+window.on_sec_axis_preset_change = on_sec_axis_preset_change;
+window.toggle_sec_axis_input_mode = toggle_sec_axis_input_mode;
+window.sec_axis_offset_sw = sec_axis_offset_sw;
+window.sec_axis_copy_primary = sec_axis_copy_primary;
+window.update_sec_axis_modal_preview = update_sec_axis_modal_preview;
+window.save_secondary_axis_from_modal = save_secondary_axis_from_modal;
+window.remove_secondary_axis_from_modal = remove_secondary_axis_from_modal;
+window.remove_secondary_axis = remove_secondary_axis;
+window.update_all_secondary_axes = update_all_secondary_axes;
 
 /**
  * Applies a calibration shift (in ppm or Hz) to an indirect dimension ('y' or 'z').
@@ -1214,6 +1938,9 @@ function apply_dimension_shift(axis) {
 
     // Refresh 3D Spectrum Information table
     update_3d_spectrum_info();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 
     // Clear input field and report status
     inputElem.value = "";
@@ -3244,8 +3971,8 @@ function init_main_plot(first_spectrum) {
     let plot_font_size = 24;
     let plot_margin_left = 30 + plot_font_size * 5;
     let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 30;
-    let plot_margin_right = 30;
+    let plot_margin_top = 45;
+    let plot_margin_right = 65;
 
     // Correctly size and position the WebGL canvas to align with the SVG plot area (inner margins)
     let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
@@ -3329,6 +4056,9 @@ function init_main_plot(first_spectrum) {
 
     update_all_plot_axis_labels();
     update_3d_spectrum_info();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 }
 
 
@@ -3840,8 +4570,8 @@ function init_ortho_plots(s) {
     let plot_font_size = 24;
     let plot_margin_left = 30 + plot_font_size * 5;
     let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 30;
-    let plot_margin_right = 30;
+    let plot_margin_top = 45;
+    let plot_margin_right = 65;
 
     let margins = {
         left: plot_margin_left,
@@ -3972,6 +4702,9 @@ function init_ortho_plots(s) {
 
     refresh_xz_view();
     refresh_yz_view();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 }
 
 /**
@@ -7704,8 +8437,8 @@ function setup_2d_plot_resizing() {
             let plot_font_size = 24;
             let plot_margin_left = 30 + plot_font_size * 5;
             let plot_margin_bottom = 30 + plot_font_size * 3;
-            let plot_margin_top = 30;
-            let plot_margin_right = 30;
+            let plot_margin_top = 45;
+            let plot_margin_right = 65;
 
             let plot_width = cr.width - plot_margin_left - plot_margin_right;
             let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
@@ -7760,8 +8493,8 @@ function init_proj_plot(s) {
     let plot_font_size = 24;
     let plot_margin_left = 30 + plot_font_size * 5;
     let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 30;
-    let plot_margin_right = 30;
+    let plot_margin_top = 45;
+    let plot_margin_right = 65;
 
     let margins = {
         left: plot_margin_left,
@@ -7812,6 +8545,9 @@ function init_proj_plot(s) {
     }
 
     update_all_plot_axis_labels();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 }
 
 /**
@@ -8258,8 +8994,8 @@ function init_proj_y_plot(s) {
     let plot_font_size = 24;
     let plot_margin_left = 30 + plot_font_size * 5;
     let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 30;
-    let plot_margin_right = 30;
+    let plot_margin_top = 45;
+    let plot_margin_right = 65;
 
     let margins = {
         left: plot_margin_left,
@@ -8310,6 +9046,9 @@ function init_proj_y_plot(s) {
     }
 
     update_all_plot_axis_labels();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 }
 
 /**
@@ -8410,8 +9149,8 @@ function init_proj_x_plot(s) {
     let plot_font_size = 24;
     let plot_margin_left = 30 + plot_font_size * 5;
     let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 30;
-    let plot_margin_right = 30;
+    let plot_margin_top = 45;
+    let plot_margin_right = 65;
 
     let margins = {
         left: plot_margin_left,
@@ -8462,6 +9201,9 @@ function init_proj_x_plot(s) {
     }
 
     update_all_plot_axis_labels();
+    if (typeof update_all_secondary_axes === 'function') {
+        update_all_secondary_axes();
+    }
 }
 
 /**
