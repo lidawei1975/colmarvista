@@ -326,6 +326,8 @@ function reset_3d_dataset_state(keepNuclei = false) {
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
         update_all_plot_axis_labels();
+    } else {
+        update_3d_spectrum_info();
     }
 }
 
@@ -741,13 +743,157 @@ function extract_nuclei_from_spectrum(s) {
         }
     };
 
+    const lx = readLabel(dimorder1);
+    const ly = readLabel(dimorder2);
+    const lz = readLabel(dimorder3);
+
     window.last_fid_nuclei = {
-        x: readLabel(dimorder1),
-        y: readLabel(dimorder2),
-        z: readLabel(dimorder3)
+        x: lx || (window.last_fid_nuclei ? window.last_fid_nuclei.x : "") || "",
+        y: ly || (window.last_fid_nuclei ? window.last_fid_nuclei.y : "") || "",
+        z: lz || (window.last_fid_nuclei ? window.last_fid_nuclei.z : "") || ""
     };
     update_all_plot_axis_labels();
 }
+
+/**
+ * Updates the 3D Spectrum Information section above Standard Orthogonal Views.
+ * Displays Nuclear (Nucleus), Hz (Spectral Width, Frequency, Hz Range), and PPM Range for each dimension.
+ */
+function update_3d_spectrum_info() {
+    const el_nuc_x = document.getElementById("spec_info_nuc_x");
+    if (!el_nuc_x) return;
+
+    const el_sw_x = document.getElementById("spec_info_sw_hz_x");
+    const el_frq_x = document.getElementById("spec_info_frq_x");
+    const el_ppm_x = document.getElementById("spec_info_ppm_range_x");
+    const el_hz_x = document.getElementById("spec_info_hz_range_x");
+    const el_pts_x = document.getElementById("spec_info_points_x");
+
+    const el_nuc_y = document.getElementById("spec_info_nuc_y");
+    const el_sw_y = document.getElementById("spec_info_sw_hz_y");
+    const el_frq_y = document.getElementById("spec_info_frq_y");
+    const el_ppm_y = document.getElementById("spec_info_ppm_range_y");
+    const el_hz_y = document.getElementById("spec_info_hz_range_y");
+    const el_pts_y = document.getElementById("spec_info_points_y");
+
+    const el_nuc_z = document.getElementById("spec_info_nuc_z");
+    const el_sw_z = document.getElementById("spec_info_sw_hz_z");
+    const el_frq_z = document.getElementById("spec_info_frq_z");
+    const el_ppm_z = document.getElementById("spec_info_ppm_range_z");
+    const el_hz_z = document.getElementById("spec_info_hz_range_z");
+    const el_pts_z = document.getElementById("spec_info_points_z");
+
+    if (!spectra_3d || spectra_3d.length === 0) {
+        [el_nuc_x, el_sw_x, el_frq_x, el_ppm_x, el_hz_x, el_pts_x,
+         el_nuc_y, el_sw_y, el_frq_y, el_ppm_y, el_hz_y, el_pts_y,
+         el_nuc_z, el_sw_z, el_frq_z, el_ppm_z, el_hz_z, el_pts_z].forEach(el => {
+            if (el) el.innerText = "-";
+        });
+        return;
+    }
+
+    const s0 = spectra_3d[0];
+    const nx = (window.last_fid_nuclei && window.last_fid_nuclei.x) ? window.last_fid_nuclei.x : "-";
+    const ny = (window.last_fid_nuclei && window.last_fid_nuclei.y) ? window.last_fid_nuclei.y : "-";
+    const nz = (window.last_fid_nuclei && window.last_fid_nuclei.z) ? window.last_fid_nuclei.z : "-";
+
+    const formatNumber = (num, decimals = 2) => {
+        if (num === undefined || num === null || isNaN(num)) return "-";
+        return Number(num).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    };
+
+    // Helper to extract frequency & spectral width fallbacks from header if needed
+    const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+        if (!s0.header) return 0;
+        const dim = s0.header[dimOrderIdx];
+        if (dim === 1) return s0.header[f1Offset] || 0;
+        if (dim === 2) return s0.header[f2Offset] || 0;
+        if (dim === 3) return s0.header[f3Offset] || 0;
+        return 0;
+    };
+
+    // --- Direct Dimension (x) ---
+    const pts_x = s0.n_direct || (s0.header ? Math.round(s0.header[99]) : 0);
+    const frq_x = s0.frq1 || getDimHeaderVal(24, 218, 119, 10);
+    const x_start = s0.x_ppm_start;
+    const x_step = s0.x_ppm_step;
+    const x_end = (x_start !== undefined && x_step !== undefined && pts_x > 0) ? (x_start + (pts_x - 1) * x_step) : undefined;
+    const x_width_ppm = s0.x_ppm_width !== undefined ? Math.abs(s0.x_ppm_width) : ((x_start !== undefined && x_end !== undefined) ? Math.abs(x_start - x_end) : 0);
+    const sw_x = s0.sw1 || getDimHeaderVal(24, 229, 100, 11) || (frq_x > 0 ? x_width_ppm * frq_x : 0);
+
+    el_nuc_x.innerText = nx;
+    el_pts_x.innerText = pts_x ? pts_x.toLocaleString() : "-";
+    el_sw_x.innerText = sw_x > 0 ? `${formatNumber(sw_x, 2)} Hz` : "-";
+    el_frq_x.innerText = frq_x > 0 ? `${formatNumber(frq_x, 3)} MHz` : "-";
+    if (x_start !== undefined && x_end !== undefined) {
+        el_ppm_x.innerText = `${x_start.toFixed(3)} to ${x_end.toFixed(3)} ppm (Δ ${x_width_ppm.toFixed(3)} ppm)`;
+        if (frq_x > 0) {
+            const hz_start = x_start * frq_x;
+            const hz_end = x_end * frq_x;
+            el_hz_x.innerText = `${formatNumber(hz_start, 1)} to ${formatNumber(hz_end, 1)} Hz (SW: ${formatNumber(sw_x, 1)} Hz)`;
+        } else {
+            el_hz_x.innerText = sw_x > 0 ? `SW: ${formatNumber(sw_x, 1)} Hz` : "-";
+        }
+    } else {
+        el_ppm_x.innerText = "-";
+        el_hz_x.innerText = "-";
+    }
+
+    // --- Indirect Dimension 1 (y) ---
+    const pts_y = s0.n_indirect || (s0.header ? Math.round(s0.header[219]) : 0);
+    const frq_y = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+    const y_start = s0.y_ppm_start;
+    const y_step = s0.y_ppm_step;
+    const y_end = (y_start !== undefined && y_step !== undefined && pts_y > 0) ? (y_start + (pts_y - 1) * y_step) : undefined;
+    const y_width_ppm = s0.y_ppm_width !== undefined ? Math.abs(s0.y_ppm_width) : ((y_start !== undefined && y_end !== undefined) ? Math.abs(y_start - y_end) : 0);
+    const sw_y = s0.sw2 || getDimHeaderVal(25, 229, 100, 11) || (frq_y > 0 ? y_width_ppm * frq_y : 0);
+
+    el_nuc_y.innerText = ny;
+    el_pts_y.innerText = pts_y ? pts_y.toLocaleString() : "-";
+    el_sw_y.innerText = sw_y > 0 ? `${formatNumber(sw_y, 2)} Hz` : "-";
+    el_frq_y.innerText = frq_y > 0 ? `${formatNumber(frq_y, 3)} MHz` : "-";
+    if (y_start !== undefined && y_end !== undefined) {
+        el_ppm_y.innerText = `${y_start.toFixed(3)} to ${y_end.toFixed(3)} ppm (Δ ${y_width_ppm.toFixed(3)} ppm)`;
+        if (frq_y > 0) {
+            const hz_start = y_start * frq_y;
+            const hz_end = y_end * frq_y;
+            el_hz_y.innerText = `${formatNumber(hz_start, 1)} to ${formatNumber(hz_end, 1)} Hz (SW: ${formatNumber(sw_y, 1)} Hz)`;
+        } else {
+            el_hz_y.innerText = sw_y > 0 ? `SW: ${formatNumber(sw_y, 1)} Hz` : "-";
+        }
+    } else {
+        el_ppm_y.innerText = "-";
+        el_hz_y.innerText = "-";
+    }
+
+    // --- Indirect Dimension 2 / Planes (z) ---
+    const pts_z = spectra_3d.length || s0.n_indirect2 || (s0.header ? Math.round(s0.header[15]) : 0);
+    const frq_z = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+    const z_start = s0.z_ppm_start;
+    const z_step = s0.z_ppm_step;
+    const z_end = (z_start !== undefined && z_step !== undefined && pts_z > 0) ? (z_start + (pts_z - 1) * z_step) : undefined;
+    const z_width_ppm = s0.z_ppm_width !== undefined ? Math.abs(s0.z_ppm_width) : ((z_start !== undefined && z_end !== undefined) ? Math.abs(z_start - z_end) : 0);
+    const sw_z = s0.sw3 || getDimHeaderVal(26, 229, 100, 11) || (frq_z > 0 ? z_width_ppm * frq_z : 0);
+
+    el_nuc_z.innerText = nz;
+    el_pts_z.innerText = pts_z ? pts_z.toLocaleString() : "-";
+    el_sw_z.innerText = sw_z > 0 ? `${formatNumber(sw_z, 2)} Hz` : "-";
+    el_frq_z.innerText = frq_z > 0 ? `${formatNumber(frq_z, 3)} MHz` : "-";
+    if (z_start !== undefined && z_end !== undefined) {
+        el_ppm_z.innerText = `${z_start.toFixed(3)} to ${z_end.toFixed(3)} ppm (Δ ${z_width_ppm.toFixed(3)} ppm)`;
+        if (frq_z > 0) {
+            const hz_start = z_start * frq_z;
+            const hz_end = z_end * frq_z;
+            el_hz_z.innerText = `${formatNumber(hz_start, 1)} to ${formatNumber(hz_end, 1)} Hz (SW: ${formatNumber(sw_z, 1)} Hz)`;
+        } else {
+            el_hz_z.innerText = sw_z > 0 ? `SW: ${formatNumber(sw_z, 1)} Hz` : "-";
+        }
+    } else {
+        el_ppm_z.innerText = "-";
+        el_hz_z.innerText = "-";
+    }
+}
+window.update_3d_spectrum_info = update_3d_spectrum_info;
 
 /**
  * Updates all plot axis labels.
@@ -790,6 +936,9 @@ function update_all_plot_axis_labels() {
 
     // Update 1D trace labels based on the newly updated axes
     update_1d_traces_from_center();
+
+    // Update 3D spectrum info section (nuclear, Hz, ppm range)
+    update_3d_spectrum_info();
 }
 
 /**
@@ -1897,17 +2046,21 @@ async function load_sparky_3d_file_impl(file) {
             s.x_ppm_width = x_ppm_width;
             s.x_ppm_ref = 0.0;
             s.frq1 = axes[2].spectrometer_freq;
+            s.sw1 = axes[2].spectral_width;
 
             s.y_ppm_start = y_ppm_start;
             s.y_ppm_step = y_ppm_step;
             s.y_ppm_width = y_ppm_width;
             s.y_ppm_ref = 0.0;
             s.frq2 = axes[1].spectrometer_freq;
+            s.sw2 = axes[1].spectral_width;
 
             s.z_ppm_start = z_ppm_start;
             s.z_ppm_step = z_ppm_step;
             s.z_ppm_width = z_ppm_width;
             s.z_ppm_ref = 0.0;
+            s.frq3 = axes[0].spectrometer_freq;
+            s.sw3 = axes[0].spectral_width;
 
             // Fill header (NMRPipe style header)
             s.header = new Float32Array(512);
@@ -2838,6 +2991,7 @@ function init_main_plot(first_spectrum) {
     init_ortho_plots(first_spectrum);
 
     update_all_plot_axis_labels();
+    update_3d_spectrum_info();
 }
 
 
