@@ -794,6 +794,10 @@ plotit.prototype.draw = function () {
     this.$yAxis2_svg = null;
     this.$xLabel2Group = null;
     this.$yLabel2Group = null;
+    this.xRange2 = null;
+    this.yRange2 = null;
+    this.xAxis2 = null;
+    this.yAxis2 = null;
 
 
     this.$xAxis_svg = this.$vis.append('svg:g')
@@ -2799,23 +2803,30 @@ plotit.prototype.update_secondary_x_axis = function () {
     };
 
     if (!this.xRange2) {
-        this.xRange2 = d3.scaleLinear().range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
+        this.xRange2 = d3.scaleLinear();
     }
+    this.xRange2.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
     const sec_dom0 = mapVal(this.xscale[0]);
     const sec_dom1 = mapVal(this.xscale[1]);
     this.xRange2.domain([sec_dom0, sec_dom1]);
 
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
     const estimatedTickWidth = self.fontsize * 4;
     const maxTicks = Math.floor((this.WIDTH - this.MARGINS.left - this.MARGINS.right) / estimatedTickWidth);
-    this.xAxis2 = d3.axisTop(this.xRange2).ticks(maxTicks);
+    this.xAxis2 = d3.axisTop(this.xRange2).ticks(maxTicks).tickSizeInner(6 * thickness);
 
     if (!this.$xAxis2_svg) {
         this.$xAxis2_svg = this.$vis.append('svg:g')
-            .attr('class', 'xaxis2')
-            .attr('transform', 'translate(0,' + this.MARGINS.top + ')');
+            .attr('class', 'xaxis2');
     }
+    this.$xAxis2_svg.attr('transform', 'translate(0,' + this.MARGINS.top + ')');
 
     this.$xAxis2_svg.call(this.xAxis2);
+
+    this.$xAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$xAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
     this.$vis.selectAll(".xaxis2>.tick>text")
         .each(function () {
@@ -2833,19 +2844,18 @@ plotit.prototype.update_secondary_x_axis = function () {
 
     if (!this.$xLabel2Group) {
         this.$xLabel2Group = this.$vis.append("g")
-            .attr("class", "x2-label-group")
-            .attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
+            .attr("class", "x2-label-group");
         this.$xLabel2Group.append("text")
             .attr("class", "xlabel2")
             .attr("text-anchor", "middle")
-            .attr("font-size", (this.fontsize + 1) + "px")
             .attr("font-family", "Arial, Helvetica, sans-serif")
             .attr("font-weight", "bold")
             .attr("fill", "#1e3a8a");
-    } else {
-        this.$xLabel2Group.attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
     }
-    this.$xLabel2Group.select(".xlabel2").text(cfg.label || "");
+    this.$xLabel2Group.attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
+    this.$xLabel2Group.select(".xlabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
 };
 
 /**
@@ -2895,23 +2905,30 @@ plotit.prototype.update_secondary_y_axis = function () {
     };
 
     if (!this.yRange2) {
-        this.yRange2 = d3.scaleLinear().range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
+        this.yRange2 = d3.scaleLinear();
     }
+    this.yRange2.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
     const sec_dom0 = mapVal(this.yscale[0]);
     const sec_dom1 = mapVal(this.yscale[1]);
     this.yRange2.domain([sec_dom0, sec_dom1]);
 
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
     const estimatedTickHeight = self.fontsize * 2;
     const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
-    this.yAxis2 = d3.axisRight(this.yRange2).ticks(maxTicksY);
+    this.yAxis2 = d3.axisRight(this.yRange2).ticks(maxTicksY).tickSizeInner(6 * thickness);
 
     if (!this.$yAxis2_svg) {
         this.$yAxis2_svg = this.$vis.append('svg:g')
-            .attr('class', 'yaxis2')
-            .attr('transform', 'translate(' + (this.WIDTH - this.MARGINS.right) + ',0)');
+            .attr('class', 'yaxis2');
     }
+    this.$yAxis2_svg.attr('transform', 'translate(' + (this.WIDTH - this.MARGINS.right) + ',0)');
 
     this.$yAxis2_svg.call(this.yAxis2);
+
+    this.$yAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$yAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
 
     this.$vis.selectAll(".yaxis2>.tick>text")
         .each(function () {
@@ -2929,19 +2946,18 @@ plotit.prototype.update_secondary_y_axis = function () {
 
     if (!this.$yLabel2Group) {
         this.$yLabel2Group = this.$vis.append("g")
-            .attr("class", "y2-label-group")
-            .attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
+            .attr("class", "y2-label-group");
         this.$yLabel2Group.append("text")
             .attr("class", "ylabel2")
             .attr("text-anchor", "middle")
-            .attr("font-size", (this.fontsize + 1) + "px")
             .attr("font-family", "Arial, Helvetica, sans-serif")
             .attr("font-weight", "bold")
             .attr("fill", "#1e3a8a");
-    } else {
-        this.$yLabel2Group.attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
     }
-    this.$yLabel2Group.select(".ylabel2").text(cfg.label || "");
+    this.$yLabel2Group.attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
+    this.$yLabel2Group.select(".ylabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
 };
 
 /**

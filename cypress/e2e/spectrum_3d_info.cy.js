@@ -113,7 +113,31 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#spec_info_ppm_range_y_sec').should('contain.text', '185.000 to 165.000 ppm');
         cy.get('#btn_open_sec_axis_y').should('contain.text', 'Edit (13CO)');
 
-        // 8. Test Reset State
+        // 8. Test 2nd Axis Moves and Rescales on 2D Plot Resize
+        cy.window().then((win) => {
+            if (win.main_plot) {
+                const initRight = win.main_plot.WIDTH - win.main_plot.MARGINS.right;
+                const initBottom = win.main_plot.HEIGHT - win.main_plot.MARGINS.bottom;
+                expect(win.main_plot.$yAxis2_svg.attr('transform')).to.contain(`translate(${initRight},0)`);
+                expect(win.main_plot.yRange2.range()[0]).to.equal(initBottom);
+
+                // Resize main_plot
+                win.main_plot.update({
+                    WIDTH: 650,
+                    HEIGHT: 550,
+                    MARGINS: win.main_plot.MARGINS,
+                    fontsize: win.main_plot.fontsize
+                });
+
+                // Verify the secondary axis moved to new right edge and rescaled
+                const newRight = 650 - win.main_plot.MARGINS.right;
+                const newBottom = 550 - win.main_plot.MARGINS.bottom;
+                expect(win.main_plot.$yAxis2_svg.attr('transform')).to.contain(`translate(${newRight},0)`);
+                expect(win.main_plot.yRange2.range()[0]).to.equal(newBottom);
+            }
+        });
+
+        // 9. Test Reset State
         cy.window().then((win) => {
             win.reset_3d_dataset_state();
         });

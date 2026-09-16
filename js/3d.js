@@ -8454,7 +8454,17 @@ function setup_2d_plot_resizing() {
             }
 
             // Important: update the plot scales and visuals
-            plot_instance.update({ WIDTH: cr.width, HEIGHT: cr.height });
+            plot_instance.update({
+                WIDTH: cr.width,
+                HEIGHT: cr.height,
+                MARGINS: {
+                    left: plot_margin_left,
+                    top: plot_margin_top,
+                    right: plot_margin_right,
+                    bottom: plot_margin_bottom
+                },
+                fontsize: plot_font_size
+            });
 
             // Redraw/move all crosshairs with updated scales
             update_3d_crosshairs();
