@@ -323,6 +323,13 @@ function reset_3d_dataset_state(keepNuclei = false) {
         ft3_processed_btn.onclick = null;
     }
 
+    let shift_y = document.getElementById("shift_val_y");
+    if (shift_y) shift_y.value = "";
+    let shift_z = document.getElementById("shift_val_z");
+    if (shift_z) shift_z.value = "";
+    let shift_msg = document.getElementById("shift_status_msg");
+    if (shift_msg) shift_msg.innerText = "";
+
     if (!keepNuclei) {
         window.last_fid_nuclei = { x: '', y: '', z: '' };
         update_all_plot_axis_labels();
@@ -894,6 +901,336 @@ function update_3d_spectrum_info() {
     }
 }
 window.update_3d_spectrum_info = update_3d_spectrum_info;
+
+/**
+ * Applies a calibration shift (in ppm or Hz) to an indirect dimension ('y' or 'z').
+ * Updates internal coordinates, NMRPipe header (both CAR and ORIG), plot scales,
+ * WebGL contours, slice indicators, 1D traces, and the spectrum information table.
+ *
+ * @param {string} axis - 'y' for Indirect Dimension 1, 'z' for Indirect Dimension 2 (Planes)
+ */
+function apply_dimension_shift(axis) {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No 3D spectrum is loaded.");
+        return;
+    }
+
+    const normAxis = String(axis).toLowerCase();
+    if (normAxis !== 'y' && normAxis !== 'z') {
+        console.error("apply_dimension_shift: Invalid axis " + axis + ". Must be 'y' or 'z'.");
+        return;
+    }
+
+    const inputId = (normAxis === 'y') ? "shift_val_y" : "shift_val_z";
+    const unitId = (normAxis === 'y') ? "shift_unit_y" : "shift_unit_z";
+
+    const inputElem = document.getElementById(inputId);
+    const unitElem = document.getElementById(unitId);
+    const statusElem = document.getElementById("shift_status_msg");
+
+    if (!inputElem) return;
+
+    const rawVal = inputElem.value.trim();
+    if (rawVal === "") {
+        if (statusElem) {
+            statusElem.style.color = "#b91c1c";
+            statusElem.innerText = "Please enter a shift amount.";
+        }
+        return;
+    }
+
+    const shiftVal = parseFloat(rawVal);
+    if (isNaN(shiftVal)) {
+        if (statusElem) {
+            statusElem.style.color = "#b91c1c";
+            statusElem.innerText = "Please enter a valid numeric shift value.";
+        }
+        return;
+    }
+
+    if (shiftVal === 0) {
+        if (statusElem) {
+            statusElem.style.color = "#475569";
+            statusElem.innerText = "Shift amount is 0; no change applied.";
+        }
+        return;
+    }
+
+    const unit = unitElem ? unitElem.value.toLowerCase() : "ppm";
+    const s0 = spectra_3d[0];
+
+    // Determine spectrometer frequency for this dimension
+    const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+        if (!s0.header) return 0;
+        const dim = Math.round(s0.header[dimOrderIdx]);
+        if (dim === 1) return s0.header[f1Offset] || 0;
+        if (dim === 2) return s0.header[f2Offset] || 0;
+        if (dim === 3) return s0.header[f3Offset] || 0;
+        return 0;
+    };
+
+    let frq = (normAxis === 'y')
+        ? (s0.frq2 || getDimHeaderVal(25, 218, 119, 10))
+        : (s0.frq3 || getDimHeaderVal(26, 218, 119, 10));
+
+    let delta_ppm = 0;
+    let delta_hz = 0;
+
+    if (unit === "ppm") {
+        delta_ppm = shiftVal;
+        delta_hz = (frq > 0) ? (delta_ppm * frq) : 0;
+    } else if (unit === "hz") {
+        delta_hz = shiftVal;
+        if (frq > 0) {
+            delta_ppm = delta_hz / frq;
+        } else {
+            const errMsg = "Cannot apply Hz shift: Spectrometer frequency is missing for this dimension.";
+            if (statusElem) {
+                statusElem.style.color = "#b91c1c";
+                statusElem.innerText = errMsg;
+            }
+            alert(errMsg);
+            return;
+        }
+    } else {
+        return;
+    }
+
+    // Identify NMRPipe header indices for CAR (ppm) and ORIG (Hz)
+    // dimorder2 = header[25] (Indirect dim 1 / y)
+    // dimorder3 = header[26] (Indirect dim 2 / z)
+    const dimOrderIdx = (normAxis === 'y') ? 25 : 26;
+    const dimNum = (s0.header && s0.header.length > dimOrderIdx)
+        ? Math.round(s0.header[dimOrderIdx])
+        : (normAxis === 'y' ? 1 : 3);
+
+    let carIdx, origIdx;
+    if (dimNum === 1) {
+        carIdx = 67;   // FDF1CAR
+        origIdx = 249; // FDF1ORIG
+    } else if (dimNum === 2) {
+        carIdx = 66;   // FDF2CAR
+        origIdx = 101; // FDF2ORIG
+    } else if (dimNum === 3) {
+        carIdx = 68;   // FDF3CAR
+        origIdx = 12;  // FDF3ORIG
+    } else if (dimNum === 4) {
+        carIdx = 69;   // FDF4CAR
+        origIdx = 30;  // FDF4ORIG
+    }
+
+    // Update all planes in spectra_3d
+    for (let i = 0; i < spectra_3d.length; i++) {
+        const s = spectra_3d[i];
+        if (normAxis === 'y') {
+            if (typeof s.y_ppm_start === 'number') s.y_ppm_start += delta_ppm;
+            if (s.ref && s.indirect_ndx !== undefined && s.indirect_ndx >= 1) {
+                s.ref[s.indirect_ndx - 1] += delta_hz;
+            }
+            if (typeof s.ref2 === 'number') s.ref2 += delta_hz;
+        } else {
+            if (typeof s.z_ppm_start === 'number') s.z_ppm_start += delta_ppm;
+            if (s.ref && s.indirect_ndx2 !== undefined && s.indirect_ndx2 >= 1) {
+                s.ref[s.indirect_ndx2 - 1] += delta_hz;
+            }
+            if (typeof s.ref3 === 'number') s.ref3 += delta_hz;
+        }
+
+        if (s.header && s.header.length >= 512) {
+            if (carIdx !== undefined) s.header[carIdx] += delta_ppm;
+            if (origIdx !== undefined) s.header[origIdx] += delta_hz;
+        }
+    }
+
+    // Update theoretical_spectra_3d if present
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+        for (let i = 0; i < theoretical_spectra_3d.length; i++) {
+            const st = theoretical_spectra_3d[i];
+            if (normAxis === 'y' && typeof st.y_ppm_start === 'number') {
+                st.y_ppm_start += delta_ppm;
+            } else if (normAxis === 'z' && typeof st.z_ppm_start === 'number') {
+                st.z_ppm_start += delta_ppm;
+            }
+        }
+    }
+
+    // Update synthetic orthogonal slice spectrum objects
+    if (spectrum_xz) {
+        if (normAxis === 'z' && typeof spectrum_xz.y_ppm_start === 'number') {
+            spectrum_xz.y_ppm_start += delta_ppm;
+        }
+    }
+    if (theoretical_spectrum_xz) {
+        if (normAxis === 'z' && typeof theoretical_spectrum_xz.y_ppm_start === 'number') {
+            theoretical_spectrum_xz.y_ppm_start += delta_ppm;
+        }
+    }
+    if (spectrum_yz) {
+        if (normAxis === 'y' && typeof spectrum_yz.y_ppm_start === 'number') {
+            spectrum_yz.y_ppm_start += delta_ppm;
+        }
+        if (normAxis === 'z' && typeof spectrum_yz.x_ppm_start === 'number') {
+            spectrum_yz.x_ppm_start += delta_ppm;
+        }
+    }
+    if (theoretical_spectrum_yz) {
+        if (normAxis === 'y' && typeof theoretical_spectrum_yz.y_ppm_start === 'number') {
+            theoretical_spectrum_yz.y_ppm_start += delta_ppm;
+        }
+        if (normAxis === 'z' && typeof theoretical_spectrum_yz.x_ppm_start === 'number') {
+            theoretical_spectrum_yz.x_ppm_start += delta_ppm;
+        }
+    }
+
+    // Update projection spectra objects if present
+    if (spectrum_proj && normAxis === 'y' && typeof spectrum_proj.y_ppm_start === 'number') {
+        spectrum_proj.y_ppm_start += delta_ppm;
+    }
+    if (spectrum_proj_y && normAxis === 'z' && typeof spectrum_proj_y.y_ppm_start === 'number') {
+        spectrum_proj_y.y_ppm_start += delta_ppm;
+    }
+    if (spectrum_proj_x) {
+        if (normAxis === 'y' && typeof spectrum_proj_x.x_ppm_start === 'number') {
+            spectrum_proj_x.x_ppm_start += delta_ppm;
+        }
+        if (normAxis === 'z' && typeof spectrum_proj_x.y_ppm_start === 'number') {
+            spectrum_proj_x.y_ppm_start += delta_ppm;
+        }
+    }
+
+    // Update plot scales and SVG axes
+    if (normAxis === 'y') {
+        // Main plot (XY) Y-axis is Y
+        if (main_plot && main_plot.yscale) {
+            main_plot.yscale = [main_plot.yscale[0] + delta_ppm, main_plot.yscale[1] + delta_ppm];
+            if (main_plot.yRange) main_plot.yRange.domain(main_plot.yscale);
+            if (main_plot.yscale_orig) {
+                main_plot.yscale_orig = [main_plot.yscale_orig[0] + delta_ppm, main_plot.yscale_orig[1] + delta_ppm];
+            }
+            if (typeof main_plot.reset_axis === 'function') main_plot.reset_axis();
+            if (main_plot.$yAxis_svg && main_plot.yAxis) main_plot.$yAxis_svg.call(main_plot.yAxis);
+        }
+        // YZ plot (ZY) Y-axis is Y
+        if (main_plot_yz && main_plot_yz.yscale) {
+            main_plot_yz.yscale = [main_plot_yz.yscale[0] + delta_ppm, main_plot_yz.yscale[1] + delta_ppm];
+            if (main_plot_yz.yRange) main_plot_yz.yRange.domain(main_plot_yz.yscale);
+            if (main_plot_yz.yscale_orig) {
+                main_plot_yz.yscale_orig = [main_plot_yz.yscale_orig[0] + delta_ppm, main_plot_yz.yscale_orig[1] + delta_ppm];
+            }
+            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
+            if (main_plot_yz.$yAxis_svg && main_plot_yz.yAxis) main_plot_yz.$yAxis_svg.call(main_plot_yz.yAxis);
+        }
+        // Projections
+        if (main_plot_proj && main_plot_proj.yscale) {
+            main_plot_proj.yscale = [main_plot_proj.yscale[0] + delta_ppm, main_plot_proj.yscale[1] + delta_ppm];
+            if (main_plot_proj.yRange) main_plot_proj.yRange.domain(main_plot_proj.yscale);
+            if (main_plot_proj.yscale_orig) main_plot_proj.yscale_orig = [main_plot_proj.yscale_orig[0] + delta_ppm, main_plot_proj.yscale_orig[1] + delta_ppm];
+            if (typeof main_plot_proj.reset_axis === 'function') main_plot_proj.reset_axis();
+        }
+        if (main_plot_proj_x && main_plot_proj_x.xscale) {
+            main_plot_proj_x.xscale = [main_plot_proj_x.xscale[0] + delta_ppm, main_plot_proj_x.xscale[1] + delta_ppm];
+            if (main_plot_proj_x.xRange) main_plot_proj_x.xRange.domain(main_plot_proj_x.xscale);
+            if (main_plot_proj_x.xscale_orig) main_plot_proj_x.xscale_orig = [main_plot_proj_x.xscale_orig[0] + delta_ppm, main_plot_proj_x.xscale_orig[1] + delta_ppm];
+            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
+        }
+    } else {
+        // XZ plot Y-axis is Z
+        if (main_plot_xz && main_plot_xz.yscale) {
+            main_plot_xz.yscale = [main_plot_xz.yscale[0] + delta_ppm, main_plot_xz.yscale[1] + delta_ppm];
+            if (main_plot_xz.yRange) main_plot_xz.yRange.domain(main_plot_xz.yscale);
+            if (main_plot_xz.yscale_orig) {
+                main_plot_xz.yscale_orig = [main_plot_xz.yscale_orig[0] + delta_ppm, main_plot_xz.yscale_orig[1] + delta_ppm];
+            }
+            if (typeof main_plot_xz.reset_axis === 'function') main_plot_xz.reset_axis();
+            if (main_plot_xz.$yAxis_svg && main_plot_xz.yAxis) main_plot_xz.$yAxis_svg.call(main_plot_xz.yAxis);
+        }
+        // YZ plot X-axis is Z
+        if (main_plot_yz && main_plot_yz.xscale) {
+            main_plot_yz.xscale = [main_plot_yz.xscale[0] + delta_ppm, main_plot_yz.xscale[1] + delta_ppm];
+            if (main_plot_yz.xRange) main_plot_yz.xRange.domain(main_plot_yz.xscale);
+            if (main_plot_yz.xscale_orig) {
+                main_plot_yz.xscale_orig = [main_plot_yz.xscale_orig[0] + delta_ppm, main_plot_yz.xscale_orig[1] + delta_ppm];
+            }
+            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
+            if (main_plot_yz.$xAxis_svg && main_plot_yz.xAxis) main_plot_yz.$xAxis_svg.call(main_plot_yz.xAxis);
+        }
+        // Projections
+        if (main_plot_proj_y && main_plot_proj_y.yscale) {
+            main_plot_proj_y.yscale = [main_plot_proj_y.yscale[0] + delta_ppm, main_plot_proj_y.yscale[1] + delta_ppm];
+            if (main_plot_proj_y.yRange) main_plot_proj_y.yRange.domain(main_plot_proj_y.yscale);
+            if (main_plot_proj_y.yscale_orig) main_plot_proj_y.yscale_orig = [main_plot_proj_y.yscale_orig[0] + delta_ppm, main_plot_proj_y.yscale_orig[1] + delta_ppm];
+            if (typeof main_plot_proj_y.reset_axis === 'function') main_plot_proj_y.reset_axis();
+        }
+        if (main_plot_proj_x && main_plot_proj_x.yscale) {
+            main_plot_proj_x.yscale = [main_plot_proj_x.yscale[0] + delta_ppm, main_plot_proj_x.yscale[1] + delta_ppm];
+            if (main_plot_proj_x.yRange) main_plot_proj_x.yRange.domain(main_plot_proj_x.yscale);
+            if (main_plot_proj_x.yscale_orig) main_plot_proj_x.yscale_orig = [main_plot_proj_x.yscale_orig[0] + delta_ppm, main_plot_proj_x.yscale_orig[1] + delta_ppm];
+            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
+        }
+    }
+
+    // Refresh contours and WebGL scenes
+    if (normAxis === 'y') {
+        if (typeof refresh_current_view === 'function') {
+            const curSlice = (current_slice_index >= 0 && spectra_3d[current_slice_index]) ? spectra_3d[current_slice_index] : spectra_3d[0];
+            refresh_current_view(curSlice);
+        }
+        if (typeof refresh_ortho_plot === 'function') {
+            refresh_ortho_plot("yz");
+        }
+    } else {
+        if (typeof refresh_ortho_plot === 'function') {
+            refresh_ortho_plot("xz");
+            refresh_ortho_plot("yz");
+        }
+    }
+
+    // Redraw fixed center crosshairs
+    if (main_plot && typeof main_plot.draw_center_lines === 'function') main_plot.draw_center_lines();
+    if (main_plot_xz && typeof main_plot_xz.draw_center_lines === 'function') main_plot_xz.draw_center_lines();
+    if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') main_plot_yz.draw_center_lines();
+
+    // Update slice readouts
+    if (normAxis === 'z') {
+        const sliceElem = document.getElementById('slice_info');
+        if (sliceElem && current_slice_index >= 0 && spectra_3d[current_slice_index]) {
+            const cur_s = spectra_3d[current_slice_index];
+            const ppm_z = cur_s.z_ppm_start + (current_slice_index * cur_s.z_ppm_step);
+            sliceElem.innerText = `${current_slice_index + 1}/${spectra_3d.length} (${ppm_z.toFixed(3)} ppm)`;
+        }
+    }
+    if (normAxis === 'y') {
+        const val_xz = document.getElementById("val_xz");
+        if (val_xz && s0.n_indirect) {
+            const ppm_y = s0.y_ppm_start + (current_y_index * s0.y_ppm_step);
+            val_xz.innerText = `${current_y_index + 1}/${s0.n_indirect} (${ppm_y.toFixed(3)} ppm)`;
+        }
+    }
+
+    // Update 1D traces
+    if (typeof update_1d_traces_from_center === 'function') {
+        update_1d_traces_from_center();
+    }
+
+    // Refresh 3D Spectrum Information table
+    update_3d_spectrum_info();
+
+    // Clear input field and report status
+    inputElem.value = "";
+    const dimTitle = (normAxis === 'y') ? "Indirect Dimension 1 (y)" : "Indirect Dimension 2 / Planes (z)";
+    const signPpm = delta_ppm >= 0 ? `+${delta_ppm.toFixed(4)}` : delta_ppm.toFixed(4);
+    const signHz = delta_hz >= 0 ? `+${delta_hz.toFixed(2)}` : delta_hz.toFixed(2);
+    const msg = `Applied ${signPpm} ppm (${signHz} Hz) shift to ${dimTitle}.`;
+
+    if (statusElem) {
+        statusElem.style.color = "#15803d";
+        statusElem.innerText = msg;
+    }
+    if (typeof append_3d_log === 'function') {
+        append_3d_log(`[shift] ${msg}`);
+    }
+}
+window.apply_dimension_shift = apply_dimension_shift;
 
 /**
  * Updates all plot axis labels.
@@ -6810,7 +7147,9 @@ async function handle_webass_3d_message(e) {
             if (btn) {
                 btn.style.display = 'inline-block';
                 btn.onclick = function () {
-                    if (window.last_processed_ft3_blob) {
+                    if (spectra_3d && spectra_3d.length > 0) {
+                        download_ft3();
+                    } else if (window.last_processed_ft3_blob) {
                         const url = URL.createObjectURL(window.last_processed_ft3_blob);
                         const a = document.createElement('a');
                         a.href = url;

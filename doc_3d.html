@@ -170,13 +170,21 @@
           <div class="card-body">
             
         <h2>3D Spectrum Information & Standard Orthogonal Views</h2>
-        <h3>3D Spectrum Information</h3>
+        <h3>3D Spectrum Information & Chemical Shift Calibration</h3>
         <p>Located immediately above the Standard Orthogonal Views, this summary panel provides comprehensive acquisition and spectral parameters for all three principal dimensions:</p>
         <ul>
           <li><b>Nuclear (Nucleus):</b> Nucleus type (e.g., $^1\text{H}$, $^{15}\text{N}$, $^{13}\text{C}$) for Direct ($x$), Indirect 1 ($y$), and Indirect 2 / Planes ($z$).</li>
           <li><b>Hz Specifications:</b> Spectral Width in Hz ($\text{SW}$) and spectrometer carrier frequency in MHz for each dimension, along with the complete frequency range in Hz.</li>
           <li><b>PPM Range:</b> Chemical shift boundaries (start to end ppm) and spectral width span ($\Delta$ ppm).</li>
           <li><b>Grid Points:</b> Total number of points along each dimension ($N_x$, $N_y$, $N_z$).</li>
+          <li><b>Shift Calibration:</b> Calibration controls for both Indirect Dimension 1 ($y$) and Indirect Dimension 2 / Planes ($z$):
+            <ul>
+              <li>Enter a shift offset amount (positive or negative) and select units (<b>ppm</b> or <b>Hz</b>).</li>
+              <li>Click <b>Apply</b> (or press Enter) to calibrate the dimension.</li>
+              <li>Instantly recalibrates internal coordinates, 2D slice axes, orthogonal views (XZ and YZ planes), 1D trace plots, and the information table.</li>
+              <li>Automatically synchronizes the NMRPipe header parameters: updates the Carrier frequency (<code>CAR</code> in PPM) and the Origin frequency offset (<code>ORIG</code> in Hz) together, ensuring consistent referencing across downstream NMR software (NMRPipe, Sparky, etc.) when saving or downloading the <code>.ft3</code> file.</li>
+            </ul>
+          </li>
         </ul>
 
         <h3>Synchronized 2D Slice Planes</h3>
