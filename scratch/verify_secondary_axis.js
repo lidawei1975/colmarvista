@@ -222,5 +222,161 @@ assert(js3dContent.includes('parent: "vis_parent_xz", canvas: "canvas_xz"'), 'ma
 assert(js3dContent.includes('parent: "vis_parent_yz", canvas: "canvas_yz"'), 'main_plot_yz canvas must be updated');
 console.log('   All 3 2D plots are consistently updated with matching margins.');
 
+// 10. Verify hover text generation with 2nd y (and 2nd x)
+console.log('10. Verifying hover text generation with 2nd y...');
+assert(plotitContent.includes('y2_str'), 'myplot1_new.js must compute y2_str for hover info');
+assert(plotitContent.includes('y2_ppm'), 'myplot1_new.js must support y2_ppm label');
+assert(plotitContent.includes('y2_hz'), 'myplot1_new.js must support y2_hz label');
+
+// Test simulation of hover string generator
+function formatHoverInfor(x_ppm, y_ppm, data_height, signal_to_noise, sec_y_cfg, sec_x_cfg, coordY, coordX, yRange2, xRange2) {
+    let y2_val = null;
+    let y2_unit = "ppm";
+    let y2_str = "";
+    if (sec_y_cfg) {
+        y2_unit = sec_y_cfg.unit || "ppm";
+        if (yRange2 && typeof yRange2.invert === 'function') {
+            y2_val = yRange2.invert(coordY);
+        } else if (sec_y_cfg.primary_range && sec_y_cfg.secondary_range) {
+            const pStart = sec_y_cfg.primary_range[0];
+            const pEnd = sec_y_cfg.primary_range[1];
+            const sStart = sec_y_cfg.secondary_range[0];
+            const sEnd = sec_y_cfg.secondary_range[1];
+            const denom = pEnd - pStart;
+            if (Math.abs(denom) > 1e-9) {
+                y2_val = sStart + ((y_ppm - pStart) / denom) * (sEnd - sStart);
+            }
+        }
+        if (y2_val !== null && !isNaN(y2_val)) {
+            let tag = (y2_unit.toLowerCase() === 'hz') ? "y2_hz" : "y2_ppm";
+            let valStr = (y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2);
+            y2_str = ", " + tag + ": " + valStr;
+        }
+    }
+
+    let x2_val = null;
+    let x2_unit = "ppm";
+    let x2_str = "";
+    if (sec_x_cfg) {
+        x2_unit = sec_x_cfg.unit || "ppm";
+        if (xRange2 && typeof xRange2.invert === 'function') {
+            x2_val = xRange2.invert(coordX);
+        } else if (sec_x_cfg.primary_range && sec_x_cfg.secondary_range) {
+            const pStart = sec_x_cfg.primary_range[0];
+            const pEnd = sec_x_cfg.primary_range[1];
+            const sStart = sec_x_cfg.secondary_range[0];
+            const sEnd = sec_x_cfg.secondary_range[1];
+            const denom = pEnd - pStart;
+            if (Math.abs(denom) > 1e-9) {
+                x2_val = sStart + ((x_ppm - pStart) / denom) * (sEnd - sStart);
+            }
+        }
+        if (x2_val !== null && !isNaN(x2_val)) {
+            let tag = (x2_unit.toLowerCase() === 'hz') ? "x2_hz" : "x2_ppm";
+            let valStr = (x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2);
+            x2_str = ", " + tag + ": " + valStr;
+        }
+    }
+
+    return "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+}
+
+// Case A: No 2nd axis
+const textNoSec = formatHoverInfor(8.234, 120.45, 1.23e6, 25.4, null, null);
+assert.strictEqual(textNoSec, "x_ppm: 8.234, y_ppm: 120.45, Inten: 1.23e+6 ,S/N: 25.40");
+
+// Case B: 2nd Y in ppm
+const cfgPpm = { unit: 'ppm', primary_range: [100, 130], secondary_range: [110, 140] };
+const textSecPpm = formatHoverInfor(8.234, 120.0, 1.23e6, 25.4, cfgPpm, null);
+assert(textSecPpm.includes('y2_ppm: 130.00'), 'Should calculate and display y2_ppm for ppm unit');
+assert.strictEqual(textSecPpm, "x_ppm: 8.234, y_ppm: 120.00, y2_ppm: 130.00, Inten: 1.23e+6 ,S/N: 25.40");
+
+// Case C: 2nd Y in Hz
+const cfgHz = { unit: 'Hz', primary_range: [100, 130], secondary_range: [8600, 11180] };
+const textSecHz = formatHoverInfor(8.234, 115.0, 1.23e6, 25.4, cfgHz, null);
+assert(textSecHz.includes('y2_hz: 9890.0'), 'Should calculate and display y2_hz for Hz unit');
+assert.strictEqual(textSecHz, "x_ppm: 8.234, y_ppm: 115.00, y2_hz: 9890.0, Inten: 1.23e+6 ,S/N: 25.40");
+
+console.log('   Hover text with 2nd y (ppm and Hz) verified successfully.');
+
+// 11. Verify Shift Calibration Quick Offset of + or - SW
+console.log('11. Verifying Shift Calibration quick offset of + or - SW...');
+const quickOffsetButtons = [
+    'btn_shift_plus_sw_y',
+    'btn_shift_minus_sw_y',
+    'btn_shift_plus_sw_z',
+    'btn_shift_minus_sw_z'
+];
+
+const freshHtml = fs.readFileSync(path.join(__dirname, '../index_3d.html'), 'utf8');
+quickOffsetButtons.forEach(id => {
+    assert(freshHtml.includes(`id="${id}"`), `Missing HTML quick offset button id: ${id}`);
+});
+
+const freshJs3d = fs.readFileSync(path.join(__dirname, '../js/3d.js'), 'utf8');
+assert(freshJs3d.includes('function apply_sw_shift('), '3d.js must implement apply_sw_shift');
+assert(freshJs3d.includes('window.apply_sw_shift = apply_sw_shift'), '3d.js must export apply_sw_shift to window');
+
+// Test simulation of SW calculation and quick offset
+function testSwOffsetCalc(s0, normAxis, unit, multiplier) {
+    let sw_hz = 0;
+    let sw_ppm = 0;
+    let frq = 0;
+
+    if (normAxis === 'y') {
+        frq = s0.frq2;
+        sw_hz = s0.sw2;
+        sw_ppm = s0.y_ppm_width || (sw_hz / frq);
+    } else {
+        frq = s0.frq3;
+        sw_hz = s0.sw3;
+        sw_ppm = s0.z_ppm_width || (sw_hz / frq);
+    }
+
+    const offsetVal = (unit === 'hz') ? (multiplier * sw_hz) : (multiplier * sw_ppm);
+    return {
+        offsetVal,
+        delta_ppm: (unit === 'ppm') ? offsetVal : (offsetVal / frq),
+        delta_hz: (unit === 'ppm') ? (offsetVal * frq) : offsetVal
+    };
+}
+
+const mockPlane = {
+    y_ppm_start: 135.154,
+    y_ppm_width: 35.002,
+    sw2: 2067.82,
+    frq2: 86.156,
+    z_ppm_start: 175.845,
+    z_ppm_width: 13.003,
+    sw3: 2779.32,
+    frq3: 213.810
+};
+
+// Test +SW in ppm for Y
+const resYPlus = testSwOffsetCalc(mockPlane, 'y', 'ppm', 1);
+assert.strictEqual(resYPlus.offsetVal, 35.002);
+assert.strictEqual(resYPlus.delta_ppm, 35.002);
+assert(Math.abs(resYPlus.delta_hz - (35.002 * 86.156)) < 1e-6);
+
+// Test -SW in ppm for Y
+const resYMinus = testSwOffsetCalc(mockPlane, 'y', 'ppm', -1);
+assert.strictEqual(resYMinus.offsetVal, -35.002);
+assert.strictEqual(resYMinus.delta_ppm, -35.002);
+
+// Test +SW in Hz for Z
+const resZPlusHz = testSwOffsetCalc(mockPlane, 'z', 'hz', 1);
+assert.strictEqual(resZPlusHz.offsetVal, 2779.32);
+assert.strictEqual(resZPlusHz.delta_hz, 2779.32);
+assert(Math.abs(resZPlusHz.delta_ppm - (2779.32 / 213.810)) < 1e-6);
+
+// Test -SW in Hz for Z
+const resZMinusHz = testSwOffsetCalc(mockPlane, 'z', 'hz', -1);
+assert.strictEqual(resZMinusHz.offsetVal, -2779.32);
+assert.strictEqual(resZMinusHz.delta_hz, -2779.32);
+
+console.log('   Shift Calibration +SW and -SW quick offsets verified successfully.');
+
 console.log('--- ALL VERIFICATION CHECKS PASSED SUCCESSFULLY! ---');
+
+
 

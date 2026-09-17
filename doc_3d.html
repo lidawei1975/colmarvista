@@ -180,6 +180,7 @@
           <li><b>Shift Calibration:</b> Calibration controls for both Indirect Dimension 1 ($y$) and Indirect Dimension 2 / Planes ($z$):
             <ul>
               <li>Enter a shift offset amount (positive or negative) and select units (<b>ppm</b> or <b>Hz</b>).</li>
+              <li><b>Quick Offset of ±SW:</b> Click <b>+SW</b> or <b>-SW</b> to instantly shift the dimension by $+1$ or $-1$ Spectral Width (ideal for folded/aliased peaks) in a single click, automatically evaluating the exact SW in the selected unit (ppm or Hz).</li>
               <li>Click <b>Apply</b> (or press Enter) to calibrate the dimension.</li>
               <li>Instantly recalibrates internal coordinates, 2D slice axes, orthogonal views (XZ and YZ planes), 1D trace plots, and the information table.</li>
               <li>Automatically synchronizes the NMRPipe header parameters: updates the Carrier frequency (<code>CAR</code> in PPM) and the Origin frequency offset (<code>ORIG</code> in Hz) together, ensuring consistent referencing across downstream NMR software (NMRPipe, Sparky, etc.) when saving or downloading the <code>.ft3</code> file.</li>
@@ -200,6 +201,7 @@
               </li>
               <li><b>Dimension Restriction ($^{15}\text{N}$ or $^{13}\text{C}$ Only):</b> The 2nd parallel axis is only permitted for indirect dimensions whose primary nucleus is $^{15}\text{N}$ or $^{13}\text{C}$. It is not added for $^1\text{H}$ dimensions.</li>
               <li><b>Consistent Dynamic Margins:</b> When a 2nd axis is configured on any indirect dimension, all three 2D plots automatically and consistently expand their top (to 102px, largely matching the bottom margin) and right (to 150px, largely matching the left margin) to ensure tick values and axis labels are clearly visible without overlapping or edge clipping. When the 2nd axis is removed, all three plots seamlessly revert to default margins (top: 45px, right: 65px).</li>
+              <li><b>Live Cursor Hover Readout:</b> When hovering over any 2D plot, the top-right information bar displays the current coordinates and signal intensity (e.g. <code>x_ppm</code>, <code>y_ppm</code>, <code>Inten</code>, <code>S/N</code>). When a 2nd axis is defined, the secondary coordinate is automatically included (as <code>y2_ppm</code> or <code>y2_hz</code>, and <code>x2_ppm</code> or <code>x2_hz</code> on orthogonal views), providing instantaneous multi-scale readout at the cursor position.</li>
               <li><b>Non-Destructive Visualization:</b> The 2nd parallel axis is purely a visual overlay for analysis and comparison. It stays synchronized in real-time during panning, zooming, plot resizing, and slice browsing, without modifying the underlying binary data or exported <code>.ft3</code> files.</li>
             </ul>
           </li>

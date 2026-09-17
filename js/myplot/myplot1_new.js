@@ -944,14 +944,71 @@ plotit.prototype.draw = function () {
             }
         }
 
+        // Calculate secondary Y axis value if secondary Y axis exists
+        let y2_val = null;
+        let y2_unit = "ppm";
+        let y2_str = "";
+        if (self.secondary_y_config) {
+            y2_unit = self.secondary_y_config.unit || "ppm";
+            if (self.yRange2 && typeof self.yRange2.invert === 'function') {
+                y2_val = self.yRange2.invert(coordinates[1]);
+            } else if (self.secondary_y_config.primary_range && self.secondary_y_config.secondary_range) {
+                const pStart = self.secondary_y_config.primary_range[0];
+                const pEnd = self.secondary_y_config.primary_range[1];
+                const sStart = self.secondary_y_config.secondary_range[0];
+                const sEnd = self.secondary_y_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    y2_val = sStart + ((y_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (y2_val !== null && !isNaN(y2_val)) {
+                let tag = (y2_unit.toLowerCase() === 'hz') ? "y2_hz" : "y2_ppm";
+                let valStr = (y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2);
+                y2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
+        // Calculate secondary X axis value if secondary X axis exists
+        let x2_val = null;
+        let x2_unit = "ppm";
+        let x2_str = "";
+        if (self.secondary_x_config) {
+            x2_unit = self.secondary_x_config.unit || "ppm";
+            if (self.xRange2 && typeof self.xRange2.invert === 'function') {
+                x2_val = self.xRange2.invert(coordinates[0]);
+            } else if (self.secondary_x_config.primary_range && self.secondary_x_config.secondary_range) {
+                const pStart = self.secondary_x_config.primary_range[0];
+                const pEnd = self.secondary_x_config.primary_range[1];
+                const sStart = self.secondary_x_config.secondary_range[0];
+                const sEnd = self.secondary_x_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    x2_val = sStart + ((x_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (x2_val !== null && !isNaN(x2_val)) {
+                let tag = (x2_unit.toLowerCase() === 'hz') ? "x2_hz" : "x2_ppm";
+                let valStr = (x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2);
+                x2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
         const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
+            let x2_info = (x2_val !== null && !isNaN(x2_val))
+                ? (", x2: " + ((x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2)) + " " + x2_unit)
+                : "";
+            let y2_info = (y2_val !== null && !isNaN(y2_val))
+                ? (", y2: " + ((y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2)) + " " + y2_unit)
+                : "";
+
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                     + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
                     + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
             }
@@ -959,7 +1016,7 @@ plotit.prototype.draw = function () {
         else {
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 

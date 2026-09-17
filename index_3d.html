@@ -320,12 +320,14 @@
                                         <td id="spec_info_points_y" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
                                         <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <input type="number" id="shift_val_y" step="any" placeholder="0.0" style="width: 60px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('y');" title="Shift amount (+ or -)">
+                                                <input type="number" id="shift_val_y" step="any" placeholder="0.0" style="width: 55px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('y');" title="Shift amount (+ or -)">
                                                 <select id="shift_unit_y" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
                                                     <option value="ppm" selected>ppm</option>
                                                     <option value="hz">Hz</option>
                                                 </select>
                                                 <button type="button" id="btn_apply_shift_y" onclick="apply_dimension_shift('y')" style="padding: 3px 8px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Apply shift to Indirect Dimension 1 (y)">Apply</button>
+                                                <button type="button" id="btn_shift_plus_sw_y" onclick="apply_sw_shift('y', 1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by +1 SW (+Spectral Width)">+SW</button>
+                                                <button type="button" id="btn_shift_minus_sw_y" onclick="apply_sw_shift('y', -1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by -1 SW (-Spectral Width)">-SW</button>
                                             </div>
                                         </td>
                                         <td id="col_sec_axis_y" style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
@@ -360,12 +362,14 @@
                                         <td id="spec_info_points_z" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
                                         <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <input type="number" id="shift_val_z" step="any" placeholder="0.0" style="width: 60px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('z');" title="Shift amount (+ or -)">
+                                                <input type="number" id="shift_val_z" step="any" placeholder="0.0" style="width: 55px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('z');" title="Shift amount (+ or -)">
                                                 <select id="shift_unit_z" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
                                                     <option value="ppm" selected>ppm</option>
                                                     <option value="hz">Hz</option>
                                                 </select>
                                                 <button type="button" id="btn_apply_shift_z" onclick="apply_dimension_shift('z')" style="padding: 3px 8px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Apply shift to Indirect Dimension 2 / Planes (z)">Apply</button>
+                                                <button type="button" id="btn_shift_plus_sw_z" onclick="apply_sw_shift('z', 1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by +1 SW (+Spectral Width)">+SW</button>
+                                                <button type="button" id="btn_shift_minus_sw_z" onclick="apply_sw_shift('z', -1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by -1 SW (-Spectral Width)">-SW</button>
                                             </div>
                                         </td>
                                         <td id="col_sec_axis_z" style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
@@ -604,12 +608,12 @@
                                     <label for="slice_slider" style="font-weight: bold;">z-Plane: </label>
                                     <button id="prev_slice">&lt;</button>
                                     <input type="range" id="slice_slider" min="0" max="0" value="0"
-                                        style="width: 200px; vertical-align: middle;">
+                                        style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice">&gt;</button>
                                     <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor">Information</span>
@@ -629,12 +633,12 @@
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_xz" style="font-weight: bold;">y Slice: </label>
                                     <button id="prev_slice_xz">&lt;</button>
-                                    <input type="range" id="slider_xz" style="width: 200px; vertical-align: middle;">
+                                    <input type="range" id="slider_xz" style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice_xz">&gt;</button>
                                     <span id="val_xz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent_xz" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_xz">Information</span>
@@ -654,12 +658,12 @@
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_yz" style="font-weight: bold;">x Slice: </label>
                                     <button id="prev_slice_yz">&lt;</button>
-                                    <input type="range" id="slider_yz" style="width: 200px; vertical-align: middle;">
+                                    <input type="range" id="slider_yz" style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice_yz">&gt;</button>
                                     <span id="val_yz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent_yz" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_yz">Information</span>

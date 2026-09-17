@@ -1644,6 +1644,7 @@ function update_all_secondary_axes() {
         const sEnd = isHz ? cfg.hz_end : cfg.ppm_end;
         return {
             label: `${cfg.nucleus} (${isHz ? 'Hz' : 'ppm'})`,
+            nucleus: cfg.nucleus,
             primary_range: [primStart, primEnd],
             secondary_range: [sStart, sEnd],
             unit: isHz ? 'Hz' : 'ppm'
@@ -2109,6 +2110,101 @@ function apply_dimension_shift(axis) {
     }
 }
 window.apply_dimension_shift = apply_dimension_shift;
+
+/**
+ * Quickly applies a shift calibration offset of +1 SW or -1 SW for an indirect dimension.
+ * @param {string} axis - 'y' or 'z'
+ * @param {number} multiplier - +1 or -1
+ */
+function apply_sw_shift(axis, multiplier) {
+    const normAxis = String(axis || 'y').toLowerCase();
+    if (normAxis !== 'y' && normAxis !== 'z') {
+        console.error("apply_sw_shift: Invalid axis " + axis + ". Must be 'y' or 'z'.");
+        return;
+    }
+
+    const statusElem = document.getElementById("shift_status_msg");
+    if (!spectra_3d || spectra_3d.length === 0) {
+        const msg = "No 3D spectrum is loaded.";
+        if (statusElem) {
+            statusElem.style.color = "#b91c1c";
+            statusElem.innerText = msg;
+        }
+        alert(msg);
+        return;
+    }
+
+    const s0 = spectra_3d[0];
+
+    const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+        if (!s0.header) return 0;
+        const dim = Math.round(s0.header[dimOrderIdx]);
+        if (dim === 1) return s0.header[f1Offset] || 0;
+        if (dim === 2) return s0.header[f2Offset] || 0;
+        if (dim === 3) return s0.header[f3Offset] || 0;
+        return 0;
+    };
+
+    let sw_hz = 0;
+    let sw_ppm = 0;
+    let frq = 0;
+
+    if (normAxis === 'y') {
+        frq = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+        sw_hz = s0.sw2 || getDimHeaderVal(25, 229, 100, 11);
+        if (s0.y_ppm_width !== undefined && Math.abs(s0.y_ppm_width) > 0) {
+            sw_ppm = Math.abs(s0.y_ppm_width);
+        } else if (sw_hz > 0 && frq > 0) {
+            sw_ppm = sw_hz / frq;
+        } else if (s0.y_ppm_step !== undefined && s0.n_indirect > 0) {
+            sw_ppm = Math.abs(s0.y_ppm_step * s0.n_indirect);
+        }
+        if (sw_hz === 0 && sw_ppm > 0 && frq > 0) {
+            sw_hz = sw_ppm * frq;
+        }
+    } else {
+        frq = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+        sw_hz = s0.sw3 || getDimHeaderVal(26, 229, 100, 11);
+        const pts_z = spectra_3d.length || s0.n_indirect2 || 0;
+        if (s0.z_ppm_width !== undefined && Math.abs(s0.z_ppm_width) > 0) {
+            sw_ppm = Math.abs(s0.z_ppm_width);
+        } else if (sw_hz > 0 && frq > 0) {
+            sw_ppm = sw_hz / frq;
+        } else if (s0.z_ppm_step !== undefined && pts_z > 0) {
+            sw_ppm = Math.abs(s0.z_ppm_step * pts_z);
+        }
+        if (sw_hz === 0 && sw_ppm > 0 && frq > 0) {
+            sw_hz = sw_ppm * frq;
+        }
+    }
+
+    if (sw_ppm <= 0 && sw_hz <= 0) {
+        const msg = "Spectral width (SW) could not be determined for this dimension.";
+        if (statusElem) {
+            statusElem.style.color = "#b91c1c";
+            statusElem.innerText = msg;
+        }
+        alert(msg);
+        return;
+    }
+
+    const inputId = (normAxis === 'y') ? "shift_val_y" : "shift_val_z";
+    const unitId = (normAxis === 'y') ? "shift_unit_y" : "shift_unit_z";
+    const inputElem = document.getElementById(inputId);
+    const unitElem = document.getElementById(unitId);
+
+    const unit = unitElem ? unitElem.value.toLowerCase() : "ppm";
+    const offsetVal = (unit === 'hz') ? (multiplier * sw_hz) : (multiplier * sw_ppm);
+    const formattedVal = (unit === 'hz') ? offsetVal.toFixed(1) : offsetVal.toFixed(4);
+
+    if (inputElem) {
+        inputElem.value = formattedVal;
+    }
+
+    apply_dimension_shift(normAxis);
+}
+window.apply_sw_shift = apply_sw_shift;
+window.quick_offset_dimension_sw = apply_sw_shift;
 
 /**
  * Updates all plot axis labels.

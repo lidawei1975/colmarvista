@@ -94,6 +94,15 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#spec_info_hz_range_z').should('contain.text', 'Hz').and('contain.text', 'SW: 2,779.3 Hz');
         cy.get('#spec_info_points_z').should('contain.text', '32');
 
+        // 6b. Test Shift Calibration quick offset of +SW and -SW
+        cy.get('#btn_shift_plus_sw_y').should('be.visible').click();
+        cy.get('#shift_val_y').should('have.value', '35.0020');
+        cy.get('#shift_status_msg').should('contain.text', 'Applied +35.0020 ppm');
+
+        cy.get('#btn_shift_minus_sw_y').should('be.visible').click();
+        cy.get('#shift_val_y').should('have.value', '-35.0020');
+        cy.get('#shift_status_msg').should('contain.text', 'Applied -35.0020 ppm');
+
         // 7. Test Secondary Axis Modal and Configuration for Indirect 1 (y)
         cy.get('#btn_open_sec_axis_y').click();
         cy.get('#modal_secondary_axis').should('be.visible');
@@ -138,6 +147,16 @@ describe('3D Spectrum Information Section Test', () => {
                 const newBottom = 550 - win.main_plot.MARGINS.bottom;
                 expect(win.main_plot.$yAxis2_svg.attr('transform')).to.contain(`translate(${newRight},0)`);
                 expect(win.main_plot.yRange2.range()[0]).to.equal(newBottom);
+
+                // Test hover info displays 2nd Y
+                const mockEvent = { offsetX: 300, offsetY: 200 };
+                if (win.main_plot.$vis && win.main_plot.$vis.node()) {
+                    win.main_plot.$vis.node().dispatchEvent(new MouseEvent('mousemove', {
+                        bubbles: true,
+                        clientX: 300,
+                        clientY: 200
+                    }));
+                }
             }
         });
 
