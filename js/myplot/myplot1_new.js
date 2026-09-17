@@ -2840,7 +2840,9 @@ plotit.prototype.update_secondary_x_axis = function () {
 
     // Secondary X label centered above axis
     const xLabel2X = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
-    const xLabel2Y = Math.max(12, this.MARGINS.top - 20);
+    const xLabel2Y = this.MARGINS.top > 60
+        ? Math.max(16, this.MARGINS.top / 2 - this.fontsize / 2 + 5)
+        : Math.max(12, this.MARGINS.top - 20);
 
     if (!this.$xLabel2Group) {
         this.$xLabel2Group = this.$vis.append("g")
@@ -2941,7 +2943,9 @@ plotit.prototype.update_secondary_y_axis = function () {
         .style("stroke", "#475569");
 
     // Secondary Y label placed on the right
-    const yLabel2X = this.WIDTH - this.MARGINS.right + 42;
+    const yLabel2X = this.MARGINS.right > 80
+        ? (this.WIDTH - (this.MARGINS.right / 2 - this.fontsize / 2 - 15))
+        : (this.WIDTH - this.MARGINS.right + 42);
     const yLabel2Y = this.MARGINS.top + (this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / 2;
 
     if (!this.$yLabel2Group) {

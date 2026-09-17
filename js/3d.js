@@ -805,13 +805,19 @@ function update_3d_spectrum_info() {
         if (row_y) row_y.style.display = "none";
         const row_z = document.getElementById("row_dim_z_sec");
         if (row_z) row_z.style.display = "none";
+        const dash_y = document.getElementById("sec_axis_not_allowed_y");
+        if (dash_y) dash_y.style.display = "none";
+        const dash_z = document.getElementById("sec_axis_not_allowed_z");
+        if (dash_z) dash_z.style.display = "none";
         const btn_y = document.getElementById("btn_open_sec_axis_y");
         if (btn_y) {
+            btn_y.style.display = "inline-block";
             btn_y.innerText = "+ 2nd Axis";
             btn_y.style.backgroundColor = "#0369a1";
         }
         const btn_z = document.getElementById("btn_open_sec_axis_z");
         if (btn_z) {
+            btn_z.style.display = "inline-block";
             btn_z.innerText = "+ 2nd Axis";
             btn_z.style.backgroundColor = "#0369a1";
         }
@@ -947,14 +953,33 @@ function update_3d_spectrum_info() {
             row_y_sec.style.display = "none";
         }
     }
+    const allowed_y = is_allowed_secondary_dimension('y');
     const btn_y = document.getElementById("btn_open_sec_axis_y");
     if (btn_y) {
-        if (cfg_y) {
-            btn_y.innerText = `Edit (${cfg_y.nucleus})`;
-            btn_y.style.backgroundColor = "#059669";
+        if (!allowed_y) {
+            btn_y.style.display = "none";
+            let dash_y = document.getElementById("sec_axis_not_allowed_y");
+            if (!dash_y) {
+                dash_y = document.createElement("span");
+                dash_y.id = "sec_axis_not_allowed_y";
+                dash_y.style.color = "#94a3b8";
+                dash_y.style.fontSize = "12px";
+                dash_y.title = "2nd axis is only allowed for 15N or 13C dimensions";
+                dash_y.innerText = "—";
+                btn_y.parentNode.appendChild(dash_y);
+            }
+            dash_y.style.display = "inline";
         } else {
-            btn_y.innerText = "+ 2nd Axis";
-            btn_y.style.backgroundColor = "#0369a1";
+            btn_y.style.display = "inline-block";
+            const dash_y = document.getElementById("sec_axis_not_allowed_y");
+            if (dash_y) dash_y.style.display = "none";
+            if (cfg_y) {
+                btn_y.innerText = `Edit (${cfg_y.nucleus})`;
+                btn_y.style.backgroundColor = "#059669";
+            } else {
+                btn_y.innerText = "+ 2nd Axis";
+                btn_y.style.backgroundColor = "#0369a1";
+            }
         }
     }
 
@@ -985,14 +1010,33 @@ function update_3d_spectrum_info() {
             row_z_sec.style.display = "none";
         }
     }
+    const allowed_z = is_allowed_secondary_dimension('z');
     const btn_z = document.getElementById("btn_open_sec_axis_z");
     if (btn_z) {
-        if (cfg_z) {
-            btn_z.innerText = `Edit (${cfg_z.nucleus})`;
-            btn_z.style.backgroundColor = "#059669";
+        if (!allowed_z) {
+            btn_z.style.display = "none";
+            let dash_z = document.getElementById("sec_axis_not_allowed_z");
+            if (!dash_z) {
+                dash_z = document.createElement("span");
+                dash_z.id = "sec_axis_not_allowed_z";
+                dash_z.style.color = "#94a3b8";
+                dash_z.style.fontSize = "12px";
+                dash_z.title = "2nd axis is only allowed for 15N or 13C dimensions";
+                dash_z.innerText = "—";
+                btn_z.parentNode.appendChild(dash_z);
+            }
+            dash_z.style.display = "inline";
         } else {
-            btn_z.innerText = "+ 2nd Axis";
-            btn_z.style.backgroundColor = "#0369a1";
+            btn_z.style.display = "inline-block";
+            const dash_z = document.getElementById("sec_axis_not_allowed_z");
+            if (dash_z) dash_z.style.display = "none";
+            if (cfg_z) {
+                btn_z.innerText = `Edit (${cfg_z.nucleus})`;
+                btn_z.style.backgroundColor = "#059669";
+            } else {
+                btn_z.innerText = "+ 2nd Axis";
+                btn_z.style.backgroundColor = "#0369a1";
+            }
         }
     }
 }
@@ -1007,6 +1051,64 @@ window.secondary_axis_config = {
 };
 
 /**
+ * Checks if any secondary axis is currently active.
+ * @returns {boolean}
+ */
+function has_secondary_axis() {
+    return !!(window.secondary_axis_config && (window.secondary_axis_config.y || window.secondary_axis_config.z));
+}
+window.has_secondary_axis = has_secondary_axis;
+
+/**
+ * Returns consistent 2D plot margins for all 3 orthogonal slice plots (and projections).
+ * Uses larger top and right margins when a 2nd axis exists on either indirect dimension.
+ *
+ * @param {number} [plot_font_size=24]
+ * @returns {{left: number, top: number, right: number, bottom: number}}
+ */
+function get_3d_plot_margins(plot_font_size = 24) {
+    const has_sec = has_secondary_axis();
+    return {
+        left: 30 + plot_font_size * 5,                                 // 150px
+        bottom: 30 + plot_font_size * 3,                               // 102px
+        top: has_sec ? (30 + plot_font_size * 3) : 45,                // 102px (largely matches bottom) vs 45px
+        right: has_sec ? (30 + plot_font_size * 5) : 65               // 150px (largely matches left) vs 65px
+    };
+}
+window.get_3d_plot_margins = get_3d_plot_margins;
+
+/**
+ * Detects whether a dimension's primary nucleus allows adding a 2nd axis.
+ * 2nd dimension is ONLY allowed if 1st nuclear is 15N or 13C. That is, do not add for 1H.
+ *
+ * @param {string} dim - 'y' or 'z'
+ * @returns {boolean}
+ */
+function is_allowed_secondary_dimension(dim) {
+    if (!spectra_3d || spectra_3d.length === 0) return false;
+    const s0 = spectra_3d[0];
+    const normAxis = String(dim).toLowerCase();
+    let nuc = (window.last_fid_nuclei && window.last_fid_nuclei[normAxis]) ? String(window.last_fid_nuclei[normAxis]).toUpperCase() : "";
+
+    // Fallback frequency ratio check if nucleus not set in header
+    if (!nuc && s0) {
+        const frq_x = s0.frq1 || 600.0;
+        let frq_dim = (normAxis === 'y') ? s0.frq2 : s0.frq3;
+        if (frq_x > 0 && frq_dim > 0) {
+            const ratio = frq_dim / frq_x;
+            if (ratio > 0.08 && ratio < 0.13) nuc = "15N";
+            else if (ratio > 0.20 && ratio < 0.30) nuc = "13C";
+            else if (ratio > 0.90 && ratio < 1.10) nuc = "1H";
+        }
+    }
+
+    if (nuc.includes("1H") || nuc.includes("H1")) return false;
+    if (nuc.includes("15N") || nuc.includes("N15") || nuc.includes("13C") || nuc.includes("C13")) return true;
+    return false;
+}
+window.is_allowed_secondary_dimension = is_allowed_secondary_dimension;
+
+/**
  * Opens the modal dialog to define or edit a 2nd parallel axis for indirect dimension y or z.
  * @param {string} dim - 'y' or 'z'
  */
@@ -1017,6 +1119,12 @@ function open_secondary_axis_modal(dim) {
     }
     const normAxis = String(dim).toLowerCase();
     if (normAxis !== 'y' && normAxis !== 'z') return;
+
+    if (!is_allowed_secondary_dimension(normAxis)) {
+        const curNuc = (window.last_fid_nuclei && window.last_fid_nuclei[normAxis]) ? window.last_fid_nuclei[normAxis] : (normAxis === 'y' ? 'Indirect 1' : 'Indirect 2');
+        alert(`2nd parallel axis is only allowed if the 1st nuclear is 15N or 13C. It cannot be added for ${curNuc}.`);
+        return;
+    }
 
     const s0 = spectra_3d[0];
     const ny = (window.last_fid_nuclei && window.last_fid_nuclei.y) ? window.last_fid_nuclei.y : "Indirect 1";
@@ -1372,6 +1480,10 @@ function update_sec_axis_modal_preview() {
  */
 function save_secondary_axis_from_modal() {
     const targetDim = (document.getElementById("sec_axis_target_dim") || {}).value || 'y';
+    if (!is_allowed_secondary_dimension(targetDim)) {
+        alert("2nd parallel axis is only allowed if the 1st nuclear is 15N or 13C.");
+        return;
+    }
     const nucElem = document.getElementById("sec_axis_nuclear");
     const nuc = nucElem ? nucElem.value.trim() : "";
     if (!nuc) {
@@ -1612,6 +1724,45 @@ function update_all_secondary_axes() {
             main_plot_proj_x.remove_secondary_y_axis();
         }
     }
+
+    // Update consistent margins across all 3 2D plots (and projections)
+    const margins = get_3d_plot_margins(24);
+    const plots_to_update = [
+        { plot: main_plot, parent: "vis_parent", canvas: "canvas1" },
+        { plot: main_plot_xz, parent: "vis_parent_xz", canvas: "canvas_xz" },
+        { plot: main_plot_yz, parent: "vis_parent_yz", canvas: "canvas_yz" },
+        { plot: main_plot_proj, parent: "vis_parent_proj", canvas: "canvas_proj" },
+        { plot: main_plot_proj_y, parent: "vis_parent_proj_y", canvas: "canvas_proj_y" },
+        { plot: main_plot_proj_x, parent: "vis_parent_proj_x", canvas: "canvas_proj_x" }
+    ];
+
+    plots_to_update.forEach(p => {
+        if (!p.plot) return;
+        const parent_el = document.getElementById(p.parent);
+        if (!parent_el) return;
+        const cr = get_content_size(p.parent);
+        if (!cr || cr.width <= 0 || cr.height <= 0) return;
+
+        const plot_width = Math.max(0, cr.width - margins.left - margins.right);
+        const plot_height = Math.max(0, cr.height - margins.top - margins.bottom);
+
+        const cvs = document.getElementById(p.canvas);
+        if (cvs && plot_width > 0 && plot_height > 0) {
+            cvs.style.left = margins.left + "px";
+            cvs.style.top = margins.top + "px";
+            cvs.setAttribute("width", plot_width);
+            cvs.setAttribute("height", plot_height);
+        }
+
+        p.plot.update({
+            WIDTH: cr.width,
+            HEIGHT: cr.height,
+            MARGINS: margins,
+            fontsize: p.plot.fontsize || 24
+        });
+    });
+
+    update_3d_crosshairs();
 }
 
 window.open_secondary_axis_modal = open_secondary_axis_modal;
@@ -3969,10 +4120,11 @@ function init_main_plot(first_spectrum) {
     // document.getElementById("canvas1").setAttribute("height", cr.height);
 
     let plot_font_size = 24;
-    let plot_margin_left = 30 + plot_font_size * 5;
-    let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 45;
-    let plot_margin_right = 65;
+    let margins = get_3d_plot_margins(plot_font_size);
+    let plot_margin_left = margins.left;
+    let plot_margin_bottom = margins.bottom;
+    let plot_margin_top = margins.top;
+    let plot_margin_right = margins.right;
 
     // Correctly size and position the WebGL canvas to align with the SVG plot area (inner margins)
     let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
@@ -4000,12 +4152,7 @@ function init_main_plot(first_spectrum) {
     let input = {
         WIDTH: cr.width,
         HEIGHT: cr.height,
-        MARGINS: {
-            left: plot_margin_left,
-            top: plot_margin_top,
-            right: plot_margin_right,
-            bottom: plot_margin_bottom
-        },
+        MARGINS: margins,
         fontsize: plot_font_size,
 
         // X-Axis: High->Left is standard.
@@ -4568,17 +4715,11 @@ function init_ortho_plots(s) {
 
 
     let plot_font_size = 24;
-    let plot_margin_left = 30 + plot_font_size * 5;
-    let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 45;
-    let plot_margin_right = 65;
-
-    let margins = {
-        left: plot_margin_left,
-        top: plot_margin_top,
-        right: plot_margin_right,
-        bottom: plot_margin_bottom
-    };
+    let margins = get_3d_plot_margins(plot_font_size);
+    let plot_margin_left = margins.left;
+    let plot_margin_bottom = margins.bottom;
+    let plot_margin_top = margins.top;
+    let plot_margin_right = margins.right;
 
     // Create Plot objects if not exist
     if (!main_plot_xz) {
@@ -8435,10 +8576,11 @@ function setup_2d_plot_resizing() {
             }
 
             let plot_font_size = 24;
-            let plot_margin_left = 30 + plot_font_size * 5;
-            let plot_margin_bottom = 30 + plot_font_size * 3;
-            let plot_margin_top = 45;
-            let plot_margin_right = 65;
+            let margins = get_3d_plot_margins(plot_font_size);
+            let plot_margin_left = margins.left;
+            let plot_margin_bottom = margins.bottom;
+            let plot_margin_top = margins.top;
+            let plot_margin_right = margins.right;
 
             let plot_width = cr.width - plot_margin_left - plot_margin_right;
             let plot_height = cr.height - plot_margin_top - plot_margin_bottom;
@@ -8457,12 +8599,7 @@ function setup_2d_plot_resizing() {
             plot_instance.update({
                 WIDTH: cr.width,
                 HEIGHT: cr.height,
-                MARGINS: {
-                    left: plot_margin_left,
-                    top: plot_margin_top,
-                    right: plot_margin_right,
-                    bottom: plot_margin_bottom
-                },
+                MARGINS: margins,
                 fontsize: plot_font_size
             });
 
@@ -8501,17 +8638,11 @@ function init_proj_plot(s) {
     let cr = parent.getBoundingClientRect();
 
     let plot_font_size = 24;
-    let plot_margin_left = 30 + plot_font_size * 5;
-    let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 45;
-    let plot_margin_right = 65;
-
-    let margins = {
-        left: plot_margin_left,
-        top: plot_margin_top,
-        right: plot_margin_right,
-        bottom: plot_margin_bottom
-    };
+    let margins = get_3d_plot_margins(plot_font_size);
+    let plot_margin_left = margins.left;
+    let plot_margin_bottom = margins.bottom;
+    let plot_margin_top = margins.top;
+    let plot_margin_right = margins.right;
 
     let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
     let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
@@ -9002,17 +9133,11 @@ function init_proj_y_plot(s) {
     let cr = parent.getBoundingClientRect();
 
     let plot_font_size = 24;
-    let plot_margin_left = 30 + plot_font_size * 5;
-    let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 45;
-    let plot_margin_right = 65;
-
-    let margins = {
-        left: plot_margin_left,
-        top: plot_margin_top,
-        right: plot_margin_right,
-        bottom: plot_margin_bottom
-    };
+    let margins = get_3d_plot_margins(plot_font_size);
+    let plot_margin_left = margins.left;
+    let plot_margin_bottom = margins.bottom;
+    let plot_margin_top = margins.top;
+    let plot_margin_right = margins.right;
 
     let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
     let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);
@@ -9157,17 +9282,11 @@ function init_proj_x_plot(s) {
     let cr = parent.getBoundingClientRect();
 
     let plot_font_size = 24;
-    let plot_margin_left = 30 + plot_font_size * 5;
-    let plot_margin_bottom = 30 + plot_font_size * 3;
-    let plot_margin_top = 45;
-    let plot_margin_right = 65;
-
-    let margins = {
-        left: plot_margin_left,
-        top: plot_margin_top,
-        right: plot_margin_right,
-        bottom: plot_margin_bottom
-    };
+    let margins = get_3d_plot_margins(plot_font_size);
+    let plot_margin_left = margins.left;
+    let plot_margin_bottom = margins.bottom;
+    let plot_margin_top = margins.top;
+    let plot_margin_right = margins.right;
 
     let plot_width = Math.max(0, cr.width - plot_margin_left - plot_margin_right);
     let plot_height = Math.max(0, cr.height - plot_margin_top - plot_margin_bottom);

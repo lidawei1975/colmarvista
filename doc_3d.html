@@ -198,7 +198,9 @@
                   <li>If the 1st primary axis is on the <i>bottom</i>, the 2nd axis is drawn on the <b>top</b> (e.g. Indirect 2 $z$ on the ZY plane).</li>
                 </ul>
               </li>
-              <li><b>Non-Destructive Visualization:</b> The 2nd parallel axis is purely a visual overlay for analysis and comparison. It stays synchronized in real-time during panning, zooming, and slice browsing, without modifying the underlying binary data or exported <code>.ft3</code> files.</li>
+              <li><b>Dimension Restriction ($^{15}\text{N}$ or $^{13}\text{C}$ Only):</b> The 2nd parallel axis is only permitted for indirect dimensions whose primary nucleus is $^{15}\text{N}$ or $^{13}\text{C}$. It is not added for $^1\text{H}$ dimensions.</li>
+              <li><b>Consistent Dynamic Margins:</b> When a 2nd axis is configured on any indirect dimension, all three 2D plots automatically and consistently expand their top (to 102px, largely matching the bottom margin) and right (to 150px, largely matching the left margin) to ensure tick values and axis labels are clearly visible without overlapping or edge clipping. When the 2nd axis is removed, all three plots seamlessly revert to default margins (top: 45px, right: 65px).</li>
+              <li><b>Non-Destructive Visualization:</b> The 2nd parallel axis is purely a visual overlay for analysis and comparison. It stays synchronized in real-time during panning, zooming, plot resizing, and slice browsing, without modifying the underlying binary data or exported <code>.ft3</code> files.</li>
             </ul>
           </li>
         </ul>

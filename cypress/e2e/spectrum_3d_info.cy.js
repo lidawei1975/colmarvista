@@ -113,8 +113,12 @@ describe('3D Spectrum Information Section Test', () => {
         cy.get('#spec_info_ppm_range_y_sec').should('contain.text', '185.000 to 165.000 ppm');
         cy.get('#btn_open_sec_axis_y').should('contain.text', 'Edit (13CO)');
 
-        // 8. Test 2nd Axis Moves and Rescales on 2D Plot Resize
+        // 8. Test Margins and 2nd Axis Moves/Rescales on 2D Plot Resize
         cy.window().then((win) => {
+            const marginsWithSec = win.get_3d_plot_margins();
+            expect(marginsWithSec.top).to.equal(102);
+            expect(marginsWithSec.right).to.equal(150);
+
             if (win.main_plot) {
                 const initRight = win.main_plot.WIDTH - win.main_plot.MARGINS.right;
                 const initBottom = win.main_plot.HEIGHT - win.main_plot.MARGINS.bottom;
@@ -137,9 +141,26 @@ describe('3D Spectrum Information Section Test', () => {
             }
         });
 
-        // 9. Test Reset State
+        // 9. Test 1H Dimension Restriction (cannot add 2nd axis for 1H)
+        cy.window().then((win) => {
+            win.last_fid_nuclei.y = '1H';
+            win.update_3d_spectrum_info();
+        });
+        cy.get('#sec_axis_not_allowed_y').should('be.visible').and('contain.text', '—');
+        cy.get('#btn_open_sec_axis_y').should('not.be.visible');
+
+        // Restore 15N
+        cy.window().then((win) => {
+            win.last_fid_nuclei.y = '15N';
+            win.update_3d_spectrum_info();
+        });
+
+        // 10. Test Reset State
         cy.window().then((win) => {
             win.reset_3d_dataset_state();
+            const resetMargins = win.get_3d_plot_margins();
+            expect(resetMargins.top).to.equal(45);
+            expect(resetMargins.right).to.equal(65);
         });
         cy.get('#spec_info_nuc_x').should('contain.text', '-');
         cy.get('#spec_info_sw_hz_x').should('contain.text', '-');

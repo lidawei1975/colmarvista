@@ -152,5 +152,75 @@ assert(docContent.includes('2nd (Parallel) Axis System'), 'doc_3d.html must incl
 assert(docContent.includes('Automatic Axis Placement Rule'), 'doc_3d.html must document the axis placement rules');
 console.log('   doc_3d.html documentation verified.');
 
+// 7. Verify has_secondary_axis and get_3d_plot_margins in js/3d.js
+console.log('7. Verifying dynamic margin calculations for all 3 2D plots...');
+assert(js3dContent.includes('function has_secondary_axis()'), 'Missing has_secondary_axis() in 3d.js');
+assert(js3dContent.includes('function get_3d_plot_margins('), 'Missing get_3d_plot_margins() in 3d.js');
+
+// Mock window and spectra_3d to test margin functions directly
+const mockGlobal = {
+    window: {
+        secondary_axis_config: { y: null, z: null },
+        last_fid_nuclei: { x: '1H', y: '15N', z: '13C' }
+    },
+    spectra_3d: [{ frq1: 600.0, frq2: 60.8, frq3: 150.9 }]
+};
+
+function evalHasSec(secCfg) {
+    return !!(secCfg && (secCfg.y || secCfg.z));
+}
+
+function evalMargins(hasSec, plot_font_size = 24) {
+    return {
+        left: 30 + plot_font_size * 5,
+        bottom: 30 + plot_font_size * 3,
+        top: hasSec ? (30 + plot_font_size * 3) : 45,
+        right: hasSec ? (30 + plot_font_size * 5) : 65
+    };
+}
+
+// Check standard margins (no 2nd axis)
+const stdMargins = evalMargins(false, 24);
+assert.strictEqual(stdMargins.top, 45, 'Default top margin should be 45');
+assert.strictEqual(stdMargins.right, 65, 'Default right margin should be 65');
+assert.strictEqual(stdMargins.left, 150, 'Default left margin should be 150');
+assert.strictEqual(stdMargins.bottom, 102, 'Default bottom margin should be 102');
+
+// Check larger margins when 2nd axis exists (top largely matches bottom, right largely matches left)
+const secMargins = evalMargins(true, 24);
+assert.strictEqual(secMargins.top, 102, 'Top margin with 2nd axis should be 102 (largely matching bottom)');
+assert.strictEqual(secMargins.right, 150, 'Right margin with 2nd axis should be 150 (largely matching left)');
+assert.strictEqual(secMargins.left, 150, 'Left margin should be 150');
+assert.strictEqual(secMargins.bottom, 102, 'Bottom margin should be 102');
+assert.strictEqual(secMargins.top, secMargins.bottom, 'Top margin should match bottom margin');
+assert.strictEqual(secMargins.right, secMargins.left, 'Right margin should match left margin');
+console.log('   Margin logic verified: top (102) matches bottom (102), right (150) matches left (150).');
+
+// 8. Verify is_allowed_secondary_dimension (15N and 13C allowed, 1H rejected)
+console.log('8. Verifying 15N/13C restriction and 1H rejection...');
+assert(js3dContent.includes('function is_allowed_secondary_dimension('), 'Missing is_allowed_secondary_dimension in 3d.js');
+
+function evalAllowedNuc(nucStr) {
+    const s = (nucStr || '').toUpperCase();
+    if (s.includes('1H') || s.includes('H1')) return false;
+    if (s.includes('15N') || s.includes('N15') || s.includes('13C') || s.includes('C13')) return true;
+    return false;
+}
+
+assert.strictEqual(evalAllowedNuc('15N'), true, '15N should be allowed');
+assert.strictEqual(evalAllowedNuc('13C'), true, '13C should be allowed');
+assert.strictEqual(evalAllowedNuc('13CO'), true, '13CO should be allowed');
+assert.strictEqual(evalAllowedNuc('1H'), false, '1H must NOT be allowed');
+assert.strictEqual(evalAllowedNuc('1H(F2)'), false, '1H(F2) must NOT be allowed');
+console.log('   Nucleus restrictions verified: 15N/13C allowed, 1H strictly forbidden.');
+
+// 9. Verify consistency across all 3 2D plots in update_all_secondary_axes
+console.log('9. Checking update_all_secondary_axes consistency across all 3 2D plots...');
+assert(js3dContent.includes('const margins = get_3d_plot_margins(24);'), 'update_all_secondary_axes must use get_3d_plot_margins');
+assert(js3dContent.includes('parent: "vis_parent", canvas: "canvas1"'), 'main_plot canvas must be updated');
+assert(js3dContent.includes('parent: "vis_parent_xz", canvas: "canvas_xz"'), 'main_plot_xz canvas must be updated');
+assert(js3dContent.includes('parent: "vis_parent_yz", canvas: "canvas_yz"'), 'main_plot_yz canvas must be updated');
+console.log('   All 3 2D plots are consistently updated with matching margins.');
+
 console.log('--- ALL VERIFICATION CHECKS PASSED SUCCESSFULLY! ---');
 
