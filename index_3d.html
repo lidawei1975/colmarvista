@@ -267,6 +267,246 @@
             <div class="flex-container" id="main_plot_area"
                 style="display:none; flex-direction: column; gap: 30px; align-items: center;">
 
+                <!-- Section: Spectrum Information -->
+                <div id="container_spectrum_info"
+                    style="width: 98%; box-sizing: border-box; border: 2px solid #2b5797; padding: 15px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                    <h2
+                        style="text-align: center; margin-top: 0; color: #1a365d; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px;">
+                        3D Spectrum Information</h2>
+
+                    <div style="margin-bottom: 5px;">
+                        <h4 style="margin: 0 0 10px 0; color: #334155; font-size: 15px; text-align: left; display: flex; align-items: center; gap: 8px;">
+                            <span style="background: #2b5797; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">1</span>
+                            Nuclear, Hz and PPM Range of Each Dimension:
+                        </h4>
+
+                        <div style="overflow-x: auto;">
+                            <table id="table_spectrum_info_3d" style="width: 100%; border-collapse: collapse; text-align: center; font-size: 13px; font-family: Arial, sans-serif;">
+                                <thead>
+                                    <tr style="background-color: #f1f5f9; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Dimension</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Axis</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Nuclear (Nucleus)</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Spectral Width (Hz)</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Spectrometer Freq (MHz)</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">PPM Range</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Hz Range</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Points</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Shift Calibration</th>
+                                        <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">2nd Parallel Axis</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr id="row_dim_x" style="background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                                        <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; text-align: left;">Direct Dimension</td>
+                                        <td style="padding: 8px 12px; font-weight: bold; color: #0284c7; border: 1px solid #e2e8f0;">x</td>
+                                        <td id="spec_info_nuc_x" style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; color: #1e3a8a;">-</td>
+                                        <td id="spec_info_sw_hz_x" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_frq_x" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_ppm_range_x" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_hz_range_x" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_points_x" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">—</td>
+                                        <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">—</td>
+                                    </tr>
+                                    <tr id="row_dim_y" style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                        <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; text-align: left;">Indirect Dimension 1</td>
+                                        <td style="padding: 8px 12px; font-weight: bold; color: #0284c7; border: 1px solid #e2e8f0;">y</td>
+                                        <td id="spec_info_nuc_y" style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; color: #1e3a8a;">-</td>
+                                        <td id="spec_info_sw_hz_y" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_frq_y" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_ppm_range_y" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_hz_range_y" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_points_y" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap;">
+                                            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                <input type="number" id="shift_val_y" step="any" placeholder="0.0" style="width: 55px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('y');" title="Shift amount (+ or -)">
+                                                <select id="shift_unit_y" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                                    <option value="ppm" selected>ppm</option>
+                                                    <option value="hz">Hz</option>
+                                                </select>
+                                                <button type="button" id="btn_apply_shift_y" onclick="apply_dimension_shift('y')" style="padding: 3px 8px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Apply shift to Indirect Dimension 1 (y)">Apply</button>
+                                                <button type="button" id="btn_shift_plus_sw_y" onclick="apply_sw_shift('y', 1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by +1 SW (+Spectral Width)">+SW</button>
+                                                <button type="button" id="btn_shift_minus_sw_y" onclick="apply_sw_shift('y', -1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by -1 SW (-Spectral Width)">-SW</button>
+                                            </div>
+                                        </td>
+                                        <td id="col_sec_axis_y" style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
+                                            <button type="button" id="btn_open_sec_axis_y" onclick="open_secondary_axis_modal('y')" style="padding: 3px 8px; font-size: 12px; background-color: #0369a1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Define a 2nd (parallel) axis system for Indirect Dimension 1 (y)">+ 2nd Axis</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="row_dim_y_sec" style="display: none; background-color: #f0fdf4; border-bottom: 1px dashed #86efac;">
+                                        <td style="padding: 6px 12px; font-size: 12px; font-weight: bold; border: 1px solid #e2e8f0; text-align: left; color: #166534;">↳ Indirect 1 (2nd Axis)</td>
+                                        <td style="padding: 6px 12px; font-size: 12px; font-weight: bold; color: #0284c7; border: 1px solid #e2e8f0;">y (2nd)</td>
+                                        <td id="spec_info_nuc_y_sec" style="padding: 6px 12px; font-size: 12px; font-weight: bold; border: 1px solid #e2e8f0; color: #1e3a8a;">-</td>
+                                        <td id="spec_info_sw_hz_y_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_frq_y_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_ppm_range_y_sec" style="padding: 6px 12px; font-size: 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_hz_range_y_sec" style="padding: 6px 12px; font-size: 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_points_y_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0; color: #94a3b8;">—</td>
+                                        <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
+                                            <div style="display: inline-flex; align-items: center; gap: 4px;">
+                                                <button type="button" onclick="open_secondary_axis_modal('y')" style="padding: 2px 6px; font-size: 11px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 3px; cursor: pointer; font-weight: 500;">Edit</button>
+                                                <button type="button" onclick="remove_secondary_axis('y')" title="Remove 2nd Axis" style="padding: 2px 6px; font-size: 11px; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; border-radius: 3px; cursor: pointer; font-weight: bold;">✕</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr id="row_dim_z" style="background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                                        <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; text-align: left;">Indirect Dimension 2 (Planes)</td>
+                                        <td style="padding: 8px 12px; font-weight: bold; color: #0284c7; border: 1px solid #e2e8f0;">z</td>
+                                        <td id="spec_info_nuc_z" style="padding: 8px 12px; font-weight: bold; border: 1px solid #e2e8f0; color: #1e3a8a;">-</td>
+                                        <td id="spec_info_sw_hz_z" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_frq_z" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_ppm_range_z" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_hz_range_z" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_points_z" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap;">
+                                            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                <input type="number" id="shift_val_z" step="any" placeholder="0.0" style="width: 55px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('z');" title="Shift amount (+ or -)">
+                                                <select id="shift_unit_z" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                                    <option value="ppm" selected>ppm</option>
+                                                    <option value="hz">Hz</option>
+                                                </select>
+                                                <button type="button" id="btn_apply_shift_z" onclick="apply_dimension_shift('z')" style="padding: 3px 8px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Apply shift to Indirect Dimension 2 / Planes (z)">Apply</button>
+                                                <button type="button" id="btn_shift_plus_sw_z" onclick="apply_sw_shift('z', 1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by +1 SW (+Spectral Width)">+SW</button>
+                                                <button type="button" id="btn_shift_minus_sw_z" onclick="apply_sw_shift('z', -1)" style="padding: 3px 6px; font-size: 11px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Quick offset by -1 SW (-Spectral Width)">-SW</button>
+                                            </div>
+                                        </td>
+                                        <td id="col_sec_axis_z" style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
+                                            <button type="button" id="btn_open_sec_axis_z" onclick="open_secondary_axis_modal('z')" style="padding: 3px 8px; font-size: 12px; background-color: #0369a1; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Define a 2nd (parallel) axis system for Indirect Dimension 2 / Planes (z)">+ 2nd Axis</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="row_dim_z_sec" style="display: none; background-color: #f0fdf4; border-bottom: 1px dashed #86efac;">
+                                        <td style="padding: 6px 12px; font-size: 12px; font-weight: bold; border: 1px solid #e2e8f0; text-align: left; color: #166534;">↳ Indirect 2 (2nd Axis)</td>
+                                        <td style="padding: 6px 12px; font-size: 12px; font-weight: bold; color: #0284c7; border: 1px solid #e2e8f0;">z (2nd)</td>
+                                        <td id="spec_info_nuc_z_sec" style="padding: 6px 12px; font-size: 12px; font-weight: bold; border: 1px solid #e2e8f0; color: #1e3a8a;">-</td>
+                                        <td id="spec_info_sw_hz_z_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_frq_z_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_ppm_range_z_sec" style="padding: 6px 12px; font-size: 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_hz_range_z_sec" style="padding: 6px 12px; font-size: 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
+                                        <td id="spec_info_points_z_sec" style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0;">-</td>
+                                        <td style="padding: 6px 12px; font-size: 12px; border: 1px solid #e2e8f0; color: #94a3b8;">—</td>
+                                        <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap; text-align: center;">
+                                            <div style="display: inline-flex; align-items: center; gap: 4px;">
+                                                <button type="button" onclick="open_secondary_axis_modal('z')" style="padding: 2px 6px; font-size: 11px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 3px; cursor: pointer; font-weight: 500;">Edit</button>
+                                                <button type="button" onclick="remove_secondary_axis('z')" title="Remove 2nd Axis" style="padding: 2px 6px; font-size: 11px; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; border-radius: 3px; cursor: pointer; font-weight: bold;">✕</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="shift_status_msg" style="margin-top: 6px; font-size: 12px; color: #15803d; font-weight: bold; text-align: right; min-height: 16px;"></div>
+                    </div>
+                </div>
+
+                <!-- Modal for Defining 2nd (Parallel) Axis System -->
+                <div id="modal_secondary_axis" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(2px);">
+                    <div style="background-color: #ffffff; margin: 5% auto; padding: 22px; border: 1px solid #cbd5e1; border-radius: 8px; width: 92%; max-width: 550px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2b5797; padding-bottom: 10px; margin-bottom: 14px;">
+                            <h3 id="sec_axis_modal_title" style="margin: 0; color: #1e3a8a; font-size: 17px; font-weight: bold;">Define 2nd (Parallel) Axis System</h3>
+                            <button type="button" onclick="close_secondary_axis_modal()" style="background: none; border: none; font-size: 22px; font-weight: bold; color: #64748b; cursor: pointer; line-height: 1;">&times;</button>
+                        </div>
+
+                        <p id="sec_axis_current_dim_desc" style="font-size: 12px; color: #475569; margin-top: 0; margin-bottom: 14px; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0; line-height: 1.4;">
+                            Configuring 2nd axis for <b>Indirect Dimension 1 (y)</b>.
+                        </p>
+
+                        <input type="hidden" id="sec_axis_target_dim" value="y">
+
+                        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">2nd Nuclear:</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="text" id="sec_axis_nuclear" placeholder="e.g. 13C, 15N, 13CO" style="flex: 1; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: bold;" oninput="update_sec_axis_modal_preview()">
+                                <select id="sec_axis_nuc_preset" style="padding: 5px 6px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;" onchange="on_sec_axis_preset_change()">
+                                    <option value="">Presets...</option>
+                                    <option value="13C">13C (General)</option>
+                                    <option value="13CO">13CO (Carbonyl 185-165 ppm)</option>
+                                    <option value="13CA">13CA (C-alpha 72-48 ppm)</option>
+                                    <option value="13CB">13CB (C-beta 45-15 ppm)</option>
+                                    <option value="13Cali">13Cali (Aliphatic 80-10 ppm)</option>
+                                    <option value="13Caro">13Caro (Aromatic 140-110 ppm)</option>
+                                    <option value="15N">15N (Backbone 135-105 ppm)</option>
+                                </select>
+                            </div>
+
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">Spectrometer Freq:</label>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="number" id="sec_axis_frq" step="any" placeholder="MHz" style="flex: 1; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="update_sec_axis_modal_preview()">
+                                <span style="font-size: 13px; color: #64748b; font-weight: bold;">MHz</span>
+                            </div>
+
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">Input Mode:</label>
+                            <div style="display: flex; gap: 16px; font-size: 13px;">
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;"><input type="radio" name="sec_axis_input_mode" value="ppm" checked onchange="toggle_sec_axis_input_mode()"> PPM Range</label>
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;"><input type="radio" name="sec_axis_input_mode" value="hz" onchange="toggle_sec_axis_input_mode()"> Hz Range</label>
+                            </div>
+                        </div>
+
+                        <!-- PPM Range Inputs -->
+                        <div id="sec_axis_ppm_inputs" style="display: grid; grid-template-columns: 140px 1fr 1fr; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">PPM Range:</label>
+                            <div>
+                                <span style="font-size: 11px; color: #64748b;">Start (ppm):</span>
+                                <input type="number" id="sec_axis_start_ppm" step="any" placeholder="Start ppm" style="width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="update_sec_axis_modal_preview()">
+                            </div>
+                            <div>
+                                <span style="font-size: 11px; color: #64748b;">End (ppm):</span>
+                                <input type="number" id="sec_axis_end_ppm" step="any" placeholder="End ppm" style="width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="update_sec_axis_modal_preview()">
+                            </div>
+                        </div>
+
+                        <!-- Hz Range Inputs -->
+                        <div id="sec_axis_hz_inputs" style="display: none; grid-template-columns: 140px 1fr 1fr; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">Hz Range:</label>
+                            <div>
+                                <span style="font-size: 11px; color: #64748b;">Start (Hz):</span>
+                                <input type="number" id="sec_axis_start_hz" step="any" placeholder="Start Hz" style="width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="update_sec_axis_modal_preview()">
+                            </div>
+                            <div>
+                                <span style="font-size: 11px; color: #64748b;">End (Hz):</span>
+                                <input type="number" id="sec_axis_end_hz" step="any" placeholder="End Hz" style="width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="update_sec_axis_modal_preview()">
+                            </div>
+                        </div>
+
+                        <!-- Quick Folding/Aliasing Presets -->
+                        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <label style="font-size: 12px; color: #64748b;">Quick Offsets:</label>
+                            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                <button type="button" onclick="sec_axis_offset_sw(1)" style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;" title="Fold forward by +1 Spectral Width">+1 SW (Folded)</button>
+                                <button type="button" onclick="sec_axis_offset_sw(-1)" style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;" title="Fold backward by -1 Spectral Width">-1 SW (Folded)</button>
+                                <button type="button" onclick="sec_axis_copy_primary()" style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;" title="Copy primary dimension range">Mirror Primary</button>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; margin-bottom: 14px;">
+                            <label style="font-size: 13px; font-weight: bold; color: #334155;">Plot Units:</label>
+                            <select id="sec_axis_display_unit" style="padding: 5px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px; max-width: 130px;" onchange="update_sec_axis_modal_preview()">
+                                <option value="ppm" selected>ppm</option>
+                                <option value="hz">Hz</option>
+                            </select>
+                        </div>
+
+                        <!-- Live Preview Box -->
+                        <div id="sec_axis_preview_box" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 10px 12px; margin-bottom: 16px; font-size: 12px; color: #166534; line-height: 1.45;">
+                            <div id="sec_axis_preview_summary" style="font-weight: bold; margin-bottom: 3px;">2nd Axis Preview</div>
+                            <div id="sec_axis_preview_details" style="font-family: Consolas, monospace;">-</div>
+                            <div id="sec_axis_preview_placement" style="margin-top: 4px; color: #0284c7; font-weight: bold;">-</div>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <button type="button" id="btn_sec_axis_remove" onclick="remove_secondary_axis_from_modal()" style="display: none; padding: 6px 12px; font-size: 12px; background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; border-radius: 4px; cursor: pointer; font-weight: bold;">Remove 2nd Axis</button>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" onclick="close_secondary_axis_modal()" style="padding: 6px 14px; font-size: 12px; background-color: #e2e8f0; color: #334155; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Cancel</button>
+                                <button type="button" onclick="save_secondary_axis_from_modal()" style="padding: 6px 16px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Apply 2nd Axis</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Section 1: Original Views (2D and 1D) -->
                 <div id="container_original_views"
                     style="width: 98%; box-sizing: border-box; border: 2px solid #666; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
@@ -368,12 +608,12 @@
                                     <label for="slice_slider" style="font-weight: bold;">z-Plane: </label>
                                     <button id="prev_slice">&lt;</button>
                                     <input type="range" id="slice_slider" min="0" max="0" value="0"
-                                        style="width: 200px; vertical-align: middle;">
+                                        style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice">&gt;</button>
                                     <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor">Information</span>
@@ -393,12 +633,12 @@
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_xz" style="font-weight: bold;">y Slice: </label>
                                     <button id="prev_slice_xz">&lt;</button>
-                                    <input type="range" id="slider_xz" style="width: 200px; vertical-align: middle;">
+                                    <input type="range" id="slider_xz" style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice_xz">&gt;</button>
                                     <span id="val_xz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent_xz" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_xz">Information</span>
@@ -418,12 +658,12 @@
                                 <div style="width: 100%; padding: 5px; margin-bottom: 5px; text-align: center;">
                                     <label for="slider_yz" style="font-weight: bold;">x Slice: </label>
                                     <button id="prev_slice_yz">&lt;</button>
-                                    <input type="range" id="slider_yz" style="width: 200px; vertical-align: middle;">
+                                    <input type="range" id="slider_yz" style="width: 250px; vertical-align: middle;">
                                     <button id="next_slice_yz">&gt;</button>
                                     <span id="val_yz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
                                 <div id="vis_parent_yz" class="resizable"
-                                    style="position: relative; width: 400px; height: 400px; border: 1px solid #ccc;">
+                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
                                     <div class="plot-info-bar"
                                         style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
                                         <span id="infor_yz">Information</span>

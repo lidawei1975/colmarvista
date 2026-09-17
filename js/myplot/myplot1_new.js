@@ -331,6 +331,13 @@ plotit.prototype.reset_axis = function () {
             d3.select(this).style("font-size", self.fontsize + "px");
         });
 
+    if (this.secondary_x_config && typeof this.update_secondary_x_axis === 'function') {
+        this.update_secondary_x_axis();
+    }
+    if (this.secondary_y_config && typeof this.update_secondary_y_axis === 'function') {
+        this.update_secondary_y_axis();
+    }
+
 
 
     /**
@@ -779,6 +786,18 @@ plotit.prototype.draw = function () {
 
     this.$vis.selectAll('.xaxis').remove();
     this.$vis.selectAll('.yaxis').remove();
+    this.$vis.selectAll('.xaxis2').remove();
+    this.$vis.selectAll('.yaxis2').remove();
+    this.$vis.selectAll('.x2-label-group').remove();
+    this.$vis.selectAll('.y2-label-group').remove();
+    this.$xAxis2_svg = null;
+    this.$yAxis2_svg = null;
+    this.$xLabel2Group = null;
+    this.$yLabel2Group = null;
+    this.xRange2 = null;
+    this.yRange2 = null;
+    this.xAxis2 = null;
+    this.yAxis2 = null;
 
 
     this.$xAxis_svg = this.$vis.append('svg:g')
@@ -925,14 +944,71 @@ plotit.prototype.draw = function () {
             }
         }
 
+        // Calculate secondary Y axis value if secondary Y axis exists
+        let y2_val = null;
+        let y2_unit = "ppm";
+        let y2_str = "";
+        if (self.secondary_y_config) {
+            y2_unit = self.secondary_y_config.unit || "ppm";
+            if (self.yRange2 && typeof self.yRange2.invert === 'function') {
+                y2_val = self.yRange2.invert(coordinates[1]);
+            } else if (self.secondary_y_config.primary_range && self.secondary_y_config.secondary_range) {
+                const pStart = self.secondary_y_config.primary_range[0];
+                const pEnd = self.secondary_y_config.primary_range[1];
+                const sStart = self.secondary_y_config.secondary_range[0];
+                const sEnd = self.secondary_y_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    y2_val = sStart + ((y_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (y2_val !== null && !isNaN(y2_val)) {
+                let tag = (y2_unit.toLowerCase() === 'hz') ? "y2_hz" : "y2_ppm";
+                let valStr = (y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2);
+                y2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
+        // Calculate secondary X axis value if secondary X axis exists
+        let x2_val = null;
+        let x2_unit = "ppm";
+        let x2_str = "";
+        if (self.secondary_x_config) {
+            x2_unit = self.secondary_x_config.unit || "ppm";
+            if (self.xRange2 && typeof self.xRange2.invert === 'function') {
+                x2_val = self.xRange2.invert(coordinates[0]);
+            } else if (self.secondary_x_config.primary_range && self.secondary_x_config.secondary_range) {
+                const pStart = self.secondary_x_config.primary_range[0];
+                const pEnd = self.secondary_x_config.primary_range[1];
+                const sStart = self.secondary_x_config.secondary_range[0];
+                const sEnd = self.secondary_x_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    x2_val = sStart + ((x_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (x2_val !== null && !isNaN(x2_val)) {
+                let tag = (x2_unit.toLowerCase() === 'hz') ? "x2_hz" : "x2_ppm";
+                let valStr = (x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2);
+                x2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
         const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
+            let x2_info = (x2_val !== null && !isNaN(x2_val))
+                ? (", x2: " + ((x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2)) + " " + x2_unit)
+                : "";
+            let y2_info = (y2_val !== null && !isNaN(y2_val))
+                ? (", y2: " + ((y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2)) + " " + y2_unit)
+                : "";
+
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                     + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
                     + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
             }
@@ -940,7 +1016,7 @@ plotit.prototype.draw = function () {
         else {
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 
@@ -2753,4 +2829,213 @@ plotit.prototype.pan_to_center_ppm = function (axis, center_ppm) {
     // But here we assume this is called from a slider or internal logic.
     self.sync_3d_views();
 };
+
+/**
+ * Sets a secondary (parallel) X axis on the top edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_x_axis = function (config) {
+    this.secondary_x_config = config;
+    this.update_secondary_x_axis();
+};
+
+/**
+ * Updates the secondary X axis scale, ticks, and label based on current primary X scale.
+ */
+plotit.prototype.update_secondary_x_axis = function () {
+    if (!this.secondary_x_config || !this.$vis) return;
+    const cfg = this.secondary_x_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.xRange2) {
+        this.xRange2 = d3.scaleLinear();
+    }
+    this.xRange2.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
+    const sec_dom0 = mapVal(this.xscale[0]);
+    const sec_dom1 = mapVal(this.xscale[1]);
+    this.xRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickWidth = self.fontsize * 4;
+    const maxTicks = Math.floor((this.WIDTH - this.MARGINS.left - this.MARGINS.right) / estimatedTickWidth);
+    this.xAxis2 = d3.axisTop(this.xRange2).ticks(maxTicks).tickSizeInner(6 * thickness);
+
+    if (!this.$xAxis2_svg) {
+        this.$xAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'xaxis2');
+    }
+    this.$xAxis2_svg.attr('transform', 'translate(0,' + this.MARGINS.top + ')');
+
+    this.$xAxis2_svg.call(this.xAxis2);
+
+    this.$xAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$xAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".xaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".xaxis2 path, .xaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary X label centered above axis
+    const xLabel2X = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
+    const xLabel2Y = this.MARGINS.top > 60
+        ? Math.max(16, this.MARGINS.top / 2 - this.fontsize / 2 + 5)
+        : Math.max(12, this.MARGINS.top - 20);
+
+    if (!this.$xLabel2Group) {
+        this.$xLabel2Group = this.$vis.append("g")
+            .attr("class", "x2-label-group");
+        this.$xLabel2Group.append("text")
+            .attr("class", "xlabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$xLabel2Group.attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
+    this.$xLabel2Group.select(".xlabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary X axis from the plot.
+ */
+plotit.prototype.remove_secondary_x_axis = function () {
+    this.secondary_x_config = null;
+    if (this.$xAxis2_svg) {
+        this.$xAxis2_svg.remove();
+        this.$xAxis2_svg = null;
+    }
+    if (this.$xLabel2Group) {
+        this.$xLabel2Group.remove();
+        this.$xLabel2Group = null;
+    }
+    this.xRange2 = null;
+    this.xAxis2 = null;
+};
+
+/**
+ * Sets a secondary (parallel) Y axis on the right edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_y_axis = function (config) {
+    this.secondary_y_config = config;
+    this.update_secondary_y_axis();
+};
+
+/**
+ * Updates the secondary Y axis scale, ticks, and label based on current primary Y scale.
+ */
+plotit.prototype.update_secondary_y_axis = function () {
+    if (!this.secondary_y_config || !this.$vis) return;
+    const cfg = this.secondary_y_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.yRange2) {
+        this.yRange2 = d3.scaleLinear();
+    }
+    this.yRange2.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
+    const sec_dom0 = mapVal(this.yscale[0]);
+    const sec_dom1 = mapVal(this.yscale[1]);
+    this.yRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickHeight = self.fontsize * 2;
+    const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
+    this.yAxis2 = d3.axisRight(this.yRange2).ticks(maxTicksY).tickSizeInner(6 * thickness);
+
+    if (!this.$yAxis2_svg) {
+        this.$yAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'yaxis2');
+    }
+    this.$yAxis2_svg.attr('transform', 'translate(' + (this.WIDTH - this.MARGINS.right) + ',0)');
+
+    this.$yAxis2_svg.call(this.yAxis2);
+
+    this.$yAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$yAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".yaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".yaxis2 path, .yaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary Y label placed on the right
+    const yLabel2X = this.MARGINS.right > 80
+        ? (this.WIDTH - (this.MARGINS.right / 2 - this.fontsize / 2 - 15))
+        : (this.WIDTH - this.MARGINS.right + 42);
+    const yLabel2Y = this.MARGINS.top + (this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / 2;
+
+    if (!this.$yLabel2Group) {
+        this.$yLabel2Group = this.$vis.append("g")
+            .attr("class", "y2-label-group");
+        this.$yLabel2Group.append("text")
+            .attr("class", "ylabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$yLabel2Group.attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
+    this.$yLabel2Group.select(".ylabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary Y axis from the plot.
+ */
+plotit.prototype.remove_secondary_y_axis = function () {
+    this.secondary_y_config = null;
+    if (this.$yAxis2_svg) {
+        this.$yAxis2_svg.remove();
+        this.$yAxis2_svg = null;
+    }
+    if (this.$yLabel2Group) {
+        this.$yLabel2Group.remove();
+        this.$yLabel2Group = null;
+    }
+    this.yRange2 = null;
+    this.yAxis2 = null;
+};
+
 

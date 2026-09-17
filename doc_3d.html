@@ -169,8 +169,43 @@
           </div>
           <div class="card-body">
             
-        <h2>Standard Orthogonal Views & 1D Slices</h2>
-        <p>COLMARvista 3D presents synchronized orthogonal 2D slice planes along all three principal axes:</p>
+        <h2>3D Spectrum Information & Standard Orthogonal Views</h2>
+        <h3>3D Spectrum Information & Chemical Shift Calibration</h3>
+        <p>Located immediately above the Standard Orthogonal Views, this summary panel provides comprehensive acquisition and spectral parameters for all three principal dimensions:</p>
+        <ul>
+          <li><b>Nuclear (Nucleus):</b> Nucleus type (e.g., $^1\text{H}$, $^{15}\text{N}$, $^{13}\text{C}$) for Direct ($x$), Indirect 1 ($y$), and Indirect 2 / Planes ($z$).</li>
+          <li><b>Hz Specifications:</b> Spectral Width in Hz ($\text{SW}$) and spectrometer carrier frequency in MHz for each dimension, along with the complete frequency range in Hz.</li>
+          <li><b>PPM Range:</b> Chemical shift boundaries (start to end ppm) and spectral width span ($\Delta$ ppm).</li>
+          <li><b>Grid Points:</b> Total number of points along each dimension ($N_x$, $N_y$, $N_z$).</li>
+          <li><b>Shift Calibration:</b> Calibration controls for both Indirect Dimension 1 ($y$) and Indirect Dimension 2 / Planes ($z$):
+            <ul>
+              <li>Enter a shift offset amount (positive or negative) and select units (<b>ppm</b> or <b>Hz</b>).</li>
+              <li><b>Quick Offset of ±SW:</b> Click <b>+SW</b> or <b>-SW</b> to instantly shift the dimension by $+1$ or $-1$ Spectral Width (ideal for folded/aliased peaks) in a single click, automatically evaluating the exact SW in the selected unit (ppm or Hz).</li>
+              <li>Click <b>Apply</b> (or press Enter) to calibrate the dimension.</li>
+              <li>Instantly recalibrates internal coordinates, 2D slice axes, orthogonal views (XZ and YZ planes), 1D trace plots, and the information table.</li>
+              <li>Automatically synchronizes the NMRPipe header parameters: updates the Carrier frequency (<code>CAR</code> in PPM) and the Origin frequency offset (<code>ORIG</code> in Hz) together, ensuring consistent referencing across downstream NMR software (NMRPipe, Sparky, etc.) when saving or downloading the <code>.ft3</code> file.</li>
+            </ul>
+          </li>
+          <li><b>2nd (Parallel) Axis System (for $^{15}\text{N}$ or $^{13}\text{C}$ Indirect Dimensions):</b>
+            <ul>
+              <li>Click <b>+ 2nd Axis</b> in the spectrum information table on either Indirect Dimension 1 ($y$) or Indirect Dimension 2 / Planes ($z$).</li>
+              <li><b>Different Nucleus & Presets:</b> Set an alternate nucleus (e.g., $^{13}\text{CO}$, $^{13}\text{C}\alpha$, $^{13}\text{C}\beta$, $^{13}\text{C}_{\text{ali}}$, $^{13}\text{C}_{\text{aro}}$, or $^{15}\text{N}$). Spectrometer frequencies automatically compute via standard IUPAC $\Xi$ ratios from the direct $^1\text{H}$ channel.</li>
+              <li><b>PPM & Hz Range Configuration:</b> Define start and end boundaries in either <b>PPM Range</b> or <b>Hz Range</b>.</li>
+              <li><b>Folding / Aliasing Controls:</b> Use <b>+1 SW (Folded)</b> and <b>-1 SW (Folded)</b> buttons to immediately shift the axis boundaries by exact spectral width multiples for aliased / folded peaks, or <b>Mirror Primary</b> to duplicate the primary range.</li>
+              <li><b>Display Units:</b> Select whether the secondary axis displays in <b>ppm</b> or <b>Hz</b>.</li>
+              <li><b>Automatic Axis Placement Rule:</b>
+                <ul>
+                  <li>If the 1st primary axis is on the <i>left</i>, the 2nd axis is drawn on the <b>right</b> (e.g. Indirect 1 $y$ on the XY plane and ZY plane; Indirect 2 $z$ on the XZ plane).</li>
+                  <li>If the 1st primary axis is on the <i>bottom</i>, the 2nd axis is drawn on the <b>top</b> (e.g. Indirect 2 $z$ on the ZY plane).</li>
+                </ul>
+              </li>
+              <li><b>Dimension Restriction ($^{15}\text{N}$ or $^{13}\text{C}$ Only):</b> The 2nd parallel axis is only permitted for indirect dimensions whose primary nucleus is $^{15}\text{N}$ or $^{13}\text{C}$. It is not added for $^1\text{H}$ dimensions.</li>
+              <li><b>Consistent Dynamic Margins:</b> When a 2nd axis is configured on any indirect dimension, all three 2D plots automatically and consistently expand their top (to 102px, largely matching the bottom margin) and right (to 150px, largely matching the left margin) to ensure tick values and axis labels are clearly visible without overlapping or edge clipping. When the 2nd axis is removed, all three plots seamlessly revert to default margins (top: 45px, right: 65px).</li>
+              <li><b>Live Cursor Hover Readout:</b> When hovering over any 2D plot, the top-right information bar displays the current coordinates and signal intensity (e.g. <code>x_ppm</code>, <code>y_ppm</code>, <code>Inten</code>, <code>S/N</code>). When a 2nd axis is defined, the secondary coordinate is automatically included (as <code>y2_ppm</code> or <code>y2_hz</code>, and <code>x2_ppm</code> or <code>x2_hz</code> on orthogonal views), providing instantaneous multi-scale readout at the cursor position.</li>
+              <li><b>Non-Destructive Visualization:</b> The 2nd parallel axis is purely a visual overlay for analysis and comparison. It stays synchronized in real-time during panning, zooming, plot resizing, and slice browsing, without modifying the underlying binary data or exported <code>.ft3</code> files.</li>
+            </ul>
+          </li>
+        </ul>
 
         <h3>Synchronized 2D Slice Planes</h3>
         <ul>
