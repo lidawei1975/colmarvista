@@ -82,4 +82,44 @@ describe('FID Processing 2D Test', () => {
         // Wait for the message indicating completion
         cy.get('#webassembly_message', { timeout: 30000 }).should('contain.text', 'Baseline correction complete!');
     });
+
+    it('processes 2D FID with manual phase and Delete imaginary data checked for both dimensions', () => {
+        cy.visit('/index.html');
+
+        cy.get('#fid_file', { timeout: 10000 }).selectFile('cypress/fixtures/test_data_2d/ser', { force: true });
+        cy.get('#acquisition_file', { timeout: 10000 }).selectFile('cypress/fixtures/test_data_2d/acqus', { force: true });
+        cy.get('#acquisition_file2', { timeout: 10000 }).selectFile('cypress/fixtures/test_data_2d/acqu2s', { force: true });
+
+        // Uncheck auto phase for both dimensions
+        cy.get('#auto_direct').uncheck({ force: true });
+        cy.get('#ann_auto_direct').uncheck({ force: true });
+        cy.get('#auto_indirect').uncheck({ force: true });
+
+        // Check Delete imaginary data for direct and indirect dimensions
+        cy.get('#delete_imaginary').check({ force: true });
+        cy.get('#delete_imaginary_indirect').check({ force: true });
+
+        // Set manual phase values
+        cy.get('#phase_correction_direct_p0').clear({ force: true }).type('45', { force: true });
+        cy.get('#phase_correction_direct_p1').clear({ force: true }).type('-10', { force: true });
+        cy.get('#phase_correction_indirect_p0').clear({ force: true }).type('90', { force: true });
+        cy.get('#phase_correction_indirect_p1').clear({ force: true }).type('0', { force: true });
+
+        // Click Process
+        cy.get('#button_fid_process', { timeout: 10000 }).click({ force: true });
+
+        // Wait for Processing to Complete without memory errors
+        cy.get('#spectra_list_ol li', { timeout: 60000 }).should('have.length.gt', 0);
+        cy.get('#spectra_list_ol', { timeout: 30000 }).should('contain.text', 'from_fid.ft2');
+
+        // Verify spectrum data exists and is valid
+        cy.window().then((win) => {
+            expect(win.hsqc_spectra).to.exist;
+            const spectrum = win.hsqc_spectra[0];
+            expect(spectrum).to.exist;
+            expect(spectrum.raw_data).to.exist;
+            expect(spectrum.raw_data.length).to.be.greaterThan(0);
+            expect(Number.isFinite(spectrum.raw_data[0])).to.be.true;
+        });
+    });
 });

@@ -504,8 +504,8 @@ self.onmessage = async function (event) {
                     apodizationDirect: event.data.apodization_direct,
                     apodizationIndirect: apodization_indirect,
                     waterSuppression: event.data.water_suppression === true,
-                    deleteDirect: event.data.delete_direct === true,
-                    deleteIndirect: event.data.delete_indirect === true,
+                    deleteDirect: false,
+                    deleteIndirect: false,
                     applyExtraction: true,
                     extractFrom: toFloat(event.data.extract_direct_from, 8.8),
                     extractTo: toFloat(event.data.extract_direct_to, 7.0)
@@ -532,6 +532,14 @@ self.onmessage = async function (event) {
                 else {
                     processor.set_user_phase_correction(phasing_data[0], phasing_data[1]);
                     processor.set_user_phase_correction_indirect(phasing_data[2], phasing_data[3]);
+                }
+
+                const deleteDirect = event.data.delete_direct === true;
+                const deleteIndirect = event.data.delete_indirect === true;
+                if (deleteDirect || deleteIndirect) {
+                    if (typeof processor.delete_imaginary === 'function') {
+                        processor.delete_imaginary(deleteDirect, deleteIndirect);
+                    }
                 }
 
                 const polynomialOrder = toInt(event.data.polynomial, -2);
