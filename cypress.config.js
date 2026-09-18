@@ -4,7 +4,12 @@ module.exports = defineConfig({
     e2e: {
         baseUrl: 'http://localhost:8080',
         setupNodeEvents(on, config) {
-            // implement node event listeners here
+            on('task', {
+                log(message) {
+                    console.log('[CY TASK LOG]', message);
+                    return null;
+                }
+            });
         },
         supportFile: false,
     },

@@ -646,6 +646,8 @@ $(document).ready(function () {
 
             if (processing_flag == 1) {
                 fid_process_parameters.pseudo3d_children = hsqc_spectra[spectrum_index].pseudo3d_children;
+                restart_webassembly_worker();
+                restart_webassembly_worker2();
             }
             else {
                 fid_process_parameters.pseudo3d_children = [];
@@ -668,7 +670,7 @@ $(document).ready(function () {
          * The default value of the button is "Upload experimental files and process"
          * For reprocessing, the button value is set to "Reprocess" by JS code.
          */
-        let button_value = e.submitter.value;
+        let button_value = (e.submitter && e.submitter.value) ? e.submitter.value : (document.getElementById("button_fid_process") ? document.getElementById("button_fid_process").value : "");
 
 
         if (button_value === "Reprocess") {
@@ -1114,7 +1116,7 @@ function run_pseudo3d(flag) {
     });
 }
 
-webassembly_worker2.onmessage = function (e) {
+function handle_webassembly_worker2_message(e) {
 
     /**
      * if result is stdout, it is the processing message
@@ -1156,6 +1158,16 @@ webassembly_worker2.onmessage = function (e) {
             pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
         });
     }
+}
+
+webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+
+function restart_webassembly_worker2() {
+    if (webassembly_worker2) {
+        webassembly_worker2.terminate();
+    }
+    webassembly_worker2 = new Worker('./js/webass_smile.js');
+    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
 }
 
 function finalize_peak_fitter_v2_if_done(spectrum_index) {
@@ -1239,8 +1251,9 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
     }
 }
 
-webassembly_worker.onmessage = async function (e) {
-    const webassembly_job = get_webassembly_job_flag(e.data);
+function handle_webassembly_worker_message(e) {
+    return (async function() {
+        const webassembly_job = get_webassembly_job_flag(e.data);
 
     /**
      * if result is stdout, it is the processing message
@@ -1825,7 +1838,18 @@ webassembly_worker.onmessage = async function (e) {
     else {
         console.log(e.data);
     }
-};
+    })();
+}
+
+webassembly_worker.onmessage = handle_webassembly_worker_message;
+
+function restart_webassembly_worker() {
+    if (webassembly_worker) {
+        webassembly_worker.terminate();
+    }
+    webassembly_worker = new Worker('./js/webass_2d.js');
+    webassembly_worker.onmessage = handle_webassembly_worker_message;
+}
 
 var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
@@ -3937,6 +3961,13 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
+        if (hsqc_spectra[spectrum_index]) {
+            hsqc_spectra[spectrum_index].raw_data = null;
+            hsqc_spectra[spectrum_index].raw_data_ri = null;
+            hsqc_spectra[spectrum_index].raw_data_ir = null;
+            hsqc_spectra[spectrum_index].raw_data_ii = null;
+            hsqc_spectra[spectrum_index].header = null;
+        }
         hsqc_spectra[spectrum_index] = result_spectra[0];
 
         /**
@@ -3965,6 +3996,13 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                  */
                 result_spectra[i].spectrum_color = hsqc_spectra[new_spectrum_index].spectrum_color;
                 result_spectra[i].spectrum_color_negative = hsqc_spectra[new_spectrum_index].spectrum_color_negative;
+                if (hsqc_spectra[new_spectrum_index]) {
+                    hsqc_spectra[new_spectrum_index].raw_data = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ri = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ir = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ii = null;
+                    hsqc_spectra[new_spectrum_index].header = null;
+                }
                 hsqc_spectra[new_spectrum_index] = result_spectra[i];
             }
         }
