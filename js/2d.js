@@ -2993,7 +2993,23 @@ function add_to_list(index) {
      * Add the new spectrum div to the list of spectra if it is from experimental data
     */
     if (hsqc_spectra[index].spectrum_origin < 0 || hsqc_spectra[index].spectrum_origin >= 10000) {
-        document.getElementById("spectra_list_ol").appendChild(new_spectrum_div_list);
+        let list_ol = document.getElementById("spectra_list_ol");
+        let inserted = false;
+        let children = list_ol.children;
+        for (let i = 0; i < children.length; i++) {
+            let child_id = children[i].id;
+            if (child_id && child_id.startsWith("spectrum-")) {
+                let child_idx = parseInt(child_id.split("-")[1]);
+                if (child_idx > index) {
+                    list_ol.insertBefore(new_spectrum_div_list, children[i]);
+                    inserted = true;
+                    break;
+                }
+            }
+        }
+        if (!inserted) {
+            list_ol.appendChild(new_spectrum_div_list);
+        }
     }
     /**
      * If the spectrum is reconstructed, add the new spectrum div to the reconstructed spectrum list
@@ -4192,7 +4208,6 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
 
             if (!b_reprocess) {
                 pending_pseudo3d_uncalculated_spectra.push(result_spectra[i].spectrum_index);
-                add_to_list(result_spectra[i].spectrum_index);
             }
             else {
                 let spec_idx = result_spectra[i].spectrum_index;
@@ -4274,7 +4289,6 @@ function draw_spectrum_from_loading() {
             hsqc_spectra[i].visible = false;
             hsqc_spectra[i].default_collapsed = true;
             pending_pseudo3d_uncalculated_spectra.push(i);
-            add_to_list(i);
         } else {
             hsqc_spectra[i].contour_calculated = true;
             hsqc_spectra[i].default_collapsed = false;
