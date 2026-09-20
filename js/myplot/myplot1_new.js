@@ -1359,12 +1359,23 @@ plotit.prototype.show_projection = function () {
     self.x_cross_section_plot.clear_data();
     self.y_cross_section_plot.clear_data();
 
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
     /**
-     * Loop all spectrum, except unknown and removed
+     * Loop all spectrum, except unknown, removed and invisible
      */
     for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++) {
-        if (hsqc_spectra[spe_index].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
+        if (hsqc_spectra[spe_index].spectrum_origin > -3 && hsqc_spectra[spe_index].visible !== false) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
         {
+            visible_count++;
+            if (hsqc_spectra[spe_index].projection_direct_min < direct_min) direct_min = hsqc_spectra[spe_index].projection_direct_min;
+            if (hsqc_spectra[spe_index].projection_direct_max > direct_max) direct_max = hsqc_spectra[spe_index].projection_direct_max;
+            if (hsqc_spectra[spe_index].projection_indirect_min < indirect_min) indirect_min = hsqc_spectra[spe_index].projection_indirect_min;
+            if (hsqc_spectra[spe_index].projection_indirect_max > indirect_max) indirect_max = hsqc_spectra[spe_index].projection_indirect_max;
 
             /**
              * data is an array of 2 numbers, [x_ppm, x_height]
@@ -1373,8 +1384,7 @@ plotit.prototype.show_projection = function () {
             for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
-            self.x_cross_section_plot.zoom(self.xscale, [hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index);
+            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index, true);
 
 
             /**
@@ -1384,9 +1394,16 @@ plotit.prototype.show_projection = function () {
             for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max], self.yscale);
-            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index);
+            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index, true);
         }
+    }
+
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        self.x_cross_section_plot.redraw();
+        self.y_cross_section_plot.redraw();
     }
 }
 

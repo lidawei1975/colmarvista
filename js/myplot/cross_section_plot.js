@@ -515,7 +515,7 @@ class cross_section_plot {
      * Function to add additional experimental (reconstructed) spectrum
      * @param {*} data: [ppm, real_data]
      */
-    add_data(data,spectrum_index) {
+    add_data(data,spectrum_index, b_skip_redraw = false) {
 
         let data_color = hsqc_spectra[spectrum_index].spectrum_color;
 
@@ -564,7 +564,9 @@ class cross_section_plot {
             .attr("stroke-width", this.exp_line_width)
             .attr("d", this.line(self.data_reconstructed));
 
-        this.redraw();
+        if (!b_skip_redraw) {
+            this.redraw();
+        }
     };
         
 

@@ -1,0 +1,23 @@
+##TITLE= Parameter file, TopSpin 3.6.2
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 3	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= bruschweiler
+$$ 2021-07-08 08:55:59.857 -0400  bruschweiler@cbec850rb
+$$ /home/nmr/Data/ahansen/data/Proteins/nmr/kRasG12D+GDP_Dynamics_28June2021_850C/18/acqu3s
+$$ process /opt/topspin3.6.2/prog/mod/go4
+##$ACQT0= 0
+##$BF1= 850.16
+##$FnMODE= 1
+##$NUC1= <1H>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 6
+##$O1= 3993.16999994426
+##$ProjAngle= 0
+##$SFO1= 850.16399317
+##$SW= 1.00020718694962
+##$SW_h= 850.340136054422
+##$TD= 6
+##END=

@@ -65,6 +65,8 @@ var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently show
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
+var pending_pseudo3d_uncalculated_spectra = []; // pseudo 3D spectra indices (6th onwards) whose contour calculation is deferred
+var last_calculated_spectrum_index = -1; // track last spectrum sent to contour worker in a batch
 
 /**
  * For FID re-processing. Saved file data
@@ -1381,8 +1383,11 @@ function handle_webassembly_worker_message(e) {
 
         disable_enable_peak_buttons(e.data.spectrum_index, 1);
 
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+        let show_pk = document.getElementById("show_peaks-".concat(e.data.spectrum_index));
+        if (show_pk) {
+            show_pk.checked = false;
+            show_pk.click();
+        }
 
         document.getElementById("webassembly_message").innerText = "";
     }
@@ -1475,8 +1480,11 @@ function handle_webassembly_worker_message(e) {
 
         disable_enable_peak_buttons(e.data.spectrum_index, 1);
 
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+        let show_pk2 = document.getElementById("show_peaks-".concat(e.data.spectrum_index));
+        if (show_pk2) {
+            show_pk2.checked = false;
+            show_pk2.click();
+        }
 
         /**
          * Clear the processing message
@@ -1797,8 +1805,10 @@ function handle_webassembly_worker_message(e) {
              * -3 means removed spectrum, all DOM element for removed spectrum is also removed
              */
             if (hsqc_spectra[i].spectrum_origin !== -3) {
-                document.getElementById("show_peaks-".concat(i)).checked = false;
-                document.getElementById("show_fitted_peaks-".concat(i)).checked = false;
+                let sp = document.getElementById("show_peaks-".concat(i));
+                if (sp) sp.checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-".concat(i));
+                if (sfp) sfp.checked = false;
             }
         }
 
@@ -2115,8 +2125,100 @@ function minimize_file_area(self) {
 }
 
 
+function is_pseudo3d_sixth_or_later(index) {
+    if (!hsqc_spectra[index]) return false;
+    let s = hsqc_spectra[index];
+    if (s.spectrum_origin >= 10000) {
+        let parent_index = s.spectrum_origin - 10000;
+        let parent = hsqc_spectra[parent_index];
+        if (parent && parent.pseudo3d_children) {
+            let child_idx = parent.pseudo3d_children.indexOf(index);
+            // plane 0 is parent, child_idx 0 is plane 1, ..., child_idx 4 is plane 5 (the 6th plane)
+            return child_idx >= 4;
+        }
+    }
+    return false;
+}
+
+function calculate_contour_for_spectrum(index) {
+    let spec = hsqc_spectra[index];
+    if (!spec || !spec.raw_data) return;
+    if (spec.contour_calculated === true || spec.contour_calculated === "calculating") return;
+    spec.contour_calculated = "calculating";
+
+    let msg = document.getElementById("contour_message");
+    if (msg) {
+        msg.innerText = "Calculating contours for spectrum " + index + "...";
+    }
+
+    let spectrum_information = {
+        n_direct: spec.n_direct,
+        n_indirect: spec.n_indirect,
+        levels: spec.levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: spec.spectrum_origin,
+        contour_sign: 0
+    };
+    my_contour_worker.postMessage({ response_value: spec.raw_data, spectrum: spectrum_information });
+
+    let spectrum_information_neg = {
+        n_direct: spec.n_direct,
+        n_indirect: spec.n_indirect,
+        levels: spec.negative_levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: spec.spectrum_origin,
+        contour_sign: 1
+    };
+    my_contour_worker.postMessage({ response_value: spec.raw_data, spectrum: spectrum_information_neg });
+}
+
+function flush_pending_pseudo3d_spectra() {
+    if (last_calculated_spectrum_index >= 0 &&
+        main_plot &&
+        main_plot.levels_length &&
+        main_plot.levels_length_negative &&
+        main_plot.levels_length.length > last_calculated_spectrum_index &&
+        main_plot.levels_length_negative.length > last_calculated_spectrum_index &&
+        pending_pseudo3d_uncalculated_spectra.length > 0) {
+
+        while (pending_pseudo3d_uncalculated_spectra.length > 0) {
+            let uncalc_index = pending_pseudo3d_uncalculated_spectra.shift();
+            main_plot.levels_length.push([]);
+            main_plot.polygon_length.push([]);
+            main_plot.colors.push(hexToRgb(hsqc_spectra[uncalc_index].spectrum_color));
+            main_plot.contour_lbs.push(0);
+            main_plot.points_start.push(main_plot.points.length);
+            main_plot.spectral_information.push({
+                n_direct: hsqc_spectra[uncalc_index].n_direct,
+                n_indirect: hsqc_spectra[uncalc_index].n_indirect,
+                x_ppm_start: hsqc_spectra[uncalc_index].x_ppm_start,
+                x_ppm_step: hsqc_spectra[uncalc_index].x_ppm_step,
+                y_ppm_start: hsqc_spectra[uncalc_index].y_ppm_start,
+                y_ppm_step: hsqc_spectra[uncalc_index].y_ppm_step,
+                x_ppm_ref: hsqc_spectra[uncalc_index].x_ppm_ref,
+                y_ppm_ref: hsqc_spectra[uncalc_index].y_ppm_ref,
+            });
+            main_plot.levels_length_negative.push([]);
+            main_plot.polygon_length_negative.push([]);
+            main_plot.colors_negative.push(hexToRgb(hsqc_spectra[uncalc_index].spectrum_color_negative));
+            main_plot.contour_lbs_negative.push(0);
+            main_plot.points_start_negative.push(main_plot.points.length);
+            main_plot.spectral_order.push(uncalc_index);
+
+            add_to_list(uncalc_index);
+        }
+        last_calculated_spectrum_index = -1;
+        main_plot.redraw_contour();
+    }
+}
+
 function minimize_spectrum(button, index) {
-    let spectrum_div = document.getElementById("spectrum-".concat(index)).querySelector("div");
+    let spec_el = document.getElementById("spectrum-".concat(index));
+    if (!spec_el) return;
+    let spectrum_div = spec_el.querySelector("div");
+    if (!spectrum_div) return;
     let minimize_button = button;
     if (minimize_button.innerText === "-") {
         minimize_button.innerText = "+";
@@ -2125,7 +2227,9 @@ function minimize_spectrum(button, index) {
         /**
          * Also set lbs to hide all contours for this spectrum
          */
-        hsqc_spectra[index].visible = false;
+        if (hsqc_spectra[index]) {
+            hsqc_spectra[index].visible = false;
+        }
 
         /**
          * Loop all spectra, find children of this spectrum, hide them too
@@ -2139,7 +2243,9 @@ function minimize_spectrum(button, index) {
     else {
         minimize_button.innerText = "-";
         spectrum_div.style.height = "auto";
-        hsqc_spectra[index].visible = true;
+        if (hsqc_spectra[index]) {
+            hsqc_spectra[index].visible = true;
+        }
 
         /**
          * Loop all spectra, find children of this spectrum, show them too
@@ -2149,9 +2255,19 @@ function minimize_spectrum(button, index) {
                 hsqc_spectra[i].visible = true;
             }
         }
+
+        if (hsqc_spectra[index] && hsqc_spectra[index].contour_calculated === false) {
+            calculate_contour_for_spectrum(index);
+        }
     }
-    main_plot.redraw_contour();
-    main_plot.redraw_1d();
+    if (main_plot) {
+        main_plot.redraw_contour();
+        if (main_plot.b_show_projection) {
+            main_plot.show_projection();
+        } else {
+            main_plot.redraw_1d();
+        }
+    }
 }
 
 /**
@@ -2160,6 +2276,12 @@ function minimize_spectrum(button, index) {
  * IMPORTANT: This function is called AFTER contour is drawn
  */
 function add_to_list(index) {
+    if (!hsqc_spectra[index]) {
+        return;
+    }
+    if (document.getElementById("spectrum-".concat(index))) {
+        return;
+    }
     let new_spectrum = hsqc_spectra[index];
     let new_spectrum_div_list = document.createElement("li");
     let new_spectrum_div = document.createElement("div");
@@ -2177,6 +2299,8 @@ function add_to_list(index) {
         return;
     }
 
+    let b_collapsed = (new_spectrum.default_collapsed === true) || is_pseudo3d_sixth_or_later(index);
+
     /**
      * Add a draggable div to the new spectrum div, only if the spectrum is experimental
      */
@@ -2186,7 +2310,7 @@ function add_to_list(index) {
          */
         let minimize_button = document.createElement("button");
         minimize_button.id = "minimize-".concat(index);
-        minimize_button.innerText = "-";
+        minimize_button.innerText = b_collapsed ? "+" : "-";
         minimize_button.onclick = function () { minimize_spectrum(this, index); };
         new_spectrum_div.appendChild(minimize_button);
 
@@ -2196,6 +2320,12 @@ function add_to_list(index) {
         draggable_span.appendChild(document.createTextNode("\u2195 Drag me. "));
         draggable_span.style.cursor = "move";
         new_spectrum_div.appendChild(draggable_span);
+
+        if (b_collapsed) {
+            new_spectrum_div.style.height = "1.75rem";
+            new_spectrum_div.style.overflow = "clip";
+            new_spectrum.visible = false;
+        }
     }
 
     /**
@@ -2230,22 +2360,27 @@ function add_to_list(index) {
         span_for_index.appendChild(original_index_node);
         new_spectrum_div.appendChild(span_for_index);
         /**
-         * make this one the default selected spectrum
+         * make this one the default selected spectrum only if not default collapsed
          */
-        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+        if (!b_collapsed) {
+            if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
 
-            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
-            if (current_spectrum_div) {
-                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+                let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+                if (current_spectrum_div) {
+                    current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+                }
             }
+            main_plot.current_spectral_index = index;
+            update_automatic_pc_button_status(index);
+            update_baseline_button_status(index);
+            /**
+             * Highlight the current spectrum in the list
+             */
+            new_spectrum_div.style.backgroundColor = "lightblue";
         }
-        main_plot.current_spectral_index = index;
-        update_automatic_pc_button_status(index);
-        update_baseline_button_status(index);
-        /**
-         * Highlight the current spectrum in the list
-         */
-        new_spectrum_div.style.backgroundColor = "lightblue";
+        else {
+            new_spectrum_div.style.backgroundColor = "white";
+        }
 
 
         /**
@@ -2656,7 +2791,7 @@ function add_to_list(index) {
     contour_level_span.setAttribute("id", "contour_level-".concat(index));
     contour_level_span.classList.add("information");
 
-    if (total_number_of_experimental_spectra <= 4) {
+    if (total_number_of_experimental_spectra <= 4 || b_collapsed) {
         contour_slider.setAttribute("value", "1");
         contour_level_span.innerText = new_spectrum.levels[0].toExponential(4);
     }
@@ -2809,7 +2944,7 @@ function add_to_list(index) {
     contour_level_span_negative.setAttribute("id", "contour_level_negative-".concat(index));
     contour_level_span_negative.classList.add("information");
 
-    if (total_number_of_experimental_spectra <= 4) {
+    if (total_number_of_experimental_spectra <= 4 || b_collapsed) {
         contour_slider_negative.setAttribute("value", "1");
         contour_level_span_negative.innerText = new_spectrum.negative_levels[0].toExponential(4);
     }
@@ -2862,7 +2997,23 @@ function add_to_list(index) {
      * Add the new spectrum div to the list of spectra if it is from experimental data
     */
     if (hsqc_spectra[index].spectrum_origin < 0 || hsqc_spectra[index].spectrum_origin >= 10000) {
-        document.getElementById("spectra_list_ol").appendChild(new_spectrum_div_list);
+        let list_ol = document.getElementById("spectra_list_ol");
+        let inserted = false;
+        let children = list_ol.children;
+        for (let i = 0; i < children.length; i++) {
+            let child_id = children[i].id;
+            if (child_id && child_id.startsWith("spectrum-")) {
+                let child_idx = parseInt(child_id.split("-")[1]);
+                if (child_idx > index) {
+                    list_ol.insertBefore(new_spectrum_div_list, children[i]);
+                    inserted = true;
+                    break;
+                }
+            }
+        }
+        if (!inserted) {
+            list_ol.appendChild(new_spectrum_div_list);
+        }
     }
     /**
      * If the spectrum is reconstructed, add the new spectrum div to the reconstructed spectrum list
@@ -2883,8 +3034,11 @@ function add_to_list(index) {
 
         /**
          * For experimental spectrum, switch default to show projection
+         * Only call for uncollapsed spectra to prevent UI freezing on large pseudo3D datasets
          */
-        show_projection();
+        if (!b_collapsed) {
+            show_projection();
+        }
     }
 }
 
@@ -2972,6 +3126,7 @@ my_contour_worker.onmessage = (e) => {
                 main_plot.spectral_order.splice(index + 1, 0, e.data.spectrum_index);
             }
             main_plot.redraw_contour();
+            flush_pending_pseudo3d_spectra();
         }
         else if (e.data.contour_sign === 1) {
             /**
@@ -3000,6 +3155,8 @@ my_contour_worker.onmessage = (e) => {
              * So no need to update spectral_information array again
              */
             main_plot.redraw_contour();
+
+            flush_pending_pseudo3d_spectra();
         }
     }
 
@@ -3071,6 +3228,14 @@ my_contour_worker.onmessage = (e) => {
         else if (e.data.contour_sign === 1) {
             main_plot.levels_length_negative[e.data.spectrum_index] = e.data.levels_length;
             main_plot.polygon_length_negative[e.data.spectrum_index] = e.data.polygon_length;
+            if (hsqc_spectra[e.data.spectrum_index]) {
+                hsqc_spectra[e.data.spectrum_index].contour_calculated = true;
+            }
+            let msg = document.getElementById("contour_message");
+            if (msg && msg.innerText.indexOf("spectrum " + e.data.spectrum_index) !== -1) {
+                msg.innerText = "";
+            }
+            flush_pending_pseudo3d_spectra();
         }
 
         /**
@@ -4035,7 +4200,53 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
      */
     init_plot(hsqc_spectra[0]);
 
+    let is_pseudo3d = (result_spectra.length > 1) || (pseudo3d_children && pseudo3d_children.length > 0);
+    pending_pseudo3d_uncalculated_spectra = [];
+    last_calculated_spectrum_index = -1;
+
     for (let i = 0; i < result_spectra.length; i++) {
+        let is_sixth_or_later = is_pseudo3d && (i >= 5);
+
+        if (is_sixth_or_later) {
+            result_spectra[i].contour_calculated = false;
+            result_spectra[i].visible = false;
+            result_spectra[i].default_collapsed = true;
+
+            let spec_idx = result_spectra[i].spectrum_index;
+            let spec_div = document.getElementById("spectrum-" + spec_idx);
+            if (!spec_div) {
+                pending_pseudo3d_uncalculated_spectra.push(spec_idx);
+            }
+            else {
+                if (main_plot && main_plot.levels_length && spec_idx < main_plot.levels_length.length) {
+                    main_plot.levels_length[spec_idx] = [];
+                }
+                if (main_plot && main_plot.levels_length_negative && spec_idx < main_plot.levels_length_negative.length) {
+                    main_plot.levels_length_negative[spec_idx] = [];
+                }
+                if (main_plot && main_plot.polygon_length && spec_idx < main_plot.polygon_length.length) {
+                    main_plot.polygon_length[spec_idx] = [];
+                }
+                if (main_plot && main_plot.polygon_length_negative && spec_idx < main_plot.polygon_length_negative.length) {
+                    main_plot.polygon_length_negative[spec_idx] = [];
+                }
+                let btn = document.getElementById("minimize-" + spec_idx);
+                if (btn) {
+                    btn.innerText = "+";
+                }
+                if (spec_div.querySelector("div")) {
+                    spec_div.querySelector("div").style.height = "1.75rem";
+                    spec_div.querySelector("div").style.overflow = "hidden";
+                    spec_div.querySelector("div").style.whiteSpace = "nowrap";
+                    spec_div.querySelector("div").style.backgroundColor = "white";
+                }
+            }
+            continue;
+        }
+
+        result_spectra[i].contour_calculated = true;
+        result_spectra[i].default_collapsed = false;
+        last_calculated_spectrum_index = result_spectra[i].spectrum_index;
 
         /**
          * Positive contour calculation for the spectrum
@@ -4069,6 +4280,10 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
         spectrum_information.levels = result_spectra[i].negative_levels;
         my_contour_worker.postMessage({ response_value: result_spectra[i].raw_data, spectrum: spectrum_information });
     }
+
+    if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
+        flush_pending_pseudo3d_spectra();
+    }
 }
 
 /**
@@ -4078,7 +4293,30 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
 function draw_spectrum_from_loading() {
     init_plot(hsqc_spectra[0]);
 
+    pending_pseudo3d_uncalculated_spectra = [];
+    last_calculated_spectrum_index = -1;
+
+    let spectra_to_calculate = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
+        if (is_pseudo3d_sixth_or_later(i)) {
+            hsqc_spectra[i].contour_calculated = false;
+            hsqc_spectra[i].visible = false;
+            hsqc_spectra[i].default_collapsed = true;
+            pending_pseudo3d_uncalculated_spectra.push(i);
+        } else {
+            hsqc_spectra[i].contour_calculated = true;
+            hsqc_spectra[i].default_collapsed = false;
+            spectra_to_calculate.push(i);
+            last_calculated_spectrum_index = i;
+        }
+    }
+
+    if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
+        flush_pending_pseudo3d_spectra();
+    }
+
+    for (let k = 0; k < spectra_to_calculate.length; k++) {
+        let i = spectra_to_calculate[k];
 
         /**
          * Positive contour calculation for the spectrum
@@ -4323,30 +4561,31 @@ function load_peak_list(spectrum_index) {
  * Disable or enable buttons of download_peaks-, run_deep_picker-, run_voigt_fitter-, show_peaks-
  */
 function disable_enable_peak_buttons(spectrum_index, flag) {
+    let dp_btn = document.getElementById("download_peaks-".concat(spectrum_index));
+    let rlp_btn = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    let rsp_btn = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    let rdp_btn = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    let rvf_btn = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+    let sp_btn = document.getElementById("show_peaks-".concat(spectrum_index));
+
     if (flag === 0 || flag === 2) {
-        /**
-         * Disable the buttons to run deep picker and voigt fitter
-         */
-        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
-        if (flag === 0) {
-            document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
-            document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
+        if (dp_btn) dp_btn.disabled = true;
+        if (rlp_btn) rlp_btn.disabled = true;
+        if (rsp_btn) rsp_btn.disabled = true;
+        if (rdp_btn) rdp_btn.disabled = true;
+        if (rvf_btn) rvf_btn.disabled = true;
+        if (flag === 0 && sp_btn) {
+            sp_btn.disabled = true;
+            sp_btn.checked = false;
         }
     }
     else if (flag === 1) {
-        /**
-         * Enable the buttons to run deep picker and voigt fitter
-         */
-        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
-        document.getElementById("show_peaks-".concat(spectrum_index)).disabled = false;
+        if (dp_btn) dp_btn.disabled = false;
+        if (rlp_btn) rlp_btn.disabled = false;
+        if (rsp_btn) rsp_btn.disabled = false;
+        if (rdp_btn) rdp_btn.disabled = false;
+        if (rvf_btn) rvf_btn.disabled = false;
+        if (sp_btn) sp_btn.disabled = false;
     }
 }
 
@@ -4354,21 +4593,27 @@ function disable_enable_peak_buttons(spectrum_index, flag) {
  * Disable or enable buttons for download_fitted_peaks and show_fitted_peaks
  */
 function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
+    let dfp_btn = document.getElementById("download_fitted_peaks-".concat(spectrum_index));
+    let sfp_btn = document.getElementById("show_fitted_peaks-".concat(spectrum_index));
+    let rlp_btn = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    let rsp_btn = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    let rdp_btn = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    let rvf_btn = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+
     if (flag == 0) {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+        if (dfp_btn) dfp_btn.disabled = true;
+        if (sfp_btn) {
+            sfp_btn.disabled = true;
+            sfp_btn.checked = false;
+        }
     }
     else if (flag == 1) {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        /**
-         * Enable run deep picker and run voigt fitter buttons (allow run again)
-         */
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
+        if (dfp_btn) dfp_btn.disabled = false;
+        if (sfp_btn) sfp_btn.disabled = false;
+        if (rlp_btn) rlp_btn.disabled = false;
+        if (rsp_btn) rsp_btn.disabled = false;
+        if (rdp_btn) rdp_btn.disabled = false;
+        if (rvf_btn) rvf_btn.disabled = false;
     }
 }
 
@@ -4651,12 +4896,14 @@ function show_hide_peaks(index, flag, b_show) {
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (i !== index) {
             /**
-             * If spectrum is deleted, these checkboxes are no longer available.
+             * If spectrum is deleted or DOM element not created, these checkboxes are not available.
              * So we need to check if they are available
              */
             if (hsqc_spectra[i].spectrum_origin !== -3) {
-                document.getElementById("show_peaks-" + i).checked = false;
-                document.getElementById("show_fitted_peaks-" + i).checked = false;
+                let sp = document.getElementById("show_peaks-" + i);
+                if (sp) sp.checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-" + i);
+                if (sfp) sfp.checked = false;
             }
         }
         /**
@@ -4664,10 +4911,12 @@ function show_hide_peaks(index, flag, b_show) {
          */
         else {
             if (flag === 'picked') {
-                document.getElementById("show_fitted_peaks-" + i).checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-" + i);
+                if (sfp) sfp.checked = false;
             }
             else if (flag === 'fitted') {
-                document.getElementById("show_peaks-" + i).checked = false;
+                let sp = document.getElementById("show_peaks-" + i);
+                if (sp) sp.checked = false;
             }
         }
     }
@@ -4676,7 +4925,8 @@ function show_hide_peaks(index, flag, b_show) {
      * If index is not -2, we need to uncheck the checkbox of pseudo 3D peaks
      */
     if (index !== -2) {
-        document.getElementById("show_pseudo3d_peaks").checked = false;
+        let p3d = document.getElementById("show_pseudo3d_peaks");
+        if (p3d) p3d.checked = false;
     }
 
     /**
