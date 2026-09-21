@@ -991,13 +991,35 @@ function run_pseudo3d(flag) {
         return;
     }
 
-    let initial_peaks;
-    if (current_flag_of_peaks === 'picked') {
-        initial_peaks = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object.save_peaks_tab();
+    let peaks_source = current_flag_of_peaks === 'picked'
+        ? hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object
+        : hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
+
+    if (!peaks_source || !peaks_source.columns || peaks_source.columns.length === 0 || peaks_source.columns[0].length === 0) {
+        alert("Please select a valid initial peak list to run pseudo 3D fitting");
+        return;
     }
-    else {
-        initial_peaks = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object.save_peaks_tab();
+
+    let peaks_copy = new cpeaks();
+    peaks_copy.copy_data(peaks_source);
+
+    if (main_plot && typeof main_plot.get_visible_region === "function") {
+        let [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+        let x_min = Math.min(x_ppm_visible_start, x_ppm_visible_end);
+        let x_max = Math.max(x_ppm_visible_start, x_ppm_visible_end);
+        let y_min = Math.min(y_ppm_visible_start, y_ppm_visible_end);
+        let y_max = Math.max(y_ppm_visible_start, y_ppm_visible_end);
+
+        peaks_copy.filter_by_column_range("X_PPM", x_min, x_max);
+        peaks_copy.filter_by_column_range("Y_PPM", y_min, y_max);
+
+        if (peaks_copy.columns.length === 0 || peaks_copy.columns[0].length === 0) {
+            alert("No peaks in current visible region to run pseudo 3D fitting.");
+            return;
+        }
     }
+
+    let initial_peaks = peaks_copy.save_peaks_tab();
 
     /**
      * Get input number "max_round" value (number type)
