@@ -1983,6 +1983,7 @@ sortableList.addEventListener(
             let index = parseInt(list_items[i].id.split("-")[1]); //ID is spectrum-index
             new_order.push(index);
         }
+        update_all_minimized_spectra_display();
         /**
          * In case new_order.length !== main_plot.spectral_order.length,
          * we need to wait for the worker to finish the calculation then update the order
@@ -2214,16 +2215,74 @@ function flush_pending_pseudo3d_spectra() {
     }
 }
 
+function get_total_spectra_count() {
+    let list_ol = document.getElementById("spectra_list_ol");
+    let dom_count = list_ol ? list_ol.querySelectorAll(":scope > li").length : 0;
+    let exp_count = (typeof total_number_of_experimental_spectra !== "undefined") ? total_number_of_experimental_spectra : 0;
+    let hsqc_count = (typeof hsqc_spectra !== "undefined") ? hsqc_spectra.filter(s => s && s.spectrum_origin !== -3).length : 0;
+    return Math.max(dom_count, exp_count, hsqc_count);
+}
+
+function update_all_minimized_spectra_display() {
+    let list_ol = document.getElementById("spectra_list_ol");
+    if (!list_ol) return;
+
+    let items = list_ol.querySelectorAll(":scope > li");
+    let val = 1;
+    for (let li of items) {
+        let child_id = li.id;
+        if (!child_id || !child_id.startsWith("spectrum-")) continue;
+        if (li.style.display === "none") continue;
+        li.value = val++;
+        let index = parseInt(child_id.split("-")[1]);
+        let btn = document.getElementById("minimize-" + index);
+        if (!btn) continue;
+        let is_minimized = (btn.innerText.trim() === "+") || li.classList.contains("spectrum-minimized-compact");
+        let spectrum_div = li.querySelector("div");
+        if (!spectrum_div) continue;
+
+        if (is_minimized) {
+            li.classList.add("spectrum-minimized-compact");
+            spectrum_div.style.height = "";
+            spectrum_div.style.overflow = "";
+            btn.innerText = "+";
+            if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
+                btn.title = "Restore: " + hsqc_spectra[index].filename + " (Index: " + index + ")";
+            }
+        } else {
+            li.classList.remove("spectrum-minimized-compact");
+            spectrum_div.style.height = "auto";
+            spectrum_div.style.overflow = "";
+            btn.innerText = "-";
+            btn.removeAttribute("title");
+        }
+    }
+}
+
 function minimize_spectrum(button, index) {
+    if (typeof button === 'number' && index === undefined) {
+        index = button;
+        button = null;
+    }
     let spec_el = document.getElementById("spectrum-".concat(index));
     if (!spec_el) return;
     let spectrum_div = spec_el.querySelector("div");
     if (!spectrum_div) return;
-    let minimize_button = button;
-    if (minimize_button.innerText === "-") {
+    let minimize_button = button || document.getElementById("minimize-" + index);
+    if (!minimize_button) return;
+
+    let is_minimized = spec_el.classList.contains("spectrum-minimized-compact") || (minimize_button.innerText.trim() === "+");
+
+    if (!is_minimized) {
+        // Current state: expanded -> Action: Minimize
         minimize_button.innerText = "+";
-        spectrum_div.style.height = "1.75rem";
-        spectrum_div.style.overflow = "clip";
+        spec_el.classList.add("spectrum-minimized-compact");
+        spectrum_div.style.height = "";
+        spectrum_div.style.overflow = "";
+
+        if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
+            minimize_button.title = "Restore: " + hsqc_spectra[index].filename + " (Index: " + index + ")";
+        }
         /**
          * Also set lbs to hide all contours for this spectrum
          */
@@ -2241,8 +2300,12 @@ function minimize_spectrum(button, index) {
         }
     }
     else {
+        // Current state: minimized -> Action: Restore
         minimize_button.innerText = "-";
+        minimize_button.removeAttribute("title");
+        spec_el.classList.remove("spectrum-minimized-compact");
         spectrum_div.style.height = "auto";
+        spectrum_div.style.overflow = "";
         if (hsqc_spectra[index]) {
             hsqc_spectra[index].visible = true;
         }
@@ -2264,10 +2327,13 @@ function minimize_spectrum(button, index) {
         main_plot.redraw_contour();
         if (main_plot.b_show_projection) {
             main_plot.show_projection();
+        } else if (main_plot.b_show_cross_section) {
+            main_plot.show_cross_section();
         } else {
             main_plot.redraw_1d();
         }
     }
+    update_all_minimized_spectra_display();
 }
 
 /**
@@ -2322,9 +2388,11 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(draggable_span);
 
         if (b_collapsed) {
-            new_spectrum_div.style.height = "1.75rem";
-            new_spectrum_div.style.overflow = "clip";
+            new_spectrum_div_list.classList.add("spectrum-minimized-compact");
             new_spectrum.visible = false;
+            if (new_spectrum.filename) {
+                minimize_button.title = "Restore: " + new_spectrum.filename + " (Index: " + index + ")";
+            }
         }
     }
 
@@ -2582,7 +2650,7 @@ function add_to_list(index) {
             let option = parseInt(run_voigt_fitter_select.value);
             run_Voigt_fitter_v2(index, option);
         };
-        if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
+        if (!hsqc_spectra[index].picked_peaks_object || !hsqc_spectra[index].picked_peaks_object.column_headers || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
             run_voigt_fitter_button0.disabled = true;
         }
         run_voigt_fitter_button0.setAttribute("id", "run_voigt_fitter-".concat(index));
@@ -2660,11 +2728,11 @@ function add_to_list(index) {
     /**
      * Disable the download or show picked or fitted peaks buttons, depending on the state of the picked or fitted peaks
      */
-    if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
+    if (!hsqc_spectra[index].picked_peaks_object || !hsqc_spectra[index].picked_peaks_object.column_headers || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
         show_peaks_checkbox.disabled = true;
         download_peaks_button.disabled = true;
     }
-    if (hsqc_spectra[index].fitted_peaks_object === null || hsqc_spectra[index].fitted_peaks_object.column_headers.length === 0) {
+    if (!hsqc_spectra[index].fitted_peaks_object || !hsqc_spectra[index].fitted_peaks_object.column_headers || hsqc_spectra[index].fitted_peaks_object.column_headers.length === 0) {
         show_fitted_peaks_checkbox.disabled = true;
         download_fitted_peaks_button.disabled = true;
     }
@@ -3040,6 +3108,7 @@ function add_to_list(index) {
             show_projection();
         }
     }
+    update_all_minimized_spectra_display();
 }
 
 my_contour_worker.onmessage = (e) => {
@@ -3418,7 +3487,7 @@ function init_plot(input) {
 
         else if (event.data.type === 'cross_line' && event.data.peak_group === peak_group) {
             if (main_plot !== null) {
-                main_plot.setup_cross_line_from_ppm(event.data.x_ppm, event.data.y_ppm);
+                main_plot.show_cross_section(event.data.x_ppm, event.data.y_ppm);
             }
         }
     }
@@ -3507,7 +3576,7 @@ function show_cross_section() {
      */
     const index = main_plot.current_spectral_index;
     update_automatic_pc_button_status(index);
-    if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
+    if (hsqc_spectra[index] && hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
         /**
          * If there is only one spectrum, we will also enable apply phase correction,
          * because we allow manual phase correction in this case.
@@ -3516,6 +3585,7 @@ function show_cross_section() {
             document.getElementById("button_apply_ps").disabled = false;
         }
     }
+    main_plot.show_cross_section();
 }
 
 function show_projection() {
@@ -4233,12 +4303,16 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 let btn = document.getElementById("minimize-" + spec_idx);
                 if (btn) {
                     btn.innerText = "+";
+                    if (result_spectra[i] && result_spectra[i].filename) {
+                        btn.title = "Restore: " + result_spectra[i].filename + " (Index: " + spec_idx + ")";
+                    }
                 }
+                spec_div.classList.add("spectrum-minimized-compact");
                 if (spec_div.querySelector("div")) {
-                    spec_div.querySelector("div").style.height = "1.75rem";
-                    spec_div.querySelector("div").style.overflow = "hidden";
-                    spec_div.querySelector("div").style.whiteSpace = "nowrap";
-                    spec_div.querySelector("div").style.backgroundColor = "white";
+                    spec_div.querySelector("div").style.height = "";
+                    spec_div.querySelector("div").style.overflow = "";
+                    spec_div.querySelector("div").style.whiteSpace = "";
+                    spec_div.querySelector("div").style.backgroundColor = "transparent";
                 }
             }
             continue;
@@ -4284,6 +4358,7 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
     if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
         flush_pending_pseudo3d_spectra();
     }
+    update_all_minimized_spectra_display();
 }
 
 /**
@@ -4314,6 +4389,7 @@ function draw_spectrum_from_loading() {
     if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
         flush_pending_pseudo3d_spectra();
     }
+    update_all_minimized_spectra_display();
 
     for (let k = 0; k < spectra_to_calculate.length; k++) {
         let i = spectra_to_calculate[k];
@@ -5251,6 +5327,7 @@ function remove_spectrum(index) {
 
     main_plot.redraw_contour();
     update_baseline_button_status(main_plot.current_spectral_index);
+    update_all_minimized_spectra_display();
 }
 
 
@@ -5370,18 +5447,12 @@ function refresh_cross_sections_after_phase(index) {
     const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
         && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
 
-    if (single_manual_mode) {
+    if (single_manual_mode && hsqc_spectra[index].visible !== false) {
         main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
         return;
     }
 
-    main_plot.x_cross_section_plot.clear_data();
-    main_plot.y_cross_section_plot.clear_data();
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        if (hsqc_spectra[i].spectrum_origin > -3) {
-            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
-        }
-    }
+    main_plot.show_cross_section(x_ppm, y_ppm);
 }
 
 /**
@@ -6286,6 +6357,12 @@ function set_current_spectrum(spectrum_index) {
     main_plot.current_spectral_index = spectrum_index;
     document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
     update_baseline_button_status(spectrum_index);
+    update_automatic_pc_button_status(spectrum_index);
+    if (main_plot && main_plot.b_show_cross_section) {
+        if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
+            main_plot.show_cross_section();
+        }
+    }
 }
 
 

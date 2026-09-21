@@ -485,9 +485,29 @@ class cross_section_plot {
         this.ppm_step = data0[1];
         this.ppm_size = data0[2];
 
-        for(let i=0;i<this.data.length;i++)
-        {
-            this.data_reconstructed_array[index][i][0] = ppm[i];
+        if (this.line_exp && this.data && this.data.length > 0) {
+            for (let i = 0; i < this.data.length && i < ppm.length; i++) {
+                if (this.orientation === "horizontal") {
+                    this.data[i][0] = ppm[i];
+                } else {
+                    this.data[i][1] = ppm[i];
+                }
+            }
+        }
+
+        let array_idx = this.data_reconstructed_spectra_indices.indexOf(index);
+        if (array_idx === -1 && typeof index === 'number' && index < this.data_reconstructed_array.length) {
+            array_idx = index;
+        }
+        if (array_idx !== -1 && this.data_reconstructed_array[array_idx]) {
+            let target_array = this.data_reconstructed_array[array_idx];
+            for (let i = 0; i < target_array.length && i < ppm.length; i++) {
+                if (this.orientation === "horizontal") {
+                    target_array[i][0] = ppm[i];
+                } else {
+                    target_array[i][1] = ppm[i];
+                }
+            }
         }
         this.redraw();
     }
@@ -507,6 +527,7 @@ class cross_section_plot {
             this.vis.selectAll(".line_reconstructed_"+i.toString()).remove();
             this.vis.selectAll(".line_reconstructed_g_"+i.toString()).remove();
         }
+        this.vis.selectAll("[class*='line_reconstructed_']").remove();
         this.data_reconstructed_array = [];
         this.data_reconstructed_spectra_indices = [];
     }
@@ -517,7 +538,10 @@ class cross_section_plot {
      */
     add_data(data,spectrum_index, b_skip_redraw = false) {
 
-        let data_color = hsqc_spectra[spectrum_index].spectrum_color;
+        let spectra = (this.parent_plot && this.parent_plot.local_spectra) ? this.parent_plot.local_spectra : (typeof hsqc_spectra !== 'undefined' ? hsqc_spectra : []);
+        let spec = spectra[spectrum_index];
+        let data_color = (spec && spec.spectrum_color) ? spec.spectrum_color : "#435F77";
+        let is_visible = spec ? (spec.visible !== false) : true;
 
         var self = this;
 
@@ -558,9 +582,9 @@ class cross_section_plot {
             .attr("fill", "none")
             .attr("stroke", data_color)
             /**
-             * set style.display to "none" to hide the line if hsqc_spectra[spectrum_index].visible is false
+             * set style.display to "none" to hide the line if spectrum is not visible
              */
-            .style("display", hsqc_spectra[spectrum_index].visible ? "block" : "none")
+            .style("display", is_visible ? "block" : "none")
             .attr("stroke-width", this.exp_line_width)
             .attr("d", this.line(self.data_reconstructed));
 
@@ -768,12 +792,17 @@ class cross_section_plot {
         }
         if (this.data_reconstructed_array.length > 0)
         {
+            let spectra = (this.parent_plot && this.parent_plot.local_spectra) ? this.parent_plot.local_spectra : (typeof hsqc_spectra !== 'undefined' ? hsqc_spectra : []);
             for (var i = 0; i < this.data_reconstructed_array.length; i++){
+                let spec_idx = self.data_reconstructed_spectra_indices[i];
+                let spec = spectra[spec_idx];
+                let stroke_color = (spec && spec.spectrum_color) ? spec.spectrum_color : "#435F77";
+                let is_vis = spec ? (spec.visible !== false) : true;
                 this.vis.selectAll(".line_reconstructed_"+i.toString())
                     .attr("d", this.line(this.data_reconstructed_array[i]))
-                    .style("stroke", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].spectrum_color)
+                    .style("stroke", stroke_color)
                     .style("stroke-width", self.exp_line_width)
-                    .style("display", hsqc_spectra[self.data_reconstructed_spectra_indices[i]].visible ? "block" : "none");
+                    .style("display", is_vis ? "block" : "none");
             }
         }
         this.Axis_element.call(this.Axis);

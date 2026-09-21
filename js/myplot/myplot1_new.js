@@ -1071,7 +1071,7 @@ plotit.prototype.draw = function () {
 };
 
 /**
- * Setups cross line.
+ * Setups cross line from event.
  *
  * @param {any} event - Event
  */
@@ -1084,9 +1084,6 @@ plotit.prototype.setup_cross_line = function (event) {
     /**
      * Send the cross line to other window
      */
-    /**
-     * Send the cross line to other window
-     */
     if (this.inter_window_channel) {
         this.inter_window_channel.postMessage({
             type: 'cross_line',
@@ -1096,70 +1093,149 @@ plotit.prototype.setup_cross_line = function (event) {
         });
     }
 
+    const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
+    if (cs_radio) cs_radio.checked = true;
+
+    self.show_cross_section(x_ppm, y_ppm);
+    self.sync_3d_views(true);
+};
+
+
+/**
+ * Shows cross section for visible spectra (or single spectrum in manual phase correction / reprocessing mode).
+ *
+ * @param {number} [x_ppm] - X PPM (defaults to current vline_ppm or center)
+ * @param {number} [y_ppm] - Y PPM (defaults to current hline_ppm or center)
+ */
+plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
+    let self = this;
+
+    self.b_show_cross_section = true;
+    self.b_show_projection = false;
+
+    if (x_ppm === undefined || x_ppm === null) {
+        if (self.vline_ppm !== null && self.vline_ppm !== undefined) {
+            x_ppm = self.vline_ppm;
+        } else {
+            x_ppm = (self.xscale[0] + self.xscale[1]) / 2.0;
+        }
+    }
+
+    if (y_ppm === undefined || y_ppm === null) {
+        if (self.hline_ppm !== null && self.hline_ppm !== undefined) {
+            y_ppm = self.hline_ppm;
+        } else {
+            y_ppm = (self.yscale[0] + self.yscale[1]) / 2.0;
+        }
+    }
+
+    self.vline_ppm = x_ppm;
+    self.hline_ppm = y_ppm;
+
     let spectra_source = self.local_spectra || hsqc_spectra;
     let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
     let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
     let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
     let y_ppm_end = y_ppm_start + self.y_ppm_step * self.n_indirect;
 
-    /**
-     * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
     self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-    self.$vis.selectAll(".hline").remove();
-    self.$vis.append("path")
-        .attr("class", "hline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.hline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
+    if (self.$vis) {
+        self.$vis.selectAll(".hline").remove();
+        self.$vis.append("path")
+            .attr("class", "hline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.hline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
 
-    /**
-     * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
-    self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-    self.$vis.selectAll(".vline").remove();
-    self.$vis.append("path")
-        .attr("class", "vline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.vline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
-
-    /**
-     * Keep a copy of the current hline,vline ppm values
-     */
-    self.hline_ppm = y_ppm;
-    self.vline_ppm = x_ppm;
-
-    /**
-     * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
-     */
-    // Note: Ortho plots likely don't support cross-section logic yet, 
-    // but we prevent crash by using spectra_source
-    if (self.b_show_cross_section && (spectra_source[self.current_spectral_index].spectrum_origin == -2 || spectra_source[self.current_spectral_index].spectrum_origin == -1) && (current_reprocess_spectrum_index == self.current_spectral_index || spectra_source.length == 1)) {
-        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1/**flag for phase correction */);
+        self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
+        self.$vis.selectAll(".vline").remove();
+        self.$vis.append("path")
+            .attr("class", "vline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.vline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
     }
-    /**
-     * else, show cross section of all spectra (except removed spectra)
-     * Loop through all spectra and show cross section
-     */
-    else if (self.b_show_cross_section) {
-        // Cross section plots may not be initialized for ortho views
-        if (this.x_cross_section_plot) this.x_cross_section_plot.clear_data();
-        if (this.y_cross_section_plot) this.y_cross_section_plot.clear_data();
 
-        for (let i = 0; i < spectra_source.length; i++) {
-            if (spectra_source[i].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
-            {
-                self.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+    let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
+    let is_reprocessing_active = (typeof current_reprocess_spectrum_index !== "undefined" && current_reprocess_spectrum_index !== -1 && current_reprocess_spectrum_index === self.current_spectral_index);
+    let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
+
+    if ((is_reprocessing_active || is_single_fid) && cur_spec && cur_spec.visible !== false) {
+        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1);
+        return;
+    }
+
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
+
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
+    for (let i = 0; i < spectra_source.length; i++) {
+        let spectrum = spectra_source[i];
+        if (!spectrum) continue;
+        if (spectrum.spectrum_origin > -3 && spectrum.visible !== false) {
+            let added_any = false;
+
+            // Direct dimension (horizontal, along x-axis) at row y_pos
+            let y_pos = Math.floor((y_ppm - spectrum.y_ppm_ref - spectrum.y_ppm_start) / spectrum.y_ppm_step);
+            if (y_pos >= 0 && y_pos < spectrum.n_indirect && spectrum.raw_data) {
+                let data_ppm = new Array(spectrum.n_direct);
+                for (let j = 0; j < spectrum.n_direct; j++) {
+                    data_ppm[j] = spectrum.x_ppm_start + spectrum.x_ppm_ref + j * spectrum.x_ppm_step;
+                }
+                let data_height = spectrum.raw_data.slice(y_pos * spectrum.n_direct, (y_pos + 1) * spectrum.n_direct);
+                for (let j = 0; j < data_height.length; j++) {
+                    let v = data_height[j];
+                    if (v > direct_max) direct_max = v;
+                    if (v < direct_min) direct_min = v;
+                }
+                if (self.x_cross_section_plot) {
+                    self.x_cross_section_plot.add_data([data_ppm, data_height], i, true);
+                    added_any = true;
+                }
+            }
+
+            // Indirect dimension (vertical, along y-axis) at col x_pos
+            let x_pos = Math.floor((x_ppm - spectrum.x_ppm_ref - spectrum.x_ppm_start) / spectrum.x_ppm_step);
+            if (x_pos >= 0 && x_pos < spectrum.n_direct && spectrum.raw_data) {
+                let data_ppm2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    data_ppm2[j] = spectrum.y_ppm_start + spectrum.y_ppm_ref + j * spectrum.y_ppm_step;
+                }
+                let data_height2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    let v = spectrum.raw_data[j * spectrum.n_direct + x_pos];
+                    data_height2[j] = v;
+                    if (v > indirect_max) indirect_max = v;
+                    if (v < indirect_min) indirect_min = v;
+                }
+                if (self.y_cross_section_plot) {
+                    self.y_cross_section_plot.add_data([data_ppm2, data_height2], i, true);
+                    added_any = true;
+                }
+            }
+
+            if (added_any) {
+                visible_count++;
             }
         }
     }
 
-    self.sync_3d_views(true);
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
+    }
 };
 
 
@@ -1173,6 +1249,9 @@ plotit.prototype.setup_cross_line = function (event) {
  */
 plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction) {
     let self = this;
+    if (spectrum_index === undefined || !flag_manual_phase_correction) {
+        return self.show_cross_section(x_ppm, y_ppm);
+    }
     let spectra_source = self.local_spectra || hsqc_spectra;
     let spectrum = spectra_source[spectrum_index];
 
@@ -1201,7 +1280,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
         /**
          * if y_pos is out of range, do nothing and return
          */
-        if (y_pos > 0 && y_pos < spectrum.n_indirect) {
+        if (y_pos >= 0 && y_pos < spectrum.n_indirect) {
             /**
              * Get ppm values for the data
              */
@@ -1235,6 +1314,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_x
              */
@@ -1273,9 +1354,6 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
          * if x_pos is out of range, do nothing and return
          */
         if (x_pos >= 0 && x_pos < spectrum.n_direct) {
-            // ... (rest of logic handles indirect dim which assumes column extraction)
-            // I'll update the rest in the next block if needed, but for now this chunk covers Direct dim logic
-
             /**
              * Get ppm values for the data
              */
@@ -1314,6 +1392,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_y
              */
@@ -1330,7 +1410,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             }
         }
     } //end of show cross section
-} //end of cross section
+}; //end of cross section
 
 /**
  * Gets phase correction.
@@ -1352,12 +1432,13 @@ plotit.prototype.show_projection = function () {
     let self = this;
 
     self.b_show_projection = true;
+    self.b_show_cross_section = false;
 
     /**
      * Clear the cross section plot
      */
-    self.x_cross_section_plot.clear_data();
-    self.y_cross_section_plot.clear_data();
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
 
     let direct_min = Infinity;
     let direct_max = -Infinity;
@@ -1365,45 +1446,51 @@ plotit.prototype.show_projection = function () {
     let indirect_max = -Infinity;
     let visible_count = 0;
 
+    let spectra_source = self.local_spectra || hsqc_spectra;
+
     /**
      * Loop all spectrum, except unknown, removed and invisible
      */
-    for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++) {
-        if (hsqc_spectra[spe_index].spectrum_origin > -3 && hsqc_spectra[spe_index].visible !== false) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
+    for (let spe_index = 0; spe_index < spectra_source.length; spe_index++) {
+        let spec = spectra_source[spe_index];
+        if (!spec) continue;
+        if (spec.spectrum_origin > -3 && spec.visible !== false) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
         {
             visible_count++;
-            if (hsqc_spectra[spe_index].projection_direct_min < direct_min) direct_min = hsqc_spectra[spe_index].projection_direct_min;
-            if (hsqc_spectra[spe_index].projection_direct_max > direct_max) direct_max = hsqc_spectra[spe_index].projection_direct_max;
-            if (hsqc_spectra[spe_index].projection_indirect_min < indirect_min) indirect_min = hsqc_spectra[spe_index].projection_indirect_min;
-            if (hsqc_spectra[spe_index].projection_indirect_max > indirect_max) indirect_max = hsqc_spectra[spe_index].projection_indirect_max;
+            if (spec.projection_direct_min < direct_min) direct_min = spec.projection_direct_min;
+            if (spec.projection_direct_max > direct_max) direct_max = spec.projection_direct_max;
+            if (spec.projection_indirect_min < indirect_min) indirect_min = spec.projection_indirect_min;
+            if (spec.projection_indirect_max > indirect_max) indirect_max = spec.projection_indirect_max;
 
             /**
              * data is an array of 2 numbers, [x_ppm, x_height]
              */
-            let ppm = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
+            let ppm = new Array(spec.n_direct);
+            for (let i = 0; i < spec.n_direct; i++) {
+                ppm[i] = spec.x_ppm_start + spec.x_ppm_ref + i * spec.x_ppm_step;
             }
-            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index, true);
+            if (self.x_cross_section_plot) self.x_cross_section_plot.add_data([ppm, spec.projection_direct], spe_index, true);
 
 
             /**
              * data2 is an array of 2 numbers, [y_height,y_ppm]
              */
-            let ppm2 = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
+            let ppm2 = new Array(spec.n_indirect);
+            for (let i = 0; i < spec.n_indirect; i++) {
+                ppm2[i] = spec.y_ppm_start + spec.y_ppm_ref + i * spec.y_ppm_step;
             }
-            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index, true);
+            if (self.y_cross_section_plot) self.y_cross_section_plot.add_data([ppm2, spec.projection_indirect], spe_index, true);
         }
     }
 
     if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
-        self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
-        self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
     } else {
-        self.x_cross_section_plot.redraw();
-        self.y_cross_section_plot.redraw();
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
     }
 }
 
