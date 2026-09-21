@@ -6,7 +6,7 @@
         {
             postMessage({remove_spectrum: e.data.remove_spectrum});
         }
-        else if(e.data.spectrum.levels.length === 0)
+        else if(!e.data.spectrum || !e.data.spectrum.levels || e.data.spectrum.levels.length === 0)
         {
             /**
              * if levels are empty, we received an empty spectrum
