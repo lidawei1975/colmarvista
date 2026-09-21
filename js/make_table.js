@@ -12,7 +12,6 @@ function createTable_from_peak(peak, table) {
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
 
-
     const thead = document.createElement("thead");
     const tbody = document.createElement("tbody");
     const thead_row = document.createElement("tr");
@@ -22,61 +21,289 @@ function createTable_from_peak(peak, table) {
     /**
      * Create table headers from the peak.column_headers array
      * 1. Keep the index of the column_headers of "ASS"
-     * 2. Keep a array of all selected column headers (exclude X1,X3,Y1,Y3,POINTER)
+     * 2. Keep an array of all selected column headers (exclude X1,X3,Y1,Y3,POINTER)
+     * 3. Group all headers starting with "Z_A" into a scrollable container limited to 5 columns
      */
-    const excluded_headers = ["X1", "X3", "Y1", "Y3", "POINTER",'DHEIGHT','X_AXIS','Y_AXIS','CLUSTID']; // Headers to exclude
+    const excluded_headers = ["X1", "X3", "Y1", "Y3", "POINTER", 'DHEIGHT', 'X_AXIS', 'Y_AXIS', 'CLUSTID'];
     let selected_headers = [];
-    const headers = peak.column_headers; //an array of strings
+    let za_headers = [];
+    const headers = peak.column_headers;
     let ass_index;
-    headers.forEach((headerText,ndx) => {
 
-        if(excluded_headers.includes(headerText) === false)
-        {
-            const header = document.createElement("th");
-            header.textContent = headerText;
-            thead_row.appendChild(header);
-            if(headerText ==="ASS")
-            {
-                ass_index = ndx;
+    headers.forEach((headerText, ndx) => {
+        if (excluded_headers.includes(headerText) === false) {
+            if (headerText.startsWith("Z_A")) {
+                za_headers.push({ headerText: headerText, index: ndx });
+            } else {
+                const header = document.createElement("th");
+                header.textContent = headerText;
+                thead_row.appendChild(header);
+                if (headerText === "ASS") {
+                    ass_index = ndx;
+                }
+                selected_headers.push(ndx);
             }
-            selected_headers.push(ndx);
         }
     });
+
+    let headerScroll = null;
+    const za_col_width = 80;
+
+    // If there are Z_A headers, create the grouped scrollable Z_A header cell
+    if (za_headers.length > 0) {
+        const za_th = document.createElement("th");
+        za_th.setAttribute("data-sort-method", "none");
+        za_th.style.padding = "0";
+        za_th.style.verticalAlign = "top";
+        za_th.style.backgroundColor = "rgb(228, 240, 245)";
+        za_th.style.border = "1px solid rgb(160, 160, 160)";
+
+        const visible_count = Math.min(5, za_headers.length);
+        const container_width = visible_count * za_col_width;
+
+        const za_top_bar = document.createElement("div");
+        za_top_bar.style.display = "flex";
+        za_top_bar.style.justifyContent = "space-between";
+        za_top_bar.style.alignItems = "center";
+        za_top_bar.style.padding = "3px 6px";
+        za_top_bar.style.backgroundColor = "rgb(210, 225, 235)";
+        za_top_bar.style.borderBottom = "1px solid rgb(160, 160, 160)";
+        za_top_bar.style.fontSize = "11px";
+        za_top_bar.style.fontWeight = "bold";
+
+        const infoSpan = document.createElement("span");
+        infoSpan.className = "za_scroll_info";
+        infoSpan.style.whiteSpace = "nowrap";
+        infoSpan.textContent = "Z_A Planes (1–" + visible_count + " of " + za_headers.length + ")";
+
+        const prevBtn = document.createElement("button");
+        prevBtn.type = "button";
+        prevBtn.textContent = "◀";
+        prevBtn.title = "Previous 5 planes";
+        prevBtn.style.cursor = "pointer";
+        prevBtn.style.padding = "1px 6px";
+        prevBtn.style.fontSize = "10px";
+        prevBtn.style.lineHeight = "14px";
+        prevBtn.style.borderRadius = "3px";
+        prevBtn.style.border = "1px solid #999";
+
+        const nextBtn = document.createElement("button");
+        nextBtn.type = "button";
+        nextBtn.textContent = "▶";
+        nextBtn.title = "Next 5 planes";
+        nextBtn.style.cursor = "pointer";
+        nextBtn.style.padding = "1px 6px";
+        nextBtn.style.fontSize = "10px";
+        nextBtn.style.lineHeight = "14px";
+        nextBtn.style.borderRadius = "3px";
+        nextBtn.style.border = "1px solid #999";
+
+        if (za_headers.length > 5) {
+            za_top_bar.appendChild(prevBtn);
+            za_top_bar.appendChild(infoSpan);
+            za_top_bar.appendChild(nextBtn);
+        } else {
+            infoSpan.textContent = "Z_A Planes (" + za_headers.length + ")";
+            za_top_bar.style.justifyContent = "center";
+            za_top_bar.appendChild(infoSpan);
+        }
+
+        headerScroll = document.createElement("div");
+        headerScroll.className = "za_header_scroll";
+        headerScroll.style.display = "flex";
+        headerScroll.style.overflowX = za_headers.length > 5 ? "auto" : "hidden";
+        headerScroll.style.overflowY = "hidden";
+        headerScroll.style.width = container_width + "px";
+        headerScroll.style.maxWidth = container_width + "px";
+        headerScroll.style.boxSizing = "border-box";
+        headerScroll.style.scrollbarWidth = "thin";
+
+        const headerTrack = document.createElement("div");
+        headerTrack.style.display = "flex";
+        headerTrack.style.width = (za_headers.length * za_col_width) + "px";
+
+        za_headers.forEach((h, idx) => {
+            const headCell = document.createElement("div");
+            headCell.textContent = h.headerText;
+            headCell.title = "Click to sort by " + h.headerText;
+            headCell.style.width = za_col_width + "px";
+            headCell.style.minWidth = za_col_width + "px";
+            headCell.style.flexShrink = "0";
+            headCell.style.textAlign = "center";
+            headCell.style.padding = "6px 2px";
+            headCell.style.fontWeight = "bold";
+            headCell.style.borderRight = idx < za_headers.length - 1 ? "1px solid rgb(180, 180, 180)" : "none";
+            headCell.style.boxSizing = "border-box";
+            headCell.style.cursor = "pointer";
+            headCell.style.userSelect = "none";
+
+            headCell.addEventListener("click", (e) => {
+                e.stopPropagation();
+                sortRowsByZaIndex(table, h.index, idx);
+            });
+            headerTrack.appendChild(headCell);
+        });
+
+        headerScroll.appendChild(headerTrack);
+
+        const za_header_wrapper = document.createElement("div");
+        za_header_wrapper.style.width = container_width + "px";
+        za_header_wrapper.style.maxWidth = container_width + "px";
+        za_header_wrapper.style.boxSizing = "border-box";
+        za_header_wrapper.appendChild(za_top_bar);
+        za_header_wrapper.appendChild(headerScroll);
+        za_th.appendChild(za_header_wrapper);
+        thead_row.appendChild(za_th);
+
+        if (za_headers.length > 5) {
+            prevBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                headerScroll.scrollBy({ left: -za_col_width * 5, behavior: "smooth" });
+            });
+
+            nextBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                headerScroll.scrollBy({ left: za_col_width * 5, behavior: "smooth" });
+            });
+
+            headerScroll.addEventListener("scroll", () => {
+                const scrollLeft = headerScroll.scrollLeft;
+                const rows = tbody.querySelectorAll(".za_row_scroll");
+                for (let k = 0; k < rows.length; k++) {
+                    rows[k].scrollLeft = scrollLeft;
+                }
+                const start = Math.floor(scrollLeft / za_col_width) + 1;
+                const end = Math.min(start + 4, za_headers.length);
+                infoSpan.textContent = "Z_A Planes (" + start + "–" + end + " of " + za_headers.length + ")";
+            }, { passive: true });
+        }
+    }
+
     thead.appendChild(thead_row);
 
     /**
      * Create table rows from the peak.columns array
-     * One column in the peak.columns array corresponds to one column in the table
-     * That is, we need to transpose the peak.columns array
      */
     const num_rows = peak.columns[0].length;
+    const visible_count = Math.min(5, za_headers.length);
+    const container_width = visible_count * za_col_width;
+
     for (let i = 0; i < num_rows; i++) {
         const row = document.createElement("tr");
-        for(let j=0;j<selected_headers.length;j++)
-        {
+
+        // Standard non-Z_A columns
+        for (let j = 0; j < selected_headers.length; j++) {
             const cell = document.createElement("td");
-
-            /**
-             * We will format the value using format
-             */
-            let text = peak.format_value(peak.columns[selected_headers[j]][i],peak.column_formats[selected_headers[j]]);
-
+            let text = peak.format_value(peak.columns[selected_headers[j]][i], peak.column_formats[selected_headers[j]]);
             cell.textContent = text;
-            /**
-             * For the column of "ASS", add a class property to it. 
-             */
-            if(selected_headers[j] == ass_index)
-            {
-                cell.classList.add("editable_cell"); 
+            if (selected_headers[j] === ass_index) {
+                cell.classList.add("editable_cell");
             }
             row.appendChild(cell);
-        };
+        }
+
+        // Z_A grouped columns
+        if (za_headers.length > 0) {
+            const za_td = document.createElement("td");
+            za_td.style.padding = "0";
+            za_td.style.verticalAlign = "middle";
+            za_td.style.border = "1px solid rgb(160, 160, 160)";
+
+            const rowScroll = document.createElement("div");
+            rowScroll.className = "za_row_scroll";
+            rowScroll.style.display = "flex";
+            rowScroll.style.overflowX = "hidden";
+            rowScroll.style.overflowY = "hidden";
+            rowScroll.style.width = container_width + "px";
+            rowScroll.style.maxWidth = container_width + "px";
+            rowScroll.style.boxSizing = "border-box";
+
+            const rowTrack = document.createElement("div");
+            rowTrack.style.display = "flex";
+            rowTrack.style.width = (za_headers.length * za_col_width) + "px";
+
+            za_headers.forEach((h, idx) => {
+                const valCell = document.createElement("div");
+                const valText = peak.format_value(peak.columns[h.index][i], peak.column_formats[h.index]);
+                valCell.textContent = valText;
+                valCell.style.width = za_col_width + "px";
+                valCell.style.minWidth = za_col_width + "px";
+                valCell.style.flexShrink = "0";
+                valCell.style.textAlign = "right";
+                valCell.style.padding = "8px 8px";
+                valCell.style.borderRight = idx < za_headers.length - 1 ? "1px solid rgb(220, 220, 220)" : "none";
+                valCell.style.boxSizing = "border-box";
+                valCell.style.whiteSpace = "nowrap";
+                valCell.style.overflow = "hidden";
+                valCell.style.textOverflow = "ellipsis";
+                rowTrack.appendChild(valCell);
+            });
+
+            rowScroll.appendChild(rowTrack);
+            za_td.appendChild(rowScroll);
+            row.appendChild(za_td);
+        }
+
         tbody.appendChild(row);
     }
-   
+
     table.appendChild(thead);
     table.appendChild(tbody);
-};
+
+    // Keep horizontal scroll synchronized when Tablesort or other mechanisms reorder rows
+    if (za_headers.length > 5 && headerScroll) {
+        table.addEventListener("afterSort", () => {
+            const scrollLeft = headerScroll.scrollLeft;
+            const rows = tbody.querySelectorAll(".za_row_scroll");
+            for (let k = 0; k < rows.length; k++) {
+                rows[k].scrollLeft = scrollLeft;
+            }
+        });
+
+        // Also allow horizontal mouse wheel scrolling over tbody rows
+        tbody.addEventListener("wheel", (e) => {
+            if (e.target && e.target.closest && e.target.closest(".za_row_scroll")) {
+                if (e.deltaX !== 0 || e.shiftKey) {
+                    e.preventDefault();
+                    const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+                    headerScroll.scrollLeft += delta;
+                }
+            }
+        }, { passive: false });
+    }
+}
+
+function sortRowsByZaIndex(table, colIndex, zaSubIndex) {
+    const tbody = table.getElementsByTagName("tbody")[0];
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    if (rows.length < 2) return;
+
+    const currentOrder = table.getAttribute("data-za-sort-" + colIndex);
+    const newOrder = currentOrder === "asc" ? "desc" : "asc";
+    table.setAttribute("data-za-sort-" + colIndex, newOrder);
+
+    rows.sort((a, b) => {
+        const valCellA = a.querySelector(".za_row_scroll > div > div:nth-child(" + (zaSubIndex + 1) + ")");
+        const valCellB = b.querySelector(".za_row_scroll > div > div:nth-child(" + (zaSubIndex + 1) + ")");
+        const valA = parseFloat(valCellA ? valCellA.textContent : "0") || 0;
+        const valB = parseFloat(valCellB ? valCellB.textContent : "0") || 0;
+        return newOrder === "asc" ? valA - valB : valB - valA;
+    });
+
+    rows.forEach(r => tbody.appendChild(r));
+
+    const headerScroll = table.querySelector(".za_header_scroll");
+    if (headerScroll) {
+        const scrollLeft = headerScroll.scrollLeft;
+        const rowScrolls = tbody.querySelectorAll(".za_row_scroll");
+        for (let k = 0; k < rowScrolls.length; k++) {
+            rowScrolls[k].scrollLeft = scrollLeft;
+        }
+    }
+}
 
 function scrollToTableRow(tableId, rowIndex) {
     const table = document.getElementById(tableId);
