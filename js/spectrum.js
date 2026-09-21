@@ -205,6 +205,9 @@ class spectrum {
 
         this.spectrum_index = -1; //index of the spectrum in the hsqc_spectra array. integer and >=0
 
+        this.parent = null; // index of parent spectrum (for pseudo-3D children or reconstructed spectra)
+        this.pseudo3d_children = []; // array of child indices for pseudo-3D first plane
+
         /**
          * Default median sigmax, sigmay, gammax, gammay
          */

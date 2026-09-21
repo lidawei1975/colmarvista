@@ -2126,11 +2126,53 @@ function minimize_file_area(self) {
 }
 
 
+/**
+ * Returns the index of the first plane (parent) for pseudo-3D spectra.
+ * If the spectrum is not part of a pseudo-3D dataset, returns the given index.
+ */
+function get_pseudo3d_first_spectrum_index(index) {
+    if (index === null || index === undefined || index < 0 || typeof hsqc_spectra === "undefined" || index >= hsqc_spectra.length || !hsqc_spectra[index]) {
+        return index;
+    }
+    const s = hsqc_spectra[index];
+    // Check explicit parent reference
+    if (typeof s.parent === "number" && s.parent >= 0 && s.parent < hsqc_spectra.length) {
+        if (s.spectrum_origin >= 10000 || (hsqc_spectra[s.parent] && hsqc_spectra[s.parent].pseudo3d_children && hsqc_spectra[s.parent].pseudo3d_children.length > 0)) {
+            return s.parent;
+        }
+    }
+    // Check spectrum_origin (>= 10000 means pseudo-3D plane, first plane is origin - 10000)
+    if (s.spectrum_origin >= 10000) {
+        return s.spectrum_origin - 10000;
+    }
+    // If it has children, it is the 1st plane
+    if (s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+        return index;
+    }
+    return index;
+}
+
+/**
+ * Checks if a spectrum belongs to a pseudo-3D dataset (either 1st plane or a child plane).
+ */
+function is_pseudo3d_spectrum(index) {
+    if (index === null || index === undefined || index < 0 || typeof hsqc_spectra === "undefined" || index >= hsqc_spectra.length || !hsqc_spectra[index]) {
+        return false;
+    }
+    const s = hsqc_spectra[index];
+    if (s.spectrum_origin >= 10000) return true;
+    if (s.pseudo3d_children && s.pseudo3d_children.length > 0) return true;
+    if (typeof s.parent === "number" && s.parent >= 0 && s.parent < hsqc_spectra.length) {
+        const p = hsqc_spectra[s.parent];
+        if (p && p.pseudo3d_children && p.pseudo3d_children.length > 0) return true;
+    }
+    return false;
+}
+
 function is_pseudo3d_sixth_or_later(index) {
     if (!hsqc_spectra[index]) return false;
-    let s = hsqc_spectra[index];
-    if (s.spectrum_origin >= 10000) {
-        let parent_index = s.spectrum_origin - 10000;
+    let parent_index = get_pseudo3d_first_spectrum_index(index);
+    if (parent_index !== index && hsqc_spectra[parent_index]) {
         let parent = hsqc_spectra[parent_index];
         if (parent && parent.pseudo3d_children) {
             let child_idx = parent.pseudo3d_children.indexOf(index);
@@ -2428,11 +2470,15 @@ function add_to_list(index) {
         span_for_index.appendChild(original_index_node);
         new_spectrum_div.appendChild(span_for_index);
         /**
-         * make this one the default selected spectrum only if not default collapsed
+         * Make this one the default selected spectrum only if not default collapsed,
+         * and for pseudo-3D datasets, always keep the 1st one as current.
          */
-        if (!b_collapsed) {
-            if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+        let is_p3d = is_pseudo3d_spectrum(index);
+        let p3d_first_index = get_pseudo3d_first_spectrum_index(index);
+        let is_p3d_child = is_p3d && (index !== p3d_first_index);
 
+        if (!b_collapsed && !is_p3d_child) {
+            if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
                 let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
                 if (current_spectrum_div) {
                     current_spectrum_div.querySelector("div").style.backgroundColor = "white";
@@ -2448,22 +2494,18 @@ function add_to_list(index) {
         }
         else {
             new_spectrum_div.style.backgroundColor = "white";
+            // For pseudo-3D children, ensure the 1st plane is kept as current
+            if (is_p3d_child && (main_plot.current_spectral_index === -1 || !hsqc_spectra[main_plot.current_spectral_index])) {
+                set_current_spectrum(p3d_first_index);
+            }
         }
 
-
         /**
-         * Add a onclick function to the new spectrum div to set the current spectrum index
+         * Add a onclick function to the new spectrum div to set the current spectrum index.
+         * For pseudo-3D, set_current_spectrum will always resolve to and keep the 1st plane as current.
          */
         span_for_index.onclick = function () {
-            /**
-             * Un-highlight the current spectrum in the list
-             */
             set_current_spectrum(index);
-            /**
-             * If this new spectrum has no imaginary part, disable auto phase correction button
-             */
-            update_automatic_pc_button_status(index);
-            update_baseline_button_status(index);
         }
         /**
          * Add filename as a text node
@@ -4148,6 +4190,8 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
          */
         spectrum_index = hsqc_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
+        result_spectra[0].parent = (result_spectra[0].spectrum_origin >= 0) ? result_spectra[0].spectrum_origin : spectrum_index;
+        result_spectra[0].pseudo3d_children = [];
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
         hsqc_spectra.push(result_spectra[0]);
@@ -4178,9 +4222,13 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 result_spectra[i].fid_process_parameters = fid_process_parameters;
                 first_spectrum_index = result_spectra[i].spectrum_index;
                 result_spectra[i].spectrum_origin = -2; //from fid
+                result_spectra[i].parent = first_spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
             }
             else {
                 result_spectra[i].spectrum_origin = 10000 + first_spectrum_index;
+                result_spectra[i].parent = first_spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 hsqc_spectra[first_spectrum_index].pseudo3d_children.push(result_spectra[i].spectrum_index);
             }
 
@@ -4193,6 +4241,10 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
          * Also, update the fid_process_parameters
          */
         spectrum_index = result_spectra[0].spectrum_index;
+        result_spectra[0].parent = spectrum_index;
+        if (!result_spectra[0].pseudo3d_children) {
+            result_spectra[0].pseudo3d_children = pseudo3d_children || [];
+        }
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
@@ -4226,6 +4278,8 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 let new_spectrum_index = pseudo3d_children[i - 1];
                 result_spectra[i].spectrum_index = new_spectrum_index;
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
+                result_spectra[i].parent = spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 /**
                  * Copy previous colors
                  */
@@ -4251,6 +4305,8 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index * 2) % color_list.length]);
                 result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index * 2 + 1) % color_list.length]);
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
+                result_spectra[i].parent = spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 hsqc_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
                 hsqc_spectra.push(result_spectra[i]);
             }
@@ -6065,6 +6121,22 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 }
             }
         }
+
+        // Ensure parent and pseudo3d_children are properly tracked
+        if (typeof hsqc_spectra[i].parent === "undefined" || hsqc_spectra[i].parent === null) {
+            if (hsqc_spectra[i].spectrum_origin >= 10000) {
+                hsqc_spectra[i].parent = hsqc_spectra[i].spectrum_origin - 10000;
+            } else if (hsqc_spectra[i].pseudo3d_children && hsqc_spectra[i].pseudo3d_children.length > 0) {
+                hsqc_spectra[i].parent = i;
+            } else if (hsqc_spectra[i].spectrum_origin >= 0) {
+                hsqc_spectra[i].parent = hsqc_spectra[i].spectrum_origin;
+            } else {
+                hsqc_spectra[i].parent = i;
+            }
+        }
+        if (!hsqc_spectra[i].pseudo3d_children) {
+            hsqc_spectra[i].pseudo3d_children = [];
+        }
     }
 
     /**
@@ -6348,16 +6420,66 @@ function search_peak() {
     }
 };
 
+/**
+ * ============================================================================
+ * CURRENT (ACTIVE / HIGHLIGHTED) SPECTRUM MANAGEMENT
+ * ============================================================================
+ * In the 2D spectral list, one spectrum is designated as the "current"
+ * spectrum (tracked via main_plot.current_spectral_index and visually highlighted
+ * with a light blue background).
+ *
+ * 1. Purpose of the "Current" Spectrum:
+ *    - Targets global/top toolbar actions:
+ *      * Baseline Correction: 'Apply Baseline Correction' (apply_baseline_correction())
+ *        operates on main_plot.current_spectral_index.
+ *      * Phase Correction: Top-level manual phasing and 'Automated PC'
+ *        (run_phase_correction()) operate on main_plot.current_spectral_index.
+ *      * Button state synchronization: update_baseline_button_status() and
+ *        update_automatic_pc_button_status() enable or disable the top toolbar
+ *        buttons based on whether the current spectrum has FID parameters/imaginary data.
+ *      * FID Reprocessing: Tracks the active FID data being adjusted.
+ *
+ * 2. What it does NOT control:
+ *    - Contour rendering, peak picking (DEEP / Simple Picker), Voigt fitting,
+ *      and peak table downloads operate on their own respective spectrum indices.
+ *    - 2D contour display and 1D cross section / projection render all visible
+ *      (non-collapsed) spectra independently of which spectrum is current.
+ *
+ * 3. Pseudo-3D Rule:
+ *    - For pseudo-3D datasets, all planes share the FID parameters, phase, and
+ *      processing origin of the first plane.
+ *    - Each spectrum keeps track of its parent (via .parent property and
+ *      spectrum_origin >= 10000), and the first plane keeps track of its child
+ *      planes (via .pseudo3d_children).
+ *    - Therefore, for pseudo-3D datasets, the first plane is ALWAYS kept as the
+ *      current spectrum. Child planes cannot become current; any attempt to set a
+ *      child plane as current resolves to its first plane.
+ * ============================================================================
+ */
 function set_current_spectrum(spectrum_index) {
+    if (spectrum_index === null || spectrum_index === undefined) return;
+
+    // For pseudo-3D datasets, always resolve to and keep the 1st plane as current
+    let target_index = get_pseudo3d_first_spectrum_index(spectrum_index);
+    if (target_index === undefined || target_index === null || target_index < 0 || target_index >= hsqc_spectra.length) {
+        target_index = spectrum_index;
+    }
+
     if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
-        if (main_plot.current_spectral_index !== spectrum_index) {
-            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+        if (main_plot.current_spectral_index !== target_index) {
+            let prev_el = document.getElementById("spectrum-" + main_plot.current_spectral_index);
+            if (prev_el && prev_el.querySelector("div")) {
+                prev_el.querySelector("div").style.backgroundColor = "white";
+            }
         }
     }
-    main_plot.current_spectral_index = spectrum_index;
-    document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
-    update_baseline_button_status(spectrum_index);
-    update_automatic_pc_button_status(spectrum_index);
+    main_plot.current_spectral_index = target_index;
+    let target_el = document.getElementById("spectrum-" + target_index);
+    if (target_el && target_el.querySelector("div")) {
+        target_el.querySelector("div").style.backgroundColor = "lightblue";
+    }
+    update_baseline_button_status(target_index);
+    update_automatic_pc_button_status(target_index);
     if (main_plot && main_plot.b_show_cross_section) {
         if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
             main_plot.show_cross_section();
