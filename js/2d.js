@@ -67,6 +67,8 @@ var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
 var pending_pseudo3d_uncalculated_spectra = []; // pseudo 3D spectra indices (6th onwards) whose contour calculation is deferred
 var last_calculated_spectrum_index = -1; // track last spectrum sent to contour worker in a batch
+var baseline_correction_batch_total = 0;
+var baseline_correction_batch_completed = 0;
 
 /**
  * For FID re-processing. Saved file data
@@ -1417,6 +1419,9 @@ function handle_webassembly_worker_message(e) {
                 result_spectrum.scale2 = s.scale2;
                 result_spectrum.fid_process_parameters = s.fid_process_parameters;
                 result_spectrum.pseudo3d_children = s.pseudo3d_children;
+                result_spectrum.parent = s.parent;
+                result_spectrum.default_collapsed = s.default_collapsed;
+                result_spectrum.contour_calculated = s.contour_calculated;
                 result_spectrum.reconstructed_indices = s.reconstructed_indices;
 
                 hsqc_spectra[spectrum_index] = result_spectrum;
@@ -1433,13 +1438,37 @@ function handle_webassembly_worker_message(e) {
                 // Restore peak/fitted peak buttons to correct enabled/disabled status
                 restore_spectrum_buttons_status(spectrum_index);
 
-                document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
-                clear_webassembly_message_after_delay(5000);
+                baseline_correction_batch_completed++;
+                if (baseline_correction_batch_total > 1) {
+                    if (baseline_correction_batch_completed < baseline_correction_batch_total) {
+                        document.getElementById("webassembly_message").innerText =
+                            "Applying baseline correction: " + baseline_correction_batch_completed + " of " + baseline_correction_batch_total + " planes complete...";
+                    } else {
+                        document.getElementById("webassembly_message").innerText =
+                            "Baseline correction complete for all " + baseline_correction_batch_total + " planes!";
+                        clear_webassembly_message_after_delay(5000);
+                        baseline_correction_batch_total = 0;
+                        baseline_correction_batch_completed = 0;
+                        update_baseline_button_status(main_plot.current_spectral_index);
+                    }
+                } else {
+                    document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
+                    clear_webassembly_message_after_delay(5000);
+                    baseline_correction_batch_total = 0;
+                    baseline_correction_batch_completed = 0;
+                    update_baseline_button_status(main_plot.current_spectral_index);
+                }
             } catch (err) {
                 console.error('[baseline_correction] Failed to process:', err);
                 document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
                 // Restore buttons on failure as well
                 restore_spectrum_buttons_status(spectrum_index);
+                baseline_correction_batch_completed++;
+                if (baseline_correction_batch_completed >= baseline_correction_batch_total) {
+                    baseline_correction_batch_total = 0;
+                    baseline_correction_batch_completed = 0;
+                    update_baseline_button_status(main_plot.current_spectral_index);
+                }
             }
         }
     }
@@ -5469,6 +5498,7 @@ function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
 
 function refresh_contours_for_spectrum(index) {
     const s = hsqc_spectra[index];
+    if (!s || s.contour_calculated === false) return;
     let spectrum_information = {
         n_direct: s.n_direct,
         n_indirect: s.n_indirect,
@@ -5740,12 +5770,24 @@ async function apply_current_pc_or_auto_pc(flag) {
      * Run webass worker to apply phase correction.
      * First, pass the spectrum as a file. 
      */
-    let index = main_plot.current_spectral_index;
+    let index = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
 
     // Manual phase correction is fast enough to run on main thread.
     if (flag == 0) {
         apply_phase_correction_in_place(hsqc_spectra[index], current_ps);
         refresh_contours_for_spectrum(index);
+
+        const s = hsqc_spectra[index];
+        if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+            for (let i = 0; i < s.pseudo3d_children.length; i++) {
+                const child_idx = s.pseudo3d_children[i];
+                if (hsqc_spectra[child_idx]) {
+                    apply_phase_correction_in_place(hsqc_spectra[child_idx], current_ps);
+                    refresh_contours_for_spectrum(child_idx);
+                }
+            }
+        }
+
         refresh_cross_sections_after_phase(index);
         document.getElementById("webassembly_message").innerText = "";
         return;
@@ -5759,7 +5801,7 @@ async function apply_current_pc_or_auto_pc(flag) {
         const phases = await run_ann_phase_correction_for_spectrum(hsqc_spectra[index]);
         if (phases) {
             const s = hsqc_spectra[index];
-            if (s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+            if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
                 for (let i = 0; i < s.pseudo3d_children.length; i++) {
                     const child_idx = s.pseudo3d_children[i];
                     if (hsqc_spectra[child_idx]) {
@@ -6451,9 +6493,10 @@ function search_peak() {
  *    - Each spectrum keeps track of its parent (via .parent property and
  *      spectrum_origin >= 10000), and the first plane keeps track of its child
  *      planes (via .pseudo3d_children).
- *    - Therefore, for pseudo-3D datasets, the first plane is ALWAYS kept as the
- *      current spectrum. Child planes cannot become current; any attempt to set a
- *      child plane as current resolves to its first plane.
+ *    - The first plane is ALWAYS kept as the current spectrum. Child planes cannot
+ *      become current; any attempt to set a child plane as current resolves to its first plane.
+ *    - When running baseline correction or applying manual/automated phase correction,
+ *      the operation is automatically applied across ALL planes of the pseudo-3D dataset.
  * ============================================================================
  */
 function set_current_spectrum(spectrum_index) {
@@ -6699,13 +6742,34 @@ function toggle_baseline_order_visibility() {
 function update_baseline_button_status(index) {
     const btn = document.getElementById("button_apply_baseline");
     if (!btn) return;
+    if (baseline_correction_batch_total > 0 && baseline_correction_batch_completed < baseline_correction_batch_total) {
+        btn.disabled = true;
+        return;
+    }
     btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
 }
 
 async function apply_baseline_correction() {
-    const index = main_plot.current_spectral_index;
+    const index = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
     if (index === -1 || !hsqc_spectra[index]) {
         console.error("No active spectrum to apply baseline correction.");
+        return;
+    }
+
+    const s = hsqc_spectra[index];
+    const target_indices = [index];
+    if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+        for (let i = 0; i < s.pseudo3d_children.length; i++) {
+            const child_idx = s.pseudo3d_children[i];
+            if (hsqc_spectra[child_idx]) {
+                target_indices.push(child_idx);
+            }
+        }
+    }
+
+    const valid_indices = target_indices.filter(idx => hsqc_spectra[idx] && hsqc_spectra[idx].raw_data && hsqc_spectra[idx].raw_data.length > 0);
+    if (valid_indices.length === 0) {
+        console.error("No valid spectra data to apply baseline correction.");
         return;
     }
 
@@ -6722,26 +6786,34 @@ async function apply_baseline_correction() {
         return;
     }
 
-    document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+    const is_multi_plane = valid_indices.length > 1;
+    document.getElementById("webassembly_message").innerText = is_multi_plane
+        ? "Applying baseline correction to all " + valid_indices.length + " planes, please wait..."
+        : "Applying baseline correction, please wait...";
 
-    // Disable peak/fitting buttons during baseline correction
-    disable_enable_peak_buttons(index, 0);
-    disable_enable_fitted_peak_buttons(index, 0);
+    const btn = document.getElementById("button_apply_baseline");
+    if (btn) btn.disabled = true;
 
-    const s = hsqc_spectra[index];
+    baseline_correction_batch_total = valid_indices.length;
+    baseline_correction_batch_completed = 0;
 
-    // Reconstruct the nmrPipe bytes from s.header and s.raw_data
-    const header = new Float32Array(s.header);
-    header[55] = 1.0; // quad flag: real
-    header[56] = 1.0; // quad flag: real
-    header[219] = s.n_indirect;
-    const spectrumFloat32 = Float32Concat(header, s.raw_data);
-    const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+    for (const plane_idx of valid_indices) {
+        disable_enable_peak_buttons(plane_idx, 0);
+        disable_enable_fitted_peak_buttons(plane_idx, 0);
 
-    webassembly_worker.postMessage({
-        [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
-        file_data: inputFt2FileBytes,
-        polynomial_order: polyOrder,
-        spectrum_index: index
-    });
+        const current_s = hsqc_spectra[plane_idx];
+        const header = new Float32Array(current_s.header);
+        header[55] = 1.0; // quad flag: real
+        header[56] = 1.0; // quad flag: real
+        header[219] = current_s.n_indirect;
+        const spectrumFloat32 = Float32Concat(header, current_s.raw_data);
+        const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+
+        webassembly_worker.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
+            file_data: inputFt2FileBytes,
+            polynomial_order: polyOrder,
+            spectrum_index: plane_idx
+        });
+    }
 }
