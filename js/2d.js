@@ -2177,30 +2177,46 @@ function minimize_file_area(self) {
 }
 
 function minimize_dosy_area(self) {
-    let button_text = self.innerText;
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("dosy_area_content");
+    let container = document.getElementById("dosy_area");
     if (button_text === "-") {
         self.innerText = "+";
-        document.getElementById("dosy_area").style.height = "2.5rem";
-        document.getElementById("dosy_area").style.overflow = "clip";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
     }
     else {
         self.innerText = "-";
-        document.getElementById("dosy_area").style.height = "auto";
-        document.getElementById("dosy_area").style.overflow = "visible";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
     }
 }
 
 function minimize_cest_area(self) {
-    let button_text = self.innerText;
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("cest_area_content");
+    let container = document.getElementById("cest_area");
     if (button_text === "-") {
         self.innerText = "+";
-        document.getElementById("cest_area").style.height = "2.5rem";
-        document.getElementById("cest_area").style.overflow = "clip";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
     }
     else {
         self.innerText = "-";
-        document.getElementById("cest_area").style.height = "auto";
-        document.getElementById("cest_area").style.overflow = "visible";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
     }
 }
 
