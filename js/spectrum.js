@@ -243,21 +243,96 @@ class spectrum {
      * Function to create a shallow copy of the spectrum object
      * Keep all the properties, except header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii (Float32Array)
      * And add new properties: header_length, raw_data_length, raw_data_ri_length, raw_data_ir_length, raw_data_ii_length
-     * which are the length of the corresponding Float32Array
+     * which are the length of the corresponding Float32Array.
+     * Exclude large raw FID file buffers and TypedArrays from JSON serialization.
      */
     create_shallow_copy_wo_float32() {
         let new_spectrum = new Object();
         for (var key in this) {
             if (this.hasOwnProperty(key)) {
                 if (key === "header" || key === "raw_data" || key === "raw_data_ri" || key === "raw_data_ir" || key === "raw_data_ii") {
-                    new_spectrum[key + "_length"] = this[key].length;
+                    new_spectrum[key + "_length"] = (this[key] && this[key].length) ? this[key].length : 0;
+                }
+                else if (key === "projection_direct" || key === "projection_indirect") {
+                    // Do not serialize projections into JSON; they are large Float32Arrays
+                    // and will be recalculated from raw_data upon loading
+                }
+                else if (key === "inter_window_channel") {
+                    // Do not serialize DOM BroadcastChannel
+                }
+                else if (key === "fid_process_parameters") {
+                    if (this.fid_process_parameters) {
+                        // Keep processing parameters metadata but strip large raw FID byte buffers
+                        let fp_copy = Object.assign({}, this.fid_process_parameters);
+                        delete fp_copy.file_data;
+                        new_spectrum.fid_process_parameters = fp_copy;
+                    } else {
+                        new_spectrum.fid_process_parameters = null;
+                    }
+                }
+                else if (ArrayBuffer.isView(this[key]) || this[key] instanceof ArrayBuffer) {
+                    // Exclude any other TypedArrays or ArrayBuffers from JSON serialization
                 }
                 else {
                     new_spectrum[key] = this[key];
                 }
             }
         }
+
+        /**
+         * If spectrum_origin is -2 (from fid), change it to -1 (user uploaded frequency file)
+         * because raw FID time-domain data is not saved in the session file.
+         */
+        if (new_spectrum.spectrum_origin === -2) {
+            new_spectrum.spectrum_origin = -1;
+        }
+
         return new_spectrum;
+    };
+
+    /**
+     * Recalculate 1D direct and indirect projections from raw_data
+     */
+    calculate_projections() {
+        if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
+            return;
+        }
+        this.projection_direct = new Float32Array(this.n_direct);
+        this.projection_indirect = new Float32Array(this.n_indirect);
+
+        for (let i = 0; i < this.n_direct; i++) {
+            let sum = 0.0;
+            for (let j = 0; j < this.n_indirect; j++) {
+                sum += this.raw_data[j * this.n_direct + i];
+            }
+            this.projection_direct[i] = sum;
+        }
+
+        for (let i = 0; i < this.n_indirect; i++) {
+            let sum = 0.0;
+            for (let j = 0; j < this.n_direct; j++) {
+                sum += this.raw_data[i * this.n_direct + j];
+            }
+            this.projection_indirect[i] = sum;
+        }
+
+        let d_max = this.projection_direct[0];
+        let d_min = this.projection_direct[0];
+        for (let i = 1; i < this.projection_direct.length; i++) {
+            if (this.projection_direct[i] > d_max) d_max = this.projection_direct[i];
+            if (this.projection_direct[i] < d_min) d_min = this.projection_direct[i];
+        }
+        this.projection_direct_max = d_max;
+        this.projection_direct_min = d_min;
+
+        let ind_max = this.projection_indirect[0];
+        let ind_min = this.projection_indirect[0];
+        for (let i = 1; i < this.projection_indirect.length; i++) {
+            if (this.projection_indirect[i] > ind_max) ind_max = this.projection_indirect[i];
+            if (this.projection_indirect[i] < ind_min) ind_min = this.projection_indirect[i];
+        }
+        this.projection_indirect_max = ind_max;
+        this.projection_indirect_min = ind_min;
     };
 
 
@@ -907,30 +982,7 @@ class spectrum {
          * raw_data is row major, size is  n_indirect (rows) * n_direct (columns).
          * Get projection of the spectrum along direct and indirect dimensions
          */
-        this.projection_direct = new Float32Array(this.n_direct);
-        this.projection_indirect = new Float32Array(this.n_indirect);
-
-        for (let i = 0; i < this.n_direct; i++) {
-            let sum = 0.0;
-            for (let j = 0; j < this.n_indirect; j++) {
-                sum += this.raw_data[j * this.n_direct + i];
-            }
-            this.projection_direct[i] = sum;
-        }
-
-        for (let i = 0; i < this.n_indirect; i++) {
-            let sum = 0.0;
-            for (let j = 0; j < this.n_direct; j++) {
-                sum += this.raw_data[i * this.n_direct + j];
-            }
-            this.projection_indirect[i] = sum;
-        }
-
-        /**
-         * Get max,min of the projection
-         */
-        [this.projection_direct_max, this.projection_direct_min] = mathTool.find_max_min(this.projection_direct);
-        [this.projection_indirect_max, this.projection_indirect_min] = mathTool.find_max_min(this.projection_indirect);
+        this.calculate_projections();
 
         /**
          * In case of reconstructed spectrum from fitting or from NUS, noise_level is usually 0.

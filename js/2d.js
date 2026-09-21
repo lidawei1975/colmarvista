@@ -6086,75 +6086,95 @@ function reprocess_spectrum(self, spectrum_index) {
  * Onclick event from save button
 */
 function save_to_file() {
-    /**
-     * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
-     * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
-     */
-    let hsqc_spectra_copy = [];
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
-        hsqc_spectra_copy.push(spectrum_copy);
+    try {
+        /**
+         * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
+         * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
+         */
+        let hsqc_spectra_copy = [];
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
+            hsqc_spectra_copy.push(spectrum_copy);
+        }
+
+        let to_save = {
+            hsqc_spectra: hsqc_spectra_copy,
+            pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
+            pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
+        };
+
+        /**
+         * Step 2, prepare the binaryData, which is a concatenation of all 
+         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
+         */
+        let totalLength = 0;
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            const s = hsqc_spectra[i];
+            totalLength += (s.header ? s.header.length : 0) +
+                (s.raw_data ? s.raw_data.length : 0) +
+                (s.raw_data_ri ? s.raw_data_ri.length : 0) +
+                (s.raw_data_ir ? s.raw_data_ir.length : 0) +
+                (s.raw_data_ii ? s.raw_data_ii.length : 0);
+        }
+
+        const jsonString = JSON.stringify(to_save);
+        const jsonBytes = new TextEncoder().encode(jsonString);
+        const jsonLength = jsonBytes.length;
+
+        // Create a DataView to write the length as an Int32:
+        const lengthBuffer = new ArrayBuffer(4);
+        const lengthView = new DataView(lengthBuffer);
+        lengthView.setInt32(0, jsonLength, true); // true for little-endian
+
+        // Combine length, JSON, and binary data:
+        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
+        const combinedView = new Uint8Array(combinedBuffer);
+
+        combinedView.set(new Uint8Array(lengthBuffer), 0);
+        combinedView.set(jsonBytes, 4);
+
+        /**
+         * Step 3, copy all binary data into combinedView
+         */
+        let offset = 4 + jsonLength;
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            const s = hsqc_spectra[i];
+            if (s.header && s.header.length > 0) {
+                combinedView.set(new Uint8Array(s.header.buffer, s.header.byteOffset, s.header.byteLength), offset);
+                offset += s.header.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data && s.raw_data.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data.buffer, s.raw_data.byteOffset, s.raw_data.byteLength), offset);
+                offset += s.raw_data.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ri && s.raw_data_ri.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ri.buffer, s.raw_data_ri.byteOffset, s.raw_data_ri.byteLength), offset);
+                offset += s.raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ir && s.raw_data_ir.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ir.buffer, s.raw_data_ir.byteOffset, s.raw_data_ir.byteLength), offset);
+                offset += s.raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ii && s.raw_data_ii.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ii.buffer, s.raw_data_ii.byteOffset, s.raw_data_ii.byteLength), offset);
+                offset += s.raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+        }
+
+        // Create Blob and download:
+        const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "colmarvista_save.bin";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error("Error saving session to file:", err);
+        alert("Failed to save session: " + err.message);
     }
-
-    let to_save = {
-        hsqc_spectra: hsqc_spectra_copy,
-        pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
-        pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
-    };
-
-    /**
-     * Step 2, prepare the binaryData, which is a concatenation of all 
-     *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
-     */
-    let totalLength = 0;
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        totalLength += hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length + hsqc_spectra[i].raw_data_ri.length + hsqc_spectra[i].raw_data_ir.length + hsqc_spectra[i].raw_data_ii.length;
-    }
-
-    const jsonString = JSON.stringify(to_save);
-    const jsonBytes = new TextEncoder().encode(jsonString);
-    const jsonLength = jsonBytes.length;
-
-    // Create a DataView to write the length as an Int32:
-    const lengthBuffer = new ArrayBuffer(4);
-    const lengthView = new DataView(lengthBuffer);
-    lengthView.setInt32(0, jsonLength, true); // true for little-endian
-
-    // Combine length, JSON, and binary data:
-    const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
-    const combinedView = new Uint8Array(combinedBuffer);
-
-    combinedView.set(new Uint8Array(lengthBuffer), 0);
-    combinedView.set(jsonBytes, 4);
-    /**
-     * Step 3, copy all binary data into combinedView
-     */
-    let offset = 4 + jsonLength;
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        combinedView.set(new Uint8Array(hsqc_spectra[i].header.buffer), offset);
-        console.log('set header at offset ' + offset);
-        console.log(hsqc_spectra[i].header);
-        offset += hsqc_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data.buffer), offset);
-        offset += hsqc_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ri.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ir.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ii.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
-    }
-
-    // Create Blob and download:
-    const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "colmarvista_save.bin";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 };
 
 /**
@@ -6197,7 +6217,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         /**
          * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
          */
-        if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
+        if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
             for (let j = 0; j < peaks_methods.length; j++) {
                 if (peaks_methods[j] !== 'constructor') {
@@ -6205,7 +6225,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 }
             }
         }
-        if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
+        if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
             for (let j = 0; j < peaks_methods.length; j++) {
                 if (peaks_methods[j] !== 'constructor') {
@@ -6228,6 +6248,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         }
         if (!hsqc_spectra[i].pseudo3d_children) {
             hsqc_spectra[i].pseudo3d_children = [];
+        }
+        if (hsqc_spectra[i].spectrum_origin >= 10000) {
+            let p_idx = hsqc_spectra[i].spectrum_origin - 10000;
+            if (hsqc_spectra[p_idx] && hsqc_spectra[p_idx].pseudo3d_children) {
+                if (hsqc_spectra[p_idx].pseudo3d_children.indexOf(i) === -1) {
+                    hsqc_spectra[p_idx].pseudo3d_children.push(i);
+                }
+            }
         }
     }
 
@@ -6258,29 +6286,57 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
     for (let i = 0; i < hsqc_spectra.length; i++) {
-        hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT));
-        console.log('load header at offset ' + offset);
-        console.log(hsqc_spectra[i].header);
-        offset += hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT;
+        let h_len = hsqc_spectra[i].header_length || 0;
+        let rd_len = hsqc_spectra[i].raw_data_length || 0;
+        let ri_len = hsqc_spectra[i].raw_data_ri_length || 0;
+        let ir_len = hsqc_spectra[i].raw_data_ir_length || 0;
+        let ii_len = hsqc_spectra[i].raw_data_ii_length || 0;
 
-        hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
+        if (h_len > 0) {
+            hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + h_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += h_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].header = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT;
+        if (rd_len > 0) {
+            hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + rd_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += rd_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT;
+        if (ri_len > 0) {
+            hsqc_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + ri_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ri_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ri = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT;
+        if (ir_len > 0) {
+            hsqc_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + ir_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ir_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ir = new Float32Array(0);
+        }
+
+        if (ii_len > 0) {
+            hsqc_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + ii_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ii_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ii = new Float32Array(0);
+        }
+
+        if (typeof hsqc_spectra[i].calculate_projections === "function") {
+            hsqc_spectra[i].calculate_projections();
+        }
     }
     draw_spectrum_from_loading();
     /**
      * process pseudo-3D buttons and dosy information
      */
     if (pseudo3d_fitted_peaks_object !== null) {
-        if (pseudo3d_fitted_peaks_object.gradients !== null) {
+        if (pseudo3d_fitted_peaks_object.gradients && Array.isArray(pseudo3d_fitted_peaks_object.gradients)) {
             document.getElementById("dosy_gradient").value = pseudo3d_fitted_peaks_object.gradients.join(' ');
             document.getElementById("dosy_rescale").value = pseudo3d_fitted_peaks_object.scale_constant;
             document.getElementById("dosy_result").textContent = "Dosy result is available";
