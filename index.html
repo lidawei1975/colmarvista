@@ -268,22 +268,45 @@
                 <label for="assignment_file">Upload an peak file with assignment information to be transferred to
                     pseudo-3D fitted peaks (.list): </label><input type="file" disabled id="assignment_file"><br>
                 <br>
-                <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
-                <div id="dosy_area" style="display:block;">
-                    <label for="dosy_gradient">DOSY gradient values (space separated): </label>
-                    <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
-                    <lable for="dosy_gradient_weight"> Weight: (e.g. 1 0 0 1 1)</lable>
-                    <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
-                    <label for="dosy_rescale">Rescale factor: </label>
-                    <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
-                    <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
-                    <span id="dosy_result"></span>
+                <!-- DOSY fitting tools sub-div, default minimized to 1 line -->
+                <div id="dosy_area" style="margin-top: 10px; border: 1px solid #c0c0c0; border-radius: 4px; padding: 6px 10px; height: 2.5rem; overflow: clip;">
+                    <p style="margin: 0 0 8px 0;">
+                        <button id="button_minimize_dosy_area" onclick="minimize_dosy_area(this)">+</button>
+                        <strong>DOSY fitting tool</strong>
+                    </p>
+                    <div id="dosy_area_content">
+                        <label for="dosy_gradient">DOSY gradient values (space separated): </label>
+                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
+                        <label for="dosy_gradient_weight">Weight: (e.g. 1 0 0 1 1) </label>
+                        <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
+                        <label for="dosy_rescale">Rescale factor: </label>
+                        <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
+                        <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
+                        <span id="dosy_result"></span>
+                    </div>
                 </div>
+
+                <!-- CEST fitting tools sub-div, default minimized to 1 line -->
+                <div id="cest_area" style="margin-top: 10px; border: 1px solid #c0c0c0; border-radius: 4px; padding: 6px 10px; height: 2.5rem; overflow: clip;">
+                    <p style="margin: 0 0 8px 0;">
+                        <button id="button_minimize_cest_area" onclick="minimize_cest_area(this)">+</button>
+                        <strong>CEST fitting tool</strong>
+                    </p>
+                    <div id="cest_area_content">
+                        <label for="cest_offsets">CEST saturation offsets (ppm or Hz, space separated): </label>
+                        <input type="text" id="cest_offsets" value="" placeholder="e.g. -5 -4 -3 -2 -1 0 1 2 3 4 5" size="55"><br>
+                        <label for="cest_b1">B1 field strength (Hz): </label>
+                        <input type="number" id="cest_b1" value="25" min="1" max="500"><br>
+                        <button id="button_run_cest" disabled onclick="alert('CEST fitting is under development.')">Run CEST fitting</button>
+                        <button id="button_download_cest" disabled onclick="alert('CEST download is under development.')">Download CEST results</button>
+                        <span id="cest_result"></span>
+                    </div>
+                </div>
+
                 <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
                     current showing peak list
                     will be used as the initial guess. You can download pseudo-3D fitting result after
                     finished.</span>
-                </label>
             </div>
 
             <div id="spectra_list" style=" Padding: 10px; width: 1200px;" class="drop-area-neighbor">

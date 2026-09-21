@@ -2176,6 +2176,34 @@ function minimize_file_area(self) {
     }
 }
 
+function minimize_dosy_area(self) {
+    let button_text = self.innerText;
+    if (button_text === "-") {
+        self.innerText = "+";
+        document.getElementById("dosy_area").style.height = "2.5rem";
+        document.getElementById("dosy_area").style.overflow = "clip";
+    }
+    else {
+        self.innerText = "-";
+        document.getElementById("dosy_area").style.height = "auto";
+        document.getElementById("dosy_area").style.overflow = "visible";
+    }
+}
+
+function minimize_cest_area(self) {
+    let button_text = self.innerText;
+    if (button_text === "-") {
+        self.innerText = "+";
+        document.getElementById("cest_area").style.height = "2.5rem";
+        document.getElementById("cest_area").style.overflow = "clip";
+    }
+    else {
+        self.innerText = "-";
+        document.getElementById("cest_area").style.height = "auto";
+        document.getElementById("cest_area").style.overflow = "visible";
+    }
+}
+
 
 /**
  * Returns the index of the first plane (parent) for pseudo-3D spectra.
