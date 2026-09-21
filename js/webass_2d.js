@@ -161,6 +161,21 @@ self.onmessage = async function (event) {
                 nmrpipeBytesVec.delete();
             }
 
+            const transferList = [];
+            if (file_data && file_data.buffer) {
+                transferList.push(file_data.buffer);
+            }
+            if (Array.isArray(pseudo3d_files)) {
+                for (let i = 0; i < pseudo3d_files.length; i++) {
+                    if (pseudo3d_files[i] && pseudo3d_files[i].buffer) {
+                        transferList.push(pseudo3d_files[i].buffer);
+                    }
+                }
+            }
+            if (pseudo3d_ft3_data && pseudo3d_ft3_data.buffer) {
+                transferList.push(pseudo3d_ft3_data.buffer);
+            }
+
             postMessage({
                 [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
@@ -172,7 +187,7 @@ self.onmessage = async function (event) {
                 spectrum_index: event.data.spectrum_index,
                 pseudo3d_process: event.data.pseudo3d_process,
                 pseudo3d_children: event.data.pseudo3d_children,
-            });
+            }, transferList);
         }
         catch (error) {
             const errorText = error && error.message ? error.message : String(error);
@@ -351,6 +366,11 @@ self.onmessage = async function (event) {
                 fidBytesVec.delete();
             }
 
+            const transferList = [];
+            if (file_data && file_data.buffer) {
+                transferList.push(file_data.buffer);
+            }
+
             postMessage({
                 [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
@@ -360,7 +380,7 @@ self.onmessage = async function (event) {
                 spectrum_index: event.data.spectrum_index,
                 pseudo3d_process: event.data.pseudo3d_process,
                 save_debug_ft3: event.data.save_debug_ft3
-            });
+            }, transferList);
         }
         catch (error) {
             const errorText = error && error.message ? error.message : String(error);
@@ -575,6 +595,18 @@ self.onmessage = async function (event) {
                 fidBytesVec.delete();
             }
 
+            const transferList = [];
+            if (file_data && file_data.buffer) {
+                transferList.push(file_data.buffer);
+            }
+            if (Array.isArray(pseudo3d_files)) {
+                for (let i = 0; i < pseudo3d_files.length; i++) {
+                    if (pseudo3d_files[i] && pseudo3d_files[i].buffer) {
+                        transferList.push(pseudo3d_files[i].buffer);
+                    }
+                }
+            }
+
             postMessage({
                 [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
@@ -586,7 +618,7 @@ self.onmessage = async function (event) {
                 spectrum_index: event.data.spectrum_index,
                 pseudo3d_children: event.data.pseudo3d_children,
                 nus_auto_phase_prep: event.data.nus_auto_phase_prep,
-            });
+            }, transferList);
         }
         catch (error) {
             const errorText = error && error.message ? error.message : String(error);
@@ -1074,12 +1106,17 @@ self.onmessage = async function (event) {
                 nmrpipeBytesVec.delete();
             }
 
+            const transferList = [];
+            if (file_data && file_data.buffer) {
+                transferList.push(file_data.buffer);
+            }
+
             self.postMessage({
                 [WEBASSEMBLY_JOB_KEY]: webassembly_job,
                 file_data: file_data,
                 spectrum_index: event.data.spectrum_index,
                 polynomial_order: polyOrder
-            });
+            }, transferList);
         } catch (error) {
             const errorText = error && error.message ? error.message : String(error);
             self.postMessage({ error: "baseline_correction: " + errorText });

@@ -1399,7 +1399,7 @@ function handle_webassembly_worker_message(e) {
         const s = hsqc_spectra[spectrum_index];
         if (s) {
             try {
-                const arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+                const arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
                 const result_spectrum = new spectrum();
                 result_spectrum.process_ft_file(arrayBuffer, s.filename, s.spectrum_origin);
 
@@ -1675,7 +1675,7 @@ function handle_webassembly_worker_message(e) {
      */
     else if (e.data.file_data && e.data.file_type && (e.data.file_type === 'full' || e.data.file_type === 'indirect') && e.data.phasing_data) {
         if (e.data.nus_auto_phase_prep) {
-            let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+            let arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
             let result_spectrum = new spectrum();
             result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
             result_spectrum.fid_process_parameters = fid_process_parameters;
@@ -1745,7 +1745,7 @@ function handle_webassembly_worker_message(e) {
          * if b_reprocess is false, we will add the spectrum to the hsqc_spectra array
          * Both are done in draw_spectrum function
          */
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+        let arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
         let result_spectrum = new spectrum();
         result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
         let b_reprocess = e.data.processing_flag == 1 ? true : false;
@@ -1760,7 +1760,7 @@ function handle_webassembly_worker_message(e) {
         if (typeof e.data.pseudo3d_files !== "undefined" && Array.isArray(e.data.pseudo3d_files)) {
             console.log("Additional pseudo 3D ft2 files received:", e.data.pseudo3d_files.length);
             for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
-                let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
+                let arrayBuffer = (e.data.pseudo3d_files[i] && e.data.pseudo3d_files[i].buffer) ? e.data.pseudo3d_files[i].buffer : new Uint8Array(e.data.pseudo3d_files[i]).buffer;
                 let result_spectrum = new spectrum();
                 result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
                 result_spectra.push(result_spectrum);
