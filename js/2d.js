@@ -6564,6 +6564,255 @@ function zoom_to_peak(index) {
 
 let current_selected_peak_row = null;
 let current_selected_peak_index = null;
+let pseudo3d_profile_plot_instance = null;
+let pseudo3d_profile_resize_observer = null;
+
+function is_pseudo3d_active() {
+    if (current_spectrum_index_of_peaks === -2) return true;
+    let peaks_object = get_current_peak_object();
+    if (peaks_object && peaks_object.column_headers) {
+        let has_za = peaks_object.column_headers.some(h => h.startsWith('Z_A') && !h.endsWith('_STD'));
+        if (has_za) return true;
+    }
+    if (typeof main_plot !== "undefined" && main_plot !== null && typeof is_pseudo3d_spectrum === "function") {
+        if (is_pseudo3d_spectrum(main_plot.current_spectral_index)) return true;
+    }
+    return false;
+}
+
+function get_pseudo3d_peak_profile_data(peak_index) {
+    let peaks_object = get_current_peak_object();
+    let idx = peak_index - 1;
+    let profile = [];
+
+    // Method 1: If peaks_object has Z_A columns (fitted pseudo-3D peaks)
+    if (peaks_object && peaks_object.column_headers) {
+        let za_headers = [];
+        peaks_object.column_headers.forEach((h, ndx) => {
+            if (h.startsWith('Z_A') && !h.endsWith('_STD')) {
+                za_headers.push({ name: h, colIndex: ndx });
+            }
+        });
+
+        if (za_headers.length > 0 && idx >= 0 && peaks_object.columns[0] && idx < peaks_object.columns[0].length) {
+            za_headers.forEach((h, planeIdx) => {
+                let val = parseFloat(peaks_object.columns[h.colIndex][idx]);
+                let stdVal = undefined;
+                let stdHeader = h.name + '_STD';
+                let stdColIdx = peaks_object.column_headers.indexOf(stdHeader);
+                if (stdColIdx !== -1) {
+                    let s = parseFloat(peaks_object.columns[stdColIdx][idx]);
+                    if (!isNaN(s)) stdVal = s;
+                }
+                profile.push({
+                    plane: planeIdx + 1,
+                    label: h.name,
+                    value: isNaN(val) ? 0 : val,
+                    std: stdVal
+                });
+            });
+            return profile;
+        }
+    }
+
+    // Method 2: If hsqc_spectra has pseudo-3D child planes
+    if (typeof main_plot !== "undefined" && main_plot !== null && peaks_object && idx >= 0) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        if (x_col && y_col && idx < x_col.length) {
+            let x_ppm = x_col[idx];
+            let y_ppm = y_col[idx];
+
+            let first_idx = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
+            let parent_spec = hsqc_spectra[first_idx];
+            if (parent_spec && parent_spec.pseudo3d_children && parent_spec.pseudo3d_children.length > 0) {
+                let plane_indices = [first_idx, ...parent_spec.pseudo3d_children];
+                plane_indices.forEach((specIdx, pIdx) => {
+                    let spec = hsqc_spectra[specIdx];
+                    let val = 0;
+                    if (spec && spec.raw_data && spec.n_direct && spec.n_indirect) {
+                        let y_pos = Math.floor((y_ppm - spec.y_ppm_ref - spec.y_ppm_start) / spec.y_ppm_step);
+                        let x_pos = Math.floor((x_ppm - spec.x_ppm_ref - spec.x_ppm_start) / spec.x_ppm_step);
+                        if (x_pos >= 0 && x_pos < spec.n_direct && y_pos >= 0 && y_pos < spec.n_indirect) {
+                            val = spec.raw_data[y_pos * spec.n_direct + x_pos];
+                        }
+                    }
+                    profile.push({
+                        plane: pIdx + 1,
+                        label: 'Plane ' + (pIdx + 1),
+                        value: val
+                    });
+                });
+                return profile;
+            }
+        }
+    }
+
+    return profile;
+}
+
+function show_pseudo3d_peak_profile(peak_index) {
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    let container = document.getElementById('pseudo3d_profile_plot_container');
+    if (!modal || !container) return;
+
+    let profileData = get_pseudo3d_peak_profile_data(peak_index);
+    if (!profileData || profileData.length === 0) {
+        hide_pseudo3d_peak_profile();
+        return;
+    }
+
+    let peaks_object = get_current_peak_object();
+    let x_str = '';
+    let y_str = '';
+    if (peaks_object && peak_index - 1 >= 0) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        if (x_col && y_col && x_col[peak_index - 1] !== undefined) {
+            x_str = x_col[peak_index - 1].toFixed(2);
+            y_str = y_col[peak_index - 1].toFixed(2);
+        }
+    }
+
+    let titleEl = document.getElementById('pseudo3d_profile_title');
+    if (titleEl) {
+        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} Planes`;
+    }
+
+    modal.style.display = 'flex';
+
+    let bodyEl = document.getElementById('pseudo3d_profile_body');
+    let minBtn = document.getElementById('pseudo3d_profile_minimize_btn');
+    if (bodyEl && bodyEl.style.display === 'none') {
+        bodyEl.style.display = 'block';
+        modal.style.height = modal.dataset.lastHeight || '350px';
+        modal.style.width = modal.dataset.lastWidth || '480px';
+        modal.style.resize = 'both';
+        if (minBtn) {
+            minBtn.innerText = '—';
+            minBtn.title = 'Minimize';
+        }
+    }
+
+    if (!pseudo3d_profile_plot_instance && typeof pseudo3d_profile_plot === 'function') {
+        pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
+            xLabel: 'Plane',
+            yLabel: 'Peak Intensity'
+        });
+
+        if (window.ResizeObserver && !pseudo3d_profile_resize_observer && bodyEl) {
+            pseudo3d_profile_resize_observer = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const cr = entry.contentRect;
+                    if (pseudo3d_profile_plot_instance && cr.width > 50 && cr.height > 50) {
+                        pseudo3d_profile_plot_instance.resize(cr.width, cr.height);
+                    }
+                }
+            });
+            pseudo3d_profile_resize_observer.observe(bodyEl);
+        }
+
+        modal.addEventListener('mouseup', function () {
+            if (pseudo3d_profile_plot_instance && bodyEl) {
+                pseudo3d_profile_plot_instance.resize(bodyEl.clientWidth, bodyEl.clientHeight);
+            }
+        });
+
+        setup_pseudo3d_profile_modal_drag();
+
+        if (minBtn) {
+            minBtn.onclick = toggle_pseudo3d_profile_minimize;
+        }
+
+        let resetBtn = document.getElementById('pseudo3d_profile_reset_btn');
+        if (resetBtn) {
+            resetBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    pseudo3d_profile_plot_instance.reset_view();
+                }
+            };
+        }
+    }
+
+    if (pseudo3d_profile_plot_instance && bodyEl) {
+        let w = bodyEl.clientWidth || 460;
+        let h = bodyEl.clientHeight || 280;
+        pseudo3d_profile_plot_instance.resize(w, h);
+        pseudo3d_profile_plot_instance.set_data(profileData);
+    }
+}
+
+function hide_pseudo3d_peak_profile() {
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * Minimizes or restores the floating pseudo-3D peak profile window.
+ */
+function toggle_pseudo3d_profile_minimize() {
+    const modal = document.getElementById('pseudo3d_profile_modal');
+    const body = document.getElementById('pseudo3d_profile_body');
+    const minBtn = document.getElementById('pseudo3d_profile_minimize_btn');
+    if (!modal || !body || !minBtn) return;
+
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        modal.style.height = modal.dataset.lastHeight || '350px';
+        modal.style.width = modal.dataset.lastWidth || '480px';
+        modal.style.resize = 'both';
+        minBtn.innerText = '—';
+        minBtn.title = 'Minimize';
+        if (pseudo3d_profile_plot_instance) {
+            pseudo3d_profile_plot_instance.resize(body.clientWidth, body.clientHeight);
+        }
+    } else {
+        modal.dataset.lastHeight = modal.offsetHeight + 'px';
+        modal.dataset.lastWidth = modal.offsetWidth + 'px';
+        body.style.display = 'none';
+        modal.style.height = 'auto';
+        modal.style.width = '300px';
+        modal.style.resize = 'none';
+        minBtn.innerText = '□';
+        minBtn.title = 'Restore';
+    }
+}
+
+function setup_pseudo3d_profile_modal_drag() {
+    let header = document.getElementById('pseudo3d_profile_header');
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    if (!header || !modal || header.dataset.dragInitialized) return;
+    header.dataset.dragInitialized = 'true';
+
+    let isDragging = false;
+    let initialX = 0;
+    let initialY = 0;
+
+    header.addEventListener('mousedown', function (e) {
+        if (e.target.tagName === 'BUTTON') return;
+        isDragging = true;
+        initialX = e.clientX - modal.offsetLeft;
+        initialY = e.clientY - modal.offsetTop;
+        header.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', function (e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        modal.style.left = (e.clientX - initialX) + 'px';
+        modal.style.top = (e.clientY - initialY) + 'px';
+        modal.style.right = 'auto';
+    });
+
+    window.addEventListener('mouseup', function () {
+        if (isDragging) {
+            isDragging = false;
+            header.style.cursor = 'move';
+        }
+    });
+}
 
 function unselect_peak_row() {
     if (current_selected_peak_row) {
@@ -6583,6 +6832,7 @@ function unselect_peak_row() {
     if (main_plot && typeof main_plot.remove_selected_peak_cross === "function") {
         main_plot.remove_selected_peak_cross();
     }
+    hide_pseudo3d_peak_profile();
 }
 
 function select_peak_row(row, peak_index) {
@@ -6606,6 +6856,10 @@ function select_peak_row(row, peak_index) {
                 main_plot.draw_selected_peak_cross(x_ppm, y_ppm);
             }
         }
+    }
+
+    if (is_pseudo3d_active()) {
+        show_pseudo3d_peak_profile(peak_index);
     }
 }
 
