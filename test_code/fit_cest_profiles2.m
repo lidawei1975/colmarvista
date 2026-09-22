@@ -1,11 +1,11 @@
 % FIT_CEST_PROFILES2
-% Fits CEST profiles using a 4-step multi-peak Voigt algorithm with
+% Fits CEST profiles using a 4-step multi-peak pseudo-Voigt algorithm with
 % Expectation-Maximization (EM) optimization and per-iteration visualization.
 %
 % Algorithm:
 %   Step 1: Negative peak picking on raw profile above 5x noise level,
 %           considering noise fluctuations (prominence and line-width separation).
-%   Step 2: Single-peak Voigt fitting without additional cost (pure least-squares MSE),
+%   Step 2: Single-peak pseudo-Voigt fitting without additional cost (pure least-squares MSE),
 %           limited to within fit_window (10 points) of primary peak center.
 %   Step 3: Peak picking on residues within the fitting area to detect
 %           unmodeled secondary dips (doublets/shoulders).
@@ -144,25 +144,37 @@ if force_row53_2nd_peak
 end
 
 % -------------------------------------------------------------------------
-% 4. Verify Voigt Function
+% 4. Pseudo-Voigt Function Definition
+%    Matching Peak3DCostFunction (eval_axis_voigt_value) in
+%    ../exec/deep-picker/spectrum_fit_3d_cost.cpp
 % -------------------------------------------------------------------------
-if ~exist('voigt', 'file') && ~exist('voigt', 'builtin')
-    error('voigt function not found in MATLAB path. Please ensure voigt(x, sigma, gamma) is available.');
-end
-
 % Model evaluation helpers:
-% Evaluates single normalized Voigt peak profile (peak height = A at center x0)
-eval_single_peak = @(A, x0, sig, gam, xi) ...
-    A * (reshape(voigt(xi - x0, max(sig, 1e-4), max(gam, 0)), size(xi)) ./ ...
-         max(voigt(0, max(sig, 1e-4), max(gam, 0)), 1e-12));
+% Evaluates single normalized pseudo-Voigt peak profile (peak height = A at center x0):
+%   xi: coordinate vector
+%   A: peak amplitude (height/depth)
+%   x0: peak center position
+%   fwhm: Full Width at Half Maximum (FWHH)
+%   lfrac: Lorentzian fraction in [0, 1] (0 = pure Gaussian, 1 = pure Lorentzian)
+%
+% Implementation based on Peak3DCostFunction (eval_axis_voigt_value):
+%   f = max(fwhm, 1e-6)
+%   sig = f / (2 * sqrt(2 * ln 2))
+%   gam = f / 2
+%   d = xi - x0
+%   G = exp(-d.^2 / (2 * sig^2)) = exp(-4*ln(2) * (d / f).^2)
+%   L = gam^2 ./ (d.^2 + gam^2) = (f/2)^2 ./ (d.^2 + (f/2)^2)
+%   lf = min(1, max(0, lfrac))
+%   V = (1 - lf) * G + lf * L
+eval_single_peak = @(A, x0, fwhm, lfrac, xi) ...
+    A .* ((1.0 - min(1.0, max(0.0, lfrac))) .* exp(-4.0 * log(2.0) .* ((xi - x0) ./ max(fwhm, 1e-6)).^2) + ...
+          min(1.0, max(0.0, lfrac)) .* ((max(fwhm, 1e-6) ./ 2.0).^2 ./ ((xi - x0).^2 + (max(fwhm, 1e-6) ./ 2.0).^2)));
 
-% Evaluates baseline y0 minus single Voigt dip
+% Evaluates baseline y0 minus single pseudo-Voigt dip: p = [y0, A, x0, fwhm, lfrac]
 eval_voigt_dip = @(p, xi) ...
     p(1) - eval_single_peak(p(2), p(3), p(4), p(5), xi);
 
-% Olivero & Longbothum 1977 Voigt FWHM formula
-calc_fwhm_voigt = @(sig, gam) ...
-    0.5346 * (2 * gam) + sqrt(0.2166 * (2 * gam)^2 + (2 * sqrt(2 * log(2)) * sig)^2);
+% For pseudo-Voigt, FWHM is directly the fwhm parameter (FWHH)
+calc_fwhm_voigt = @(fwhm, varargin) fwhm;
 
 % Asymmetric error helpers:
 % For intensity error r = y_exp - y_fit:
@@ -266,7 +278,7 @@ for fig_idx = 1:num_targets
         primary_x0, primary_amp, primary_amp / noise_est);
     
     % ---------------------------------------------------------------------
-    % STEP 2: Voigt Fitting Without Additional Cost (Limited to fit_window)
+    % STEP 2: Pseudo-Voigt Fitting Without Additional Cost (Limited to fit_window)
     % ---------------------------------------------------------------------
     % Restrict data to within fit_window (10 points) of primary peak center
     mask_step2 = abs(x_val - primary_x0) <= fit_window;
@@ -274,16 +286,11 @@ for fig_idx = 1:num_targets
     y_val_step2 = y_val(mask_step2);
     
     init_fwhm = 2.4;
-    sigma_est = (0.5 * init_fwhm) / 2.355;
-    gamma_est = (0.5 * init_fwhm) / 2.0;
-    p0 = [y0_est, primary_amp, primary_x0, sigma_est, gamma_est];
+    init_lfrac = 0.5;
+    p0 = [y0_est, primary_amp, primary_x0, init_fwhm, init_lfrac];
     
-    lb = [min(y_val_step2) - 0.1, 0, min(x_val_step2), min_fwhm / 5, 0];
-    ub = [max(y_val_step2) + 0.1, y0_est - min(y_val_step2) + 0.1, max(x_val_step2), max_fwhm / 2.355, max_fwhm / 2.0];
-    
-    A_ineq = [0, 0, 0,  2.355,  2.0; ...
-              0, 0, 0, -2.355, -2.0];
-    b_ineq = [max_fwhm; -min_fwhm];
+    lb = [min(y_val_step2) - 0.1, 0, min(x_val_step2), min_fwhm, 0.0];
+    ub = [max(y_val_step2) + 0.1, y0_est - min(y_val_step2) + 0.1, max(x_val_step2), max_fwhm, 1.0];
     
     % Asymmetric MSE over points within fit_window of peak center:
     % Encourages fit to be higher (less strong dip) than experimental negative peaks
@@ -291,16 +298,14 @@ for fig_idx = 1:num_targets
     
     try
         if has_fmincon
-            p_step2 = fmincon(obj_fun_step2, p0, A_ineq, b_ineq, [], [], lb, ub, [], fmin_opts);
+            p_step2 = fmincon(obj_fun_step2, p0, [], [], [], [], lb, ub, [], fmin_opts);
         else
             obj_barrier = @(p) obj_fun_step2(p) + ...
                 1e4 * (p(1) < lb(1) || p(1) > ub(1)) + ...
                 1e4 * (p(2) < lb(2) || p(2) > ub(2)) + ...
                 1e4 * (p(3) < lb(3) || p(3) > ub(3)) + ...
                 1e4 * (p(4) < lb(4) || p(4) > ub(4)) + ...
-                1e4 * (p(5) < lb(5) || p(5) > ub(5)) + ...
-                1e4 * max(0,  2.355 * p(4) + 2.0 * p(5) - max_fwhm)^2 + ...
-                1e4 * max(0, -2.355 * p(4) - 2.0 * p(5) + min_fwhm)^2;
+                1e4 * (p(5) < lb(5) || p(5) > ub(5));
             p_step2 = fminsearch(obj_barrier, p0, fmin_opts);
         end
     catch ME
@@ -308,9 +313,10 @@ for fig_idx = 1:num_targets
         p_step2 = p0;
     end
     
-    fwhm_step2 = calc_fwhm_voigt(p_step2(4), p_step2(5));
-    fprintf('Step 2: Single Voigt fit (window [%d..%d]): y0 = %.3f, A = %.3f, x0 = %.2f, FWHM = %.2f\n', ...
-        min(x_val_step2), max(x_val_step2), p_step2(1), p_step2(2), p_step2(3), fwhm_step2);
+    fwhm_step2 = p_step2(4);
+    lfrac_step2 = p_step2(5);
+    fprintf('Step 2: Single pseudo-Voigt fit (window [%d..%d]): y0 = %.3f, A = %.3f, x0 = %.2f, FWHM = %.2f, LFrac = %.2f\n', ...
+        min(x_val_step2), max(x_val_step2), p_step2(1), p_step2(2), p_step2(3), fwhm_step2, lfrac_step2);
     
     % ---------------------------------------------------------------------
     % STEP 3: Peak Picking on Residues within Fitting Area
@@ -375,9 +381,9 @@ for fig_idx = 1:num_targets
     peaks_init = zeros(num_peaks, 4);
     for k = 1:num_peaks
         if k == 1
-            peaks_init(1, :) = [p_step2(2), p_step2(3), max(p_step2(4), 0.3), max(p_step2(5), 0.1)];
+            peaks_init(1, :) = [p_step2(2), p_step2(3), max(min_fwhm, min(max_fwhm, p_step2(4))), max(0.0, min(1.0, p_step2(5)))];
         else
-            peaks_init(k, :) = [all_amps(k), all_locs(k), 0.7, 0.5];
+            peaks_init(k, :) = [all_amps(k), all_locs(k), 2.4, 0.5];
         end
     end
     
@@ -441,9 +447,10 @@ for fig_idx = 1:num_targets
         fprintf('  [EM Iter %2d] RMSE = %.5f | Max |Err| = %.5f | R^2 = %.4f | y0 = %.3f | Fit range: [%d..%d] (%d pts)\n', ...
             em_iter, rmse_curr, max_abs_err_curr, r2_curr, cur_y0, min(x_fit), max(x_fit), N_fit);
         for k = 1:num_peaks
-            fwhm_k = calc_fwhm_voigt(peaks_curr(k,3), peaks_curr(k,4));
-            fprintf('    -> Peak %d: Center = %5.2f, Amp = %5.3f, Sigma = %4.2f, Gamma = %4.2f, FWHM = %4.2f\n', ...
-                k, peaks_curr(k,2), peaks_curr(k,1), peaks_curr(k,3), peaks_curr(k,4), fwhm_k);
+            fwhm_k = peaks_curr(k, 3);
+            lfrac_k = peaks_curr(k, 4);
+            fprintf('    -> Peak %d: Center = %5.2f, Amp = %5.3f, FWHM = %4.2f, LFrac = %4.2f\n', ...
+                k, peaks_curr(k,2), peaks_curr(k,1), fwhm_k, lfrac_k);
         end
         
         % -----------------------------------------------------------------
@@ -476,7 +483,7 @@ for fig_idx = 1:num_targets
                     plot(x_fit_dense, cur_y0 - S_k_dense, '--', 'Color', c_col, 'LineWidth', 1.5, ...
                          'DisplayName', sprintf('Peak %d (x_0=%.1f, A=%.2f)', k, peaks_curr(k,2), peaks_curr(k,1)));
                 end
-                plot(x_fit_dense, cur_y0 - S_dense_tot, 'r-', 'LineWidth', 2.0, 'DisplayName', 'Total Voigt Fit');
+                plot(x_fit_dense, cur_y0 - S_dense_tot, 'r-', 'LineWidth', 2.0, 'DisplayName', 'Total Pseudo-Voigt Fit');
                 plot([min(x_fit), max(x_fit)], [cur_y0, cur_y0], 'g:', 'LineWidth', 1.2, ...
                      'DisplayName', sprintf('Baseline y_0=%.3f', cur_y0));
                 
@@ -502,7 +509,7 @@ for fig_idx = 1:num_targets
             ax2 = subplot(2, 1, 2);
             cla(ax2, 'reset');
             
-            % Left axis: Spectrum and Fitted Voigt curves
+            % Left axis: Spectrum and Fitted Pseudo-Voigt curves
             yyaxis left
             hold on;
             plot(x_val, y_val, '.-', 'Color', [0.75, 0.78, 0.85], 'LineWidth', 1.0, ...
@@ -584,25 +591,20 @@ for fig_idx = 1:num_targets
             y_k_target = D_exp - (S_tot - S_comp(k, :));
             
             p0_k = peaks_curr(k, :);
-            lb_k = [0, p0_k(2) - 3.5, min_fwhm / 5, 0];
-            ub_k = [max(D_exp) + 0.15, p0_k(2) + 3.5, max_fwhm / 2.355, max_fwhm / 2.0];
-            A_ineq_k = [0, 0,  2.355,  2.0; ...
-                        0, 0, -2.355, -2.0];
-            b_ineq_k = [max_fwhm; -min_fwhm];
+            lb_k = [0, p0_k(2) - 3.5, min_fwhm, 0.0];
+            ub_k = [max(D_exp) + 0.15, p0_k(2) + 3.5, max_fwhm, 1.0];
             
             % Asymmetric MSE: penalizes component dip deeper than target by asym_factor
             obj_k = @(p) mean((calc_asym_dip_err(y_k_target(mask_k) - eval_single_peak(p(1), p(2), p(3), p(4), x_fit(mask_k)), asym_factor)).^2);
             try
                 if has_fmincon
-                    p_opt_k = fmincon(obj_k, p0_k, A_ineq_k, b_ineq_k, [], [], lb_k, ub_k, [], fmin_opts);
+                    p_opt_k = fmincon(obj_k, p0_k, [], [], [], [], lb_k, ub_k, [], fmin_opts);
                 else
                     barrier_k = @(p) obj_k(p) + ...
                         1e4 * (p(1) < lb_k(1) || p(1) > ub_k(1)) + ...
                         1e4 * (p(2) < lb_k(2) || p(2) > ub_k(2)) + ...
                         1e4 * (p(3) < lb_k(3) || p(3) > ub_k(3)) + ...
-                        1e4 * (p(4) < lb_k(4) || p(4) > ub_k(4)) + ...
-                        1e4 * max(0,  2.355*p(3) + 2.0*p(4) - max_fwhm)^2 + ...
-                        1e4 * max(0, -2.355*p(3) - 2.0*p(4) + min_fwhm)^2;
+                        1e4 * (p(4) < lb_k(4) || p(4) > ub_k(4));
                     p_opt_k = fminsearch(barrier_k, p0_k, fmin_opts);
                 end
                 peaks_curr(k, :) = p_opt_k;
