@@ -137,6 +137,9 @@ function plotit(input) {
     this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
     this.$extra_peaks_group = null; // SVG group for extra peaks
 
+    this.selected_peak_cross_pos = null; // { x_ppm, y_ppm }
+    this.$selected_peak_cross_group = null; // SVG group for selected peak cross marker
+
     this.xlabel_text = input.xlabel || "Chemical Shift (ppm)";
     this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
 };
@@ -437,6 +440,10 @@ plotit.prototype.reset_axis = function () {
 
     if (this.bounding_box_data) {
         this.draw_bounding_box();
+    }
+
+    if (this.selected_peak_cross_pos) {
+        this.draw_selected_peak_cross();
     }
 
     if (this.zoom_on_call_function) {
@@ -2279,6 +2286,83 @@ plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
         .attr('stroke', function (d) { return d.color; });
 };
 
+/**
+ * Draw or update a cross marker to label a selected peak at (x_ppm, y_ppm)
+ * @param {number} [x_ppm]
+ * @param {number} [y_ppm]
+ */
+plotit.prototype.draw_selected_peak_cross = function (x_ppm, y_ppm) {
+    let self = this;
+    if (x_ppm !== undefined && y_ppm !== undefined && x_ppm !== null && y_ppm !== null) {
+        self.selected_peak_cross_pos = { x_ppm: x_ppm, y_ppm: y_ppm };
+    }
+    if (!self.selected_peak_cross_pos) {
+        self.remove_selected_peak_cross();
+        return;
+    }
+
+    if (!self.$vis) return;
+
+    let cx = self.xRange(self.selected_peak_cross_pos.x_ppm);
+    let cy = self.yRange(self.selected_peak_cross_pos.y_ppm);
+
+    if (isNaN(cx) || isNaN(cy)) return;
+
+    let arm = Math.max(16, (self.peak_size || 4) + 10);
+
+    if (!self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group = self.$vis.append("g")
+            .attr("class", "selected-peak-cross-group")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .style("pointer-events", "none");
+    }
+
+    self.$selected_peak_cross_group.selectAll("*").remove();
+
+    let lines = [
+        { x1: cx - arm, y1: cy, x2: cx + arm, y2: cy },
+        { x1: cx, y1: cy - arm, x2: cx, y2: cy + arm }
+    ];
+
+    // High contrast white halo lines underneath
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-halo")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", "white")
+            .attr("stroke-width", 4)
+            .attr("stroke-linecap", "square");
+    });
+
+    // Foreground lines
+    let cross_color = self.peak_color || "#ff0000";
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-line")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", cross_color)
+            .attr("stroke-width", 2)
+            .attr("stroke-linecap", "square");
+    });
+};
+
+/**
+ * Remove the selected peak cross from the plot
+ */
+plotit.prototype.remove_selected_peak_cross = function () {
+    let self = this;
+    self.selected_peak_cross_pos = null;
+    if (self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group.selectAll("*").remove();
+    }
+};
+
 
 /**
  * Function to allow clicking on peaks, to pop up a window with peak information
@@ -2586,6 +2670,7 @@ plotit.prototype.remove_picked_peaks = function () {
     self.spectrum = null;
     self.$vis.selectAll('.peak').remove();
     self.$vis.selectAll('.peak_text').remove();
+    self.remove_selected_peak_cross();
 };
 
 /**

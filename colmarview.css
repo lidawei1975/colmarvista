@@ -419,6 +419,24 @@ th[role=columnheader]:not(.no-sort):hover:after {
     opacity: 1;
 }
 
+#peak_table tbody td:first-child {
+    cursor: pointer;
+    font-weight: bold;
+}
+
+#peak_table tbody td:first-child:hover {
+    background-color: #e2f0fb;
+}
+
+tr.selected_peak_row,
+tr.selected_peak_row td {
+    background-color: lightblue !important;
+}
+
+tr.selected_peak_row td:first-child:hover {
+    background-color: #9eccf0 !important;
+}
+
 /* Tutorial Styles */
 .tutorial-highlight {
     outline: 4px solid #ff4500 !important;

@@ -6562,7 +6562,55 @@ function zoom_to_peak(index) {
 }
 
 
+let current_selected_peak_row = null;
+let current_selected_peak_index = null;
+
+function unselect_peak_row() {
+    if (current_selected_peak_row) {
+        current_selected_peak_row.classList.remove('selected_peak_row');
+        current_selected_peak_row.style.backgroundColor = "";
+    }
+    let peak_table = document.getElementById("peak_table");
+    if (peak_table) {
+        let highlighted = peak_table.querySelectorAll(".selected_peak_row");
+        highlighted.forEach(r => {
+            r.classList.remove("selected_peak_row");
+            r.style.backgroundColor = "";
+        });
+    }
+    current_selected_peak_row = null;
+    current_selected_peak_index = null;
+    if (main_plot && typeof main_plot.remove_selected_peak_cross === "function") {
+        main_plot.remove_selected_peak_cross();
+    }
+}
+
+function select_peak_row(row, peak_index) {
+    unselect_peak_row();
+
+    current_selected_peak_row = row;
+    current_selected_peak_index = peak_index;
+
+    row.classList.add('selected_peak_row');
+    row.style.backgroundColor = "lightblue";
+
+    let peaks_object = get_current_peak_object();
+    if (peaks_object && main_plot) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        let idx = peak_index - 1;
+        if (x_col && y_col && idx >= 0 && idx < x_col.length) {
+            let x_ppm = x_col[idx];
+            let y_ppm = y_col[idx];
+            if (typeof main_plot.draw_selected_peak_cross === "function") {
+                main_plot.draw_selected_peak_cross(x_ppm, y_ppm);
+            }
+        }
+    }
+}
+
 function remove_peak_table() {
+    unselect_peak_row();
     let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
 
@@ -6601,6 +6649,7 @@ function get_current_peak_object() {
 
 
 function show_peak_table() {
+    unselect_peak_row();
     /**
      * Step 1, clear current peak_table.
      * Get peak_area's all table children and remove them
@@ -6701,13 +6750,25 @@ function table_click_handler(event) {
                 }
             }
         }
-        else {
+        else if (cell && cell === tds[0]) {
             /**
-             * Zoom to the peak, using the first column of the row to get the peak index
+             * Only index cell (1st column) is clickable for peak selection
              */
             let peak_index = parseInt(tds[0].innerText);
             console.log('peak_index:', peak_index);
-            zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+            if (isNaN(peak_index)) {
+                return;
+            }
+
+            // Click on same row / peak toggles selection off
+            if (row.classList.contains('selected_peak_row') || current_selected_peak_index === peak_index) {
+                unselect_peak_row();
+            }
+            else {
+                // Select peak, add cross to label it, highlight row, and zoom/pan to center it
+                select_peak_row(row, peak_index);
+                zoom_to_peak(peak_index - 1);
+            }
         }
 
     }
