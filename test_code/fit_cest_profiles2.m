@@ -143,6 +143,20 @@ if force_row53_2nd_peak
         row53_forced_peak2_center, row53_forced_peak2_amp);
 end
 
+% Damping and momentum controls to prevent EM oscillations and accelerate convergence
+% Starts after iter_damping_start (default: iteration 6)
+if ~exist('iter_damping_start', 'var') || isempty(iter_damping_start)
+    iter_damping_start = 6;
+end
+if ~exist('em_damping', 'var') || isempty(em_damping)
+    em_damping = 0.70; % step size / relaxation factor for new proposal (0 < damping <= 1)
+end
+if ~exist('em_momentum', 'var') || isempty(em_momentum)
+    em_momentum = 0.20; % momentum coefficient (0 <= momentum < 1)
+end
+fprintf('EM Acceleration: Damping = %.2f, Momentum = %.2f (active after iteration %d)\n', ...
+    em_damping, em_momentum, iter_damping_start);
+
 % -------------------------------------------------------------------------
 % 4. Pseudo-Voigt Function Definition
 %    Matching Peak3DCostFunction (eval_axis_voigt_value) in
@@ -408,6 +422,7 @@ for fig_idx = 1:num_targets
     
     cur_y0 = p_step2(1);
     peaks_curr = peaks_init;
+    peaks_velocity = zeros(size(peaks_curr));
     prev_rmse = Inf;
     em_history = [];
     
@@ -586,6 +601,7 @@ for fig_idx = 1:num_targets
         
         % M-STEP: Maximize each component independently on decoupled data within fit_window
         D_exp = cur_y0 - y_fit;
+        peaks_cand = peaks_curr;
         for k = 1:num_peaks
             mask_k = abs(x_fit - peaks_curr(k, 2)) <= fit_window;
             y_k_target = D_exp - (S_tot - S_comp(k, :));
@@ -607,10 +623,28 @@ for fig_idx = 1:num_targets
                         1e4 * (p(4) < lb_k(4) || p(4) > ub_k(4));
                     p_opt_k = fminsearch(barrier_k, p0_k, fmin_opts);
                 end
-                peaks_curr(k, :) = p_opt_k;
+                peaks_cand(k, :) = p_opt_k;
             catch ME
                 % Retain current values if sub-optimization fails
+                peaks_cand(k, :) = peaks_curr(k, :);
             end
+        end
+        
+        % Update peak parameters with momentum and damping (active after iteration 6)
+        if em_iter > iter_damping_start
+            delta_step = peaks_cand - peaks_curr;
+            peaks_velocity = em_momentum * peaks_velocity + em_damping * delta_step;
+            peaks_curr = peaks_curr + peaks_velocity;
+            
+            % Enforce physical parameter bounds
+            for k = 1:num_peaks
+                peaks_curr(k, 1) = max(0, peaks_curr(k, 1));
+                peaks_curr(k, 3) = max(min_fwhm, min(max_fwhm, peaks_curr(k, 3)));
+                peaks_curr(k, 4) = max(0.0, min(1.0, peaks_curr(k, 4)));
+            end
+        else
+            peaks_velocity = peaks_cand - peaks_curr;
+            peaks_curr = peaks_cand;
         end
         
         % Update baseline y0 using wing points of the fitting area
