@@ -45,6 +45,7 @@ class cpeaks {
         this.column_headers = []; // column headers, string array
         this.column_formats = []; // column formats, string array
         this.columns = []; // columns, array of arrays (arrays have same length, but different types)
+        this.peak_profiles = {}; // Map of peak_index (1-based) -> peak_profile instance
     };
 
     /**
@@ -57,6 +58,31 @@ class cpeaks {
         this.columns = [];
         this.gradients = null;
         this.scale_constant = 1.0;
+        this.peak_profiles = {};
+    }
+
+    /**
+     * Get saved peak_profile instance for a peak
+     * @param {number} peak_index - 1-based peak index
+     * @returns {peak_profile|null}
+     */
+    get_peak_profile(peak_index) {
+        if (!this.peak_profiles) {
+            this.peak_profiles = {};
+        }
+        return this.peak_profiles[peak_index] || null;
+    }
+
+    /**
+     * Save peak_profile instance for a peak
+     * @param {number} peak_index - 1-based peak index
+     * @param {peak_profile} profile
+     */
+    set_peak_profile(peak_index, profile) {
+        if (!this.peak_profiles) {
+            this.peak_profiles = {};
+        }
+        this.peak_profiles[peak_index] = profile;
     }
 
     /**

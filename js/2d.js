@@ -6665,18 +6665,52 @@ function show_pseudo3d_peak_profile(peak_index) {
     let peaks_object = get_current_peak_object();
     let x_str = '';
     let y_str = '';
+    let x_val_ppm = null;
+    let y_val_ppm = null;
     if (peaks_object && peak_index - 1 >= 0) {
         let x_col = peaks_object.get_column_by_header('X_PPM');
         let y_col = peaks_object.get_column_by_header('Y_PPM');
         if (x_col && y_col && x_col[peak_index - 1] !== undefined) {
-            x_str = x_col[peak_index - 1].toFixed(2);
-            y_str = y_col[peak_index - 1].toFixed(2);
+            x_val_ppm = x_col[peak_index - 1];
+            y_val_ppm = y_col[peak_index - 1];
+            x_str = x_val_ppm.toFixed(2);
+            y_str = y_val_ppm.toFixed(2);
+        }
+    }
+
+    // Retrieve or instantiate peak_profile and run negative pseudo-Voigt EM fit
+    let profile_instance = null;
+    let curveData = null;
+    let fitResult = null;
+    if (typeof peak_profile === 'function') {
+        if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
+            profile_instance = peaks_object.get_peak_profile(peak_index);
+        }
+        if (!profile_instance) {
+            profile_instance = new peak_profile(peak_index, profileData, {
+                x_ppm: x_val_ppm,
+                y_ppm: y_val_ppm,
+                fit_window: 20,
+                asym_factor: 2.0
+            });
+            if (peaks_object && typeof peaks_object.set_peak_profile === 'function') {
+                peaks_object.set_peak_profile(peak_index, profile_instance);
+            }
+        }
+
+        fitResult = profile_instance.fit_negative_pseudo_voigt_em();
+        if (fitResult) {
+            curveData = profile_instance.get_fitted_curve_points(350);
         }
     }
 
     let titleEl = document.getElementById('pseudo3d_profile_title');
     if (titleEl) {
-        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} Planes`;
+        let fitSummary = '';
+        if (fitResult && typeof fitResult.r2 === 'number') {
+            fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}, RMSE: ${fitResult.rmse.toFixed(4)})`;
+        }
+        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} Planes${fitSummary}`;
     }
 
     modal.style.display = 'flex';
@@ -6732,13 +6766,24 @@ function show_pseudo3d_peak_profile(peak_index) {
                 }
             };
         }
+
+        let toggleFitBtn = document.getElementById('pseudo3d_profile_toggle_fit_btn');
+        if (toggleFitBtn) {
+            toggleFitBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_fit_visibility();
+                    toggleFitBtn.innerText = isVis ? 'Fit: ON' : 'Fit: OFF';
+                    toggleFitBtn.style.opacity = isVis ? '1.0' : '0.6';
+                }
+            };
+        }
     }
 
     if (pseudo3d_profile_plot_instance && bodyEl) {
         let w = bodyEl.clientWidth || 460;
         let h = bodyEl.clientHeight || 280;
         pseudo3d_profile_plot_instance.resize(w, h);
-        pseudo3d_profile_plot_instance.set_data(profileData);
+        pseudo3d_profile_plot_instance.set_data(profileData, curveData);
     }
 }
 

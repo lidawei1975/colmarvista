@@ -78,6 +78,23 @@ class pseudo3d_profile_plot {
         this.errorG = this.dataG.append('g').attr('class', 'profile-error-bars');
         this.dotsG = this.dataG.append('g').attr('class', 'profile-dots');
 
+        // Fit graphics group (inside clipped dataG)
+        this.fitG = this.dataG.append('g').attr('class', 'profile-fit-group');
+        this.fitBoundsG = this.fitG.append('g').attr('class', 'profile-fit-bounds');
+        this.fitBaseline = this.fitG.append('line')
+            .attr('class', 'profile-fit-baseline')
+            .attr('stroke', '#2e7d32')
+            .attr('stroke-dasharray', '3,3')
+            .attr('stroke-width', 1.5)
+            .style('display', 'none');
+        this.fitPeakMarkersG = this.fitG.append('g').attr('class', 'profile-fit-peak-markers');
+        this.fitCompG = this.fitG.append('g').attr('class', 'profile-fit-components');
+        this.fitLine = this.fitG.append('path')
+            .attr('class', 'profile-fit-line')
+            .attr('fill', 'none')
+            .attr('stroke', '#d32f2f')
+            .attr('stroke-width', 2);
+
         // Axes groups
         this.xAxisG = this.g.append('g')
             .attr('class', 'profile-x-axis')
@@ -85,6 +102,13 @@ class pseudo3d_profile_plot {
 
         this.yAxisG = this.g.append('g')
             .attr('class', 'profile-y-axis');
+
+        // Legend group for fit statistics
+        this.fitLegendG = this.g.append('g').attr('class', 'profile-fit-legend');
+
+        // Fit data state
+        this.fitData = null;
+        this.showFit = true;
 
         // Axis labels
         this.xLabel = this.g.append('text')
@@ -121,10 +145,14 @@ class pseudo3d_profile_plot {
         this.xScale = d3.scaleLinear();
         this.yScale = d3.scaleLinear();
 
-        // Line generator
+        // Line generators
         this.lineGenerator = d3.line()
             .x(d => this.xScale(d.plane))
             .y(d => this.yScale(d.value));
+
+        this.fitCurveGenerator = d3.line()
+            .x(d => this.xScale(d.x))
+            .y(d => this.yScale(d.y));
 
         // Tooltip
         this.tooltip = document.getElementById('pseudo3d_profile_tooltip');
@@ -142,8 +170,13 @@ class pseudo3d_profile_plot {
     /**
      * Set data and initialize scales
      * @param {Array<{ plane: number, label: string, value: number, std?: number }>} data
+     * @param {Object} [fitData] - Optional fit curve data generated from peak_profile
      */
-    set_data(data) {
+    set_data(data, fitData = null) {
+        if (fitData !== undefined) {
+            this.fitData = fitData;
+        }
+
         if (!data || data.length === 0) {
             this.data = [];
             this.update_plot();
@@ -160,8 +193,18 @@ class pseudo3d_profile_plot {
         this.xOrigDomain = [minX - xPad, maxX + xPad];
 
         // Determine Y extent
-        const minY = d3.min(this.data, d => (typeof d.std === 'number' ? d.value - d.std : d.value));
-        const maxY = d3.max(this.data, d => (typeof d.std === 'number' ? d.value + d.std : d.value));
+        let minY = d3.min(this.data, d => (typeof d.std === 'number' ? d.value - d.std : d.value));
+        let maxY = d3.max(this.data, d => (typeof d.std === 'number' ? d.value + d.std : d.value));
+        if (this.fitData && this.fitData.total_curve && this.fitData.total_curve.length > 0) {
+            const fitMinY = d3.min(this.fitData.total_curve, d => d.y);
+            const fitMaxY = d3.max(this.fitData.total_curve, d => d.y);
+            if (fitMinY !== undefined && !isNaN(fitMinY)) minY = Math.min(minY, fitMinY);
+            if (fitMaxY !== undefined && !isNaN(fitMaxY)) maxY = Math.max(maxY, fitMaxY);
+            if (typeof this.fitData.baseline === 'number' && !isNaN(this.fitData.baseline)) {
+                minY = Math.min(minY, this.fitData.baseline);
+                maxY = Math.max(maxY, this.fitData.baseline);
+            }
+        }
         const ySpan = maxY - minY;
         const yPad = (ySpan === 0) ? Math.abs(maxY || 1) * 0.1 : ySpan * 0.1;
         this.yOrigDomain = [minY - yPad, maxY + yPad];
@@ -181,6 +224,8 @@ class pseudo3d_profile_plot {
             this.linePath.attr('d', null);
             this.dotsG.selectAll('*').remove();
             this.errorG.selectAll('*').remove();
+            this.fitG.style('display', 'none');
+            this.fitLegendG.selectAll('*').remove();
             return;
         }
 
@@ -276,11 +321,15 @@ class pseudo3d_profile_plot {
         dotsEnter.merge(dotsSelection)
             .attr('cx', d => this.xScale(d.plane))
             .attr('cy', d => this.yScale(d.value))
+            .attr('fill', d => (d.value > 0.98 ? '#b0bec5' : this.pointColor))
+            .attr('stroke', d => (d.value > 0.98 ? '#37474f' : '#ffffff'))
+            .attr('r', d => (d.value > 0.98 ? 3.5 : 4))
             .on('mouseenter', function (event, d) {
                 d3.select(this).attr('r', 6).attr('fill', '#e53935');
                 if (self.tooltip) {
                     const stdStr = (typeof d.std === 'number') ? ` ± ${d.std.toFixed(2)}` : '';
-                    self.tooltip.innerHTML = `<strong>Plane:</strong> ${d.label || d.plane}<br><strong>Value:</strong> ${d.value.toFixed(2)}${stdStr}`;
+                    const refTag = (d.value > 0.98) ? '<br><span style="color:#e65100;font-weight:bold;">[Reference Scan &gt; 0.98, excluded from fit]</span>' : '';
+                    self.tooltip.innerHTML = `<strong>Plane:</strong> ${d.label || d.plane}<br><strong>Value:</strong> ${d.value.toFixed(3)}${stdStr}${refTag}`;
                     self.tooltip.style.display = 'block';
                     const contRect = self.container.getBoundingClientRect();
                     self.tooltip.style.left = Math.min(contRect.width - 120, Math.max(10, event.clientX - contRect.left + 10)) + 'px';
@@ -294,10 +343,131 @@ class pseudo3d_profile_plot {
                     self.tooltip.style.top = Math.max(10, event.clientY - contRect.top - 40) + 'px';
                 }
             })
-            .on('mouseleave', function () {
-                d3.select(this).attr('r', 4).attr('fill', self.pointColor);
+            .on('mouseleave', function (event, d) {
+                const defFill = (d && d.value > 0.98) ? '#b0bec5' : self.pointColor;
+                const defR = (d && d.value > 0.98) ? 3.5 : 4;
+                d3.select(this).attr('r', defR).attr('fill', defFill);
                 if (self.tooltip) self.tooltip.style.display = 'none';
             });
+
+        // Update Fit Elements
+        if (this.fitData && this.showFit) {
+            this.fitG.style('display', 'block');
+
+            // 1. Baseline line
+            if (typeof this.fitData.baseline === 'number' && this.fitData.fit_range) {
+                const y0_px = this.yScale(this.fitData.baseline);
+                const x1_px = this.xScale(this.fitData.fit_range[0]);
+                const x2_px = this.xScale(this.fitData.fit_range[1]);
+                this.fitBaseline
+                    .attr('x1', x1_px)
+                    .attr('x2', x2_px)
+                    .attr('y1', y0_px)
+                    .attr('y2', y0_px)
+                    .style('display', 'block');
+            } else {
+                this.fitBaseline.style('display', 'none');
+            }
+
+            // 2. Fit window boundary markers
+            const bData = (this.fitData.fit_range && this.fitData.fit_range.length === 2) ? this.fitData.fit_range : [];
+            const bSel = this.fitBoundsG.selectAll('.fit-bound-line').data(bData);
+            bSel.exit().remove();
+            bSel.enter().append('line')
+                .attr('class', 'fit-bound-line')
+                .attr('stroke', '#b0bec5')
+                .attr('stroke-dasharray', '3,3')
+                .attr('stroke-width', 1)
+                .merge(bSel)
+                .attr('x1', d => this.xScale(d))
+                .attr('x2', d => this.xScale(d))
+                .attr('y1', 0)
+                .attr('y2', innerHeight);
+
+            // 3. Peak center vertical markers
+            const pCenters = this.fitData.peak_centers || [];
+            const pSel = this.fitPeakMarkersG.selectAll('.fit-peak-marker').data(pCenters, (d, i) => i);
+            pSel.exit().remove();
+            pSel.enter().append('line')
+                .attr('class', 'fit-peak-marker')
+                .attr('stroke', '#78909c')
+                .attr('stroke-dasharray', '2,2')
+                .attr('stroke-width', 1)
+                .merge(pSel)
+                .attr('x1', d => this.xScale(d.x0))
+                .attr('x2', d => this.xScale(d.x0))
+                .attr('y1', 0)
+                .attr('y2', innerHeight);
+
+            // 4. Component dashed lines (for multi-peak models)
+            const comps = this.fitData.components || [];
+            const compSel = this.fitCompG.selectAll('.fit-comp-line').data(comps.length > 1 ? comps : [], d => d.id);
+            compSel.exit().remove();
+            compSel.enter().append('path')
+                .attr('class', 'fit-comp-line')
+                .attr('fill', 'none')
+                .attr('stroke-dasharray', '4,3')
+                .attr('stroke-width', 1.6)
+                .merge(compSel)
+                .attr('stroke', d => d.color || '#e53935')
+                .attr('d', d => this.fitCurveGenerator(d.points));
+
+            // 5. Total fitted curve
+            if (this.fitData.total_curve && this.fitData.total_curve.length > 0) {
+                this.fitLine
+                    .datum(this.fitData.total_curve)
+                    .attr('d', this.fitCurveGenerator)
+                    .style('display', 'block');
+            } else {
+                this.fitLine.style('display', 'none');
+            }
+
+            // 6. Inset Legend / Fit summary badge
+            this.fitLegendG.selectAll('*').remove();
+            if (this.fitData.stats) {
+                const st = this.fitData.stats;
+                const r2Str = (typeof st.r2 === 'number') ? st.r2.toFixed(3) : '';
+                const rmseStr = (typeof st.rmse === 'number') ? st.rmse.toFixed(4) : '';
+                const badgeText = `${st.num_peaks} Peak${st.num_peaks > 1 ? 's' : ''} Fit | R²: ${r2Str} | RMSE: ${rmseStr}`;
+
+                const badgeG = this.fitLegendG.append('g')
+                    .attr('transform', `translate(${innerWidth - 6}, 14)`);
+
+                badgeG.append('text')
+                    .attr('text-anchor', 'end')
+                    .attr('font-size', '10px')
+                    .attr('fill', '#c62828')
+                    .attr('font-weight', 'bold')
+                    .text(badgeText);
+            }
+        } else {
+            this.fitG.style('display', 'none');
+            this.fitLegendG.selectAll('*').remove();
+        }
+    }
+
+    /**
+     * Update fit data and re-render plot
+     * @param {Object} fitData
+     */
+    set_fit_data(fitData) {
+        this.fitData = fitData;
+        this.update_plot();
+    }
+
+    /**
+     * Toggle visibility of the fitted curve
+     * @param {boolean} [forceVisible]
+     * @returns {boolean} current visibility state
+     */
+    toggle_fit_visibility(forceVisible) {
+        if (typeof forceVisible === 'boolean') {
+            this.showFit = forceVisible;
+        } else {
+            this.showFit = !this.showFit;
+        }
+        this.update_plot();
+        return this.showFit;
     }
 
     /**
