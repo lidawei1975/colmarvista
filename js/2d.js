@@ -69,6 +69,8 @@ var pending_pseudo3d_uncalculated_spectra = []; // pseudo 3D spectra indices (6t
 var last_calculated_spectrum_index = -1; // track last spectrum sent to contour worker in a batch
 var baseline_correction_batch_total = 0;
 var baseline_correction_batch_completed = 0;
+var cest_multi_peak_indices = [];
+var cest_filter_multi_peaks_only = false;
 
 /**
  * For FID re-processing. Saved file data
@@ -5212,6 +5214,20 @@ function show_hide_peaks(index, flag, b_show) {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = 'fitted';
         show_peak_table();
+        // If CEST analysis results are present, switch to highlight mode automatically
+        if (typeof cest_multi_peak_indices !== 'undefined' && cest_multi_peak_indices.length > 0) {
+            apply_multi_peak_highlights();
+            let btnHeader = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeader) {
+                btnHeader.style.display = 'inline-block';
+                btnHeader.disabled = false;
+                let total_peaks = (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0])
+                    ? pseudo3d_fitted_peaks_object.columns[0].length : '';
+                btnHeader.textContent = cest_filter_multi_peaks_only
+                    ? `Show All Peaks (${total_peaks})`
+                    : `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+            }
+        }
         /**
          * flag is always 'fitted' for pseudo 3D peaks.
          * First define a dummy hsqc_spectrum object. When flag is fitted, main_plot will only use fitted_peaks of the spectrum
@@ -5285,6 +5301,8 @@ function show_hide_peaks(index, flag, b_show) {
         current_spectrum_index_of_peaks = index;
         set_current_spectrum(index);
         current_flag_of_peaks = flag;
+        let btnHeader = document.getElementById("button_peak_area_filter_multi");
+        if (btnHeader) btnHeader.style.display = 'none';
         show_peak_table();
 
         /**
@@ -6325,6 +6343,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     total_number_of_experimental_spectra = 0;
     current_spectrum_index_of_peaks = -1;
     current_flag_of_peaks = 'picked';
+    cest_multi_peak_indices = [];
     if (typeof remove_peak_table === "function") {
         remove_peak_table();
     }
@@ -6580,8 +6599,8 @@ function is_pseudo3d_active() {
     return false;
 }
 
-function get_pseudo3d_peak_profile_data(peak_index) {
-    let peaks_object = get_current_peak_object();
+function get_pseudo3d_peak_profile_data(peak_index, peaks_obj) {
+    let peaks_object = peaks_obj || get_current_peak_object() || pseudo3d_fitted_peaks_object;
     let idx = peak_index - 1;
     let profile = [];
 
@@ -6616,15 +6635,17 @@ function get_pseudo3d_peak_profile_data(peak_index) {
     }
 
     // Method 2: If hsqc_spectra has pseudo-3D child planes
-    if (typeof main_plot !== "undefined" && main_plot !== null && peaks_object && idx >= 0) {
+    if (peaks_object && idx >= 0 && typeof hsqc_spectra !== "undefined" && hsqc_spectra && hsqc_spectra.length > 0) {
         let x_col = peaks_object.get_column_by_header('X_PPM');
         let y_col = peaks_object.get_column_by_header('Y_PPM');
         if (x_col && y_col && idx < x_col.length) {
             let x_ppm = x_col[idx];
             let y_ppm = y_col[idx];
 
-            let first_idx = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
-            let parent_spec = hsqc_spectra[first_idx];
+            let active_spec_idx = (typeof main_plot !== "undefined" && main_plot !== null && main_plot.current_spectral_index !== undefined)
+                ? main_plot.current_spectral_index : 0;
+            let first_idx = get_pseudo3d_first_spectrum_index(active_spec_idx);
+            let parent_spec = hsqc_spectra[first_idx] || hsqc_spectra[0];
             if (parent_spec && parent_spec.pseudo3d_children && parent_spec.pseudo3d_children.length > 0) {
                 let plane_indices = [first_idx, ...parent_spec.pseudo3d_children];
                 plane_indices.forEach((specIdx, pIdx) => {
@@ -6859,17 +6880,247 @@ function setup_pseudo3d_profile_modal_drag() {
     });
 }
 
+/**
+ * Run CEST pre-analysis: negative peak picking/fitting along the profile of all pseudo3D peaks.
+ * Highlights peaks with >= 2 peaks in their profile.
+ * Note: Does not add overlay rings to main_plot per user specification.
+ */
+function run_cest_pre_analysis(is_manual = false) {
+    let peaks_object = get_current_peak_object();
+    // If no peaks currently displayed, or displayed peaks have no pseudo3D data, check pseudo3d_fitted_peaks_object
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+        if (peaks_object) {
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    } else {
+        // If current peaks don't have Z_A headers and don't have pseudo3d profile, fallback to pseudo3d_fitted_peaks_object
+        let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+        if ((!testProfile || testProfile.length < 3) && pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0] && pseudo3d_fitted_peaks_object.columns[0].length > 0) {
+            peaks_object = pseudo3d_fitted_peaks_object;
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    }
+
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        if (is_manual) alert("No pseudo-3D peak data found. Please load or fit pseudo-3D peaks first.");
+        return;
+    }
+
+    let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+    if (!testProfile || testProfile.length < 3) {
+        if (is_manual) alert("Current peak dataset does not contain pseudo-3D profile data (e.g. Z_A columns).");
+        return;
+    }
+
+    let statusEl = document.getElementById("cest_pre_analysis_status");
+    let btnPre = document.getElementById("button_cest_pre_analysis");
+    if (statusEl) {
+        statusEl.innerHTML = '<span style="color: #1976d2;">Running pre-analysis fitting...</span>';
+    }
+    if (btnPre) btnPre.disabled = true;
+
+    // Reset filter state
+    cest_filter_multi_peaks_only = false;
+
+    // If using pseudo3d_fitted_peaks_object, make sure the checkbox is checked
+    if (peaks_object === pseudo3d_fitted_peaks_object) {
+        let p3dCheck = document.getElementById("show_pseudo3d_peaks");
+        if (p3dCheck) p3dCheck.checked = true;
+    }
+
+    setTimeout(() => {
+        try {
+            const total_peaks = peaks_object.columns[0].length;
+            cest_multi_peak_indices = [];
+
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            let explicit_x = null;
+            if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+                let parsed = cestOffsetsInput.value.trim().split(/\s+/).map(Number).filter(v => !isNaN(v));
+                if (parsed.length === testProfile.length) {
+                    explicit_x = parsed;
+                }
+            }
+
+            let x_col = peaks_object.get_column_by_header('X_PPM');
+            let y_col = peaks_object.get_column_by_header('Y_PPM');
+
+            for (let k = 1; k <= total_peaks; k++) {
+                let profileData = get_pseudo3d_peak_profile_data(k, peaks_object);
+                if (!profileData || profileData.length < 3) continue;
+
+                let x_val = (x_col && x_col[k - 1] !== undefined) ? x_col[k - 1] : null;
+                let y_val = (y_col && y_col[k - 1] !== undefined) ? y_col[k - 1] : null;
+
+                let prof = null;
+                if (typeof peaks_object.get_peak_profile === 'function') {
+                    prof = peaks_object.get_peak_profile(k);
+                }
+                if (!prof) {
+                    prof = new peak_profile(k, profileData, {
+                        x_ppm: x_val,
+                        y_ppm: y_val,
+                        x_coords: explicit_x,
+                        fit_window: 20,
+                        asym_factor: 2.0,
+                        max_intensity: 0.98
+                    });
+                    if (typeof peaks_object.set_peak_profile === 'function') {
+                        peaks_object.set_peak_profile(k, prof);
+                    }
+                }
+
+                let fitResult = prof.fit_negative_pseudo_voigt_em();
+                let num_peaks = 0;
+                if (fitResult && typeof fitResult.num_peaks === 'number') {
+                    num_peaks = fitResult.num_peaks;
+                } else if (prof.fitted_peaks && Array.isArray(prof.fitted_peaks)) {
+                    num_peaks = prof.fitted_peaks.length;
+                }
+
+                if (num_peaks >= 2) {
+                    cest_multi_peak_indices.push(k);
+                }
+            }
+
+            // Update status display
+            if (statusEl) {
+                statusEl.innerHTML = `<strong>Pre-analysis complete:</strong> Found <b style="color: #e65100;">${cest_multi_peak_indices.length}</b> peak${cest_multi_peak_indices.length === 1 ? '' : 's'} with ≥2 components (out of ${total_peaks} peaks).`;
+            }
+
+            // Enable filter button in CEST section
+            let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+            if (btnFilter) {
+                btnFilter.disabled = false;
+                btnFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnFilter.style.backgroundColor = "";
+            }
+
+            // Enable and display quick filter button in peak table header
+            let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeaderFilter) {
+                btnHeaderFilter.style.display = 'inline-block';
+                btnHeaderFilter.disabled = false;
+                btnHeaderFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnHeaderFilter.style.backgroundColor = "#fff3e0";
+            }
+
+            // Show or refresh the peak table
+            show_peak_table();
+            apply_multi_peak_highlights();
+        } finally {
+            if (btnPre) btnPre.disabled = false;
+        }
+    }, 10);
+}
+
+/**
+ * Apply highlighting to table rows for all peaks with >= 2 components.
+ */
+function apply_multi_peak_highlights() {
+    let table = document.getElementById("peak_table");
+    if (!table) return;
+    let tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    let rows = tbody.querySelectorAll("tr");
+    rows.forEach(row => {
+        let tds = row.querySelectorAll("td");
+        if (tds.length === 0) return;
+        let peakIndex = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
+        if (isNaN(peakIndex)) return;
+
+        if (cest_multi_peak_indices.includes(peakIndex)) {
+            row.classList.add("multi_peak_row");
+            row.style.backgroundColor = "#ffe0b2";
+            for (let c = 0; c < tds.length; c++) {
+                tds[c].style.backgroundColor = "#ffe0b2";
+            }
+        } else {
+            row.classList.remove("multi_peak_row");
+            row.style.backgroundColor = "";
+            for (let c = 0; c < tds.length; c++) {
+                tds[c].style.backgroundColor = "";
+            }
+        }
+        let badge = row.querySelector(".badge_multi_peak");
+        if (badge) badge.remove();
+    });
+}
+
+/**
+ * Toggle peak list filtering to show only peaks with >= 2 components or show all peaks.
+ */
+function toggle_cest_filter_multi_peaks() {
+    cest_filter_multi_peaks_only = !cest_filter_multi_peaks_only;
+
+    let table = document.getElementById("peak_table");
+    let rows = table ? table.querySelectorAll("tbody tr") : [];
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let total_count = (peaks_object && peaks_object.columns && peaks_object.columns[0]) ? peaks_object.columns[0].length : rows.length;
+    let multi_count = cest_multi_peak_indices.length;
+
+    rows.forEach(row => {
+        let tds = row.querySelectorAll("td");
+        if (tds.length === 0) return;
+        let peakIndex = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
+        if (isNaN(peakIndex)) return;
+
+        if (cest_filter_multi_peaks_only) {
+            if (cest_multi_peak_indices.includes(peakIndex)) {
+                row.style.display = "";
+            } else {
+                row.style.display = "none";
+            }
+        } else {
+            row.style.display = "";
+        }
+    });
+
+    let btnCest = document.getElementById("button_cest_filter_multi_peaks");
+    let btnHeader = document.getElementById("button_peak_area_filter_multi");
+
+    let text, bgColor;
+    if (cest_filter_multi_peaks_only) {
+        text = `Show All Peaks (${total_count})`;
+        bgColor = "#ffe0b2";
+    } else {
+        text = `Show ≥2 Peaks Only (${multi_count})`;
+        bgColor = "";
+    }
+
+    if (btnCest) {
+        btnCest.textContent = text;
+        btnCest.style.backgroundColor = bgColor;
+    }
+    if (btnHeader) {
+        btnHeader.textContent = text;
+        btnHeader.style.backgroundColor = bgColor || "#fff3e0";
+    }
+}
+
 function unselect_peak_row() {
     if (current_selected_peak_row) {
         current_selected_peak_row.classList.remove('selected_peak_row');
-        current_selected_peak_row.style.backgroundColor = "";
+        let isMulti = current_selected_peak_row.classList.contains('multi_peak_row');
+        let bg = isMulti ? "#ffe0b2" : "";
+        current_selected_peak_row.style.backgroundColor = bg;
+        let tds = current_selected_peak_row.querySelectorAll("td");
+        tds.forEach(td => td.style.backgroundColor = bg);
     }
     let peak_table = document.getElementById("peak_table");
     if (peak_table) {
         let highlighted = peak_table.querySelectorAll(".selected_peak_row");
         highlighted.forEach(r => {
             r.classList.remove("selected_peak_row");
-            r.style.backgroundColor = "";
+            let isMulti = r.classList.contains('multi_peak_row');
+            let bg = isMulti ? "#ffe0b2" : "";
+            r.style.backgroundColor = bg;
+            let tds = r.querySelectorAll("td");
+            tds.forEach(td => td.style.backgroundColor = bg);
         });
     }
     current_selected_peak_row = null;
@@ -6888,6 +7139,8 @@ function select_peak_row(row, peak_index) {
 
     row.classList.add('selected_peak_row');
     row.style.backgroundColor = "lightblue";
+    let tds = row.querySelectorAll("td");
+    tds.forEach(td => td.style.backgroundColor = "lightblue");
 
     let peaks_object = get_current_peak_object();
     if (peaks_object && main_plot) {
@@ -6912,6 +7165,8 @@ function remove_peak_table() {
     unselect_peak_row();
     let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
+    let btnHeader = document.getElementById("button_peak_area_filter_multi");
+    if (btnHeader) btnHeader.style.display = 'none';
 
     /**
      * Remove all children from the table
@@ -7035,7 +7290,7 @@ function table_click_handler(event) {
                 /**
                  * Need to update the peaks_object as well
                  */
-                let peak_index = parseInt(tds[0].innerText);
+                let peak_index = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
                 let peaks_object = get_current_peak_object();
                 if (peak_index > 0) {
                     peaks_object.set_column_row_value('ASS', peak_index - 1, newText);
@@ -7053,7 +7308,7 @@ function table_click_handler(event) {
             /**
              * Only index cell (1st column) is clickable for peak selection
              */
-            let peak_index = parseInt(tds[0].innerText);
+            let peak_index = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
             console.log('peak_index:', peak_index);
             if (isNaN(peak_index)) {
                 return;

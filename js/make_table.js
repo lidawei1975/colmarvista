@@ -246,6 +246,26 @@ function createTable_from_peak(peak, table) {
             row.appendChild(za_td);
         }
 
+        row.setAttribute('data-peak-index', i + 1);
+
+        // Highlight with warm background if flag is pseudo-3D (-2) and peak was detected as multi-peak in CEST analysis
+        if (typeof current_spectrum_index_of_peaks !== 'undefined' && current_spectrum_index_of_peaks === -2 &&
+            typeof cest_multi_peak_indices !== 'undefined' && Array.isArray(cest_multi_peak_indices) && cest_multi_peak_indices.includes(i + 1)) {
+            row.classList.add("multi_peak_row");
+            row.style.backgroundColor = "#ffe0b2";
+            for (let c = 0; c < row.cells.length; c++) {
+                row.cells[c].style.backgroundColor = "#ffe0b2";
+            }
+        }
+
+        // Apply filtering if active on pseudo-3D peaks
+        if (typeof current_spectrum_index_of_peaks !== 'undefined' && current_spectrum_index_of_peaks === -2 &&
+            typeof cest_filter_multi_peaks_only !== 'undefined' && cest_filter_multi_peaks_only) {
+            if (typeof cest_multi_peak_indices !== 'undefined' && !cest_multi_peak_indices.includes(i + 1)) {
+                row.style.display = "none";
+            }
+        }
+
         tbody.appendChild(row);
     }
 

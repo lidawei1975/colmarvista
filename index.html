@@ -4,7 +4,7 @@
 <head>
     <title>COLMARvista</title>
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" type="text/css" href="colmarview.css?v=20260922_3">
+    <link rel="stylesheet" type="text/css" href="colmarview.css?v=20260926_1">
     <style>
         /* Compact minimized spectrum for 2D spectral list */
         #spectra_list_ol > li.spectrum-minimized-compact,
@@ -48,6 +48,30 @@
             height: 24px;
             cursor: pointer;
             vertical-align: middle;
+        }
+
+        /* Multi-dip row highlighting for CEST / Pseudo-3D profiles */
+        tr.multi_peak_row,
+        tr.multi_peak_row td {
+            background-color: #ffe0b2 !important;
+        }
+
+        tr.multi_peak_row:hover,
+        tr.multi_peak_row:hover td {
+            background-color: #ffd199 !important;
+        }
+
+        #peak_table tbody tr.multi_peak_row td:first-child:hover {
+            background-color: #ffb74d !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row,
+        tr.multi_peak_row.selected_peak_row td {
+            background-color: lightblue !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row td:first-child:hover {
+            background-color: #9eccf0 !important;
         }
     </style>
 </head>
@@ -298,6 +322,11 @@
                         <strong>CEST fitting tool</strong>
                     </p>
                     <div id="cest_area_content" style="display: none; margin-top: 6px;">
+                        <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button id="button_cest_pre_analysis" onclick="run_cest_pre_analysis(true)" style="font-weight: bold; padding: 3px 10px; cursor: pointer;">Pre-analysis</button>
+                            <button id="button_cest_filter_multi_peaks" onclick="toggle_cest_filter_multi_peaks()" disabled style="padding: 3px 10px; cursor: pointer;">Show ≥2 Peaks Only</button>
+                            <span id="cest_pre_analysis_status" style="font-size: 12px; color: #444;"></span>
+                        </div>
                         <label for="cest_offsets">CEST saturation offsets (ppm or Hz, space separated): </label>
                         <input type="text" id="cest_offsets" value="" placeholder="e.g. -5 -4 -3 -2 -1 0 1 2 3 4 5" size="55"><br>
                         <label for="cest_b1">B1 field strength (Hz): </label>
@@ -485,6 +514,7 @@
                         <label for="peak_search_text">Search in peaks </label>
                         <input type="text" id="peak_search_text" placeholder="peak text">
                         <button id="peak_search" onclick="search_peak()">Search</button>
+                        <button id="button_peak_area_filter_multi" onclick="toggle_cest_filter_multi_peaks()" style="display: none; margin-left: 10px; padding: 2px 8px; cursor: pointer; border-radius: 3px; border: 1px solid #ff9800; background-color: #fff3e0; font-weight: bold; color: #e65100;">Show ≥2 Peaks Only</button>
                     </div>
                     <table id="peak_table">
                         <!-- table content will be managed by JS code -->
@@ -542,11 +572,11 @@
         <script type="text/javascript" src="js/spectrum.js"></script>
         <script type="text/javascript" src="js/spectrum_fit.js"></script>
         <script type="text/javascript" src="js/file_drop.js"></script>
-        <script type="text/javascript" src="js/make_table.js"></script>
+        <script type="text/javascript" src="js/make_table.js?v=20260926_1"></script>
         <script type="text/javascript" src="js/simple_peak_picker.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
         <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
-        <script type="text/javascript" src="js/2d.js?v=20260922_3"></script>
+        <script type="text/javascript" src="js/2d.js?v=20260926_1"></script>
         <script type="text/javascript" src="js/tutorial.js"></script>
     </div>
 </body>

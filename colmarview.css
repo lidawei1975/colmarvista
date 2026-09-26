@@ -436,6 +436,30 @@ tr.selected_peak_row td:first-child:hover {
     background-color: #9eccf0 !important;
 }
 
+/* Multi-dip row highlighting for CEST / Pseudo-3D profiles */
+tr.multi_peak_row,
+tr.multi_peak_row td {
+    background-color: #ffe0b2 !important;
+}
+
+tr.multi_peak_row:hover,
+tr.multi_peak_row:hover td {
+    background-color: #ffd199 !important;
+}
+
+#peak_table tbody tr.multi_peak_row td:first-child:hover {
+    background-color: #ffb74d !important;
+}
+
+tr.multi_peak_row.selected_peak_row,
+tr.multi_peak_row.selected_peak_row td {
+    background-color: lightblue !important;
+}
+
+tr.multi_peak_row.selected_peak_row td:first-child:hover {
+    background-color: #9eccf0 !important;
+}
+
 /* Tutorial Styles */
 .tutorial-highlight {
     outline: 4px solid #ff4500 !important;
