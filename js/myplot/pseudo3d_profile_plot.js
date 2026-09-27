@@ -217,6 +217,17 @@ class pseudo3d_profile_plot {
     }
 
     /**
+     * Update the X axis label text dynamically
+     * @param {string} label
+     */
+    set_x_label(label) {
+        this.xLabelText = label || 'Plane Index';
+        if (this.xLabel) {
+            this.xLabel.text(this.xLabelText);
+        }
+    }
+
+    /**
      * Update visualization based on current scales and data
      */
     update_plot() {

@@ -67,12 +67,17 @@ class peak_profile {
 
         if (data_or_values.length > 0 && typeof data_or_values[0] === 'object' && data_or_values[0] !== null) {
             // Array of objects [{ plane, value, std, label }]
-            this.data = data_or_values.map(d => ({
-                plane: d.plane !== undefined ? d.plane : (d.x !== undefined ? d.x : 1),
-                value: (typeof d.value === 'number' && !isNaN(d.value)) ? d.value : (typeof d.y === 'number' ? d.y : 0),
-                std: (typeof d.std === 'number' && !isNaN(d.std)) ? d.std : undefined,
-                label: d.label || ('Plane ' + (d.plane || 1))
-            }));
+            this.data = data_or_values.map((d, i) => {
+                let planeCoord = (explicit_x_coords && explicit_x_coords[i] !== undefined)
+                    ? explicit_x_coords[i]
+                    : (d.plane !== undefined ? d.plane : (d.x !== undefined ? d.x : 1));
+                return {
+                    plane: planeCoord,
+                    value: (typeof d.value === 'number' && !isNaN(d.value)) ? d.value : (typeof d.y === 'number' ? d.y : 0),
+                    std: (typeof d.std === 'number' && !isNaN(d.std)) ? d.std : undefined,
+                    label: d.label || ('Plane ' + (d.plane || 1))
+                };
+            });
 
             this.data.forEach(d => {
                 if (!isNaN(d.value) && isFinite(d.value)) {

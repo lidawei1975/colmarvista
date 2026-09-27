@@ -5,3 +5,4 @@ test_code/data.mat
 test_code/*.txt
 
 node_modules/
+scratch/

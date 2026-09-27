@@ -6235,6 +6235,21 @@ function save_to_file() {
             hsqc_spectra_copy.push(spectrum_copy);
         }
 
+        if (pseudo3d_fitted_peaks_object !== null) {
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.cest_offsets = cestOffsetsInput.value.trim();
+            }
+            let cestB1Input = document.getElementById("cest_b1");
+            if (cestB1Input && cestB1Input.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.cest_b1 = parseFloat(cestB1Input.value);
+            }
+            let timeT1Input = document.getElementById("time_t1");
+            if (timeT1Input && timeT1Input.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.time_t1 = parseFloat(timeT1Input.value);
+            }
+        }
+
         let to_save = {
             hsqc_spectra: hsqc_spectra_copy,
             pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
@@ -6559,6 +6574,18 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             document.getElementById("dosy_rescale").value = pseudo3d_fitted_peaks_object.scale_constant;
             document.getElementById("dosy_result").textContent = "Dosy result is available";
         }
+        if (pseudo3d_fitted_peaks_object.cest_offsets !== undefined) {
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            if (cestOffsetsInput) cestOffsetsInput.value = pseudo3d_fitted_peaks_object.cest_offsets;
+        }
+        if (pseudo3d_fitted_peaks_object.cest_b1 !== undefined) {
+            let cestB1Input = document.getElementById("cest_b1");
+            if (cestB1Input) cestB1Input.value = pseudo3d_fitted_peaks_object.cest_b1;
+        }
+        if (pseudo3d_fitted_peaks_object.time_t1 !== undefined) {
+            let timeT1Input = document.getElementById("time_t1");
+            if (timeT1Input) timeT1Input.value = pseudo3d_fitted_peaks_object.time_t1;
+        }
         document.getElementById("button_download_fitted_peaks").disabled = false;
         document.getElementById("show_pseudo3d_peaks").disabled = false;
     }
@@ -6699,6 +6726,26 @@ function show_pseudo3d_peak_profile(peak_index) {
         }
     }
 
+    // Check if explicit CEST saturation offsets (Hz) are provided
+    let cestOffsetsInput = document.getElementById("cest_offsets");
+    let explicit_x = null;
+    if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+        let parsed = cestOffsetsInput.value.trim().split(/\s+/).map(Number).filter(v => !isNaN(v));
+        if (parsed.length === profileData.length) {
+            explicit_x = parsed;
+        }
+    }
+
+    let plotData = profileData;
+    let xLabel = 'Plane';
+    if (explicit_x) {
+        plotData = profileData.map((d, i) => ({
+            ...d,
+            plane: explicit_x[i]
+        }));
+        xLabel = 'Offset (Hz)';
+    }
+
     // Retrieve or instantiate peak_profile and run negative pseudo-Voigt EM fit
     let profile_instance = null;
     let curveData = null;
@@ -6706,11 +6753,16 @@ function show_pseudo3d_peak_profile(peak_index) {
     if (typeof peak_profile === 'function') {
         if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
             profile_instance = peaks_object.get_peak_profile(peak_index);
+            // Invalidate if explicit_x configuration changed
+            if (profile_instance && explicit_x && (!profile_instance.x || profile_instance.x[0] !== explicit_x[0])) {
+                profile_instance = null;
+            }
         }
         if (!profile_instance) {
             profile_instance = new peak_profile(peak_index, profileData, {
                 x_ppm: x_val_ppm,
                 y_ppm: y_val_ppm,
+                x_coords: explicit_x,
                 fit_window: 20,
                 asym_factor: 2.0
             });
@@ -6731,7 +6783,8 @@ function show_pseudo3d_peak_profile(peak_index) {
         if (fitResult && typeof fitResult.r2 === 'number') {
             fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}, RMSE: ${fitResult.rmse.toFixed(4)})`;
         }
-        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} Planes${fitSummary}`;
+        let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
+        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
     }
 
     modal.style.display = 'flex';
@@ -6751,7 +6804,7 @@ function show_pseudo3d_peak_profile(peak_index) {
 
     if (!pseudo3d_profile_plot_instance && typeof pseudo3d_profile_plot === 'function') {
         pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
-            xLabel: 'Plane',
+            xLabel: xLabel,
             yLabel: 'Peak Intensity'
         });
 
@@ -6804,7 +6857,10 @@ function show_pseudo3d_peak_profile(peak_index) {
         let w = bodyEl.clientWidth || 460;
         let h = bodyEl.clientHeight || 280;
         pseudo3d_profile_plot_instance.resize(w, h);
-        pseudo3d_profile_plot_instance.set_data(profileData, curveData);
+        if (typeof pseudo3d_profile_plot_instance.set_x_label === 'function') {
+            pseudo3d_profile_plot_instance.set_x_label(xLabel);
+        }
+        pseudo3d_profile_plot_instance.set_data(plotData, curveData);
     }
 }
 
@@ -7100,6 +7156,100 @@ function toggle_cest_filter_multi_peaks() {
         btnHeader.textContent = text;
         btnHeader.style.backgroundColor = bgColor || "#fff3e0";
     }
+}
+
+/**
+ * Load CEST saturation offsets from an uploaded text/list/tab file and fill in #cest_offsets
+ * @param {HTMLInputElement} inputEl
+ */
+function load_cest_offsets_file(inputEl) {
+    if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
+    const file = inputEl.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (e) {
+        const text = e.target.result;
+        if (!text || typeof text !== 'string') return;
+
+        const lines = text.split(/\r?\n/);
+        let numbers = [];
+
+        // Filter comment lines and empty lines
+        let validLines = [];
+        for (let line of lines) {
+            let trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';') || trimmed.startsWith('//') || trimmed.startsWith('/*')) {
+                continue;
+            }
+            validLines.push(trimmed);
+        }
+
+        // Check if 2-column table format (index, offset)
+        let isTwoColumn = validLines.length > 1 && validLines.every(l => {
+            let parts = l.split(/[\s,]+/);
+            return parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]));
+        });
+
+        if (isTwoColumn) {
+            let firstCols = validLines.map(l => Number(l.split(/[\s,]+/)[0]));
+            let isIndex = firstCols.every((v, i) => v === i + 1 || v === i);
+            if (isIndex) {
+                numbers = validLines.map(l => Number(l.split(/[\s,]+/)[1]));
+            } else {
+                numbers = validLines.flatMap(l => l.split(/[\s,]+/).map(Number).filter(v => !isNaN(v)));
+            }
+        } else {
+            for (let line of validLines) {
+                let tokens = line.split(/[\s,]+/);
+                for (let tok of tokens) {
+                    let num = Number(tok);
+                    if (!isNaN(num) && isFinite(num)) {
+                        numbers.push(num);
+                    }
+                }
+            }
+        }
+
+        if (numbers.length === 0) {
+            alert("No numeric offset values found in the uploaded file: " + file.name);
+            inputEl.value = "";
+            return;
+        }
+
+        const offsetsInput = document.getElementById("cest_offsets");
+        if (offsetsInput) {
+            offsetsInput.value = numbers.join(' ');
+        }
+
+        const statusEl = document.getElementById("cest_pre_analysis_status");
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">Loaded ${numbers.length} offsets (Hz) from ${file.name}</span>`;
+        }
+
+        console.log(`Loaded ${numbers.length} CEST offsets from ${file.name}:`, numbers);
+
+        if (typeof pseudo3d_fitted_peaks_object !== 'undefined' && pseudo3d_fitted_peaks_object) {
+            pseudo3d_fitted_peaks_object.cest_offsets = offsetsInput ? offsetsInput.value : numbers.join(' ');
+        }
+
+        inputEl.value = "";
+
+        // If profile modal is open, refresh current peak profile plot
+        if (typeof current_selected_peak_index === 'number' && current_selected_peak_index > 0) {
+            let modal = document.getElementById('pseudo3d_profile_modal');
+            if (modal && modal.style.display !== 'none') {
+                show_pseudo3d_peak_profile(current_selected_peak_index);
+            }
+        }
+    };
+
+    reader.onerror = function (err) {
+        console.error("Error reading offset file:", err);
+        alert("Failed to read file: " + file.name);
+        inputEl.value = "";
+    };
+
+    reader.readAsText(file);
 }
 
 function unselect_peak_row() {

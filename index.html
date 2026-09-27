@@ -327,10 +327,16 @@
                             <button id="button_cest_filter_multi_peaks" onclick="toggle_cest_filter_multi_peaks()" disabled style="padding: 3px 10px; cursor: pointer;">Show ≥2 Peaks Only</button>
                             <span id="cest_pre_analysis_status" style="font-size: 12px; color: #444;"></span>
                         </div>
-                        <label for="cest_offsets">CEST saturation offsets (ppm or Hz, space separated): </label>
-                        <input type="text" id="cest_offsets" value="" placeholder="e.g. -5 -4 -3 -2 -1 0 1 2 3 4 5" size="55"><br>
+                        <label for="cest_offsets">CEST saturation offsets (Hz, space separated): </label>
+                        <input type="text" id="cest_offsets" value="" placeholder="e.g. -2000 -1500 -1000 -500 0 500 1000 1500 2000" size="50">
+                        <input type="file" id="cest_offsets_file" style="display: none;" accept=".txt,.list,.tab,.csv,.dat,*" onchange="load_cest_offsets_file(this)">
+                        <button type="button" id="button_upload_cest_offsets" onclick="document.getElementById('cest_offsets_file').click()" style="cursor: pointer; padding: 2px 8px; margin-left: 4px;">Upload offset file</button>
+                        <br>
                         <label for="cest_b1">B1 field strength (Hz): </label>
-                        <input type="number" id="cest_b1" value="25" min="1" max="500"><br>
+                        <input type="number" id="cest_b1" value="25" min="1" max="500">
+                        &nbsp;&nbsp;
+                        <label for="time_t1">CEST relaxation delay time_t1 (s): </label>
+                        <input type="number" id="time_t1" value="1.0" min="0" step="any" style="width: 80px;"><br>
                         <button id="button_run_cest" disabled onclick="alert('CEST fitting is under development.')">Run CEST fitting</button>
                         <button id="button_download_cest" disabled onclick="alert('CEST download is under development.')">Download CEST results</button>
                         <span id="cest_result"></span>
@@ -566,8 +572,8 @@
         <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
         <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
         <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
-        <script type="text/javascript" src="js/peak_profile.js"></script>
-        <script type="text/javascript" src="js/myplot/pseudo3d_profile_plot.js"></script>
+        <script type="text/javascript" src="js/peak_profile.js?v=20260927_1"></script>
+        <script type="text/javascript" src="js/myplot/pseudo3d_profile_plot.js?v=20260927_1"></script>
         <script type="text/javascript" src="js/peaks.js"></script>
         <script type="text/javascript" src="js/spectrum.js"></script>
         <script type="text/javascript" src="js/spectrum_fit.js"></script>
@@ -576,7 +582,7 @@
         <script type="text/javascript" src="js/simple_peak_picker.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
         <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
-        <script type="text/javascript" src="js/2d.js?v=20260926_1"></script>
+        <script type="text/javascript" src="js/2d.js?v=20260927_1"></script>
         <script type="text/javascript" src="js/tutorial.js"></script>
     </div>
 </body>
