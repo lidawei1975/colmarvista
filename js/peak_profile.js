@@ -56,6 +56,10 @@ class peak_profile {
         this.fit_result = null;
     }
 
+    get fitted_peaks() {
+        return (this.fit_result && this.fit_result.peaks) ? this.fit_result.peaks : null;
+    }
+
     /**
      * Initializes internal coordinate arrays from provided data
      * @private

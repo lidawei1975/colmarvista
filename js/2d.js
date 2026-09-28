@@ -7757,14 +7757,51 @@ function generate_chemex_input() {
         }
     }
 
+    let x_col = peaks_object.get_column_by_header('X_PPM');
     let y_col = peaks_object.get_column_by_header('Y_PPM');
     let hasRefPoint = offsets.some(off => Math.abs(off) > 10000);
+
+    let n15_mhz = h_larmor_frq * 0.101329118;
+
+    // Helper to calculate pseudo-Voigt dip integrated volume / area:
+    function calc_dip_volume(p) {
+        if (!p) return 0;
+        let A = Math.abs(p.A || 0);
+        let fwhm = Math.max(p.fwhm || 0, 1e-6);
+        let lf = Math.min(1.0, Math.max(0.0, (typeof p.lfrac === 'number') ? p.lfrac : 0.5));
+        // Pseudo-Voigt area: A * fwhm * ((1 - lf)*sqrt(pi/(4*ln2)) + lf*(pi/2))
+        let g_factor = 1.064467019;
+        let l_factor = 1.570796327;
+        return A * fwhm * ((1.0 - lf) * g_factor + lf * l_factor);
+    }
+
+    // Collect on-resonance planes for interpolation
+    let on_res = [];
+    for (let i = 0; i < offsets.length; i++) {
+        if (Math.abs(offsets[i]) < 10000) {
+            on_res.push({ plane: i + 1, offset: offsets[i] });
+        }
+    }
+    function p2off(p) {
+        if (on_res.length === 0) return 0;
+        if (p <= on_res[0].plane) return on_res[0].offset;
+        if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
+        for (let j = 0; j < on_res.length - 1; j++) {
+            if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                let sp = on_res[j + 1].plane - on_res[j].plane;
+                return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
+            }
+        }
+        return on_res[on_res.length - 1].offset;
+    }
 
     let filesManifest = {};
     let profilesDictToml = "";
     let csaToml = "";
     let dwToml = "";
     let sampleDataPreview = "";
+    let all_rel_vols = [];
+    let dipSummaryLines = [];
 
     for (let peakIndex of target_peaks) {
         let residue = peakIndex + "N";
@@ -7774,36 +7811,50 @@ function generate_chemex_input() {
         let y_ppm = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : carrier;
 
         let dw_est = 3.0;
+        let peak_rel_vol = null;
         let prof_inst = typeof peaks_object.get_peak_profile === 'function' ? peaks_object.get_peak_profile(peakIndex) : null;
-        if (prof_inst && prof_inst.fitted_peaks && prof_inst.fitted_peaks.length >= 2) {
-            let x0 = prof_inst.fitted_peaks[0].x0;
-            let x1 = prof_inst.fitted_peaks[1].x0;
-            let n15_mhz = h_larmor_frq * 0.101329;
-            let hz0 = x0;
-            let hz1 = x1;
-            let on_res = [];
-            for (let i = 0; i < offsets.length; i++) {
-                if (Math.abs(offsets[i]) < 10000) on_res.push({ plane: i + 1, offset: offsets[i] });
+        if (prof_inst && typeof prof_inst.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+            Object.setPrototypeOf(prof_inst, peak_profile.prototype);
+        }
+        if ((!prof_inst || typeof prof_inst.fit_negative_pseudo_voigt_em !== 'function' || !prof_inst.x || prof_inst.x.length === 0) && typeof peak_profile === 'function') {
+            let x_val = (x_col && x_col[peakIndex - 1] !== undefined) ? x_col[peakIndex - 1] : null;
+            let y_val = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : null;
+            prof_inst = new peak_profile(peakIndex, profData, { x_ppm: x_val, y_ppm: y_val, x_coords: null, fit_window: 20, asym_factor: 2.0 });
+            if (typeof peaks_object.set_peak_profile === 'function') peaks_object.set_peak_profile(peakIndex, prof_inst);
+        }
+
+        let fitResult = (prof_inst && prof_inst.fit_result) ? prof_inst.fit_result : (prof_inst && typeof prof_inst.fit_negative_pseudo_voigt_em === 'function' ? prof_inst.fit_negative_pseudo_voigt_em() : null);
+        let peaksArr = (fitResult && Array.isArray(fitResult.peaks)) ? fitResult.peaks : (prof_inst && prof_inst.fitted_peaks ? prof_inst.fitted_peaks : null);
+
+        if (peaksArr && peaksArr.length >= 2) {
+            // Sort dips descending by volume so dip1 is major (ground state A), dip2 is minor (excited state B)
+            let sorted_peaks = [...peaksArr].sort((a, b) => calc_dip_volume(b) - calc_dip_volume(a));
+            let dip1 = sorted_peaks[0]; // 1st one: major dip
+            let dip2 = sorted_peaks[1]; // 2nd one: minor dip
+
+            let vol1 = calc_dip_volume(dip1);
+            let vol2 = calc_dip_volume(dip2);
+            if (vol1 > 0) {
+                peak_rel_vol = vol2 / vol1;
+                all_rel_vols.push(peak_rel_vol);
             }
-            if (on_res.length >= 2) {
-                function p2off(p) {
-                    if (p <= on_res[0].plane) return on_res[0].offset;
-                    if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
-                    for (let j = 0; j < on_res.length - 1; j++) {
-                        if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
-                            let sp = on_res[j + 1].plane - on_res[j].plane;
-                            return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
-                        }
-                    }
-                    return on_res[on_res.length - 1].offset;
-                }
-                hz0 = p2off(x0);
-                hz1 = p2off(x1);
+
+            let hz1 = p2off(dip1.x0);
+            let hz2 = p2off(dip2.x0);
+
+            // Dip distance in unit of ppm, keeping correct algebraic sign:
+            // Delta_omega_AB = (offset_B - offset_A) / (15N frequency in MHz)
+            let diff_hz = hz2 - hz1;
+            let diff_ppm = diff_hz / n15_mhz;
+            if (Math.abs(diff_ppm) > 0.01 && Math.abs(diff_ppm) < 50.0) {
+                dw_est = parseFloat(diff_ppm.toFixed(2));
+                if (Object.is(dw_est, -0)) dw_est = 0.0;
             }
-            let diff_ppm = Math.abs(hz1 - hz0) / n15_mhz;
-            if (diff_ppm > 0.5 && diff_ppm < 30.0) {
-                dw_est = Math.round(diff_ppm * 10) / 10;
-            }
+
+            let relPctStr = peak_rel_vol !== null ? (peak_rel_vol * 100).toFixed(2) + "%" : "N/A";
+            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): Dip 1 @ ${hz1.toFixed(1)} Hz (vol: ${vol1.toFixed(3)}), Dip 2 @ ${hz2.toFixed(1)} Hz (vol: ${vol2.toFixed(3)}) -> DW_AB = ${dw_est >= 0 ? '+' : ''}${dw_est.toFixed(2)} ppm, rel_vol (pB) = ${relPctStr}`);
+        } else {
+            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): <2 dips resolved, using default DW_AB = ${dw_est.toFixed(2)} ppm`);
         }
 
         profilesDictToml += `${residue} = "${residue}.out"\n`;
@@ -7839,6 +7890,19 @@ function generate_chemex_input() {
         }
     }
 
+    // Input PB calculated from the relative dip volume of 2nd dip compared with 1st dip:
+    let pb_input = 0.03;
+    if (all_rel_vols.length > 0) {
+        all_rel_vols.sort((a, b) => a - b);
+        let mid = Math.floor(all_rel_vols.length / 2);
+        let median_val = (all_rel_vols.length % 2 !== 0)
+            ? all_rel_vols[mid]
+            : (all_rel_vols[mid - 1] + all_rel_vols[mid]) / 2.0;
+        // Clamp to physically reasonable population for ChemEx initial guess: 0.001 to 0.49
+        pb_input = Math.max(0.001, Math.min(0.49, median_val));
+        pb_input = parseFloat(pb_input.toFixed(4));
+    }
+
     // b1_inh_scale = inf removes b1_distribution = { type = "dephasing" }
     let b1_dist_toml = b1_inh_inf ? "" : 'b1_distribution = { type = "dephasing" }\n';
 
@@ -7859,7 +7923,7 @@ error = "scatter"
 ${profilesDictToml}`;
 
     let paramToml = `[GLOBAL]
-PB = 0.03
+PB = ${pb_input}
 KEX_AB = 100.0
 TAUC_A = 10.0
 
@@ -7882,8 +7946,12 @@ ${dwToml}`;
         "================================================================================\n" +
         `[ChemEx] Generated Input Files for ${target_peaks.length} Multi-Dip Peak(s):\n` +
         `Target Peaks: ${target_peaks.map(p => '#' + p).join(', ')}\n` +
-        `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz, Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
+        `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz (15N ${n15_mhz.toFixed(3)} MHz), Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
         `B1 Inhomogeneity: ${b1_inh_log}\n` +
+        `Global Initial PB: ${pb_input} (${(pb_input * 100).toFixed(2)}% based on 2nd dip / 1st dip relative volume)\n` +
+        "--------------------------------------------------------------------------------\n" +
+        "Dip Analysis per Peak:\n" +
+        dipSummaryLines.join("\n") + "\n" +
         "================================================================================\n" +
         "--- File: Experiments/cest_15n.toml ---\n" +
         expToml + "\n\n" +
