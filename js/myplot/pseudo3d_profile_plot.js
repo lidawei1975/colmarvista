@@ -340,7 +340,8 @@ class pseudo3d_profile_plot {
                 if (self.tooltip) {
                     const stdStr = (typeof d.std === 'number') ? ` ± ${d.std.toFixed(2)}` : '';
                     const refTag = (d.value > 0.98) ? '<br><span style="color:#e65100;font-weight:bold;">[Reference Scan &gt; 0.98, excluded from fit]</span>' : '';
-                    self.tooltip.innerHTML = `<strong>Plane:</strong> ${d.label || d.plane}<br><strong>Value:</strong> ${d.value.toFixed(3)}${stdStr}${refTag}`;
+                    const xLabelPrefix = (self.xLabelText && self.xLabelText.includes('Offset')) ? 'Offset (Hz)' : 'Plane';
+                    self.tooltip.innerHTML = `<strong>${xLabelPrefix}:</strong> ${d.plane}<br><strong>Value:</strong> ${d.value.toFixed(3)}${stdStr}${refTag}`;
                     self.tooltip.style.display = 'block';
                     const contRect = self.container.getBoundingClientRect();
                     self.tooltip.style.left = Math.min(contRect.width - 120, Math.max(10, event.clientX - contRect.left + 10)) + 'px';
@@ -439,7 +440,7 @@ class pseudo3d_profile_plot {
                 const st = this.fitData.stats;
                 const r2Str = (typeof st.r2 === 'number') ? st.r2.toFixed(3) : '';
                 const rmseStr = (typeof st.rmse === 'number') ? st.rmse.toFixed(4) : '';
-                const badgeText = `${st.num_peaks} Peak${st.num_peaks > 1 ? 's' : ''} Fit | R²: ${r2Str} | RMSE: ${rmseStr}`;
+                const badgeText = st.custom_badge ? st.custom_badge : `${st.num_peaks} Peak${st.num_peaks > 1 ? 's' : ''} Fit | R²: ${r2Str} | RMSE: ${rmseStr}`;
 
                 const badgeG = this.fitLegendG.append('g')
                     .attr('transform', `translate(${innerWidth - 6}, 14)`);

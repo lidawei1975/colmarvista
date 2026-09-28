@@ -6425,6 +6425,19 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             }
         }
         /**
+         * Helper to restore peak_profile prototype methods on deserialized peak_profiles
+         */
+        function rehydrate_cpeaks_profiles(peaks_obj) {
+            if (!peaks_obj || !peaks_obj.peak_profiles || typeof peak_profile !== 'function') return;
+            for (let k in peaks_obj.peak_profiles) {
+                let prof = peaks_obj.peak_profiles[k];
+                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
+                    Object.setPrototypeOf(prof, peak_profile.prototype);
+                }
+            }
+        }
+
+        /**
          * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
          */
         if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
@@ -6434,6 +6447,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                     hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
                 }
             }
+            rehydrate_cpeaks_profiles(hsqc_spectra[i].picked_peaks_object);
         }
         if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
@@ -6442,6 +6456,7 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                     hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
                 }
             }
+            rehydrate_cpeaks_profiles(hsqc_spectra[i].fitted_peaks_object);
         }
 
         // Ensure parent and pseudo3d_children are properly tracked
@@ -6495,6 +6510,14 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                     for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
                         pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
                     }
+                }
+            }
+        }
+        if (typeof peak_profile === 'function' && pseudo3d_fitted_peaks_object.peak_profiles) {
+            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                let prof = pseudo3d_fitted_peaks_object.peak_profiles[k];
+                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
+                    Object.setPrototypeOf(prof, peak_profile.prototype);
                 }
             }
         }
@@ -6699,6 +6722,96 @@ function get_pseudo3d_peak_profile_data(peak_index, peaks_obj) {
     return profile;
 }
 
+/**
+ * Map curveData generated from peak_profile (plane units 1..N) to Hz offsets
+ * excluding reference points (|offset| >= 10,000 Hz) to prevent collapsing the X axis.
+ */
+function map_curve_data_to_offsets(curveData, explicit_x) {
+    if (!curveData || !explicit_x || explicit_x.length === 0) return curveData;
+
+    // Collect on-resonance planes (exclude reference points with |offset| >= 10,000 Hz)
+    let on_res = [];
+    for (let i = 0; i < explicit_x.length; i++) {
+        if (Math.abs(explicit_x[i]) < 10000) {
+            on_res.push({ plane: i + 1, offset: explicit_x[i] });
+        }
+    }
+    if (on_res.length < 2) return curveData;
+
+    function plane_to_offset(p) {
+        if (p <= on_res[0].plane) return on_res[0].offset;
+        if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
+        for (let j = 0; j < on_res.length - 1; j++) {
+            if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                let span = on_res[j + 1].plane - on_res[j].plane;
+                let frac = span > 0 ? (p - on_res[j].plane) / span : 0;
+                return on_res[j].offset + frac * (on_res[j + 1].offset - on_res[j].offset);
+            }
+        }
+        return on_res[on_res.length - 1].offset;
+    }
+
+    // Map total_curve points
+    let mapped_total = [];
+    if (curveData.total_curve) {
+        for (let pt of curveData.total_curve) {
+            if (pt.x >= on_res[0].plane && pt.x <= on_res[on_res.length - 1].plane) {
+                mapped_total.push({
+                    x: plane_to_offset(pt.x),
+                    y: pt.y
+                });
+            }
+        }
+        mapped_total.sort((a, b) => a.x - b.x);
+    }
+
+    // Map components
+    let mapped_components = [];
+    if (curveData.components) {
+        for (let comp of curveData.components) {
+            let mapped_pts = [];
+            for (let pt of comp.points) {
+                if (pt.x >= on_res[0].plane && pt.x <= on_res[on_res.length - 1].plane) {
+                    mapped_pts.push({
+                        x: plane_to_offset(pt.x),
+                        y: pt.y
+                    });
+                }
+            }
+            mapped_pts.sort((a, b) => a.x - b.x);
+            mapped_components.push({
+                ...comp,
+                points: mapped_pts
+            });
+        }
+    }
+
+    // Map peak centers
+    let mapped_centers = [];
+    if (curveData.peak_centers) {
+        for (let pc of curveData.peak_centers) {
+            mapped_centers.push({
+                ...pc,
+                x0: plane_to_offset(pc.x0)
+            });
+        }
+    }
+
+    let min_off = on_res[0].offset;
+    let max_off = on_res[on_res.length - 1].offset;
+    if (min_off > max_off) {
+        let tmp = min_off; min_off = max_off; max_off = tmp;
+    }
+
+    return {
+        ...curveData,
+        total_curve: mapped_total,
+        components: mapped_components,
+        peak_centers: mapped_centers,
+        fit_range: [min_off, max_off]
+    };
+}
+
 function show_pseudo3d_peak_profile(peak_index) {
     let modal = document.getElementById('pseudo3d_profile_modal');
     let container = document.getElementById('pseudo3d_profile_plot_container');
@@ -6744,25 +6857,29 @@ function show_pseudo3d_peak_profile(peak_index) {
             plane: explicit_x[i]
         }));
         xLabel = 'Offset (Hz)';
+
+        // Exclude reference points (|offset| >= 10,000 Hz, e.g. -1e6 Hz or -100 kHz) to prevent collapse of X axis
+        plotData = plotData.filter(d => Math.abs(d.plane) < 10000);
+        plotData.sort((a, b) => a.plane - b.plane);
     }
 
     // Retrieve or instantiate peak_profile and run negative pseudo-Voigt EM fit
     let profile_instance = null;
     let curveData = null;
     let fitResult = null;
+    let chemexBadge = '';
     if (typeof peak_profile === 'function') {
         if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
             profile_instance = peaks_object.get_peak_profile(peak_index);
-            // Invalidate if explicit_x configuration changed
-            if (profile_instance && explicit_x && (!profile_instance.x || profile_instance.x[0] !== explicit_x[0])) {
-                profile_instance = null;
-            }
         }
-        if (!profile_instance) {
+        if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em !== 'function') {
+            Object.setPrototypeOf(profile_instance, peak_profile.prototype);
+        }
+        if (!profile_instance || typeof profile_instance.fit_negative_pseudo_voigt_em !== 'function' || !profile_instance.x || profile_instance.x.length === 0) {
             profile_instance = new peak_profile(peak_index, profileData, {
                 x_ppm: x_val_ppm,
                 y_ppm: y_val_ppm,
-                x_coords: explicit_x,
+                x_coords: null,
                 fit_window: 20,
                 asym_factor: 2.0
             });
@@ -6771,16 +6888,71 @@ function show_pseudo3d_peak_profile(peak_index) {
             }
         }
 
-        fitResult = profile_instance.fit_negative_pseudo_voigt_em();
-        if (fitResult) {
-            curveData = profile_instance.get_fitted_curve_points(350);
+        if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em === 'function') {
+            fitResult = profile_instance.fit_negative_pseudo_voigt_em();
+            if (fitResult && typeof profile_instance.get_fitted_curve_points === 'function') {
+                curveData = profile_instance.get_fitted_curve_points(350);
+                if (explicit_x) {
+                    curveData = map_curve_data_to_offsets(curveData, explicit_x);
+                }
+            }
+        }
+
+        // Check if ChemEx fit result exists for this peak
+        let chemex_profile = (profile_instance && profile_instance.chemex_fit)
+            ? profile_instance.chemex_fit
+            : (peaks_object && peaks_object.chemex_results && peaks_object.chemex_results.profiles
+                ? peaks_object.chemex_results.profiles[peak_index + 'N']
+                : null);
+
+        chemexBadge = '';
+        if (chemex_profile && chemex_profile.calc && chemex_profile.calc.length > 0) {
+            let base_intensity = 1.0;
+            if (fitResult && typeof fitResult.y0 === 'number') {
+                base_intensity = fitResult.y0;
+            } else if (plotData && plotData.length > 0) {
+                base_intensity = d3.max(plotData, d => d.value) || 1.0;
+            }
+
+            let scaled_total_curve = chemex_profile.calc.map(pt => ({
+                x: pt.x,
+                y: pt.y * base_intensity
+            }));
+
+            let pb_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.PB)
+                ? chemex_profile.fitted_params.PB.value
+                : (chemex_profile.params && chemex_profile.params.PB ? chemex_profile.params.PB : 0.02);
+            let kex_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.KEX_AB)
+                ? chemex_profile.fitted_params.KEX_AB.value
+                : (chemex_profile.params && chemex_profile.params.KEX_AB ? chemex_profile.params.KEX_AB : 100);
+            let dw_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.DW_AB)
+                ? chemex_profile.fitted_params.DW_AB.value
+                : (chemex_profile.params && chemex_profile.params.DW_AB ? chemex_profile.params.DW_AB : 0);
+
+            chemexBadge = `ChemEx Fit | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+            curveData = {
+                total_curve: scaled_total_curve,
+                components: [],
+                peak_centers: [],
+                fit_range: [d3.min(scaled_total_curve, d => d.x), d3.max(scaled_total_curve, d => d.x)],
+                baseline: base_intensity,
+                stats: {
+                    custom_badge: chemexBadge,
+                    num_peaks: 2
+                }
+            };
         }
     }
+
+    current_pseudo3d_profile_peak_index = peak_index;
 
     let titleEl = document.getElementById('pseudo3d_profile_title');
     if (titleEl) {
         let fitSummary = '';
-        if (fitResult && typeof fitResult.r2 === 'number') {
+        if (chemexBadge) {
+            fitSummary = ` | ${chemexBadge}`;
+        } else if (fitResult && typeof fitResult.r2 === 'number') {
             fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}, RMSE: ${fitResult.rmse.toFixed(4)})`;
         }
         let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
@@ -7015,11 +7187,14 @@ function run_cest_pre_analysis(is_manual = false) {
                 if (typeof peaks_object.get_peak_profile === 'function') {
                     prof = peaks_object.get_peak_profile(k);
                 }
-                if (!prof) {
+                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+                    Object.setPrototypeOf(prof, peak_profile.prototype);
+                }
+                if (!prof || typeof prof.fit_negative_pseudo_voigt_em !== 'function' || !prof.x || prof.x.length === 0) {
                     prof = new peak_profile(k, profileData, {
                         x_ppm: x_val,
                         y_ppm: y_val,
-                        x_coords: explicit_x,
+                        x_coords: null,
                         fit_window: 20,
                         asym_factor: 2.0,
                         max_intensity: 0.98
@@ -7029,11 +7204,13 @@ function run_cest_pre_analysis(is_manual = false) {
                     }
                 }
 
-                let fitResult = prof.fit_negative_pseudo_voigt_em();
+                let fitResult = (prof && typeof prof.fit_negative_pseudo_voigt_em === 'function')
+                    ? prof.fit_negative_pseudo_voigt_em()
+                    : null;
                 let num_peaks = 0;
                 if (fitResult && typeof fitResult.num_peaks === 'number') {
                     num_peaks = fitResult.num_peaks;
-                } else if (prof.fitted_peaks && Array.isArray(prof.fitted_peaks)) {
+                } else if (prof && prof.fitted_peaks && Array.isArray(prof.fitted_peaks)) {
                     num_peaks = prof.fitted_peaks.length;
                 }
 
@@ -7053,6 +7230,11 @@ function run_cest_pre_analysis(is_manual = false) {
                 btnFilter.disabled = false;
                 btnFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
                 btnFilter.style.backgroundColor = "";
+            }
+
+            let btnRun = document.getElementById("button_run_cest");
+            if (btnRun) {
+                btnRun.disabled = false;
             }
 
             // Enable and display quick filter button in peak table header
@@ -7232,6 +7414,11 @@ function load_cest_offsets_file(inputEl) {
             pseudo3d_fitted_peaks_object.cest_offsets = offsetsInput ? offsetsInput.value : numbers.join(' ');
         }
 
+        let btnRun = document.getElementById("button_run_cest");
+        if (btnRun) {
+            btnRun.disabled = false;
+        }
+
         inputEl.value = "";
 
         // If profile modal is open, refresh current peak profile plot
@@ -7250,6 +7437,438 @@ function load_cest_offsets_file(inputEl) {
     };
 
     reader.readAsText(file);
+}
+
+// ==========================================
+// ChemEx CEST Fitting Integration
+// ==========================================
+let chemex_worker = null;
+let chemex_worker_ready = false;
+let chemex_is_running = false;
+let current_pseudo3d_profile_peak_index = null;
+
+function append_chemex_log(msg) {
+    const logEl = document.getElementById("log");
+    if (logEl) {
+        logEl.value += msg;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+}
+
+function get_or_init_chemex_worker() {
+    return new Promise((resolve, reject) => {
+        if (chemex_worker && chemex_worker_ready) {
+            resolve(chemex_worker);
+            return;
+        }
+
+        const statusEl = document.getElementById("cest_result");
+        if (statusEl) {
+            statusEl.innerHTML = '<span style="color: #1976d2;">Initializing ChemEx (loading Pyodide & Python packages)...</span>';
+        }
+        append_chemex_log("\n[ChemEx] Initializing WebAssembly environment (Pyodide v0.28.0)...\n");
+
+        if (!chemex_worker) {
+            chemex_worker = new Worker("js/chemex_worker.js?v=" + Date.now());
+
+            chemex_worker.onmessage = function (e) {
+                const msg = e.data || {};
+                if (msg.type === "stdout" || msg.type === "stderr") {
+                    append_chemex_log(msg.text);
+                } else if (msg.type === "status") {
+                    append_chemex_log(`> [ChemEx Status] ${msg.text}\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color: #1976d2;">${msg.text}</span>`;
+                    }
+                } else if (msg.type === "ready") {
+                    chemex_worker_ready = true;
+                    append_chemex_log(`> [ChemEx Ready] Python ${msg.pythonVersion}, ChemEx v${msg.chemexVersion} loaded.\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = '<span style="color: #2e7d32;">ChemEx ready</span>';
+                    }
+                    resolve(chemex_worker);
+                } else if (msg.type === "init_error") {
+                    chemex_worker_ready = false;
+                    append_chemex_log(`> [ChemEx Init Error] ${msg.error}\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color: #d32f2f;">ChemEx Init Error: ${msg.error}</span>`;
+                    }
+                    reject(new Error(msg.error));
+                }
+            };
+
+            chemex_worker.onerror = function (err) {
+                console.error("ChemEx Worker Error:", err);
+                append_chemex_log(`> [ChemEx Worker Error] ${err.message || err}\n`);
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #d32f2f;">ChemEx worker error: ${err.message || err}</span>`;
+                }
+                reject(err);
+            };
+
+            chemex_worker.postMessage({ type: "init" });
+        } else {
+            const readyHandler = function (e) {
+                if (e.data && e.data.type === "ready") {
+                    chemex_worker.removeEventListener("message", readyHandler);
+                    resolve(chemex_worker);
+                } else if (e.data && e.data.type === "init_error") {
+                    chemex_worker.removeEventListener("message", readyHandler);
+                    reject(new Error(e.data.error));
+                }
+            };
+            chemex_worker.addEventListener("message", readyHandler);
+        }
+    });
+}
+
+function run_chemex_cest_fitting() {
+    if (chemex_is_running) {
+        alert("ChemEx fitting is already in progress. Please wait for the current run to finish.");
+        return;
+    }
+
+    let peaks_object = get_current_peak_object();
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+        if (peaks_object) {
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    }
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        alert("No pseudo-3D peak data found. Please load or fit pseudo-3D peaks first.");
+        return;
+    }
+
+    let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+    if (!testProfile || testProfile.length < 3) {
+        alert("Current peak dataset does not contain pseudo-3D profile data (e.g. Z_A columns).");
+        return;
+    }
+
+    let cestOffsetsInput = document.getElementById("cest_offsets");
+    let offsets_str = cestOffsetsInput ? cestOffsetsInput.value.trim() : "";
+    if (!offsets_str) {
+        alert("Please provide CEST saturation offsets in Hz (or click 'Upload offset file').");
+        return;
+    }
+    let offsets = offsets_str.split(/\s+/).map(Number).filter(v => !isNaN(v));
+    if (offsets.length !== testProfile.length) {
+        alert(`Mismatch: You provided ${offsets.length} saturation offsets, but the profile has ${testProfile.length} planes.`);
+        return;
+    }
+
+    // Determine target peaks: fit all peaks where preprocessing shows >= 2 dips
+    let target_peaks = [];
+    if (Array.isArray(cest_multi_peak_indices) && cest_multi_peak_indices.length > 0) {
+        target_peaks = [...cest_multi_peak_indices];
+    } else {
+        const total_peaks = peaks_object.columns[0].length;
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        for (let k = 1; k <= total_peaks; k++) {
+            let profData = get_pseudo3d_peak_profile_data(k, peaks_object);
+            if (!profData || profData.length < 3) continue;
+            let x_val = (x_col && x_col[k - 1] !== undefined) ? x_col[k - 1] : null;
+            let y_val = (y_col && y_col[k - 1] !== undefined) ? y_col[k - 1] : null;
+            let prof = null;
+            if (typeof peaks_object.get_peak_profile === 'function') prof = peaks_object.get_peak_profile(k);
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+                Object.setPrototypeOf(prof, peak_profile.prototype);
+            }
+            if ((!prof || typeof prof.fit_negative_pseudo_voigt_em !== 'function' || !prof.x || prof.x.length === 0) && typeof peak_profile === 'function') {
+                prof = new peak_profile(k, profData, { x_ppm: x_val, y_ppm: y_val, x_coords: null, fit_window: 20, asym_factor: 2.0 });
+                if (typeof peaks_object.set_peak_profile === 'function') peaks_object.set_peak_profile(k, prof);
+            }
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em === 'function') {
+                let fitResult = prof.fit_negative_pseudo_voigt_em();
+                let num_peaks = (fitResult && typeof fitResult.num_peaks === 'number') ? fitResult.num_peaks : (prof.fitted_peaks ? prof.fitted_peaks.length : 0);
+                if (num_peaks >= 2) target_peaks.push(k);
+            }
+        }
+        cest_multi_peak_indices = target_peaks;
+        apply_multi_peak_highlights();
+    }
+
+    if (target_peaks.length === 0) {
+        alert("Pre-analysis found no peaks with ≥2 dips along their CEST profile. Please verify your offsets or peak picking.");
+        return;
+    }
+
+    let b1 = parseFloat(document.getElementById("cest_b1").value) || 25.0;
+    let time_t1 = parseFloat(document.getElementById("time_t1").value) || 1.0;
+
+    // Retrieve spectrometer frequency and carrier
+    let h_larmor_frq = 600.0;
+    let carrier = 118.5;
+    if (typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[0]) {
+        let s0 = hsqc_spectra[0];
+        if (s0.header && s0.header.length >= 220) {
+            if (s0.header[119] > 50.0) h_larmor_frq = s0.header[119];
+            if (s0.header[67] > 10.0 && s0.header[67] < 200.0) carrier = s0.header[67];
+        } else if (typeof s0.y_ppm_start === 'number' && typeof s0.y_ppm_step === 'number' && s0.n_indirect) {
+            carrier = s0.y_ppm_start + (s0.y_ppm_step * s0.n_indirect) / 2.0;
+        }
+    }
+
+    let y_col = peaks_object.get_column_by_header('Y_PPM');
+    let hasRefPoint = offsets.some(off => Math.abs(off) > 10000);
+
+    let filesManifest = {};
+    let profilesDictToml = "";
+    let csaToml = "";
+    let dwToml = "";
+    let sampleDataPreview = "";
+
+    for (let peakIndex of target_peaks) {
+        let residue = peakIndex + "N";
+        let profData = get_pseudo3d_peak_profile_data(peakIndex, peaks_object);
+        if (!profData || profData.length === 0) continue;
+
+        let y_ppm = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : carrier;
+
+        let dw_est = 3.0;
+        let prof_inst = typeof peaks_object.get_peak_profile === 'function' ? peaks_object.get_peak_profile(peakIndex) : null;
+        if (prof_inst && prof_inst.fitted_peaks && prof_inst.fitted_peaks.length >= 2) {
+            let x0 = prof_inst.fitted_peaks[0].x0;
+            let x1 = prof_inst.fitted_peaks[1].x0;
+            let n15_mhz = h_larmor_frq * 0.101329;
+            let hz0 = x0;
+            let hz1 = x1;
+            let on_res = [];
+            for (let i = 0; i < offsets.length; i++) {
+                if (Math.abs(offsets[i]) < 10000) on_res.push({ plane: i + 1, offset: offsets[i] });
+            }
+            if (on_res.length >= 2) {
+                function p2off(p) {
+                    if (p <= on_res[0].plane) return on_res[0].offset;
+                    if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
+                    for (let j = 0; j < on_res.length - 1; j++) {
+                        if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                            let sp = on_res[j + 1].plane - on_res[j].plane;
+                            return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
+                        }
+                    }
+                    return on_res[on_res.length - 1].offset;
+                }
+                hz0 = p2off(x0);
+                hz1 = p2off(x1);
+            }
+            let diff_ppm = Math.abs(hz1 - hz0) / n15_mhz;
+            if (diff_ppm > 0.5 && diff_ppm < 30.0) {
+                dw_est = Math.round(diff_ppm * 10) / 10;
+            }
+        }
+
+        profilesDictToml += `${residue} = "${residue}.out"\n`;
+        csaToml += `${residue} = ${y_ppm.toFixed(3)}\n`;
+        dwToml += `${residue} = ${dw_est.toFixed(2)}\n`;
+
+        let baseline_intensity = 1.0;
+        if (prof_inst && prof_inst.fit_result && typeof prof_inst.fit_result.y0 === 'number') {
+            baseline_intensity = prof_inst.fit_result.y0;
+        } else {
+            baseline_intensity = d3.max(profData, d => d.value) || 1.0;
+        }
+        let noise_est = Math.abs(baseline_intensity) * 0.01;
+
+        let outLines = ["#Offset (Hz)        Intensity    Uncertainty"];
+        if (!hasRefPoint) {
+            outLines.push(` -1.00000000e+05  ${baseline_intensity.toExponential(7)}  ${noise_est.toExponential(7)}`);
+        }
+
+        for (let i = 0; i < profData.length; i++) {
+            let off = offsets[i];
+            let val = profData[i].value;
+            let err = (typeof profData[i].std === 'number' && profData[i].std > 0) ? profData[i].std : noise_est;
+            outLines.push(`  ${off.toExponential(7)}  ${val.toExponential(7)}  ${err.toExponential(7)}`);
+        }
+
+        let dataContent = outLines.join("\n") + "\n";
+        filesManifest[`Data/${residue}.out`] = dataContent;
+
+        if (!sampleDataPreview) {
+            sampleDataPreview = `--- File: Data/${residue}.out (Peak #${peakIndex}, ${outLines.length - 1} points) ---\n` +
+                outLines.slice(0, 8).join("\n") + "\n  ...\n";
+        }
+    }
+
+    let expToml = `[experiment]
+name = "cest_15n"
+time_t1 = ${time_t1}
+carrier = ${carrier.toFixed(3)}
+b1_frq = ${b1.toFixed(1)}
+b1_distribution = { type = "dephasing" }
+
+[conditions]
+h_larmor_frq = ${h_larmor_frq.toFixed(3)}
+
+[data]
+path = "../Data/"
+error = "scatter"
+
+[data.profiles]
+${profilesDictToml}`;
+
+    let paramToml = `[GLOBAL]
+PB = 0.03
+KEX_AB = 100.0
+TAUC_A = 10.0
+
+[CS_A]
+${csaToml}
+[DW_AB]
+${dwToml}`;
+
+    filesManifest["Experiments/cest_15n.toml"] = expToml;
+    filesManifest["Parameters/parameters.toml"] = paramToml;
+
+    // Log the exact files and parameters written to FS
+    let logMsg = "\n" +
+        "================================================================================\n" +
+        `[ChemEx] Preparing Virtual Filesystem for ${target_peaks.length} Multi-Dip Peak(s):\n` +
+        `Target Peaks: ${target_peaks.map(p => '#' + p).join(', ')}\n` +
+        `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz, Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
+        "================================================================================\n" +
+        "--- File: Experiments/cest_15n.toml ---\n" +
+        expToml + "\n\n" +
+        "--- File: Parameters/parameters.toml ---\n" +
+        paramToml + "\n\n" +
+        sampleDataPreview +
+        "================================================================================\n";
+    append_chemex_log(logMsg);
+
+    chemex_is_running = true;
+    let btnRun = document.getElementById("button_run_cest");
+    let statusEl = document.getElementById("cest_result");
+    if (btnRun) btnRun.disabled = true;
+    if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Launching ChemEx Web Worker...</span>';
+
+    get_or_init_chemex_worker().then(worker => {
+        if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Writing dataset to virtual filesystem...</span>';
+
+        const fitHandler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "fit_all_complete") {
+                chemex_worker.removeEventListener("message", fitHandler);
+                chemex_is_running = false;
+                if (btnRun) btnRun.disabled = false;
+
+                const resultData = msg.data || {};
+                peaks_object.chemex_results = resultData;
+
+                // Cache fitted profiles on peak_profile instances
+                if (resultData.profiles) {
+                    for (let resKey in resultData.profiles) {
+                        let pNum = parseInt(resKey);
+                        if (!isNaN(pNum) && typeof peaks_object.get_peak_profile === 'function') {
+                            let profInst = peaks_object.get_peak_profile(pNum);
+                            if (profInst) {
+                                profInst.chemex_fit = resultData.profiles[resKey];
+                            }
+                        }
+                    }
+                }
+
+                let gParams = (resultData.fitted_params && resultData.fitted_params.global) ? resultData.fitted_params.global : {};
+                let pb_val = (gParams.PB && typeof gParams.PB.value === 'number') ? gParams.PB.value : null;
+                let kex_val = (gParams.KEX_AB && typeof gParams.KEX_AB.value === 'number') ? gParams.KEX_AB.value : null;
+
+                let summaryStr = `ChemEx fit finished for ${target_peaks.length} peak(s)`;
+                if (pb_val !== null) summaryStr += ` | pB: ${(pb_val * 100).toFixed(1)}%`;
+                if (kex_val !== null) summaryStr += ` | kex: ${kex_val.toFixed(0)} s⁻¹`;
+
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryStr}</span>`;
+                }
+                append_chemex_log(`\n> [ChemEx Fit Complete] ${summaryStr}\n`);
+
+                let btnDl = document.getElementById("button_download_cest");
+                if (btnDl) btnDl.disabled = false;
+
+                // Overlap result to pop-up profile map:
+                // If profile modal is open for a peak, update that peak; otherwise open modal for first multi-dip peak
+                let activePeak = current_pseudo3d_profile_peak_index || current_selected_peak_index;
+                if (!activePeak || !target_peaks.includes(activePeak)) {
+                    activePeak = target_peaks[0];
+                }
+                show_pseudo3d_peak_profile(activePeak);
+            } else if (msg.type === "fit_all_error") {
+                chemex_worker.removeEventListener("message", fitHandler);
+                chemex_is_running = false;
+                if (btnRun) btnRun.disabled = false;
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #d32f2f;">Fit error: ${msg.error}</span>`;
+                }
+                append_chemex_log(`\n> [ChemEx Error] ${msg.error}\n`);
+                alert("ChemEx fitting failed: " + msg.error);
+            }
+        };
+
+        worker.addEventListener("message", fitHandler);
+
+        // 1. Sync virtual files into Pyodide MEMFS
+        worker.postMessage({
+            type: "sync_virtual_files",
+            files: filesManifest,
+            baseDir: "."
+        });
+
+        // 2. Execute ChemEx fit
+        worker.postMessage({
+            type: "run_chemex_fit_all",
+            outputDir: "Output",
+            baseDir: "."
+        });
+    }).catch(err => {
+        chemex_is_running = false;
+        if (btnRun) btnRun.disabled = false;
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color: #d32f2f;">Failed to start ChemEx: ${err.message || err}</span>`;
+        }
+        append_chemex_log(`\n> [ChemEx Worker Failed] ${err.message || err}\n`);
+    });
+}
+
+function download_chemex_cest_results() {
+    if (!chemex_worker || !chemex_worker_ready) {
+        alert("No ChemEx results available to download.");
+        return;
+    }
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Packaging results into zip...</span>';
+
+    const zipHandler = function (e) {
+        const msg = e.data || {};
+        if (msg.type === "output_zip_ready") {
+            chemex_worker.removeEventListener("message", zipHandler);
+            if (statusEl) statusEl.innerHTML = '<span style="color: #2e7d32;">Results zip downloaded.</span>';
+
+            let byteCharacters = atob(msg.zipBase64);
+            let byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            let byteArray = new Uint8Array(byteNumbers);
+            let blob = new Blob([byteArray], { type: "application/zip" });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement("a");
+            a.href = url;
+            a.download = "chemex_cest_results.zip";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } else if (msg.type === "zip_error") {
+            chemex_worker.removeEventListener("message", zipHandler);
+            if (statusEl) statusEl.innerHTML = `<span style="color: #d32f2f;">Zip packaging error: ${msg.error}</span>`;
+            alert("Failed to package ChemEx results: " + msg.error);
+        }
+    };
+
+    chemex_worker.addEventListener("message", zipHandler);
+    chemex_worker.postMessage({ type: "get_output_zip", outputDir: "Output" });
 }
 
 function unselect_peak_row() {

@@ -337,9 +337,9 @@
                         &nbsp;&nbsp;
                         <label for="time_t1">CEST relaxation delay time_t1 (s): </label>
                         <input type="number" id="time_t1" value="1.0" min="0" step="any" style="width: 80px;"><br>
-                        <button id="button_run_cest" disabled onclick="alert('CEST fitting is under development.')">Run CEST fitting</button>
-                        <button id="button_download_cest" disabled onclick="alert('CEST download is under development.')">Download CEST results</button>
-                        <span id="cest_result"></span>
+                        <button id="button_run_cest" onclick="run_chemex_cest_fitting()">Run CEST fitting</button>
+                        <button id="button_download_cest" disabled onclick="download_chemex_cest_results()">Download CEST results</button>
+                        <span id="cest_result" style="margin-left: 8px; font-size: 13px;"></span>
                     </div>
                 </div>
             </div>
@@ -572,9 +572,9 @@
         <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
         <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
         <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
-        <script type="text/javascript" src="js/peak_profile.js?v=20260927_1"></script>
-        <script type="text/javascript" src="js/myplot/pseudo3d_profile_plot.js?v=20260927_1"></script>
-        <script type="text/javascript" src="js/peaks.js"></script>
+        <script type="text/javascript" src="js/peak_profile.js?v=20260928_4"></script>
+        <script type="text/javascript" src="js/myplot/pseudo3d_profile_plot.js?v=20260928_4"></script>
+        <script type="text/javascript" src="js/peaks.js?v=20260928_4"></script>
         <script type="text/javascript" src="js/spectrum.js"></script>
         <script type="text/javascript" src="js/spectrum_fit.js"></script>
         <script type="text/javascript" src="js/file_drop.js"></script>
@@ -582,9 +582,8 @@
         <script type="text/javascript" src="js/simple_peak_picker.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
         <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
-        <script type="text/javascript" src="js/2d.js?v=20260927_1"></script>
+        <script type="text/javascript" src="js/2d.js?v=20260928_4"></script>
         <script type="text/javascript" src="js/tutorial.js"></script>
     </div>
 </body>
-
 </html>

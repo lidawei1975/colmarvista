@@ -70,7 +70,11 @@ class cpeaks {
         if (!this.peak_profiles) {
             this.peak_profiles = {};
         }
-        return this.peak_profiles[peak_index] || null;
+        let prof = this.peak_profiles[peak_index] || null;
+        if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+            Object.setPrototypeOf(prof, peak_profile.prototype);
+        }
+        return prof;
     }
 
     /**
