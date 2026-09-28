@@ -22,7 +22,9 @@ class pseudo3d_profile_plot {
             return;
         }
 
-        this.margin = options.margin || { top: 25, right: 30, bottom: 45, left: 65 };
+        this.ppmConverter = options.ppmConverter || null;
+        const defaultMarginTop = (this.ppmConverter && this.ppmConverter.n15_mhz) ? 38 : 25;
+        this.margin = options.margin || { top: defaultMarginTop, right: 30, bottom: 45, left: 65 };
         this.xLabelText = options.xLabel || 'Plane Index';
         this.yLabelText = options.yLabel || 'Peak Intensity';
         this.lineColor = options.lineColor || '#1976d2';
@@ -100,6 +102,10 @@ class pseudo3d_profile_plot {
             .attr('class', 'profile-x-axis')
             .attr('transform', `translate(0, ${this.height - this.margin.top - this.margin.bottom})`);
 
+        this.topXAxisG = this.g.append('g')
+            .attr('class', 'profile-top-x-axis')
+            .attr('transform', 'translate(0, 0)');
+
         this.yAxisG = this.g.append('g')
             .attr('class', 'profile-y-axis');
 
@@ -120,6 +126,16 @@ class pseudo3d_profile_plot {
             .attr('x', (this.width - this.margin.left - this.margin.right) / 2)
             .attr('y', this.height - this.margin.top - this.margin.bottom + 36)
             .text(this.xLabelText);
+
+        this.topXLabel = this.g.append('text')
+            .attr('class', 'profile-top-x-label')
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#455a64')
+            .attr('font-size', '11px')
+            .attr('font-weight', 'bold')
+            .attr('x', (this.width - this.margin.left - this.margin.right) / 2)
+            .attr('y', -24)
+            .text('¹⁵N (ppm)');
 
         this.yLabel = this.g.append('text')
             .attr('class', 'profile-y-label')
@@ -144,6 +160,7 @@ class pseudo3d_profile_plot {
         // Scales
         this.xScale = d3.scaleLinear();
         this.yScale = d3.scaleLinear();
+        this.ppmScale = d3.scaleLinear();
 
         // Line generators
         this.lineGenerator = d3.line()
@@ -163,16 +180,102 @@ class pseudo3d_profile_plot {
             this.container.appendChild(this.tooltip);
         }
 
+        // Apply layout sizing
+        this.update_layout();
+
         // Setup interaction handlers
         this.setupInteractions();
+    }
+
+    /**
+     * Recompute layout positions and dimensions for axes, labels, and scales
+     */
+    update_layout() {
+        this.margin.top = (this.ppmConverter && typeof this.ppmConverter.n15_mhz === 'number' && this.ppmConverter.n15_mhz > 0) ? 38 : 25;
+        const innerWidth = Math.max(0, this.width - this.margin.left - this.margin.right);
+        const innerHeight = Math.max(0, this.height - this.margin.top - this.margin.bottom);
+
+        this.g.attr('transform', `translate(${this.margin.left},${this.margin.top})`);
+
+        this.clipPath
+            .attr('width', innerWidth)
+            .attr('height', innerHeight);
+
+        this.overlay
+            .attr('width', innerWidth)
+            .attr('height', innerHeight);
+
+        this.xAxisG
+            .attr('transform', `translate(0, ${innerHeight})`);
+
+        this.topXAxisG
+            .attr('transform', 'translate(0, 0)');
+
+        this.xLabel
+            .attr('x', innerWidth / 2)
+            .attr('y', innerHeight + 36);
+
+        this.topXLabel
+            .attr('x', innerWidth / 2)
+            .attr('y', -24);
+
+        this.yLabel
+            .attr('x', -innerHeight / 2)
+            .attr('y', -48);
+
+        this.xScale.range([0, innerWidth]);
+        this.yScale.range([innerHeight, 0]);
+        this.ppmScale.range([0, innerWidth]);
+    }
+
+    /**
+     * Convert offset in Hz to 15N chemical shift in ppm
+     * Formula: ppm = carrier + (offset_hz / n15_mhz)
+     * @param {number} hz
+     * @returns {number|null}
+     */
+    hz_to_ppm(hz) {
+        if (!this.ppmConverter || typeof this.ppmConverter.n15_mhz !== 'number' || this.ppmConverter.n15_mhz === 0) {
+            return null;
+        }
+        return this.ppmConverter.carrier + (hz / this.ppmConverter.n15_mhz);
+    }
+
+    /**
+     * Convert 15N chemical shift in ppm to offset in Hz
+     * Formula: offset_hz = (ppm - carrier) * n15_mhz
+     * @param {number} ppm
+     * @returns {number|null}
+     */
+    ppm_to_hz(ppm) {
+        if (!this.ppmConverter || typeof this.ppmConverter.n15_mhz !== 'number' || this.ppmConverter.n15_mhz === 0) {
+            return null;
+        }
+        return (ppm - this.ppmConverter.carrier) * this.ppmConverter.n15_mhz;
+    }
+
+    /**
+     * Set or update the ppm conversion configuration
+     * @param {{ carrier: number, n15_mhz: number, h_larmor_frq?: number }|null} converter
+     */
+    set_ppm_converter(converter) {
+        this.ppmConverter = converter;
+        this.update_layout();
+        this.update_plot();
     }
 
     /**
      * Set data and initialize scales
      * @param {Array<{ plane: number, label: string, value: number, std?: number }>} data
      * @param {Object} [fitData] - Optional fit curve data generated from peak_profile
+     * @param {Object} [ppmConverter] - Optional { carrier, n15_mhz, h_larmor_frq }
      */
-    set_data(data, fitData = null) {
+    set_data(data, fitData = null, ppmConverter = undefined) {
+        if (ppmConverter !== undefined) {
+            this.ppmConverter = ppmConverter;
+        }
+        this.update_layout();
+
         if (fitData !== undefined) {
             this.fitData = fitData;
         }
@@ -237,6 +340,8 @@ class pseudo3d_profile_plot {
             this.errorG.selectAll('*').remove();
             this.fitG.style('display', 'none');
             this.fitLegendG.selectAll('*').remove();
+            this.topXAxisG.style('display', 'none');
+            this.topXLabel.style('display', 'none');
             return;
         }
 
@@ -255,6 +360,47 @@ class pseudo3d_profile_plot {
 
         this.xAxisG.call(xAxis);
         this.yAxisG.call(yAxis);
+
+        // Update top X axis (15N ppm)
+        if (this.ppmConverter && typeof this.ppmConverter.n15_mhz === 'number' && this.ppmConverter.n15_mhz > 0) {
+            this.ppmScale.range([0, innerWidth]);
+            const xDom = this.xScale.domain();
+            const minPpm = this.hz_to_ppm(xDom[0]);
+            const maxPpm = this.hz_to_ppm(xDom[1]);
+            this.ppmScale.domain([minPpm, maxPpm]);
+
+            const topXAxis = d3.axisTop(this.ppmScale)
+                .ticks(xTicksCount)
+                .tickFormat(d => d.toFixed(2));
+
+            this.topXAxisG
+                .style('display', 'block')
+                .call(topXAxis);
+
+            this.topXAxisG.selectAll('text').attr('fill', '#455a64').attr('font-size', '10px');
+            this.topXAxisG.selectAll('line').attr('stroke', '#78909c');
+            this.topXAxisG.select('.domain').attr('stroke', '#78909c');
+
+            let labelStr = '¹⁵N (ppm)';
+            if (typeof this.ppmConverter.carrier === 'number') {
+                labelStr += ` [Carrier: ${this.ppmConverter.carrier.toFixed(2)} ppm]`;
+            }
+            this.topXLabel
+                .style('display', 'block')
+                .attr('x', innerWidth / 2)
+                .attr('y', -24)
+                .text(labelStr);
+
+            let carrierTip = `Carrier: ${this.ppmConverter.carrier.toFixed(2)} ppm, 15N frq: ${this.ppmConverter.n15_mhz.toFixed(3)} MHz`;
+            if (this.ppmConverter.h_larmor_frq) {
+                carrierTip += ` (1H: ${this.ppmConverter.h_larmor_frq.toFixed(1)} MHz)`;
+            }
+            this.topXLabel.selectAll('title').remove();
+            this.topXLabel.append('title').text(carrierTip);
+        } else {
+            this.topXAxisG.style('display', 'none');
+            this.topXLabel.style('display', 'none');
+        }
 
         // Update Grid
         const gridX = d3.axisBottom(this.xScale).ticks(xTicksCount).tickSize(-innerHeight).tickFormat('');
@@ -340,8 +486,18 @@ class pseudo3d_profile_plot {
                 if (self.tooltip) {
                     const stdStr = (typeof d.std === 'number') ? ` ± ${d.std.toFixed(2)}` : '';
                     const refTag = (d.value > 0.98) ? '<br><span style="color:#e65100;font-weight:bold;">[Reference Scan &gt; 0.98, excluded from fit]</span>' : '';
-                    const xLabelPrefix = (self.xLabelText && self.xLabelText.includes('Offset')) ? 'Offset (Hz)' : 'Plane';
-                    self.tooltip.innerHTML = `<strong>${xLabelPrefix}:</strong> ${d.plane}<br><strong>Value:</strong> ${d.value.toFixed(3)}${stdStr}${refTag}`;
+                    
+                    let xCoordStr = '';
+                    if (self.ppmConverter && typeof self.ppmConverter.n15_mhz === 'number') {
+                        const ppmVal = self.hz_to_ppm(d.plane);
+                        const ppmStr = (typeof ppmVal === 'number') ? ` (${ppmVal.toFixed(2)} ppm)` : '';
+                        xCoordStr = `<strong>Offset:</strong> ${d.plane} Hz${ppmStr}`;
+                    } else {
+                        const xLabelPrefix = (self.xLabelText && self.xLabelText.includes('Offset')) ? 'Offset (Hz)' : 'Plane';
+                        xCoordStr = `<strong>${xLabelPrefix}:</strong> ${d.plane}`;
+                    }
+
+                    self.tooltip.innerHTML = `${xCoordStr}<br><strong>Value:</strong> ${d.value.toFixed(3)}${stdStr}${refTag}`;
                     self.tooltip.style.display = 'block';
                     const contRect = self.container.getBoundingClientRect();
                     self.tooltip.style.left = Math.min(contRect.width - 120, Math.max(10, event.clientX - contRect.left + 10)) + 'px';
@@ -400,16 +556,30 @@ class pseudo3d_profile_plot {
             const pCenters = this.fitData.peak_centers || [];
             const pSel = this.fitPeakMarkersG.selectAll('.fit-peak-marker').data(pCenters, (d, i) => i);
             pSel.exit().remove();
-            pSel.enter().append('line')
-                .attr('class', 'fit-peak-marker')
+            const pEnter = pSel.enter().append('g').attr('class', 'fit-peak-marker');
+            pEnter.append('line')
+                .attr('class', 'fit-peak-marker-line')
                 .attr('stroke', '#78909c')
                 .attr('stroke-dasharray', '2,2')
-                .attr('stroke-width', 1)
-                .merge(pSel)
+                .attr('stroke-width', 1.2);
+            pEnter.append('title');
+
+            const pMerged = pEnter.merge(pSel);
+            pMerged.select('line')
                 .attr('x1', d => this.xScale(d.x0))
                 .attr('x2', d => this.xScale(d.x0))
                 .attr('y1', 0)
                 .attr('y2', innerHeight);
+
+            pMerged.select('title')
+                .text(d => {
+                    if (self.ppmConverter) {
+                        const ppmVal = self.hz_to_ppm(d.x0);
+                        const ppmStr = (typeof ppmVal === 'number') ? ` (${ppmVal.toFixed(2)} ppm)` : '';
+                        return `Dip Center: ${d.x0.toFixed(1)} Hz${ppmStr}`;
+                    }
+                    return `Dip Center: ${d.x0.toFixed(1)}`;
+                });
 
             // 4. Component dashed lines (for multi-peak models)
             const comps = this.fitData.components || [];
@@ -504,6 +674,7 @@ class pseudo3d_profile_plot {
 
             const isLeftOfYAxis = (mouseX < self.margin.left);
             const isBelowXAxis = (mouseY > self.height - self.margin.bottom);
+            const isAboveTopXAxis = (mouseY < self.margin.top && mouseX >= self.margin.left && mouseX <= self.width - self.margin.right);
 
             // Zoom factor: wheel down (positive) zooms out (>1), wheel up zooms in (<1)
             const zoomFactor = event.deltaY > 0 ? 1.15 : 0.87;
@@ -512,8 +683,8 @@ class pseudo3d_profile_plot {
             const innerHeight = self.height - self.margin.top - self.margin.bottom;
 
             // Determine whether to zoom X, Y, or both
-            const zoomX = isBelowXAxis || (!isLeftOfYAxis && !isBelowXAxis);
-            const zoomY = isLeftOfYAxis || (!isLeftOfYAxis && !isBelowXAxis);
+            const zoomX = isBelowXAxis || isAboveTopXAxis || (!isLeftOfYAxis && !isBelowXAxis && !isAboveTopXAxis);
+            const zoomY = isLeftOfYAxis || (!isLeftOfYAxis && !isBelowXAxis && !isAboveTopXAxis);
 
             if (zoomX) {
                 const pivotXPixel = Math.max(0, Math.min(innerWidth, mouseX - self.margin.left));
@@ -617,30 +788,8 @@ class pseudo3d_profile_plot {
         this.width = newWidth;
         this.height = newHeight;
 
-        const innerWidth = Math.max(0, this.width - this.margin.left - this.margin.right);
-        const innerHeight = Math.max(0, this.height - this.margin.top - this.margin.bottom);
-
         this.svg.attr('viewBox', `0 0 ${this.width} ${this.height}`);
-
-        this.clipPath
-            .attr('width', innerWidth)
-            .attr('height', innerHeight);
-
-        this.overlay
-            .attr('width', innerWidth)
-            .attr('height', innerHeight);
-
-        this.xAxisG
-            .attr('transform', `translate(0, ${innerHeight})`);
-
-        this.xLabel
-            .attr('x', innerWidth / 2)
-            .attr('y', innerHeight + 36);
-
-        this.yLabel
-            .attr('x', -innerHeight / 2)
-            .attr('y', -48);
-
+        this.update_layout();
         this.update_plot();
     }
 }

@@ -6819,6 +6819,41 @@ function map_curve_data_to_offsets(curveData, explicit_x) {
     };
 }
 
+/**
+ * Retrieve 1H spectrometer frequency (MHz), 15N indirect dimension carrier (ppm),
+ * and calculated 15N Larmor frequency (MHz) using IUPAC ratio 0.101329118.
+ * Formula for ppm: ppm = carrier + (offset_hz / n15_mhz)
+ */
+function get_cest_spectrometer_params() {
+    let h_larmor_frq = 600.0;
+    let carrier = 118.5;
+    let s = null;
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.current_spectral_index === 'number' && main_plot.current_spectral_index >= 0) {
+        if (typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[main_plot.current_spectral_index]) {
+            s = hsqc_spectra[main_plot.current_spectral_index];
+        }
+    }
+    if (!s && typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[0]) {
+        s = hsqc_spectra[0];
+    }
+    if (s) {
+        if (typeof s.frq1 === 'number' && s.frq1 > 50.0) {
+            h_larmor_frq = s.frq1;
+        } else if (s.header && s.header.length >= 220 && s.header[119] > 50.0) {
+            h_larmor_frq = s.header[119];
+        }
+        if (s.header && s.header.length >= 220 && s.header[67] > 10.0 && s.header[67] < 200.0) {
+            carrier = s.header[67];
+        } else if (typeof s.y_ppm_start === 'number' && typeof s.y_ppm_step === 'number' && s.n_indirect) {
+            carrier = s.y_ppm_start + (s.y_ppm_step * s.n_indirect) / 2.0;
+        } else if (typeof s.y_ppm_start === 'number' && typeof s.y_ppm_end === 'number') {
+            carrier = (s.y_ppm_start + s.y_ppm_end) / 2.0;
+        }
+    }
+    let n15_mhz = h_larmor_frq * 0.101329118;
+    return { h_larmor_frq, carrier, n15_mhz };
+}
+
 function show_pseudo3d_peak_profile(peak_index) {
     let modal = document.getElementById('pseudo3d_profile_modal');
     let container = document.getElementById('pseudo3d_profile_plot_container');
@@ -6869,6 +6904,14 @@ function show_pseudo3d_peak_profile(peak_index) {
         plotData = plotData.filter(d => Math.abs(d.plane) < 10000);
         plotData.sort((a, b) => a.plane - b.plane);
     }
+
+    // Spectrometer parameters for Hz <-> ppm conversion
+    let spec_params = get_cest_spectrometer_params();
+    let ppm_converter = explicit_x ? {
+        carrier: spec_params.carrier,
+        n15_mhz: spec_params.n15_mhz,
+        h_larmor_frq: spec_params.h_larmor_frq
+    } : null;
 
     // Retrieve or instantiate peak_profile and run negative pseudo-Voigt EM fit
     let profile_instance = null;
@@ -6949,6 +6992,10 @@ function show_pseudo3d_peak_profile(peak_index) {
                     num_peaks: 2
                 }
             };
+        } else if (fitResult && fitResult.num_peaks >= 2 && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2 && explicit_x) {
+            let dw_ppm = (curveData.peak_centers[1].x0 - curveData.peak_centers[0].x0) / spec_params.n15_mhz;
+            if (!curveData.stats) curveData.stats = {};
+            curveData.stats.custom_badge = `2 Dips Fit | Δω: ${dw_ppm.toFixed(2)} ppm | R²: ${(fitResult.r2 || 0).toFixed(3)}`;
         }
     }
 
@@ -6960,7 +7007,12 @@ function show_pseudo3d_peak_profile(peak_index) {
         if (chemexBadge) {
             fitSummary = ` | ${chemexBadge}`;
         } else if (fitResult && typeof fitResult.r2 === 'number') {
-            fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}, RMSE: ${fitResult.rmse.toFixed(4)})`;
+            let dwInfo = '';
+            if (explicit_x && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2) {
+                let dw_val = (curveData.peak_centers[1].x0 - curveData.peak_centers[0].x0) / spec_params.n15_mhz;
+                dwInfo = `, Δω: ${dw_val.toFixed(2)} ppm`;
+            }
+            fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}${dwInfo})`;
         }
         let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
         titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
@@ -6984,7 +7036,8 @@ function show_pseudo3d_peak_profile(peak_index) {
     if (!pseudo3d_profile_plot_instance && typeof pseudo3d_profile_plot === 'function') {
         pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
             xLabel: xLabel,
-            yLabel: 'Peak Intensity'
+            yLabel: 'Peak Intensity',
+            ppmConverter: ppm_converter
         });
 
         if (window.ResizeObserver && !pseudo3d_profile_resize_observer && bodyEl) {
@@ -7036,10 +7089,13 @@ function show_pseudo3d_peak_profile(peak_index) {
         let w = bodyEl.clientWidth || 460;
         let h = bodyEl.clientHeight || 280;
         pseudo3d_profile_plot_instance.resize(w, h);
+        if (typeof pseudo3d_profile_plot_instance.set_ppm_converter === 'function') {
+            pseudo3d_profile_plot_instance.set_ppm_converter(ppm_converter);
+        }
         if (typeof pseudo3d_profile_plot_instance.set_x_label === 'function') {
             pseudo3d_profile_plot_instance.set_x_label(xLabel);
         }
-        pseudo3d_profile_plot_instance.set_data(plotData, curveData);
+        pseudo3d_profile_plot_instance.set_data(plotData, curveData, ppm_converter);
     }
 }
 
@@ -7745,23 +7801,10 @@ function generate_chemex_input() {
     let b1_inh_inf = document.getElementById("cest_b1_inh_inf") ? document.getElementById("cest_b1_inh_inf").checked : false;
 
     // Retrieve spectrometer frequency and carrier
-    let h_larmor_frq = 600.0;
-    let carrier = 118.5;
-    if (typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[0]) {
-        let s0 = hsqc_spectra[0];
-        if (s0.header && s0.header.length >= 220) {
-            if (s0.header[119] > 50.0) h_larmor_frq = s0.header[119];
-            if (s0.header[67] > 10.0 && s0.header[67] < 200.0) carrier = s0.header[67];
-        } else if (typeof s0.y_ppm_start === 'number' && typeof s0.y_ppm_step === 'number' && s0.n_indirect) {
-            carrier = s0.y_ppm_start + (s0.y_ppm_step * s0.n_indirect) / 2.0;
-        }
-    }
-
-    let x_col = peaks_object.get_column_by_header('X_PPM');
-    let y_col = peaks_object.get_column_by_header('Y_PPM');
-    let hasRefPoint = offsets.some(off => Math.abs(off) > 10000);
-
-    let n15_mhz = h_larmor_frq * 0.101329118;
+    let spec_params = get_cest_spectrometer_params();
+    let h_larmor_frq = spec_params.h_larmor_frq;
+    let carrier = spec_params.carrier;
+    let n15_mhz = spec_params.n15_mhz;
 
     // Helper to calculate pseudo-Voigt dip integrated volume / area:
     function calc_dip_volume(p) {

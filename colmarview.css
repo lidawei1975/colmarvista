@@ -639,3 +639,20 @@ li.spectrum-minimized-compact > div > button[id^="minimize-"] {
     white-space: nowrap;
 }
 
+.profile-top-x-axis path,
+.profile-top-x-axis line {
+    stroke: #78909c;
+}
+
+.profile-top-x-axis text {
+    fill: #455a64;
+    font-size: 10px;
+}
+
+.profile-top-x-label {
+    fill: #455a64;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+
