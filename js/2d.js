@@ -404,7 +404,14 @@ $(document).ready(function () {
         });
     }
 
-    // baseline radio buttons change listener removed
+    // Invalidate ChemEx generated manifest when parameters change
+    ['cest_b1_inh_inf', 'cest_b1', 'time_t1', 'cest_offsets'].forEach(function (id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', function () { chemex_generated_manifest = null; });
+            el.addEventListener('input', function () { chemex_generated_manifest = null; });
+        }
+    });
 
 
     /**
@@ -7232,7 +7239,11 @@ function run_cest_pre_analysis(is_manual = false) {
                 btnFilter.style.backgroundColor = "";
             }
 
-            let btnRun = document.getElementById("button_run_cest");
+            let btnGen = document.getElementById("button_gen_chemex_input");
+            if (btnGen) {
+                btnGen.disabled = false;
+            }
+            let btnRun = document.getElementById("button_run_chemex");
             if (btnRun) {
                 btnRun.disabled = false;
             }
@@ -7414,7 +7425,12 @@ function load_cest_offsets_file(inputEl) {
             pseudo3d_fitted_peaks_object.cest_offsets = offsetsInput ? offsetsInput.value : numbers.join(' ');
         }
 
-        let btnRun = document.getElementById("button_run_cest");
+        chemex_generated_manifest = null;
+        let btnGen = document.getElementById("button_gen_chemex_input");
+        if (btnGen) {
+            btnGen.disabled = false;
+        }
+        let btnRun = document.getElementById("button_run_chemex");
         if (btnRun) {
             btnRun.disabled = false;
         }
@@ -7445,7 +7461,140 @@ function load_cest_offsets_file(inputEl) {
 let chemex_worker = null;
 let chemex_worker_ready = false;
 let chemex_is_running = false;
+let chemex_generated_manifest = null;
 let current_pseudo3d_profile_peak_index = null;
+
+// Lightweight Pure JS ZIP Archive Builder (Preserves folder hierarchies, STORE mode)
+let chemex_crc32_table = null;
+function get_chemex_crc32_table() {
+    if (!chemex_crc32_table) {
+        let table = [];
+        for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) {
+                c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+            }
+            table[n] = c;
+        }
+        chemex_crc32_table = table;
+    }
+    return chemex_crc32_table;
+}
+
+function calc_chemex_crc32(bytes) {
+    const table = get_chemex_crc32_table();
+    let crc = 0 ^ (-1);
+    for (let i = 0; i < bytes.length; i++) {
+        crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+    }
+    return (crc ^ (-1)) >>> 0;
+}
+
+function create_zip_archive(filesMap) {
+    const encoder = new TextEncoder();
+    const localHeaders = [];
+    const centralEntries = [];
+    let offset = 0;
+
+    const dirs = new Set();
+    for (const rawPath of Object.keys(filesMap)) {
+        const parts = rawPath.replace(/\\/g, '/').split('/');
+        for (let i = 1; i < parts.length; i++) {
+            dirs.add(parts.slice(0, i).join('/') + '/');
+        }
+    }
+
+    const allEntries = [];
+    for (const d of dirs) {
+        allEntries.push({ path: d, content: new Uint8Array(0), isDir: true });
+    }
+    for (const [p, c] of Object.entries(filesMap)) {
+        allEntries.push({ path: p.replace(/\\/g, '/'), content: c, isDir: false });
+    }
+
+    for (const entry of allEntries) {
+        const nameBytes = encoder.encode(entry.path);
+        const dataBytes = entry.isDir ? new Uint8Array(0) : ((typeof entry.content === 'string') ? encoder.encode(entry.content) : new Uint8Array(entry.content));
+        const dataCrc = entry.isDir ? 0 : calc_chemex_crc32(dataBytes);
+        const dataLen = dataBytes.length;
+
+        // DOS date/time (2026-01-01 00:00:00)
+        const dosTime = 0;
+        const dosDate = ((2026 - 1980) << 9) | (1 << 5) | 1;
+
+        // Local Header (30 bytes + name + data)
+        const lh = new Uint8Array(30 + nameBytes.length + dataBytes.length);
+        const lhView = new DataView(lh.buffer);
+        lhView.setUint32(0, 0x04034b50, true);
+        lhView.setUint16(4, 20, true);
+        lhView.setUint16(6, 0x0800, true);     // bit 11 = UTF-8
+        lhView.setUint16(8, 0, true);          // STORE (no compression)
+        lhView.setUint16(10, dosTime, true);
+        lhView.setUint16(12, dosDate, true);
+        lhView.setUint32(14, dataCrc, true);
+        lhView.setUint32(18, dataLen, true);
+        lhView.setUint32(22, dataLen, true);
+        lhView.setUint16(26, nameBytes.length, true);
+        lhView.setUint16(28, 0, true);
+        lh.set(nameBytes, 30);
+        lh.set(dataBytes, 30 + nameBytes.length);
+        localHeaders.push(lh);
+
+        // Central Directory Entry (46 bytes + name)
+        const cd = new Uint8Array(46 + nameBytes.length);
+        const cdView = new DataView(cd.buffer);
+        cdView.setUint32(0, 0x02014b50, true);
+        cdView.setUint16(4, 20, true);
+        cdView.setUint16(6, 20, true);
+        cdView.setUint16(8, 0x0800, true);
+        cdView.setUint16(10, 0, true);
+        cdView.setUint16(12, dosTime, true);
+        cdView.setUint16(14, dosDate, true);
+        cdView.setUint32(16, dataCrc, true);
+        cdView.setUint32(20, dataLen, true);
+        cdView.setUint32(24, dataLen, true);
+        cdView.setUint16(28, nameBytes.length, true);
+        cdView.setUint16(30, 0, true);
+        cdView.setUint16(32, 0, true);
+        cdView.setUint16(34, 0, true);
+        cdView.setUint16(36, 0, true);
+        cdView.setUint32(38, entry.isDir ? 0x10 : 0x20, true);
+        cdView.setUint32(42, offset, true);
+        cd.set(nameBytes, 46);
+        centralEntries.push(cd);
+
+        offset += lh.length;
+    }
+
+    const cdOffset = offset;
+    let cdSize = 0;
+    for (const cd of centralEntries) cdSize += cd.length;
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    eocdView.setUint32(0, 0x06054b50, true);
+    eocdView.setUint16(4, 0, true);
+    eocdView.setUint16(6, 0, true);
+    eocdView.setUint16(8, centralEntries.length, true);
+    eocdView.setUint16(10, centralEntries.length, true);
+    eocdView.setUint32(12, cdSize, true);
+    eocdView.setUint32(16, cdOffset, true);
+    eocdView.setUint16(20, 0, true);
+
+    const totalLen = cdOffset + cdSize + 22;
+    const out = new Uint8Array(totalLen);
+    let p = 0;
+    for (const lh of localHeaders) {
+        out.set(lh, p);
+        p += lh.length;
+    }
+    for (const cd of centralEntries) {
+        out.set(cd, p);
+        p += cd.length;
+    }
+    out.set(eocd, p);
+    return out;
+}
 
 function append_chemex_log(msg) {
     const logEl = document.getElementById("log");
@@ -7522,12 +7671,7 @@ function get_or_init_chemex_worker() {
     });
 }
 
-function run_chemex_cest_fitting() {
-    if (chemex_is_running) {
-        alert("ChemEx fitting is already in progress. Please wait for the current run to finish.");
-        return;
-    }
-
+function generate_chemex_input() {
     let peaks_object = get_current_peak_object();
     if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
         peaks_object = pseudo3d_fitted_peaks_object;
@@ -7538,25 +7682,25 @@ function run_chemex_cest_fitting() {
     }
     if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
         alert("No pseudo-3D peak data found. Please load or fit pseudo-3D peaks first.");
-        return;
+        return null;
     }
 
     let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
     if (!testProfile || testProfile.length < 3) {
         alert("Current peak dataset does not contain pseudo-3D profile data (e.g. Z_A columns).");
-        return;
+        return null;
     }
 
     let cestOffsetsInput = document.getElementById("cest_offsets");
     let offsets_str = cestOffsetsInput ? cestOffsetsInput.value.trim() : "";
     if (!offsets_str) {
         alert("Please provide CEST saturation offsets in Hz (or click 'Upload offset file').");
-        return;
+        return null;
     }
     let offsets = offsets_str.split(/\s+/).map(Number).filter(v => !isNaN(v));
     if (offsets.length !== testProfile.length) {
         alert(`Mismatch: You provided ${offsets.length} saturation offsets, but the profile has ${testProfile.length} planes.`);
-        return;
+        return null;
     }
 
     // Determine target peaks: fit all peaks where preprocessing shows >= 2 dips
@@ -7593,11 +7737,12 @@ function run_chemex_cest_fitting() {
 
     if (target_peaks.length === 0) {
         alert("Pre-analysis found no peaks with ≥2 dips along their CEST profile. Please verify your offsets or peak picking.");
-        return;
+        return null;
     }
 
     let b1 = parseFloat(document.getElementById("cest_b1").value) || 25.0;
     let time_t1 = parseFloat(document.getElementById("time_t1").value) || 1.0;
+    let b1_inh_inf = document.getElementById("cest_b1_inh_inf") ? document.getElementById("cest_b1_inh_inf").checked : false;
 
     // Retrieve spectrometer frequency and carrier
     let h_larmor_frq = 600.0;
@@ -7694,13 +7839,15 @@ function run_chemex_cest_fitting() {
         }
     }
 
+    // b1_inh_scale = inf removes b1_distribution = { type = "dephasing" }
+    let b1_dist_toml = b1_inh_inf ? "" : 'b1_distribution = { type = "dephasing" }\n';
+
     let expToml = `[experiment]
 name = "cest_15n"
 time_t1 = ${time_t1}
 carrier = ${carrier.toFixed(3)}
 b1_frq = ${b1.toFixed(1)}
-b1_distribution = { type = "dephasing" }
-
+${b1_dist_toml}
 [conditions]
 h_larmor_frq = ${h_larmor_frq.toFixed(3)}
 
@@ -7724,12 +7871,19 @@ ${dwToml}`;
     filesManifest["Experiments/cest_15n.toml"] = expToml;
     filesManifest["Parameters/parameters.toml"] = paramToml;
 
-    // Log the exact files and parameters written to FS
+    chemex_generated_manifest = {
+        files: filesManifest,
+        target_peaks: target_peaks,
+        peaks_object: peaks_object
+    };
+
+    let b1_inh_log = b1_inh_inf ? "inf (ideal / dephasing disabled)" : "dephasing enabled";
     let logMsg = "\n" +
         "================================================================================\n" +
-        `[ChemEx] Preparing Virtual Filesystem for ${target_peaks.length} Multi-Dip Peak(s):\n` +
+        `[ChemEx] Generated Input Files for ${target_peaks.length} Multi-Dip Peak(s):\n` +
         `Target Peaks: ${target_peaks.map(p => '#' + p).join(', ')}\n` +
         `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz, Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
+        `B1 Inhomogeneity: ${b1_inh_log}\n` +
         "================================================================================\n" +
         "--- File: Experiments/cest_15n.toml ---\n" +
         expToml + "\n\n" +
@@ -7739,10 +7893,67 @@ ${dwToml}`;
         "================================================================================\n";
     append_chemex_log(logMsg);
 
+    let btnSave = document.getElementById("button_save_chemex_input");
+    if (btnSave) btnSave.disabled = false;
+    let btnRun = document.getElementById("button_run_chemex");
+    if (btnRun) btnRun.disabled = false;
+
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32;">Generated ChemEx input for ${target_peaks.length} peak(s).</span>`;
+    }
+
+    return chemex_generated_manifest;
+}
+
+function save_chemex_input() {
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) return;
+    }
+
+    let filesMap = chemex_generated_manifest.files;
+    let fileCount = Object.keys(filesMap).length;
+    let zipBytes = create_zip_archive(filesMap);
+
+    let blob = new Blob([zipBytes], { type: "application/zip" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = "chemex_input.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">Saved chemex_input.zip (${fileCount} files)</span>`;
+    }
+    append_chemex_log(`> [ChemEx] Saved ${fileCount} input file(s) as chemex_input.zip\n`);
+}
+
+function run_chemex_only() {
+    if (chemex_is_running) {
+        alert("ChemEx fitting is already in progress. Please wait for the current run to finish.");
+        return;
+    }
+
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) return;
+    }
+
+    let filesManifest = chemex_generated_manifest.files;
+    let target_peaks = chemex_generated_manifest.target_peaks;
+    let peaks_object = chemex_generated_manifest.peaks_object;
+
     chemex_is_running = true;
-    let btnRun = document.getElementById("button_run_cest");
+    let btnRun = document.getElementById("button_run_chemex");
+    let btnGen = document.getElementById("button_gen_chemex_input");
     let statusEl = document.getElementById("cest_result");
     if (btnRun) btnRun.disabled = true;
+    if (btnGen) btnGen.disabled = true;
     if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Launching ChemEx Web Worker...</span>';
 
     get_or_init_chemex_worker().then(worker => {
@@ -7754,6 +7965,7 @@ ${dwToml}`;
                 chemex_worker.removeEventListener("message", fitHandler);
                 chemex_is_running = false;
                 if (btnRun) btnRun.disabled = false;
+                if (btnGen) btnGen.disabled = false;
 
                 const resultData = msg.data || {};
                 peaks_object.chemex_results = resultData;
@@ -7798,6 +8010,7 @@ ${dwToml}`;
                 chemex_worker.removeEventListener("message", fitHandler);
                 chemex_is_running = false;
                 if (btnRun) btnRun.disabled = false;
+                if (btnGen) btnGen.disabled = false;
                 if (statusEl) {
                     statusEl.innerHTML = `<span style="color: #d32f2f;">Fit error: ${msg.error}</span>`;
                 }
@@ -7824,11 +8037,16 @@ ${dwToml}`;
     }).catch(err => {
         chemex_is_running = false;
         if (btnRun) btnRun.disabled = false;
+        if (btnGen) btnGen.disabled = false;
         if (statusEl) {
             statusEl.innerHTML = `<span style="color: #d32f2f;">Failed to start ChemEx: ${err.message || err}</span>`;
         }
         append_chemex_log(`\n> [ChemEx Worker Failed] ${err.message || err}\n`);
     });
+}
+
+function run_chemex_cest_fitting() {
+    return run_chemex_only();
 }
 
 function download_chemex_cest_results() {
