@@ -6406,6 +6406,19 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     }
 
     /**
+     * Helper to restore peak_profile prototype methods on deserialized peak_profiles
+     */
+    function rehydrate_cpeaks_profiles(peaks_obj) {
+        if (!peaks_obj || !peaks_obj.peak_profiles || typeof peak_profile !== 'function') return;
+        for (let k in peaks_obj.peak_profiles) {
+            let prof = peaks_obj.peak_profiles[k];
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
+                Object.setPrototypeOf(prof, peak_profile.prototype);
+            }
+        }
+    }
+
+    /**
      * Reattach methods defined in spectrum.js to all hsqc_spectra objects
      */
     for (let i = 0; i < hsqc_spectra.length; i++) {
@@ -6425,21 +6438,11 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         /**
          * Loop all methods of class spectrum and attach them to the hsqc_spectra[i] object
          */
-        let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
-        for (let j = 0; j < spectrum_methods.length; j++) {
-            if (spectrum_methods[j] !== 'constructor') {
-                hsqc_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
-            }
-        }
-        /**
-         * Helper to restore peak_profile prototype methods on deserialized peak_profiles
-         */
-        function rehydrate_cpeaks_profiles(peaks_obj) {
-            if (!peaks_obj || !peaks_obj.peak_profiles || typeof peak_profile !== 'function') return;
-            for (let k in peaks_obj.peak_profiles) {
-                let prof = peaks_obj.peak_profiles[k];
-                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
-                    Object.setPrototypeOf(prof, peak_profile.prototype);
+        if (typeof spectrum !== 'undefined' && spectrum.prototype) {
+            let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
+            for (let j = 0; j < spectrum_methods.length; j++) {
+                if (spectrum_methods[j] !== 'constructor') {
+                    hsqc_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
                 }
             }
         }
@@ -6447,24 +6450,25 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         /**
          * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
          */
-        if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
+        if (typeof cpeaks !== 'undefined' && cpeaks.prototype) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for (let j = 0; j < peaks_methods.length; j++) {
-                if (peaks_methods[j] !== 'constructor') {
-                    hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+            if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
+                for (let j = 0; j < peaks_methods.length; j++) {
+                    if (peaks_methods[j] !== 'constructor') {
+                        hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    }
                 }
             }
-            rehydrate_cpeaks_profiles(hsqc_spectra[i].picked_peaks_object);
-        }
-        if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
-            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for (let j = 0; j < peaks_methods.length; j++) {
-                if (peaks_methods[j] !== 'constructor') {
-                    hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+            if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
+                for (let j = 0; j < peaks_methods.length; j++) {
+                    if (peaks_methods[j] !== 'constructor') {
+                        hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    }
                 }
             }
-            rehydrate_cpeaks_profiles(hsqc_spectra[i].fitted_peaks_object);
         }
+        rehydrate_cpeaks_profiles(hsqc_spectra[i].picked_peaks_object);
+        rehydrate_cpeaks_profiles(hsqc_spectra[i].fitted_peaks_object);
 
         // Ensure parent and pseudo3d_children are properly tracked
         if (typeof hsqc_spectra[i].parent === "undefined" || hsqc_spectra[i].parent === null) {
@@ -6509,25 +6513,20 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
      * If pseudo3d_fitted_peaks_object is not null, we need to reattach methods as well
      */
     if (pseudo3d_fitted_peaks_object !== null) {
-        let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-        for (let j = 0; j < peaks_methods.length; j++) {
-            if (peaks_methods[j] !== 'constructor') {
-                pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
-                if (typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error !== null) {
-                    for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
-                        pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+        if (typeof cpeaks !== 'undefined' && cpeaks.prototype) {
+            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
+            for (let j = 0; j < peaks_methods.length; j++) {
+                if (peaks_methods[j] !== 'constructor') {
+                    pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    if (typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error !== null) {
+                        for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
+                            pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                        }
                     }
                 }
             }
         }
-        if (typeof peak_profile === 'function' && pseudo3d_fitted_peaks_object.peak_profiles) {
-            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
-                let prof = pseudo3d_fitted_peaks_object.peak_profiles[k];
-                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
-                    Object.setPrototypeOf(prof, peak_profile.prototype);
-                }
-            }
-        }
+        rehydrate_cpeaks_profiles(pseudo3d_fitted_peaks_object);
     }
 
     /**
@@ -6769,7 +6768,7 @@ function map_curve_data_to_offsets(curveData, explicit_x) {
                 });
             }
         }
-        mapped_total.sort((a, b) => a.x - b.x);
+        mapped_total.sort((a, b) => b.x - a.x);
     }
 
     // Map components
@@ -6785,7 +6784,7 @@ function map_curve_data_to_offsets(curveData, explicit_x) {
                     });
                 }
             }
-            mapped_pts.sort((a, b) => a.x - b.x);
+            mapped_pts.sort((a, b) => b.x - a.x);
             mapped_components.push({
                 ...comp,
                 points: mapped_pts
@@ -6902,7 +6901,8 @@ function show_pseudo3d_peak_profile(peak_index) {
 
         // Exclude reference points (|offset| >= 10,000 Hz, e.g. -1e6 Hz or -100 kHz) to prevent collapse of X axis
         plotData = plotData.filter(d => Math.abs(d.plane) < 10000);
-        plotData.sort((a, b) => a.plane - b.plane);
+        // Follow NMR convention: descending order (large positive on left, smaller/negative on right)
+        plotData.sort((a, b) => b.plane - a.plane);
     }
 
     // Spectrometer parameters for Hz <-> ppm conversion
@@ -6993,7 +6993,19 @@ function show_pseudo3d_peak_profile(peak_index) {
                 }
             };
         } else if (fitResult && fitResult.num_peaks >= 2 && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2 && explicit_x) {
-            let dw_ppm = (curveData.peak_centers[1].x0 - curveData.peak_centers[0].x0) / spec_params.n15_mhz;
+            let pc = curveData.peak_centers;
+            let dip1 = pc[0], dip2 = pc[1];
+            if (fitResult.peaks && fitResult.peaks.length >= 2) {
+                let sorted_p = [...fitResult.peaks].sort((a, b) => {
+                    let vA = (a.A || 0) * (a.fwhm || 0);
+                    let vB = (b.A || 0) * (b.fwhm || 0);
+                    return vB - vA;
+                });
+                let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
+                let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
+                dip1 = p1; dip2 = p2;
+            }
+            let dw_ppm = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
             if (!curveData.stats) curveData.stats = {};
             curveData.stats.custom_badge = `2 Dips Fit | Δω: ${dw_ppm.toFixed(2)} ppm | R²: ${(fitResult.r2 || 0).toFixed(3)}`;
         }
@@ -7009,7 +7021,19 @@ function show_pseudo3d_peak_profile(peak_index) {
         } else if (fitResult && typeof fitResult.r2 === 'number') {
             let dwInfo = '';
             if (explicit_x && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2) {
-                let dw_val = (curveData.peak_centers[1].x0 - curveData.peak_centers[0].x0) / spec_params.n15_mhz;
+                let pc = curveData.peak_centers;
+                let dip1 = pc[0], dip2 = pc[1];
+                if (fitResult.peaks && fitResult.peaks.length >= 2) {
+                    let sorted_p = [...fitResult.peaks].sort((a, b) => {
+                        let vA = (a.A || 0) * (a.fwhm || 0);
+                        let vB = (b.A || 0) * (b.fwhm || 0);
+                        return vB - vA;
+                    });
+                    let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
+                    let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
+                    dip1 = p1; dip2 = p2;
+                }
+                let dw_val = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
                 dwInfo = `, Δω: ${dw_val.toFixed(2)} ppm`;
             }
             fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}${dwInfo})`;
@@ -7037,7 +7061,8 @@ function show_pseudo3d_peak_profile(peak_index) {
         pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
             xLabel: xLabel,
             yLabel: 'Peak Intensity',
-            ppmConverter: ppm_converter
+            ppmConverter: ppm_converter,
+            invertX: !!(explicit_x && ppm_converter)
         });
 
         if (window.ResizeObserver && !pseudo3d_profile_resize_observer && bodyEl) {
@@ -7090,12 +7115,15 @@ function show_pseudo3d_peak_profile(peak_index) {
         let h = bodyEl.clientHeight || 280;
         pseudo3d_profile_plot_instance.resize(w, h);
         if (typeof pseudo3d_profile_plot_instance.set_ppm_converter === 'function') {
-            pseudo3d_profile_plot_instance.set_ppm_converter(ppm_converter);
+            pseudo3d_profile_plot_instance.set_ppm_converter(ppm_converter, !!(explicit_x && ppm_converter));
+        }
+        if (typeof pseudo3d_profile_plot_instance.set_invert_x === 'function') {
+            pseudo3d_profile_plot_instance.set_invert_x(!!(explicit_x && ppm_converter));
         }
         if (typeof pseudo3d_profile_plot_instance.set_x_label === 'function') {
             pseudo3d_profile_plot_instance.set_x_label(xLabel);
         }
-        pseudo3d_profile_plot_instance.set_data(plotData, curveData, ppm_converter);
+        pseudo3d_profile_plot_instance.set_data(plotData, curveData, ppm_converter, !!(explicit_x && ppm_converter));
     }
 }
 

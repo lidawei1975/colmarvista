@@ -23,6 +23,7 @@ class pseudo3d_profile_plot {
         }
 
         this.ppmConverter = options.ppmConverter || null;
+        this.invertX = (options.invertX !== undefined) ? !!options.invertX : (this.ppmConverter && this.ppmConverter.n15_mhz ? true : false);
         const defaultMarginTop = (this.ppmConverter && this.ppmConverter.n15_mhz) ? 38 : 25;
         this.margin = options.margin || { top: defaultMarginTop, right: 30, bottom: 45, left: 65 };
         this.xLabelText = options.xLabel || 'Plane Index';
@@ -258,10 +259,31 @@ class pseudo3d_profile_plot {
      * Set or update the ppm conversion configuration
      * @param {{ carrier: number, n15_mhz: number, h_larmor_frq?: number }|null} converter
      */
-    set_ppm_converter(converter) {
+    set_ppm_converter(converter, invertX = undefined) {
         this.ppmConverter = converter;
+        if (invertX !== undefined) {
+            this.invertX = !!invertX;
+        } else if (converter && converter.n15_mhz) {
+            this.invertX = true;
+        }
         this.update_layout();
         this.update_plot();
+    }
+
+    /**
+     * Set or toggle inverted X axis (NMR convention: large values on left, smaller on right)
+     * @param {boolean} invert
+     */
+    set_invert_x(invert) {
+        this.invertX = !!invert;
+        if (this.data && this.data.length > 0) {
+            const minX = d3.min(this.data, d => d.plane);
+            const maxX = d3.max(this.data, d => d.plane);
+            const xPad = (maxX === minX) ? 1 : (maxX - minX) * 0.05;
+            this.xOrigDomain = this.invertX ? [maxX + xPad, minX - xPad] : [minX - xPad, maxX + xPad];
+            this.xScale.domain([...this.xOrigDomain]);
+            this.update_plot();
+        }
     }
 
     /**
@@ -269,10 +291,16 @@ class pseudo3d_profile_plot {
      * @param {Array<{ plane: number, label: string, value: number, std?: number }>} data
      * @param {Object} [fitData] - Optional fit curve data generated from peak_profile
      * @param {Object} [ppmConverter] - Optional { carrier, n15_mhz, h_larmor_frq }
+     * @param {boolean} [invertX] - Optional whether to invert X axis (NMR convention)
      */
-    set_data(data, fitData = null, ppmConverter = undefined) {
+    set_data(data, fitData = null, ppmConverter = undefined, invertX = undefined) {
         if (ppmConverter !== undefined) {
             this.ppmConverter = ppmConverter;
+        }
+        if (invertX !== undefined) {
+            this.invertX = !!invertX;
+        } else if (this.ppmConverter && this.ppmConverter.n15_mhz) {
+            this.invertX = true;
         }
         this.update_layout();
 
@@ -293,7 +321,13 @@ class pseudo3d_profile_plot {
         const minX = d3.min(this.data, d => d.plane);
         const maxX = d3.max(this.data, d => d.plane);
         const xPad = (maxX === minX) ? 1 : (maxX - minX) * 0.05;
-        this.xOrigDomain = [minX - xPad, maxX + xPad];
+
+        // In NMR convention, large values are on the left and smaller values on the right
+        if (this.invertX || (this.ppmConverter && this.ppmConverter.n15_mhz)) {
+            this.xOrigDomain = [maxX + xPad, minX - xPad];
+        } else {
+            this.xOrigDomain = [minX - xPad, maxX + xPad];
+        }
 
         // Determine Y extent
         let minY = d3.min(this.data, d => (typeof d.std === 'number' ? d.value - d.std : d.value));
@@ -365,9 +399,9 @@ class pseudo3d_profile_plot {
         if (this.ppmConverter && typeof this.ppmConverter.n15_mhz === 'number' && this.ppmConverter.n15_mhz > 0) {
             this.ppmScale.range([0, innerWidth]);
             const xDom = this.xScale.domain();
-            const minPpm = this.hz_to_ppm(xDom[0]);
-            const maxPpm = this.hz_to_ppm(xDom[1]);
-            this.ppmScale.domain([minPpm, maxPpm]);
+            const leftPpm = this.hz_to_ppm(xDom[0]);
+            const rightPpm = this.hz_to_ppm(xDom[1]);
+            this.ppmScale.domain([leftPpm, rightPpm]);
 
             const topXAxis = d3.axisTop(this.ppmScale)
                 .ticks(xTicksCount)
