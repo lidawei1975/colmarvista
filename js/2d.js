@@ -7007,6 +7007,9 @@ function show_pseudo3d_peak_profile(peak_index) {
     let profile_instance = null;
     let curveData = null;
     let fitResult = null;
+    let voigtCurveData = null;
+    let voigtBadge = '';
+    let chemexCurveData = null;
     let chemexBadge = '';
     if (typeof peak_profile === 'function') {
         if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
@@ -7028,8 +7031,8 @@ function show_pseudo3d_peak_profile(peak_index) {
             }
         }
 
-        let voigtCurveData = null;
-        let voigtBadge = '';
+        voigtCurveData = null;
+        voigtBadge = '';
         if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em === 'function') {
             fitResult = profile_instance.fit_negative_pseudo_voigt_em();
             if (fitResult && typeof profile_instance.get_fitted_curve_points === 'function') {
@@ -7070,7 +7073,7 @@ function show_pseudo3d_peak_profile(peak_index) {
                 ? peaks_object.chemex_results.profiles[peak_index + 'N']
                 : null);
 
-        let chemexCurveData = null;
+        chemexCurveData = null;
         chemexBadge = '';
         if (chemex_profile && chemex_profile.calc && chemex_profile.calc.length > 0) {
             let base_intensity = 1.0;
