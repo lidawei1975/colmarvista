@@ -7787,14 +7787,15 @@ function generate_chemex_input() {
         return null;
     }
 
+    let x_col = (typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('X_PPM') : null;
+    let y_col = (typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('Y_PPM') : null;
+
     // Determine target peaks: fit all peaks where preprocessing shows >= 2 dips
     let target_peaks = [];
     if (Array.isArray(cest_multi_peak_indices) && cest_multi_peak_indices.length > 0) {
         target_peaks = [...cest_multi_peak_indices];
     } else {
         const total_peaks = peaks_object.columns[0].length;
-        let x_col = peaks_object.get_column_by_header('X_PPM');
-        let y_col = peaks_object.get_column_by_header('Y_PPM');
         for (let k = 1; k <= total_peaks; k++) {
             let profData = get_pseudo3d_peak_profile_data(k, peaks_object);
             if (!profData || profData.length < 3) continue;
