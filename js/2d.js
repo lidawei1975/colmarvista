@@ -6255,12 +6255,20 @@ function save_to_file() {
             if (timeT1Input && timeT1Input.value.trim().length > 0) {
                 pseudo3d_fitted_peaks_object.time_t1 = parseFloat(timeT1Input.value);
             }
+            pseudo3d_fitted_peaks_object.cest_multi_peak_indices = cest_multi_peak_indices;
         }
+
+        let currPeakObj = (typeof get_current_peak_object === 'function') ? get_current_peak_object() : null;
+        let saved_chemex_results = (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.chemex_results)
+            ? pseudo3d_fitted_peaks_object.chemex_results
+            : ((currPeakObj && currPeakObj.chemex_results) ? currPeakObj.chemex_results : null);
 
         let to_save = {
             hsqc_spectra: hsqc_spectra_copy,
             pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
             pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
+            cest_multi_peak_indices: cest_multi_peak_indices,
+            chemex_results: saved_chemex_results
         };
 
         /**
@@ -6617,6 +6625,88 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         }
         document.getElementById("button_download_fitted_peaks").disabled = false;
         document.getElementById("show_pseudo3d_peaks").disabled = false;
+
+        // Restore cest_multi_peak_indices
+        if (Array.isArray(to_save.cest_multi_peak_indices) && to_save.cest_multi_peak_indices.length > 0) {
+            cest_multi_peak_indices = to_save.cest_multi_peak_indices;
+        } else if (Array.isArray(pseudo3d_fitted_peaks_object.cest_multi_peak_indices) && pseudo3d_fitted_peaks_object.cest_multi_peak_indices.length > 0) {
+            cest_multi_peak_indices = pseudo3d_fitted_peaks_object.cest_multi_peak_indices;
+        } else {
+            cest_multi_peak_indices = [];
+            if (pseudo3d_fitted_peaks_object.peak_profiles) {
+                for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                    let p = pseudo3d_fitted_peaks_object.peak_profiles[k];
+                    if (p && p.fit_result && (p.fit_result.num_peaks >= 2 || (p.fit_result.peaks && p.fit_result.peaks.length >= 2))) {
+                        let kNum = parseInt(k);
+                        if (!isNaN(kNum) && !cest_multi_peak_indices.includes(kNum)) {
+                            cest_multi_peak_indices.push(kNum);
+                        }
+                    }
+                }
+                cest_multi_peak_indices.sort((a, b) => a - b);
+            }
+        }
+
+        // Restore chemex_results and peak_profile.chemex_fit
+        if (!pseudo3d_fitted_peaks_object.chemex_results && to_save.chemex_results) {
+            pseudo3d_fitted_peaks_object.chemex_results = to_save.chemex_results;
+        }
+        if (pseudo3d_fitted_peaks_object.chemex_results && pseudo3d_fitted_peaks_object.chemex_results.profiles) {
+            let chemProf = pseudo3d_fitted_peaks_object.chemex_results.profiles;
+            for (let resKey in chemProf) {
+                let pNum = parseInt(resKey);
+                if (!isNaN(pNum) && typeof pseudo3d_fitted_peaks_object.get_peak_profile === 'function') {
+                    let profInst = pseudo3d_fitted_peaks_object.get_peak_profile(pNum);
+                    if (profInst && !profInst.chemex_fit) {
+                        profInst.chemex_fit = chemProf[resKey];
+                    }
+                }
+            }
+        }
+
+        // Update pre-analysis UI & highlights
+        if (cest_multi_peak_indices && cest_multi_peak_indices.length > 0) {
+            let total_peaks = (pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0]) ? pseudo3d_fitted_peaks_object.columns[0].length : 0;
+            let statusEl = document.getElementById("cest_pre_analysis_status");
+            if (statusEl) {
+                statusEl.innerHTML = `<strong>Pre-analysis complete:</strong> Found <b style="color: #e65100;">${cest_multi_peak_indices.length}</b> peak${cest_multi_peak_indices.length === 1 ? '' : 's'} with ≥2 components${total_peaks > 0 ? ` (out of ${total_peaks} peaks)` : ''}.`;
+            }
+            let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+            if (btnFilter) {
+                btnFilter.disabled = false;
+                btnFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+            }
+            let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeaderFilter) {
+                btnHeaderFilter.style.display = 'inline-block';
+                btnHeaderFilter.disabled = false;
+                btnHeaderFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnHeaderFilter.style.backgroundColor = "#fff3e0";
+            }
+            let btnGen = document.getElementById("button_gen_chemex_input");
+            if (btnGen) btnGen.disabled = false;
+            let btnRun = document.getElementById("button_run_chemex");
+            if (btnRun) btnRun.disabled = false;
+
+            apply_multi_peak_highlights();
+        }
+
+        // Update ChemEx UI
+        if (pseudo3d_fitted_peaks_object.chemex_results) {
+            let cr = pseudo3d_fitted_peaks_object.chemex_results;
+            let gParams = (cr.fitted_params && cr.fitted_params.global) ? cr.fitted_params.global : {};
+            let pb_val = (gParams.PB && typeof gParams.PB.value === 'number') ? gParams.PB.value : null;
+            let kex_val = (gParams.KEX_AB && typeof gParams.KEX_AB.value === 'number') ? gParams.KEX_AB.value : null;
+            let summaryStr = `ChemEx fit results loaded`;
+            if (pb_val !== null) summaryStr += ` | pB: ${(pb_val * 100).toFixed(1)}%`;
+            if (kex_val !== null) summaryStr += ` | kex: ${kex_val.toFixed(0)} s⁻¹`;
+            let statusEl = document.getElementById("cest_result");
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryStr}</span>`;
+            }
+            let btnDl = document.getElementById("button_download_cest");
+            if (btnDl) btnDl.disabled = false;
+        }
     }
 };
 
@@ -6938,14 +7028,39 @@ function show_pseudo3d_peak_profile(peak_index) {
             }
         }
 
+        let voigtCurveData = null;
+        let voigtBadge = '';
         if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em === 'function') {
             fitResult = profile_instance.fit_negative_pseudo_voigt_em();
             if (fitResult && typeof profile_instance.get_fitted_curve_points === 'function') {
-                curveData = profile_instance.get_fitted_curve_points(350);
+                voigtCurveData = profile_instance.get_fitted_curve_points(350);
                 if (explicit_x) {
-                    curveData = map_curve_data_to_offsets(curveData, explicit_x);
+                    voigtCurveData = map_curve_data_to_offsets(voigtCurveData, explicit_x);
                 }
             }
+        }
+
+        if (fitResult && fitResult.num_peaks >= 2 && voigtCurveData && voigtCurveData.peak_centers && voigtCurveData.peak_centers.length >= 2 && explicit_x && spec_params.n15_mhz) {
+            let pc = voigtCurveData.peak_centers;
+            let dip1 = pc[0], dip2 = pc[1];
+            if (fitResult.peaks && fitResult.peaks.length >= 2) {
+                let sorted_p = [...fitResult.peaks].sort((a, b) => {
+                    let vA = (a.A || 0) * (a.fwhm || 0);
+                    let vB = (b.A || 0) * (b.fwhm || 0);
+                    return vB - vA;
+                });
+                let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
+                let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
+                dip1 = p1; dip2 = p2;
+            }
+            let dw_ppm = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
+            voigtBadge = `Voigt Fit | 2 Dips | Δω: ${dw_ppm.toFixed(2)} ppm | R²: ${(fitResult.r2 || 0).toFixed(3)}`;
+            if (!voigtCurveData.stats) voigtCurveData.stats = {};
+            voigtCurveData.stats.custom_badge = voigtBadge;
+        } else if (fitResult && typeof fitResult.r2 === 'number' && voigtCurveData) {
+            voigtBadge = `Voigt Fit | ${fitResult.num_peaks || 1} Dip${(fitResult.num_peaks || 1) > 1 ? 's' : ''} | R²: ${fitResult.r2.toFixed(3)}`;
+            if (!voigtCurveData.stats) voigtCurveData.stats = {};
+            voigtCurveData.stats.custom_badge = voigtBadge;
         }
 
         // Check if ChemEx fit result exists for this peak
@@ -6955,6 +7070,7 @@ function show_pseudo3d_peak_profile(peak_index) {
                 ? peaks_object.chemex_results.profiles[peak_index + 'N']
                 : null);
 
+        let chemexCurveData = null;
         chemexBadge = '';
         if (chemex_profile && chemex_profile.calc && chemex_profile.calc.length > 0) {
             let base_intensity = 1.0;
@@ -6989,7 +7105,7 @@ function show_pseudo3d_peak_profile(peak_index) {
 
             chemexBadge = `ChemEx Fit | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
 
-            curveData = {
+            chemexCurveData = {
                 total_curve: scaled_total_curve,
                 components: [],
                 peak_centers: [],
@@ -7000,52 +7116,22 @@ function show_pseudo3d_peak_profile(peak_index) {
                     num_peaks: 2
                 }
             };
-        } else if (fitResult && fitResult.num_peaks >= 2 && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2 && explicit_x) {
-            let pc = curveData.peak_centers;
-            let dip1 = pc[0], dip2 = pc[1];
-            if (fitResult.peaks && fitResult.peaks.length >= 2) {
-                let sorted_p = [...fitResult.peaks].sort((a, b) => {
-                    let vA = (a.A || 0) * (a.fwhm || 0);
-                    let vB = (b.A || 0) * (b.fwhm || 0);
-                    return vB - vA;
-                });
-                let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
-                let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
-                dip1 = p1; dip2 = p2;
-            }
-            let dw_ppm = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
-            if (!curveData.stats) curveData.stats = {};
-            curveData.stats.custom_badge = `2 Dips Fit | Δω: ${dw_ppm.toFixed(2)} ppm | R²: ${(fitResult.r2 || 0).toFixed(3)}`;
         }
+
+        curveData = {
+            voigt: voigtCurveData,
+            chemex: chemexCurveData
+        };
     }
 
     current_pseudo3d_profile_peak_index = peak_index;
 
     let titleEl = document.getElementById('pseudo3d_profile_title');
     if (titleEl) {
-        let fitSummary = '';
-        if (chemexBadge) {
-            fitSummary = ` | ${chemexBadge}`;
-        } else if (fitResult && typeof fitResult.r2 === 'number') {
-            let dwInfo = '';
-            if (explicit_x && curveData && curveData.peak_centers && curveData.peak_centers.length >= 2) {
-                let pc = curveData.peak_centers;
-                let dip1 = pc[0], dip2 = pc[1];
-                if (fitResult.peaks && fitResult.peaks.length >= 2) {
-                    let sorted_p = [...fitResult.peaks].sort((a, b) => {
-                        let vA = (a.A || 0) * (a.fwhm || 0);
-                        let vB = (b.A || 0) * (b.fwhm || 0);
-                        return vB - vA;
-                    });
-                    let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
-                    let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
-                    dip1 = p1; dip2 = p2;
-                }
-                let dw_val = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
-                dwInfo = `, Δω: ${dw_val.toFixed(2)} ppm`;
-            }
-            fitSummary = ` | ${fitResult.num_peaks} Peak${fitResult.num_peaks > 1 ? 's' : ''} Fit (R²: ${fitResult.r2.toFixed(3)}${dwInfo})`;
-        }
+        let fitSummaries = [];
+        if (voigtBadge) fitSummaries.push(voigtBadge);
+        if (chemexBadge) fitSummaries.push(chemexBadge);
+        let fitSummary = fitSummaries.length > 0 ? (' | ' + fitSummaries.join(' | ')) : '';
         let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
         titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
     }
@@ -7106,6 +7192,34 @@ function show_pseudo3d_peak_profile(peak_index) {
             };
         }
 
+        let voigtBtn = document.getElementById('pseudo3d_profile_toggle_voigt_btn');
+        if (voigtBtn) {
+            voigtBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_voigt_fit();
+                    voigtBtn.innerText = isVis ? 'Voigt: ON' : 'Voigt: OFF';
+                    voigtBtn.style.opacity = isVis ? '1.0' : '0.6';
+                    voigtBtn.style.background = isVis ? '#e3f2fd' : '#eceff1';
+                    voigtBtn.style.color = isVis ? '#1565c0' : '#546e7a';
+                    voigtBtn.style.borderColor = isVis ? '#1976d2' : '#b0bec5';
+                }
+            };
+        }
+
+        let chemexBtn = document.getElementById('pseudo3d_profile_toggle_chemex_btn');
+        if (chemexBtn) {
+            chemexBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_chemex_fit();
+                    chemexBtn.innerText = isVis ? 'ChemEx: ON' : 'ChemEx: OFF';
+                    chemexBtn.style.opacity = isVis ? '1.0' : '0.6';
+                    chemexBtn.style.background = isVis ? '#ffebee' : '#eceff1';
+                    chemexBtn.style.color = isVis ? '#c62828' : '#546e7a';
+                    chemexBtn.style.borderColor = isVis ? '#d32f2f' : '#b0bec5';
+                }
+            };
+        }
+
         let toggleFitBtn = document.getElementById('pseudo3d_profile_toggle_fit_btn');
         if (toggleFitBtn) {
             toggleFitBtn.onclick = function () {
@@ -7115,6 +7229,48 @@ function show_pseudo3d_peak_profile(peak_index) {
                     toggleFitBtn.style.opacity = isVis ? '1.0' : '0.6';
                 }
             };
+        }
+    }
+
+    // Update toggle button states according to availability for this peak
+    let hasVoigt = !!(voigtCurveData && voigtCurveData.total_curve && voigtCurveData.total_curve.length > 0);
+    let hasChemex = !!(chemexCurveData && chemexCurveData.total_curve && chemexCurveData.total_curve.length > 0);
+
+    let voigtBtn = document.getElementById('pseudo3d_profile_toggle_voigt_btn');
+    if (voigtBtn) {
+        voigtBtn.disabled = !hasVoigt;
+        let isVis = pseudo3d_profile_plot_instance ? pseudo3d_profile_plot_instance.showVoigtFit : true;
+        if (!hasVoigt) {
+            voigtBtn.innerText = 'Voigt: N/A';
+            voigtBtn.style.opacity = '0.4';
+            voigtBtn.style.background = '#eceff1';
+            voigtBtn.style.color = '#90a4ae';
+            voigtBtn.style.borderColor = '#cfd8dc';
+        } else {
+            voigtBtn.innerText = isVis ? 'Voigt: ON' : 'Voigt: OFF';
+            voigtBtn.style.opacity = isVis ? '1.0' : '0.6';
+            voigtBtn.style.background = isVis ? '#e3f2fd' : '#eceff1';
+            voigtBtn.style.color = isVis ? '#1565c0' : '#546e7a';
+            voigtBtn.style.borderColor = isVis ? '#1976d2' : '#b0bec5';
+        }
+    }
+
+    let chemexBtn = document.getElementById('pseudo3d_profile_toggle_chemex_btn');
+    if (chemexBtn) {
+        chemexBtn.disabled = !hasChemex;
+        let isVis = pseudo3d_profile_plot_instance ? pseudo3d_profile_plot_instance.showChemexFit : true;
+        if (!hasChemex) {
+            chemexBtn.innerText = 'ChemEx: N/A';
+            chemexBtn.style.opacity = '0.4';
+            chemexBtn.style.background = '#eceff1';
+            chemexBtn.style.color = '#90a4ae';
+            chemexBtn.style.borderColor = '#cfd8dc';
+        } else {
+            chemexBtn.innerText = isVis ? 'ChemEx: ON' : 'ChemEx: OFF';
+            chemexBtn.style.opacity = isVis ? '1.0' : '0.6';
+            chemexBtn.style.background = isVis ? '#ffebee' : '#eceff1';
+            chemexBtn.style.color = isVis ? '#c62828' : '#546e7a';
+            chemexBtn.style.borderColor = isVis ? '#d32f2f' : '#b0bec5';
         }
     }
 
@@ -7252,6 +7408,46 @@ function run_cest_pre_analysis(is_manual = false) {
     // Reset filter state
     cest_filter_multi_peaks_only = false;
 
+    // In case of rerun preanalysis, clear previous result first:
+    cest_multi_peak_indices = [];
+    if (peaks_object) {
+        peaks_object.cest_multi_peak_indices = [];
+        if (peaks_object.peak_profiles) {
+            for (let k in peaks_object.peak_profiles) {
+                if (peaks_object.peak_profiles[k]) {
+                    peaks_object.peak_profiles[k].fit_result = null;
+                }
+            }
+        }
+    }
+    if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object !== peaks_object) {
+        pseudo3d_fitted_peaks_object.cest_multi_peak_indices = [];
+        if (pseudo3d_fitted_peaks_object.peak_profiles) {
+            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                if (pseudo3d_fitted_peaks_object.peak_profiles[k]) {
+                    pseudo3d_fitted_peaks_object.peak_profiles[k].fit_result = null;
+                }
+            }
+        }
+    }
+
+    apply_multi_peak_highlights();
+    let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+    if (btnFilter) {
+        btnFilter.disabled = true;
+        btnFilter.textContent = "Show ≥2 Peaks Only";
+        btnFilter.style.backgroundColor = "";
+    }
+    let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+    if (btnHeaderFilter) {
+        btnHeaderFilter.style.display = 'none';
+        btnHeaderFilter.disabled = true;
+    }
+
+    if (pseudo3d_profile_plot_instance && current_pseudo3d_profile_peak_index) {
+        show_pseudo3d_peak_profile(current_pseudo3d_profile_peak_index);
+    }
+
     // If using pseudo3d_fitted_peaks_object, make sure the checkbox is checked
     if (peaks_object === pseudo3d_fitted_peaks_object) {
         let p3dCheck = document.getElementById("show_pseudo3d_peaks");
@@ -7301,10 +7497,12 @@ function run_cest_pre_analysis(is_manual = false) {
                     if (typeof peaks_object.set_peak_profile === 'function') {
                         peaks_object.set_peak_profile(k, prof);
                     }
+                } else {
+                    prof.fit_result = null;
                 }
 
                 let fitResult = (prof && typeof prof.fit_negative_pseudo_voigt_em === 'function')
-                    ? prof.fit_negative_pseudo_voigt_em()
+                    ? prof.fit_negative_pseudo_voigt_em({ force_refit: true })
                     : null;
                 let num_peaks = 0;
                 if (fitResult && typeof fitResult.num_peaks === 'number') {
@@ -8145,6 +8343,36 @@ function run_chemex_only() {
     let filesManifest = chemex_generated_manifest.files;
     let target_peaks = chemex_generated_manifest.target_peaks;
     let peaks_object = chemex_generated_manifest.peaks_object;
+
+    // In case of rerun chemex, clear previous result first:
+    if (peaks_object) {
+        peaks_object.chemex_results = null;
+        if (peaks_object.peak_profiles) {
+            for (let k in peaks_object.peak_profiles) {
+                if (peaks_object.peak_profiles[k]) {
+                    peaks_object.peak_profiles[k].chemex_fit = null;
+                }
+            }
+        }
+    }
+    if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object !== peaks_object) {
+        pseudo3d_fitted_peaks_object.chemex_results = null;
+        if (pseudo3d_fitted_peaks_object.peak_profiles) {
+            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                if (pseudo3d_fitted_peaks_object.peak_profiles[k]) {
+                    pseudo3d_fitted_peaks_object.peak_profiles[k].chemex_fit = null;
+                }
+            }
+        }
+    }
+
+    let btnDl = document.getElementById("button_download_cest");
+    if (btnDl) btnDl.disabled = true;
+
+    // Refresh open profile plot if open to remove old ChemEx curve while running
+    if (pseudo3d_profile_plot_instance && current_pseudo3d_profile_peak_index) {
+        show_pseudo3d_peak_profile(current_pseudo3d_profile_peak_index);
+    }
 
     chemex_is_running = true;
     let btnRun = document.getElementById("button_run_chemex");

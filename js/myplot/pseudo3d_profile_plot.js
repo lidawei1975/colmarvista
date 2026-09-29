@@ -82,21 +82,34 @@ class pseudo3d_profile_plot {
         this.dotsG = this.dataG.append('g').attr('class', 'profile-dots');
 
         // Fit graphics group (inside clipped dataG)
-        this.fitG = this.dataG.append('g').attr('class', 'profile-fit-group');
-        this.fitBoundsG = this.fitG.append('g').attr('class', 'profile-fit-bounds');
-        this.fitBaseline = this.fitG.append('line')
+        // 1. Voigt fit graphics group (blue line)
+        this.voigtFitG = this.dataG.append('g').attr('class', 'profile-voigt-fit-group');
+        this.fitBoundsG = this.voigtFitG.append('g').attr('class', 'profile-fit-bounds');
+        this.fitBaseline = this.voigtFitG.append('line')
             .attr('class', 'profile-fit-baseline')
             .attr('stroke', '#2e7d32')
             .attr('stroke-dasharray', '3,3')
             .attr('stroke-width', 1.5)
             .style('display', 'none');
-        this.fitPeakMarkersG = this.fitG.append('g').attr('class', 'profile-fit-peak-markers');
-        this.fitCompG = this.fitG.append('g').attr('class', 'profile-fit-components');
-        this.fitLine = this.fitG.append('path')
-            .attr('class', 'profile-fit-line')
+        this.fitPeakMarkersG = this.voigtFitG.append('g').attr('class', 'profile-fit-peak-markers');
+        this.fitCompG = this.voigtFitG.append('g').attr('class', 'profile-fit-components');
+        this.voigtLine = this.voigtFitG.append('path')
+            .attr('class', 'profile-voigt-line')
+            .attr('fill', 'none')
+            .attr('stroke', '#1976d2')
+            .attr('stroke-width', 2);
+
+        // 2. ChemEx fit graphics group (red line)
+        this.chemexFitG = this.dataG.append('g').attr('class', 'profile-chemex-fit-group');
+        this.chemexLine = this.chemexFitG.append('path')
+            .attr('class', 'profile-chemex-line')
             .attr('fill', 'none')
             .attr('stroke', '#d32f2f')
-            .attr('stroke-width', 2);
+            .attr('stroke-width', 2.2);
+
+        // Backward compatibility references
+        this.fitG = this.voigtFitG;
+        this.fitLine = this.voigtLine;
 
         // Axes groups
         this.xAxisG = this.g.append('g')
@@ -113,8 +126,10 @@ class pseudo3d_profile_plot {
         // Legend group for fit statistics
         this.fitLegendG = this.g.append('g').attr('class', 'profile-fit-legend');
 
-        // Fit data state
+        // Fit data state and visibility flags
         this.fitData = null;
+        this.showVoigtFit = true;
+        this.showChemexFit = true;
         this.showFit = true;
 
         // Axis labels
@@ -332,14 +347,28 @@ class pseudo3d_profile_plot {
         // Determine Y extent
         let minY = d3.min(this.data, d => (typeof d.std === 'number' ? d.value - d.std : d.value));
         let maxY = d3.max(this.data, d => (typeof d.std === 'number' ? d.value + d.std : d.value));
-        if (this.fitData && this.fitData.total_curve && this.fitData.total_curve.length > 0) {
-            const fitMinY = d3.min(this.fitData.total_curve, d => d.y);
-            const fitMaxY = d3.max(this.fitData.total_curve, d => d.y);
+
+        const voigt = (this.fitData && this.fitData.voigt) ? this.fitData.voigt : (this.fitData && this.fitData.total_curve ? this.fitData : null);
+        const chemex = (this.fitData && this.fitData.chemex) ? this.fitData.chemex : null;
+
+        if (voigt && voigt.total_curve && voigt.total_curve.length > 0) {
+            const fitMinY = d3.min(voigt.total_curve, d => d.y);
+            const fitMaxY = d3.max(voigt.total_curve, d => d.y);
             if (fitMinY !== undefined && !isNaN(fitMinY)) minY = Math.min(minY, fitMinY);
             if (fitMaxY !== undefined && !isNaN(fitMaxY)) maxY = Math.max(maxY, fitMaxY);
-            if (typeof this.fitData.baseline === 'number' && !isNaN(this.fitData.baseline)) {
-                minY = Math.min(minY, this.fitData.baseline);
-                maxY = Math.max(maxY, this.fitData.baseline);
+            if (typeof voigt.baseline === 'number' && !isNaN(voigt.baseline)) {
+                minY = Math.min(minY, voigt.baseline);
+                maxY = Math.max(maxY, voigt.baseline);
+            }
+        }
+        if (chemex && chemex.total_curve && chemex.total_curve.length > 0) {
+            const chemMinY = d3.min(chemex.total_curve, d => d.y);
+            const chemMaxY = d3.max(chemex.total_curve, d => d.y);
+            if (chemMinY !== undefined && !isNaN(chemMinY)) minY = Math.min(minY, chemMinY);
+            if (chemMaxY !== undefined && !isNaN(chemMaxY)) maxY = Math.max(maxY, chemMaxY);
+            if (typeof chemex.baseline === 'number' && !isNaN(chemex.baseline)) {
+                minY = Math.min(minY, chemex.baseline);
+                maxY = Math.max(maxY, chemex.baseline);
             }
         }
         const ySpan = maxY - minY;
@@ -553,14 +582,18 @@ class pseudo3d_profile_plot {
             });
 
         // Update Fit Elements
-        if (this.fitData && this.showFit) {
-            this.fitG.style('display', 'block');
+        const voigt = (this.fitData && this.fitData.voigt) ? this.fitData.voigt : (this.fitData && this.fitData.total_curve ? this.fitData : null);
+        const chemex = (this.fitData && this.fitData.chemex) ? this.fitData.chemex : null;
 
-            // 1. Baseline line
-            if (typeof this.fitData.baseline === 'number' && this.fitData.fit_range) {
-                const y0_px = this.yScale(this.fitData.baseline);
-                const x1_px = this.xScale(this.fitData.fit_range[0]);
-                const x2_px = this.xScale(this.fitData.fit_range[1]);
+        // 1. Voigt Fit Elements
+        if (voigt && this.showVoigtFit) {
+            this.voigtFitG.style('display', 'block');
+
+            // 1.1 Baseline line
+            if (typeof voigt.baseline === 'number' && voigt.fit_range) {
+                const y0_px = this.yScale(voigt.baseline);
+                const x1_px = this.xScale(voigt.fit_range[0]);
+                const x2_px = this.xScale(voigt.fit_range[1]);
                 this.fitBaseline
                     .attr('x1', x1_px)
                     .attr('x2', x2_px)
@@ -571,8 +604,8 @@ class pseudo3d_profile_plot {
                 this.fitBaseline.style('display', 'none');
             }
 
-            // 2. Fit window boundary markers
-            const bData = (this.fitData.fit_range && this.fitData.fit_range.length === 2) ? this.fitData.fit_range : [];
+            // 1.2 Fit window boundary markers
+            const bData = (voigt.fit_range && voigt.fit_range.length === 2) ? voigt.fit_range : [];
             const bSel = this.fitBoundsG.selectAll('.fit-bound-line').data(bData);
             bSel.exit().remove();
             bSel.enter().append('line')
@@ -586,8 +619,8 @@ class pseudo3d_profile_plot {
                 .attr('y1', 0)
                 .attr('y2', innerHeight);
 
-            // 3. Peak center vertical markers
-            const pCenters = this.fitData.peak_centers || [];
+            // 1.3 Peak center vertical markers
+            const pCenters = voigt.peak_centers || [];
             const pSel = this.fitPeakMarkersG.selectAll('.fit-peak-marker').data(pCenters, (d, i) => i);
             pSel.exit().remove();
             const pEnter = pSel.enter().append('g').attr('class', 'fit-peak-marker');
@@ -615,8 +648,8 @@ class pseudo3d_profile_plot {
                     return `Dip Center: ${d.x0.toFixed(1)}`;
                 });
 
-            // 4. Component dashed lines (for multi-peak models)
-            const comps = this.fitData.components || [];
+            // 1.4 Component dashed lines (for multi-peak models)
+            const comps = voigt.components || [];
             const compSel = this.fitCompG.selectAll('.fit-comp-line').data(comps.length > 1 ? comps : [], d => d.id);
             compSel.exit().remove();
             compSel.enter().append('path')
@@ -625,40 +658,64 @@ class pseudo3d_profile_plot {
                 .attr('stroke-dasharray', '4,3')
                 .attr('stroke-width', 1.6)
                 .merge(compSel)
-                .attr('stroke', d => d.color || '#e53935')
+                .attr('stroke', d => d.color || '#1976d2')
                 .attr('d', d => this.fitCurveGenerator(d.points));
 
-            // 5. Total fitted curve
-            if (this.fitData.total_curve && this.fitData.total_curve.length > 0) {
-                this.fitLine
-                    .datum(this.fitData.total_curve)
+            // 1.5 Total Voigt curve (blue)
+            if (voigt.total_curve && voigt.total_curve.length > 0) {
+                this.voigtLine
+                    .datum(voigt.total_curve)
                     .attr('d', this.fitCurveGenerator)
                     .style('display', 'block');
             } else {
-                this.fitLine.style('display', 'none');
-            }
-
-            // 6. Inset Legend / Fit summary badge
-            this.fitLegendG.selectAll('*').remove();
-            if (this.fitData.stats) {
-                const st = this.fitData.stats;
-                const r2Str = (typeof st.r2 === 'number') ? st.r2.toFixed(3) : '';
-                const rmseStr = (typeof st.rmse === 'number') ? st.rmse.toFixed(4) : '';
-                const badgeText = st.custom_badge ? st.custom_badge : `${st.num_peaks} Peak${st.num_peaks > 1 ? 's' : ''} Fit | R²: ${r2Str} | RMSE: ${rmseStr}`;
-
-                const badgeG = this.fitLegendG.append('g')
-                    .attr('transform', `translate(${innerWidth - 6}, 14)`);
-
-                badgeG.append('text')
-                    .attr('text-anchor', 'end')
-                    .attr('font-size', '10px')
-                    .attr('fill', '#c62828')
-                    .attr('font-weight', 'bold')
-                    .text(badgeText);
+                this.voigtLine.style('display', 'none');
             }
         } else {
-            this.fitG.style('display', 'none');
-            this.fitLegendG.selectAll('*').remove();
+            this.voigtFitG.style('display', 'none');
+        }
+
+        // 2. ChemEx Fit Elements (red line)
+        if (chemex && this.showChemexFit && chemex.total_curve && chemex.total_curve.length > 0) {
+            this.chemexFitG.style('display', 'block');
+            this.chemexLine
+                .datum(chemex.total_curve)
+                .attr('d', this.fitCurveGenerator)
+                .style('display', 'block');
+        } else {
+            this.chemexFitG.style('display', 'none');
+        }
+
+        // 3. Inset Legend / Fit summary badges
+        this.fitLegendG.selectAll('*').remove();
+        let badgeY = 14;
+
+        if (voigt && this.showVoigtFit && voigt.stats) {
+            const st = voigt.stats;
+            const r2Str = (typeof st.r2 === 'number') ? st.r2.toFixed(3) : '';
+            const rmseStr = (typeof st.rmse === 'number') ? st.rmse.toFixed(4) : '';
+            const voigtText = st.custom_badge ? st.custom_badge : `Voigt: ${st.num_peaks || 1} Dip${(st.num_peaks || 1) > 1 ? 's' : ''} | R²: ${r2Str}`;
+
+            const badgeG = this.fitLegendG.append('g')
+                .attr('transform', `translate(${innerWidth - 6}, ${badgeY})`);
+            badgeG.append('text')
+                .attr('text-anchor', 'end')
+                .attr('font-size', '10px')
+                .attr('fill', '#1565c0')
+                .attr('font-weight', 'bold')
+                .text(voigtText);
+            badgeY += 14;
+        }
+
+        if (chemex && this.showChemexFit && chemex.stats) {
+            const chemexText = chemex.stats.custom_badge || 'ChemEx Fit';
+            const badgeG = this.fitLegendG.append('g')
+                .attr('transform', `translate(${innerWidth - 6}, ${badgeY})`);
+            badgeG.append('text')
+                .attr('text-anchor', 'end')
+                .attr('font-size', '10px')
+                .attr('fill', '#c62828')
+                .attr('font-weight', 'bold')
+                .text(chemexText);
         }
     }
 
@@ -672,18 +729,47 @@ class pseudo3d_profile_plot {
     }
 
     /**
-     * Toggle visibility of the fitted curve
+     * Toggle visibility of Voigt fit
+     * @param {boolean} [forceVisible]
+     * @returns {boolean} current visibility state
+     */
+    toggle_voigt_fit(forceVisible) {
+        if (typeof forceVisible === 'boolean') {
+            this.showVoigtFit = forceVisible;
+        } else {
+            this.showVoigtFit = !this.showVoigtFit;
+        }
+        this.update_plot();
+        return this.showVoigtFit;
+    }
+
+    /**
+     * Toggle visibility of ChemEx fit
+     * @param {boolean} [forceVisible]
+     * @returns {boolean} current visibility state
+     */
+    toggle_chemex_fit(forceVisible) {
+        if (typeof forceVisible === 'boolean') {
+            this.showChemexFit = forceVisible;
+        } else {
+            this.showChemexFit = !this.showChemexFit;
+        }
+        this.update_plot();
+        return this.showChemexFit;
+    }
+
+    /**
+     * Toggle visibility of fitted curves (backward compatibility)
      * @param {boolean} [forceVisible]
      * @returns {boolean} current visibility state
      */
     toggle_fit_visibility(forceVisible) {
-        if (typeof forceVisible === 'boolean') {
-            this.showFit = forceVisible;
-        } else {
-            this.showFit = !this.showFit;
-        }
+        let newState = (typeof forceVisible === 'boolean') ? forceVisible : !(this.showVoigtFit || this.showChemexFit);
+        this.showVoigtFit = newState;
+        this.showChemexFit = newState;
+        this.showFit = newState;
         this.update_plot();
-        return this.showFit;
+        return newState;
     }
 
     /**
