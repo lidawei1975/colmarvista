@@ -131,6 +131,7 @@ class pseudo3d_profile_plot {
         this.showVoigtFit = true;
         this.showChemexFit = true;
         this.showFit = true;
+        this.isAutozoomed = false;
 
         // Axis labels
         this.xLabel = this.g.append('text')
@@ -379,7 +380,13 @@ class pseudo3d_profile_plot {
         this.xScale.domain([...this.xOrigDomain]);
         this.yScale.domain([...this.yOrigDomain]);
 
-        this.update_plot();
+        // Automatically autozoom to dips if negative peak(s) are detected; otherwise remain at full view
+        if (this.has_negative_peaks()) {
+            this.autozoom_to_dips();
+        } else {
+            this.isAutozoomed = false;
+            this.update_plot();
+        }
     }
 
     /**
@@ -717,6 +724,9 @@ class pseudo3d_profile_plot {
                 .attr('font-weight', 'bold')
                 .text(chemexText);
         }
+
+        // Keep DOM autozoom button in sync with current state
+        this.update_autozoom_button();
     }
 
     /**
@@ -725,7 +735,12 @@ class pseudo3d_profile_plot {
      */
     set_fit_data(fitData) {
         this.fitData = fitData;
-        this.update_plot();
+        if (this.has_negative_peaks()) {
+            this.autozoom_to_dips();
+        } else {
+            this.isAutozoomed = false;
+            this.update_plot();
+        }
     }
 
     /**
@@ -798,6 +813,7 @@ class pseudo3d_profile_plot {
 
             // Zoom factor: wheel down (positive) zooms out (>1), wheel up zooms in (<1)
             const zoomFactor = event.deltaY > 0 ? 1.15 : 0.87;
+            self.isAutozoomed = false;
 
             const innerWidth = self.width - self.margin.left - self.margin.right;
             const innerHeight = self.height - self.margin.top - self.margin.bottom;
@@ -874,6 +890,7 @@ class pseudo3d_profile_plot {
             // Note: SVG Y coordinates run top-down, but yScale runs bottom-up
             const dyDomain = (dyPixels / innerHeight) * ySpan;
 
+            self.isAutozoomed = false;
             self.xScale.domain([startDomainX[0] - dxDomain, startDomainX[1] - dxDomain]);
             self.yScale.domain([startDomainY[0] + dyDomain, startDomainY[1] + dyDomain]);
 
@@ -889,12 +906,264 @@ class pseudo3d_profile_plot {
     }
 
     /**
+     * Retrieve detected negative peaks / dips from available fit models.
+     * Checks Voigt fit result (peak_centers) and ChemEx fit curve.
+     * @returns {Array<{ x0: number, fwhm?: number, A?: number, lfrac?: number }>}
+     */
+    get_negative_peaks() {
+        const peaks = [];
+        const voigt = (this.fitData && this.fitData.voigt) ? this.fitData.voigt : (this.fitData && this.fitData.total_curve ? this.fitData : null);
+        const chemex = (this.fitData && this.fitData.chemex) ? this.fitData.chemex : null;
+
+        // 1. Voigt Fit negative peak centers
+        if (voigt && Array.isArray(voigt.peak_centers) && voigt.peak_centers.length > 0) {
+            const numPeaks = (voigt.stats && typeof voigt.stats.num_peaks === 'number') ? voigt.stats.num_peaks : voigt.peak_centers.length;
+            if (numPeaks > 0) {
+                for (let pc of voigt.peak_centers) {
+                    if (typeof pc.x0 === 'number' && isFinite(pc.x0)) {
+                        peaks.push({
+                            x0: pc.x0,
+                            fwhm: pc.fwhm,
+                            A: pc.A,
+                            lfrac: pc.lfrac
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. ChemEx Fit curve local minima (if no Voigt peaks found)
+        if (peaks.length === 0 && chemex && chemex.total_curve && chemex.total_curve.length > 5) {
+            const isHz = !!(this.ppmConverter && this.ppmConverter.n15_mhz) || 
+                         (this.xLabelText && this.xLabelText.includes('Offset'));
+            const pts = chemex.total_curve;
+            const baseline = (typeof chemex.baseline === 'number') ? chemex.baseline : d3.max(pts, d => d.y);
+            const minCurveY = d3.min(pts, d => d.y);
+            const maxDrop = baseline - minCurveY;
+            if (maxDrop >= 0.05) {
+                for (let i = 1; i < pts.length - 1; i++) {
+                    if (pts[i].y < pts[i - 1].y && pts[i].y < pts[i + 1].y) {
+                        const drop = baseline - pts[i].y;
+                        if (drop >= Math.max(0.04, 0.20 * maxDrop)) {
+                            const halfY = pts[i].y + 0.5 * drop;
+                            let leftX = pts[0].x, rightX = pts[pts.length - 1].x;
+                            for (let j = i; j >= 0; j--) {
+                                if (pts[j].y >= halfY) { leftX = pts[j].x; break; }
+                            }
+                            for (let j = i; j < pts.length; j++) {
+                                if (pts[j].y >= halfY) { rightX = pts[j].x; break; }
+                            }
+                            const fwhm = Math.abs(rightX - leftX);
+                            peaks.push({
+                                x0: pts[i].x,
+                                fwhm: fwhm > 0 ? fwhm : (isHz ? 300 : 3.0),
+                                A: drop
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        return peaks;
+    }
+
+    /**
+     * Check if one or more valid negative peaks are detected
+     * @returns {boolean}
+     */
+    has_negative_peaks() {
+        const peaks = this.get_negative_peaks();
+        return Array.isArray(peaks) && peaks.length > 0;
+    }
+
+    /**
+     * Compute and apply autozoom focusing on the 1 or 2 dips (negative peaks).
+     * Does nothing if there are no negative peaks.
+     * @returns {boolean} Whether autozoom was applied.
+     */
+    autozoom_to_dips() {
+        if (!this.data || this.data.length === 0) return false;
+        const dips = this.get_negative_peaks();
+        if (!dips || dips.length === 0) {
+            return false;
+        }
+
+        // Determine coordinate system: Hz offsets vs Plane indices
+        const isHz = !!(this.ppmConverter && this.ppmConverter.n15_mhz) || 
+                     (this.xLabelText && this.xLabelText.includes('Offset'));
+
+        // Experimental data range bounds (excluding reference scans > 0.98)
+        const validData = this.data.filter(d => d.value <= 0.98);
+        const dataToUse = validData.length >= 3 ? validData : this.data;
+        const dataMinX = d3.min(dataToUse, d => d.plane);
+        const dataMaxX = d3.max(dataToUse, d => d.plane);
+        const totalSpanX = Math.abs(dataMaxX - dataMinX);
+
+        let xZoomMin, xZoomMax;
+
+        if (dips.length === 1) {
+            // Case 1: Single dip
+            const dip = dips[0];
+            const x0 = dip.x0;
+            const w = (typeof dip.fwhm === 'number' && dip.fwhm > 0) ? dip.fwhm : (isHz ? 350 : 3.0);
+            const minHalfSpan = isHz ? 450 : 4.5;
+            const halfSpan = Math.max(3.5 * w, minHalfSpan);
+
+            xZoomMin = x0 - halfSpan;
+            xZoomMax = x0 + halfSpan;
+        } else {
+            // Case 2: 2 or more dips
+            // Sort dips by x0 ascending
+            const sortedDips = [...dips].sort((a, b) => a.x0 - b.x0);
+            const leftDip = sortedDips[0];
+            const rightDip = sortedDips[sortedDips.length - 1];
+
+            const xMinDip = leftDip.x0;
+            const xMaxDip = rightDip.x0;
+            const dipDist = Math.abs(xMaxDip - xMinDip);
+
+            const wLeft = (typeof leftDip.fwhm === 'number' && leftDip.fwhm > 0) ? leftDip.fwhm : (isHz ? 300 : 2.5);
+            const wRight = (typeof rightDip.fwhm === 'number' && rightDip.fwhm > 0) ? rightDip.fwhm : (isHz ? 300 : 2.5);
+
+            const minMargin = isHz ? 300 : 3.0;
+            const maxMargin = isHz ? 1000 : 10.0;
+
+            const leftMargin = Math.min(maxMargin, Math.max(2.5 * wLeft, 0.35 * dipDist, minMargin));
+            const rightMargin = Math.min(maxMargin, Math.max(2.5 * wRight, 0.35 * dipDist, minMargin));
+
+            xZoomMin = xMinDip - leftMargin;
+            xZoomMax = xMaxDip + rightMargin;
+        }
+
+        // Clamp to on-resonance data range with a small cushion
+        const cushion = totalSpanX * 0.03;
+        xZoomMin = Math.max(dataMinX - cushion, xZoomMin);
+        xZoomMax = Math.min(dataMaxX + cushion, xZoomMax);
+
+        // Safety check: ensure min < max
+        if (xZoomMax <= xZoomMin) {
+            const center = (xZoomMin + xZoomMax) / 2;
+            const half = isHz ? 500 : 5;
+            xZoomMin = center - half;
+            xZoomMax = center + half;
+        }
+
+        // Apply NMR inverted X-axis convention (large values on left, smaller on right)
+        const isInverted = this.invertX || (this.ppmConverter && this.ppmConverter.n15_mhz);
+        if (isInverted) {
+            this.xScale.domain([xZoomMax, xZoomMin]);
+        } else {
+            this.xScale.domain([xZoomMin, xZoomMax]);
+        }
+
+        // Calculate Y-axis domain focused on the dips and baseline within zoomed window
+        const voigt = (this.fitData && this.fitData.voigt) ? this.fitData.voigt : (this.fitData && this.fitData.total_curve ? this.fitData : null);
+        const chemex = (this.fitData && this.fitData.chemex) ? this.fitData.chemex : null;
+        const hasLowBaseline = (voigt && typeof voigt.baseline === 'number' && voigt.baseline < 0.95) || 
+                               (chemex && typeof chemex.baseline === 'number' && chemex.baseline < 0.95);
+
+        let yPts = [];
+        // 1. Experimental points within zoomed window
+        for (let d of this.data) {
+            if (d.plane >= xZoomMin && d.plane <= xZoomMax) {
+                // If baseline is below 0.95, ignore high reference scans (> 0.98) from determining Y scale
+                if (!hasLowBaseline || d.value <= 0.98) {
+                    yPts.push(d.value);
+                    if (typeof d.std === 'number' && !isNaN(d.std)) {
+                        yPts.push(d.value - d.std);
+                        yPts.push(d.value + d.std);
+                    }
+                }
+            }
+        }
+
+        // 2. Fitted curve points within zoomed window
+        if (voigt && this.showVoigtFit && voigt.total_curve) {
+            for (let pt of voigt.total_curve) {
+                if (pt.x >= xZoomMin && pt.x <= xZoomMax) {
+                    yPts.push(pt.y);
+                }
+            }
+            if (typeof voigt.baseline === 'number' && !isNaN(voigt.baseline)) {
+                yPts.push(voigt.baseline);
+            }
+        }
+
+        if (chemex && this.showChemexFit && chemex.total_curve) {
+            for (let pt of chemex.total_curve) {
+                if (pt.x >= xZoomMin && pt.x <= xZoomMax) {
+                    yPts.push(pt.y);
+                }
+            }
+            if (typeof chemex.baseline === 'number' && !isNaN(chemex.baseline)) {
+                yPts.push(chemex.baseline);
+            }
+        }
+
+        if (yPts.length > 0) {
+            let minY = d3.min(yPts);
+            let maxY = d3.max(yPts);
+            let ySpan = maxY - minY;
+            let yPad = Math.max(ySpan * 0.10, 0.04);
+            let newMinY = Math.max(0, minY - yPad);
+            let newMaxY = maxY + yPad;
+            this.yScale.domain([newMinY, newMaxY]);
+        } else {
+            this.yScale.domain([...this.yOrigDomain]);
+        }
+
+        this.isAutozoomed = true;
+        this.update_plot();
+        return true;
+    }
+
+    /**
+     * Toggle between autozoomed dips view and full overview
+     * @returns {boolean} Whether currently autozoomed
+     */
+    toggle_autozoom() {
+        if (this.isAutozoomed) {
+            this.reset_view();
+            return false;
+        } else {
+            return this.autozoom_to_dips();
+        }
+    }
+
+    /**
+     * Synchronize DOM Zoom button state with current plot zoom status
+     */
+    update_autozoom_button() {
+        const btn = document.getElementById('pseudo3d_profile_autozoom_btn');
+        if (!btn) return;
+        const hasDips = this.has_negative_peaks();
+        btn.disabled = !hasDips;
+        if (!hasDips) {
+            btn.innerText = 'Zoom: N/A';
+            btn.style.opacity = '0.4';
+            btn.style.background = '#eceff1';
+            btn.style.color = '#90a4ae';
+            btn.style.borderColor = '#cfd8dc';
+            btn.title = 'No negative peak detected';
+        } else {
+            btn.innerText = this.isAutozoomed ? 'Zoom: ON' : 'Zoom: OFF';
+            btn.style.opacity = '1.0';
+            btn.style.background = this.isAutozoomed ? '#e8f5e9' : '#eceff1';
+            btn.style.color = this.isAutozoomed ? '#2e7d32' : '#546e7a';
+            btn.style.borderColor = this.isAutozoomed ? '#388e3c' : '#b0bec5';
+            btn.title = this.isAutozoomed ? 'Zoomed to dips (click to toggle full view)' : 'Click to autozoom to dips';
+        }
+    }
+
+    /**
      * Reset zoom and pan to initial extent
      */
     reset_view() {
         if (!this.data || this.data.length === 0) return;
         this.xScale.domain([...this.xOrigDomain]);
         this.yScale.domain([...this.yOrigDomain]);
+        this.isAutozoomed = false;
         this.update_plot();
     }
 

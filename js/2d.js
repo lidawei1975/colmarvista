@@ -6886,9 +6886,12 @@ function map_curve_data_to_offsets(curveData, explicit_x) {
     let mapped_centers = [];
     if (curveData.peak_centers) {
         for (let pc of curveData.peak_centers) {
+            let halfW = (pc.fwhm || 2.0) / 2.0;
+            let fwhm_hz = Math.abs(plane_to_offset(pc.x0 + halfW) - plane_to_offset(pc.x0 - halfW));
             mapped_centers.push({
                 ...pc,
-                x0: plane_to_offset(pc.x0)
+                x0: plane_to_offset(pc.x0),
+                fwhm: (fwhm_hz && !isNaN(fwhm_hz) && fwhm_hz > 0) ? fwhm_hz : pc.fwhm
             });
         }
     }
@@ -7191,6 +7194,15 @@ function show_pseudo3d_peak_profile(peak_index) {
             resetBtn.onclick = function () {
                 if (pseudo3d_profile_plot_instance) {
                     pseudo3d_profile_plot_instance.reset_view();
+                }
+            };
+        }
+
+        let autozoomBtn = document.getElementById('pseudo3d_profile_autozoom_btn');
+        if (autozoomBtn) {
+            autozoomBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    pseudo3d_profile_plot_instance.toggle_autozoom();
                 }
             };
         }
