@@ -6964,9 +6964,17 @@ function show_pseudo3d_peak_profile(peak_index) {
                 base_intensity = d3.max(plotData, d => d.value) || 1.0;
             }
 
+            let calc_max = d3.max(chemex_profile.calc, d => d.y) || 1.0;
+            let scale_factor = 1.0;
+            // ChemEx calc points are already on the experimental data scale (e.g. baseline ~0.67).
+            // Only apply a scale factor if the calculated curve is normalized (e.g. ~1.0) while exp data is not.
+            if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+                scale_factor = base_intensity / calc_max;
+            }
+
             let scaled_total_curve = chemex_profile.calc.map(pt => ({
                 x: pt.x,
-                y: pt.y * base_intensity
+                y: pt.y * scale_factor
             }));
 
             let pb_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.PB)
