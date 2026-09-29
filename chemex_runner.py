@@ -411,7 +411,6 @@ def read_parameters_toml(path="Parameters/parameters.toml", residue="13N"):
         return {
             "PB": 0.015,
             "KEX_AB": 70.0,
-            "TAUC_A": 10.0,
             "CS_A": 108.0,
             "DW_AB": 4.0
         }
@@ -430,17 +429,18 @@ def read_parameters_toml(path="Parameters/parameters.toml", residue="13N"):
 
     pb = float(global_sec.get("PB", 0.015))
     kex = float(global_sec.get("KEX_AB", 70.0))
-    tauc = float(global_sec.get("TAUC_A", 10.0))
     cs_a = float(cs_sec.get(residue, 108.0))
     dw_ab = float(dw_sec.get(residue, 4.0))
 
-    return {
+    ret = {
         "PB": pb,
         "KEX_AB": kex,
-        "TAUC_A": tauc,
         "CS_A": cs_a,
         "DW_AB": dw_ab
     }
+    if "TAUC_A" in global_sec:
+        ret["TAUC_A"] = float(global_sec["TAUC_A"])
+    return ret
 
 def update_parameters_toml(path="Parameters/parameters.toml", residue="13N", params=None):
     """

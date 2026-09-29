@@ -7855,23 +7855,35 @@ function generate_chemex_input() {
     }
     function p2off(p) {
         if (on_res.length === 0) return 0;
-        if (p <= on_res[0].plane) return on_res[0].offset;
-        if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
-        for (let j = 0; j < on_res.length - 1; j++) {
+        if (on_res.length === 1) return on_res[0].offset;
+        if (p <= on_res[0].plane) {
+            let slope = (on_res[1].offset - on_res[0].offset) / (on_res[1].plane - on_res[0].plane);
+            return on_res[0].offset + (p - on_res[0].plane) * slope;
+        }
+        let last = on_res.length - 1;
+        if (p >= on_res[last].plane) {
+            let slope = (on_res[last].offset - on_res[last - 1].offset) / (on_res[last].plane - on_res[last - 1].plane);
+            return on_res[last].offset + (p - on_res[last].plane) * slope;
+        }
+        for (let j = 0; j < last; j++) {
             if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
                 let sp = on_res[j + 1].plane - on_res[j].plane;
                 return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
             }
         }
-        return on_res[on_res.length - 1].offset;
+        return on_res[last].offset;
     }
 
+    let hasRefPoint = offsets.some(off => Math.abs(off) > 10000);
     let filesManifest = {};
     let profilesDictToml = "";
     let csaToml = "";
     let dwToml = "";
     let sampleDataPreview = "";
     let all_rel_vols = [];
+    let all_w = [];
+    let all_kex = [];
+    let all_pb = [];
     let dipSummaryLines = [];
 
     for (let peakIndex of target_peaks) {
@@ -7922,8 +7934,27 @@ function generate_chemex_input() {
                 if (Object.is(dw_est, -0)) dw_est = 0.0;
             }
 
+            // Calculate minor peak width w (in Hz):
+            let p_left = dip2.x0 - dip2.fwhm / 2.0;
+            let p_right = dip2.x0 + dip2.fwhm / 2.0;
+            let w_hz = Math.abs(p2off(p_right) - p2off(p_left));
+            all_w.push(w_hz);
+
+            // Initial guess of KEX_AB for this peak: pi * (w - 2 * b1)
+            let kex_diff = w_hz - 2.0 * b1;
+            let kex_peak = (kex_diff > 0) ? (Math.PI * kex_diff) : Math.max(10.0, Math.PI * Math.abs(kex_diff));
+            all_kex.push(kex_peak);
+
+            // Initial guess of Pb for this peak: (peak volume ratio) * (1 / KEX_AB)
+            let pb_peak = null;
+            if (peak_rel_vol !== null && kex_peak > 0) {
+                pb_peak = peak_rel_vol * (1.0 / kex_peak);
+                all_pb.push(pb_peak);
+            }
+
             let relPctStr = peak_rel_vol !== null ? (peak_rel_vol * 100).toFixed(2) + "%" : "N/A";
-            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): Dip 1 @ ${hz1.toFixed(1)} Hz (vol: ${vol1.toFixed(3)}), Dip 2 @ ${hz2.toFixed(1)} Hz (vol: ${vol2.toFixed(3)}) -> DW_AB = ${dw_est >= 0 ? '+' : ''}${dw_est.toFixed(2)} ppm, rel_vol (pB) = ${relPctStr}`);
+            let pbStr = pb_peak !== null ? (pb_peak * 100).toFixed(3) + "%" : "N/A";
+            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): Dip 1 @ ${hz1.toFixed(1)} Hz (vol: ${vol1.toFixed(3)}), Dip 2 @ ${hz2.toFixed(1)} Hz (vol: ${vol2.toFixed(3)}, w: ${w_hz.toFixed(1)} Hz) -> DW_AB = ${dw_est >= 0 ? '+' : ''}${dw_est.toFixed(2)} ppm, vol_ratio = ${relPctStr}, KEX_AB = ${kex_peak.toFixed(1)} s⁻¹, pB = ${pbStr}`);
         } else {
             dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): <2 dips resolved, using default DW_AB = ${dw_est.toFixed(2)} ppm`);
         }
@@ -7961,17 +7992,36 @@ function generate_chemex_input() {
         }
     }
 
-    // Input PB calculated from the relative dip volume of 2nd dip compared with 1st dip:
+    // Global initial guess for KEX_AB: pi * (w - 2*b1)
+    let kex_input = 100.0;
+    if (all_kex.length > 0) {
+        all_kex.sort((a, b) => a - b);
+        let mid = Math.floor(all_kex.length / 2);
+        let median_kex = (all_kex.length % 2 !== 0)
+            ? all_kex[mid]
+            : (all_kex[mid - 1] + all_kex[mid]) / 2.0;
+        kex_input = Math.max(5.0, Math.min(10000.0, median_kex));
+        kex_input = parseFloat(kex_input.toFixed(1));
+    }
+
+    // Global initial guess for PB: (peak volume ratio) * (1 / KEX_AB)
     let pb_input = 0.03;
-    if (all_rel_vols.length > 0) {
+    if (all_pb.length > 0) {
+        all_pb.sort((a, b) => a - b);
+        let mid = Math.floor(all_pb.length / 2);
+        let median_pb = (all_pb.length % 2 !== 0)
+            ? all_pb[mid]
+            : (all_pb[mid - 1] + all_pb[mid]) / 2.0;
+        pb_input = Math.max(0.0001, Math.min(0.49, median_pb));
+        pb_input = parseFloat(pb_input.toPrecision(4));
+    } else if (all_rel_vols.length > 0 && kex_input > 0) {
         all_rel_vols.sort((a, b) => a - b);
         let mid = Math.floor(all_rel_vols.length / 2);
-        let median_val = (all_rel_vols.length % 2 !== 0)
+        let median_rel = (all_rel_vols.length % 2 !== 0)
             ? all_rel_vols[mid]
             : (all_rel_vols[mid - 1] + all_rel_vols[mid]) / 2.0;
-        // Clamp to physically reasonable population for ChemEx initial guess: 0.001 to 0.49
-        pb_input = Math.max(0.001, Math.min(0.49, median_val));
-        pb_input = parseFloat(pb_input.toFixed(4));
+        pb_input = Math.max(0.0001, Math.min(0.49, median_rel * (1.0 / kex_input)));
+        pb_input = parseFloat(pb_input.toPrecision(4));
     }
 
     // b1_inh_scale = inf removes b1_distribution = { type = "dephasing" }
@@ -7995,8 +8045,7 @@ ${profilesDictToml}`;
 
     let paramToml = `[GLOBAL]
 PB = ${pb_input}
-KEX_AB = 100.0
-TAUC_A = 10.0
+KEX_AB = ${kex_input}
 
 [CS_A]
 ${csaToml}
@@ -8019,7 +8068,8 @@ ${dwToml}`;
         `Target Peaks: ${target_peaks.map(p => '#' + p).join(', ')}\n` +
         `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz (15N ${n15_mhz.toFixed(3)} MHz), Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
         `B1 Inhomogeneity: ${b1_inh_log}\n` +
-        `Global Initial PB: ${pb_input} (${(pb_input * 100).toFixed(2)}% based on 2nd dip / 1st dip relative volume)\n` +
+        `Global Initial KEX_AB: ${kex_input} s⁻¹ (derived from π * (w - 2*b1) with B1 = ${b1.toFixed(1)} Hz)\n` +
+        `Global Initial PB: ${pb_input} (${(pb_input * 100).toFixed(3)}% derived from vol_ratio * (1/KEX_AB))\n` +
         "--------------------------------------------------------------------------------\n" +
         "Dip Analysis per Peak:\n" +
         dipSummaryLines.join("\n") + "\n" +
