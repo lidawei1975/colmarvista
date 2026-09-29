@@ -107,6 +107,15 @@ class pseudo3d_profile_plot {
             .attr('stroke', '#d32f2f')
             .attr('stroke-width', 2.2);
 
+        // 3. Live ChemEx Simulation graphics group (purple dashed line)
+        this.simFitG = this.dataG.append('g').attr('class', 'profile-sim-fit-group');
+        this.simLine = this.simFitG.append('path')
+            .attr('class', 'profile-sim-line')
+            .attr('fill', 'none')
+            .attr('stroke', '#7c3aed')
+            .attr('stroke-width', 2.0)
+            .attr('stroke-dasharray', '5,3');
+
         // Backward compatibility references
         this.fitG = this.voigtFitG;
         this.fitLine = this.voigtLine;
@@ -130,6 +139,7 @@ class pseudo3d_profile_plot {
         this.fitData = null;
         this.showVoigtFit = true;
         this.showChemexFit = true;
+        this.showSimFit = true;
         this.showFit = true;
         this.isAutozoomed = false;
 
@@ -351,6 +361,7 @@ class pseudo3d_profile_plot {
 
         const voigt = (this.fitData && this.fitData.voigt) ? this.fitData.voigt : (this.fitData && this.fitData.total_curve ? this.fitData : null);
         const chemex = (this.fitData && this.fitData.chemex) ? this.fitData.chemex : null;
+        const sim = (this.fitData && this.fitData.sim) ? this.fitData.sim : null;
 
         if (voigt && voigt.total_curve && voigt.total_curve.length > 0) {
             const fitMinY = d3.min(voigt.total_curve, d => d.y);
@@ -370,6 +381,16 @@ class pseudo3d_profile_plot {
             if (typeof chemex.baseline === 'number' && !isNaN(chemex.baseline)) {
                 minY = Math.min(minY, chemex.baseline);
                 maxY = Math.max(maxY, chemex.baseline);
+            }
+        }
+        if (sim && sim.total_curve && sim.total_curve.length > 0) {
+            const simMinY = d3.min(sim.total_curve, d => d.y);
+            const simMaxY = d3.max(sim.total_curve, d => d.y);
+            if (simMinY !== undefined && !isNaN(simMinY)) minY = Math.min(minY, simMinY);
+            if (simMaxY !== undefined && !isNaN(simMaxY)) maxY = Math.max(maxY, simMaxY);
+            if (typeof sim.baseline === 'number' && !isNaN(sim.baseline)) {
+                minY = Math.min(minY, sim.baseline);
+                maxY = Math.max(maxY, sim.baseline);
             }
         }
         const ySpan = maxY - minY;
@@ -692,7 +713,19 @@ class pseudo3d_profile_plot {
             this.chemexFitG.style('display', 'none');
         }
 
-        // 3. Inset Legend / Fit summary badges
+        // 3. ChemEx Live Simulation Elements (purple dashed line)
+        const sim = (this.fitData && this.fitData.sim) ? this.fitData.sim : null;
+        if (sim && this.showSimFit && sim.total_curve && sim.total_curve.length > 0) {
+            this.simFitG.style('display', 'block');
+            this.simLine
+                .datum(sim.total_curve)
+                .attr('d', this.fitCurveGenerator)
+                .style('display', 'block');
+        } else {
+            this.simFitG.style('display', 'none');
+        }
+
+        // 4. Inset Legend / Fit summary badges
         this.fitLegendG.selectAll('*').remove();
         let badgeY = 14;
 
@@ -723,6 +756,20 @@ class pseudo3d_profile_plot {
                 .attr('fill', '#c62828')
                 .attr('font-weight', 'bold')
                 .text(chemexText);
+            badgeY += 14;
+        }
+
+        if (sim && this.showSimFit && sim.stats) {
+            const simText = sim.stats.custom_badge || 'Simulation';
+            const badgeG = this.fitLegendG.append('g')
+                .attr('transform', `translate(${innerWidth - 6}, ${badgeY})`);
+            badgeG.append('text')
+                .attr('text-anchor', 'end')
+                .attr('font-size', '10px')
+                .attr('fill', '#7c3aed')
+                .attr('font-weight', 'bold')
+                .text(simText);
+            badgeY += 14;
         }
 
         // Keep DOM autozoom button in sync with current state
@@ -741,6 +788,15 @@ class pseudo3d_profile_plot {
             this.isAutozoomed = false;
             this.update_plot();
         }
+    }
+
+    /**
+     * Update fit data and redraw while preserving current zoom/pan state
+     * @param {Object} fitData
+     */
+    update_fit_data_preserve_zoom(fitData) {
+        this.fitData = fitData;
+        this.update_plot();
     }
 
     /**
@@ -1098,6 +1154,18 @@ class pseudo3d_profile_plot {
             }
             if (typeof chemex.baseline === 'number' && !isNaN(chemex.baseline)) {
                 yPts.push(chemex.baseline);
+            }
+        }
+
+        const sim = (this.fitData && this.fitData.sim) ? this.fitData.sim : null;
+        if (sim && this.showSimFit && sim.total_curve) {
+            for (let pt of sim.total_curve) {
+                if (pt.x >= xZoomMin && pt.x <= xZoomMax) {
+                    yPts.push(pt.y);
+                }
+            }
+            if (typeof sim.baseline === 'number' && !isNaN(sim.baseline)) {
+                yPts.push(sim.baseline);
             }
         }
 

@@ -6729,8 +6729,12 @@ function zoom_to_peak(index) {
 
 let current_selected_peak_row = null;
 let current_selected_peak_index = null;
+let current_pseudo3d_profile_peak_index = null;
 let pseudo3d_profile_plot_instance = null;
 let pseudo3d_profile_resize_observer = null;
+let chemex_virtual_files_synced = false;
+let sim_debounce_timer = null;
+let sim_panel_events_initialized = false;
 
 function is_pseudo3d_active() {
     if (current_spectrum_index_of_peaks === -2) return true;
@@ -7014,6 +7018,8 @@ function show_pseudo3d_peak_profile(peak_index) {
     let voigtBadge = '';
     let chemexCurveData = null;
     let chemexBadge = '';
+    let simCurveData = null;
+    let simBadge = '';
     if (typeof peak_profile === 'function') {
         if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
             profile_instance = peaks_object.get_peak_profile(peak_index);
@@ -7124,9 +7130,54 @@ function show_pseudo3d_peak_profile(peak_index) {
             };
         }
 
+        let sim_profile = (profile_instance && profile_instance.chemex_sim)
+            ? profile_instance.chemex_sim
+            : null;
+
+        simCurveData = null;
+        simBadge = '';
+        if (sim_profile && sim_profile.calc && sim_profile.calc.length > 0) {
+            let base_intensity = 1.0;
+            if (fitResult && typeof fitResult.y0 === 'number') {
+                base_intensity = fitResult.y0;
+            } else if (plotData && plotData.length > 0) {
+                base_intensity = d3.max(plotData, d => d.value) || 1.0;
+            }
+
+            let calc_max = d3.max(sim_profile.calc, d => d.y) || 1.0;
+            let scale_factor = 1.0;
+            if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+                scale_factor = base_intensity / calc_max;
+            }
+
+            let scaled_sim_curve = sim_profile.calc.map(pt => ({
+                x: pt.x,
+                y: pt.y * scale_factor
+            }));
+
+            let pb_val = (sim_profile.params && sim_profile.params.PB !== undefined) ? sim_profile.params.PB : 0.02;
+            let kex_val = (sim_profile.params && sim_profile.params.KEX_AB !== undefined) ? sim_profile.params.KEX_AB : 100;
+            let dw_val = (sim_profile.params && sim_profile.params.DW_AB !== undefined) ? sim_profile.params.DW_AB : 0;
+
+            simBadge = `Sim | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+            simCurveData = {
+                total_curve: scaled_sim_curve,
+                components: [],
+                peak_centers: [],
+                fit_range: [d3.min(scaled_sim_curve, d => d.x), d3.max(scaled_sim_curve, d => d.x)],
+                baseline: base_intensity,
+                stats: {
+                    custom_badge: simBadge,
+                    num_peaks: 2
+                }
+            };
+        }
+
         curveData = {
             voigt: voigtCurveData,
-            chemex: chemexCurveData
+            chemex: chemexCurveData,
+            sim: simCurveData
         };
     }
 
@@ -7137,6 +7188,7 @@ function show_pseudo3d_peak_profile(peak_index) {
         let fitSummaries = [];
         if (voigtBadge) fitSummaries.push(voigtBadge);
         if (chemexBadge) fitSummaries.push(chemexBadge);
+        if (simBadge) fitSummaries.push(simBadge);
         let fitSummary = fitSummaries.length > 0 ? (' | ' + fitSummaries.join(' | ')) : '';
         let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
         titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
@@ -7147,15 +7199,17 @@ function show_pseudo3d_peak_profile(peak_index) {
     let bodyEl = document.getElementById('pseudo3d_profile_body');
     let minBtn = document.getElementById('pseudo3d_profile_minimize_btn');
     if (bodyEl && bodyEl.style.display === 'none') {
-        bodyEl.style.display = 'block';
-        modal.style.height = modal.dataset.lastHeight || '350px';
-        modal.style.width = modal.dataset.lastWidth || '480px';
+        bodyEl.style.display = 'flex';
+        modal.style.height = modal.dataset.lastHeight || '360px';
+        modal.style.width = modal.dataset.lastWidth || '780px';
         modal.style.resize = 'both';
         if (minBtn) {
             minBtn.innerText = '—';
             minBtn.title = 'Minimize';
         }
     }
+
+    let plotContainer = document.getElementById('pseudo3d_profile_plot_container');
 
     if (!pseudo3d_profile_plot_instance && typeof pseudo3d_profile_plot === 'function') {
         pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
@@ -7165,7 +7219,7 @@ function show_pseudo3d_peak_profile(peak_index) {
             invertX: !!(explicit_x && ppm_converter)
         });
 
-        if (window.ResizeObserver && !pseudo3d_profile_resize_observer && bodyEl) {
+        if (window.ResizeObserver && !pseudo3d_profile_resize_observer && plotContainer) {
             pseudo3d_profile_resize_observer = new ResizeObserver(entries => {
                 for (let entry of entries) {
                     const cr = entry.contentRect;
@@ -7174,12 +7228,12 @@ function show_pseudo3d_peak_profile(peak_index) {
                     }
                 }
             });
-            pseudo3d_profile_resize_observer.observe(bodyEl);
+            pseudo3d_profile_resize_observer.observe(plotContainer);
         }
 
         modal.addEventListener('mouseup', function () {
-            if (pseudo3d_profile_plot_instance && bodyEl) {
-                pseudo3d_profile_plot_instance.resize(bodyEl.clientWidth, bodyEl.clientHeight);
+            if (pseudo3d_profile_plot_instance && plotContainer) {
+                pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
             }
         });
 
@@ -7289,9 +7343,9 @@ function show_pseudo3d_peak_profile(peak_index) {
         }
     }
 
-    if (pseudo3d_profile_plot_instance && bodyEl) {
-        let w = bodyEl.clientWidth || 460;
-        let h = bodyEl.clientHeight || 280;
+    if (pseudo3d_profile_plot_instance && plotContainer) {
+        let w = plotContainer.clientWidth || 460;
+        let h = plotContainer.clientHeight || 280;
         pseudo3d_profile_plot_instance.resize(w, h);
         if (typeof pseudo3d_profile_plot_instance.set_ppm_converter === 'function') {
             pseudo3d_profile_plot_instance.set_ppm_converter(ppm_converter, !!(explicit_x && ppm_converter));
@@ -7304,6 +7358,8 @@ function show_pseudo3d_peak_profile(peak_index) {
         }
         pseudo3d_profile_plot_instance.set_data(plotData, curveData, ppm_converter, !!(explicit_x && ppm_converter));
     }
+
+    init_single_peak_sim_panel(peak_index);
 }
 
 function hide_pseudo3d_peak_profile() {
@@ -7323,14 +7379,15 @@ function toggle_pseudo3d_profile_minimize() {
     if (!modal || !body || !minBtn) return;
 
     if (body.style.display === 'none') {
-        body.style.display = 'block';
-        modal.style.height = modal.dataset.lastHeight || '350px';
-        modal.style.width = modal.dataset.lastWidth || '480px';
+        body.style.display = 'flex';
+        modal.style.height = modal.dataset.lastHeight || '360px';
+        modal.style.width = modal.dataset.lastWidth || '780px';
         modal.style.resize = 'both';
         minBtn.innerText = '—';
         minBtn.title = 'Minimize';
-        if (pseudo3d_profile_plot_instance) {
-            pseudo3d_profile_plot_instance.resize(body.clientWidth, body.clientHeight);
+        let plotContainer = document.getElementById('pseudo3d_profile_plot_container');
+        if (pseudo3d_profile_plot_instance && plotContainer) {
+            pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
         }
     } else {
         modal.dataset.lastHeight = modal.offsetHeight + 'px';
@@ -7376,6 +7433,690 @@ function setup_pseudo3d_profile_modal_drag() {
             header.style.cursor = 'move';
         }
     });
+}
+
+/**
+ * Toggles the ChemEx Simulation & Single-Peak Fit side panel in the profile window.
+ */
+function toggle_pseudo3d_profile_side_panel() {
+    const sidePanel = document.getElementById('pseudo3d_profile_side_panel');
+    const modal = document.getElementById('pseudo3d_profile_modal');
+    const btn = document.getElementById('pseudo3d_profile_toggle_panel_btn');
+    const plotContainer = document.getElementById('pseudo3d_profile_plot_container');
+    if (!sidePanel || !modal) return;
+
+    const isHidden = (sidePanel.style.display === 'none');
+    if (isHidden) {
+        sidePanel.style.display = 'flex';
+        if (modal.offsetWidth < 680) {
+            modal.style.width = '780px';
+        }
+        if (btn) {
+            btn.style.background = '#f5f3ff';
+            btn.style.color = '#6d28d9';
+            btn.style.borderColor = '#7c3aed';
+        }
+    } else {
+        sidePanel.style.display = 'none';
+        if (modal.offsetWidth >= 700) {
+            modal.style.width = '520px';
+        }
+        if (btn) {
+            btn.style.background = '#f1f5f9';
+            btn.style.color = '#64748b';
+            btn.style.borderColor = '#cbd5e1';
+        }
+    }
+
+    if (pseudo3d_profile_plot_instance && plotContainer) {
+        setTimeout(() => {
+            pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
+        }, 50);
+    }
+}
+
+/**
+ * Reads the current simulation/initial-guess parameter values from the side panel.
+ */
+function get_single_peak_sim_params_from_ui() {
+    const pbInput = document.getElementById('chemex_input_pb');
+    const kexInput = document.getElementById('chemex_input_kex');
+    const csaInput = document.getElementById('chemex_input_csa');
+    const dwInput = document.getElementById('chemex_input_dw');
+
+    const pb = pbInput ? Math.max(0.0001, Math.min(0.49, parseFloat(pbInput.value) || 0.02)) : 0.02;
+    const kex = kexInput ? Math.max(1.0, Math.min(10000.0, parseFloat(kexInput.value) || 100.0)) : 100.0;
+    const csa = csaInput ? (parseFloat(csaInput.value) || 118.0) : 118.0;
+    const dw = dwInput ? (parseFloat(dwInput.value) || 3.0) : 3.0;
+
+    return {
+        PB: parseFloat(pb.toFixed(4)),
+        KEX_AB: parseFloat(kex.toFixed(1)),
+        CS_A: parseFloat(csa.toFixed(3)),
+        DW_AB: parseFloat(dw.toFixed(2))
+    };
+}
+
+/**
+ * Writes parameter values to the side panel inputs and sliders.
+ */
+function set_single_peak_sim_params_to_ui(params) {
+    if (!params) return;
+
+    // 1. PB
+    if (params.PB !== undefined && params.PB !== null) {
+        const pb = parseFloat(params.PB);
+        const pbInput = document.getElementById('chemex_input_pb');
+        const pbSlider = document.getElementById('chemex_slider_pb');
+        if (pbInput) pbInput.value = pb.toFixed(3);
+        if (pbSlider) {
+            if (pb > parseFloat(pbSlider.max)) {
+                pbSlider.max = Math.min(0.49, Math.ceil(pb * 1.5 * 100) / 100).toFixed(3);
+            }
+            pbSlider.value = pb;
+        }
+    }
+
+    // 2. KEX_AB
+    if (params.KEX_AB !== undefined && params.KEX_AB !== null) {
+        const kex = parseFloat(params.KEX_AB);
+        const kexInput = document.getElementById('chemex_input_kex');
+        const kexSlider = document.getElementById('chemex_slider_kex');
+        if (kexInput) kexInput.value = Math.round(kex);
+        if (kexSlider) {
+            if (kex > parseFloat(kexSlider.max)) {
+                kexSlider.max = Math.ceil(kex * 1.5 / 100) * 100;
+            }
+            kexSlider.value = Math.round(kex);
+        }
+    }
+
+    // 3. CS_A
+    if (params.CS_A !== undefined && params.CS_A !== null) {
+        const csa = parseFloat(params.CS_A);
+        const csaInput = document.getElementById('chemex_input_csa');
+        const csaSlider = document.getElementById('chemex_slider_csa');
+        if (csaInput) csaInput.value = csa.toFixed(2);
+        if (csaSlider) {
+            csaSlider.min = (csa - 5.0).toFixed(2);
+            csaSlider.max = (csa + 5.0).toFixed(2);
+            csaSlider.value = csa.toFixed(2);
+        }
+    }
+
+    // 4. DW_AB
+    if (params.DW_AB !== undefined && params.DW_AB !== null) {
+        const dw = parseFloat(params.DW_AB);
+        const dwInput = document.getElementById('chemex_input_dw');
+        const dwSlider = document.getElementById('chemex_slider_dw');
+        if (dwInput) dwInput.value = dw.toFixed(2);
+        if (dwSlider) {
+            if (dw < parseFloat(dwSlider.min)) dwSlider.min = Math.floor(dw - 5);
+            if (dw > parseFloat(dwSlider.max)) dwSlider.max = Math.ceil(dw + 5);
+            dwSlider.value = dw.toFixed(2);
+        }
+    }
+}
+
+/**
+ * Attaches event listeners for sliders and inputs in the simulation side panel.
+ */
+function setup_sim_panel_events() {
+    if (sim_panel_events_initialized) return;
+    sim_panel_events_initialized = true;
+
+    function bindPair(sliderId, inputId, isInt, isFloat2) {
+        const slider = document.getElementById(sliderId);
+        const input = document.getElementById(inputId);
+        if (!slider || !input) return;
+
+        slider.addEventListener('input', function () {
+            let val = parseFloat(slider.value);
+            input.value = isInt ? Math.round(val) : (isFloat2 ? val.toFixed(2) : val.toFixed(3));
+            trigger_single_peak_simulation(current_pseudo3d_profile_peak_index);
+        });
+
+        input.addEventListener('change', function () {
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+            if (val > parseFloat(slider.max)) slider.max = val * 1.3;
+            if (val < parseFloat(slider.min)) slider.min = val * 0.7;
+            slider.value = val;
+            trigger_single_peak_simulation(current_pseudo3d_profile_peak_index);
+        });
+    }
+
+    bindPair('chemex_slider_pb', 'chemex_input_pb', false, false);
+    bindPair('chemex_slider_kex', 'chemex_input_kex', true, false);
+    bindPair('chemex_slider_csa', 'chemex_input_csa', false, true);
+    bindPair('chemex_slider_dw', 'chemex_input_dw', false, true);
+
+    const fitBtn = document.getElementById('btn_fit_single_peak');
+    if (fitBtn) {
+        fitBtn.onclick = function () {
+            run_single_peak_chemex_fit(current_pseudo3d_profile_peak_index);
+        };
+    }
+
+    const resetBtn = document.getElementById('btn_reset_single_peak_params');
+    if (resetBtn) {
+        resetBtn.onclick = function () {
+            reset_single_peak_params(current_pseudo3d_profile_peak_index);
+        };
+    }
+}
+
+/**
+ * Ensures ChemEx virtual files are generated and synced into the Pyodide MEMFS.
+ */
+async function ensure_chemex_files_synced(worker) {
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) throw new Error("Could not generate ChemEx input files. Please verify CEST offsets.");
+    }
+    if (chemex_virtual_files_synced) return true;
+
+    return new Promise((resolve, reject) => {
+        const handler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "virtual_files_synced") {
+                worker.removeEventListener("message", handler);
+                chemex_virtual_files_synced = true;
+                resolve(true);
+            } else if (msg.type === "sync_error") {
+                worker.removeEventListener("message", handler);
+                reject(new Error(msg.error));
+            }
+        };
+        worker.addEventListener("message", handler);
+        worker.postMessage({
+            type: "sync_virtual_files",
+            files: chemex_generated_manifest.files,
+            baseDir: "."
+        });
+    });
+}
+
+/**
+ * Debounced live ChemEx simulation triggered on slider or input adjustment.
+ */
+function trigger_single_peak_simulation(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) return;
+
+    if (sim_debounce_timer) {
+        clearTimeout(sim_debounce_timer);
+    }
+
+    sim_debounce_timer = setTimeout(async () => {
+        const params = get_single_peak_sim_params_from_ui();
+        const badge = document.getElementById('chemex_sim_status_badge');
+        const notice = document.getElementById('chemex_sim_notice');
+
+        if (badge) {
+            badge.innerText = 'Simulating...';
+            badge.style.background = '#fef3c7';
+            badge.style.color = '#b45309';
+        }
+
+        // Cache modified params on profile instance
+        let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+        let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+            ? peaks_object.get_peak_profile(peakIndex)
+            : null;
+        if (prof_inst) {
+            prof_inst.sim_params = params;
+        }
+
+        try {
+            const worker = await get_or_init_chemex_worker();
+            await ensure_chemex_files_synced(worker);
+
+            const simHandler = function (e) {
+                const msg = e.data || {};
+                if (msg.type === "simulation_update_result" && msg.residue === (peakIndex + "N")) {
+                    worker.removeEventListener("message", simHandler);
+                    apply_simulation_result_to_plot(peakIndex, msg.data, params);
+                } else if (msg.type === "simulation_update_error" && msg.residue === (peakIndex + "N")) {
+                    worker.removeEventListener("message", simHandler);
+                    console.warn("Simulation error for peak #" + peakIndex + ":", msg.error);
+                    if (badge) {
+                        badge.innerText = 'Sim Error';
+                        badge.style.background = '#fee2e2';
+                        badge.style.color = '#b91c1c';
+                    }
+                    if (notice) {
+                        notice.style.display = 'block';
+                        notice.style.background = '#fee2e2';
+                        notice.style.color = '#b91c1c';
+                        notice.innerText = 'Sim: ' + (msg.error || 'Unknown error');
+                    }
+                }
+            };
+            worker.addEventListener("message", simHandler);
+
+            worker.postMessage({
+                type: "simulate_residue",
+                residue: peakIndex + "N",
+                params: params,
+                baseDir: "."
+            });
+        } catch (err) {
+            console.error("Failed to run live simulation:", err);
+            if (badge) {
+                badge.innerText = 'Initial Guess';
+                badge.style.background = '#e0f2fe';
+                badge.style.color = '#0369a1';
+            }
+        }
+    }, 200);
+}
+
+/**
+ * Updates the plot with newly computed simulation points while preserving user zoom.
+ */
+function apply_simulation_result_to_plot(peakIndex, simData, params) {
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    if (!simData || !simData.calc || simData.calc.length === 0) return;
+
+    if (prof_inst) {
+        prof_inst.chemex_sim = {
+            calc: simData.calc,
+            params: params
+        };
+    }
+
+    const badge = document.getElementById('chemex_sim_status_badge');
+    const notice = document.getElementById('chemex_sim_notice');
+    if (badge) {
+        badge.innerText = 'Simulated (Live)';
+        badge.style.background = '#f3e8ff';
+        badge.style.color = '#6b21a8';
+    }
+    if (notice) {
+        notice.style.display = 'none';
+    }
+
+    // If currently viewing this peak, update the plot curve
+    if (current_pseudo3d_profile_peak_index === peakIndex && pseudo3d_profile_plot_instance) {
+        let profData = get_pseudo3d_peak_profile_data(peakIndex, peaks_object);
+        let base_intensity = 1.0;
+        if (prof_inst && prof_inst.fit_result && typeof prof_inst.fit_result.y0 === 'number') {
+            base_intensity = prof_inst.fit_result.y0;
+        } else if (profData && profData.length > 0) {
+            base_intensity = d3.max(profData, d => d.value) || 1.0;
+        }
+
+        let calc_max = d3.max(simData.calc, d => d.y) || 1.0;
+        let scale_factor = 1.0;
+        if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+            scale_factor = base_intensity / calc_max;
+        }
+
+        let scaled_sim_curve = simData.calc.map(pt => ({
+            x: pt.x,
+            y: pt.y * scale_factor
+        }));
+
+        let pb_val = (params && params.PB !== undefined) ? params.PB : 0.02;
+        let kex_val = (params && params.KEX_AB !== undefined) ? params.KEX_AB : 100;
+        let dw_val = (params && params.DW_AB !== undefined) ? params.DW_AB : 0;
+
+        let simBadge = `Sim | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+        let simCurveData = {
+            total_curve: scaled_sim_curve,
+            components: [],
+            peak_centers: [],
+            fit_range: [d3.min(scaled_sim_curve, d => d.x), d3.max(scaled_sim_curve, d => d.x)],
+            baseline: base_intensity,
+            stats: {
+                custom_badge: simBadge,
+                num_peaks: 2
+            }
+        };
+
+        if (!pseudo3d_profile_plot_instance.fitData) {
+            pseudo3d_profile_plot_instance.fitData = {};
+        }
+        pseudo3d_profile_plot_instance.fitData.sim = simCurveData;
+        pseudo3d_profile_plot_instance.update_fit_data_preserve_zoom(pseudo3d_profile_plot_instance.fitData);
+    }
+}
+
+/**
+ * Runs ChemEx fit for the single currently selected peak.
+ */
+async function run_single_peak_chemex_fit(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) {
+        alert("Please select a peak profile first.");
+        return;
+    }
+    if (chemex_is_running) {
+        alert("A ChemEx fitting job is already running. Please wait for it to complete.");
+        return;
+    }
+
+    const fitBtn = document.getElementById('btn_fit_single_peak');
+    const badge = document.getElementById('chemex_sim_status_badge');
+    const notice = document.getElementById('chemex_sim_notice');
+
+    const params = get_single_peak_sim_params_from_ui();
+
+    if (fitBtn) {
+        fitBtn.disabled = true;
+        fitBtn.innerText = '⏳ Fitting Peak #' + peakIndex + '...';
+        fitBtn.style.background = '#94a3b8';
+    }
+    if (badge) {
+        badge.innerText = 'Fitting...';
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#b45309';
+    }
+    if (notice) {
+        notice.style.display = 'block';
+        notice.style.background = '#eff6ff';
+        notice.style.color = '#1d4ed8';
+        notice.innerText = `Fitting peak #${peakIndex} (${peakIndex}N) with ChemEx in WebAssembly...`;
+    }
+
+    try {
+        const worker = await get_or_init_chemex_worker();
+        await ensure_chemex_files_synced(worker);
+
+        const residue = peakIndex + "N";
+
+        const singleFitHandler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "fit_complete_with_params" && msg.residue === residue) {
+                worker.removeEventListener("message", singleFitHandler);
+                if (fitBtn) {
+                    fitBtn.disabled = false;
+                    fitBtn.innerText = '⚡ Fit This Peak Only';
+                    fitBtn.style.background = '#4f46e5';
+                }
+
+                const resData = msg.data || {};
+                let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+                if (peaks_object) {
+                    if (!peaks_object.chemex_results) {
+                        peaks_object.chemex_results = { profiles: {}, fitted_params: { global: {}, all: {} } };
+                    }
+                    peaks_object.chemex_results.profiles[residue] = resData;
+
+                    let prof_inst = (typeof peaks_object.get_peak_profile === 'function')
+                        ? peaks_object.get_peak_profile(peakIndex)
+                        : null;
+                    if (prof_inst) {
+                        prof_inst.chemex_fit = resData;
+                        prof_inst.chemex_sim = null;
+                        prof_inst.sim_params = null;
+                    }
+                }
+
+                // Update inputs/sliders to the newly fitted parameter values
+                let fp = resData.fitted_params || {};
+                let fittedVals = {};
+                if (fp.PB) fittedVals.PB = fp.PB.value;
+                if (fp.KEX_AB) fittedVals.KEX_AB = fp.KEX_AB.value;
+                if (fp.CS_A) fittedVals.CS_A = fp.CS_A.value;
+                if (fp.DW_AB) fittedVals.DW_AB = fp.DW_AB.value;
+                set_single_peak_sim_params_to_ui(fittedVals);
+
+                // Update status badge
+                let pb_str = fp.PB ? (fp.PB.value * 100).toFixed(1) + '%' : 'N/A';
+                let kex_str = fp.KEX_AB ? fp.KEX_AB.value.toFixed(0) + ' s⁻¹' : 'N/A';
+                if (badge) {
+                    badge.innerText = `Fit Complete (${pb_str}, ${kex_str})`;
+                    badge.style.background = '#dcfce7';
+                    badge.style.color = '#15803d';
+                }
+                if (notice) {
+                    notice.style.display = 'block';
+                    notice.style.background = '#dcfce7';
+                    notice.style.color = '#15803d';
+                    notice.innerText = `Fitted Peak #${peakIndex}: pB=${pb_str}, kex=${kex_str}`;
+                }
+
+                // Enable Download CEST results
+                let btnDl = document.getElementById("button_download_cest");
+                if (btnDl) btnDl.disabled = false;
+
+                // Log the fit
+                append_chemex_log(`\n> [ChemEx Single Peak Fit Complete] Peak #${peakIndex} (${residue}): pB=${pb_str}, kex=${kex_str}\n`);
+
+                // Re-render the plot to display the updated ChemEx fit line
+                show_pseudo3d_peak_profile(peakIndex);
+
+            } else if (msg.type === "user_fit_error" && msg.residue === residue) {
+                worker.removeEventListener("message", singleFitHandler);
+                if (fitBtn) {
+                    fitBtn.disabled = false;
+                    fitBtn.innerText = '⚡ Fit This Peak Only';
+                    fitBtn.style.background = '#4f46e5';
+                }
+                if (badge) {
+                    badge.innerText = 'Fit Failed';
+                    badge.style.background = '#fee2e2';
+                    badge.style.color = '#b91c1c';
+                }
+                if (notice) {
+                    notice.style.display = 'block';
+                    notice.style.background = '#fee2e2';
+                    notice.style.color = '#b91c1c';
+                    notice.innerText = 'Fit error: ' + (msg.error || 'Unknown error');
+                }
+                alert("ChemEx fit error for peak #" + peakIndex + ": " + msg.error);
+            }
+        };
+
+        worker.addEventListener("message", singleFitHandler);
+
+        worker.postMessage({
+            type: "fit_from_user_params",
+            residue: residue,
+            params: params,
+            outputDir: "Output",
+            baseDir: "."
+        });
+
+    } catch (err) {
+        if (fitBtn) {
+            fitBtn.disabled = false;
+            fitBtn.innerText = '⚡ Fit This Peak Only';
+            fitBtn.style.background = '#4f46e5';
+        }
+        if (notice) {
+            notice.style.display = 'block';
+            notice.style.background = '#fee2e2';
+            notice.style.color = '#b91c1c';
+            notice.innerText = 'Worker error: ' + (err.message || err);
+        }
+        alert("Failed to run ChemEx fit: " + (err.message || err));
+    }
+}
+
+/**
+ * Resets user modifications back to the baseline initial guess or fitted result.
+ */
+function reset_single_peak_params(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) return;
+
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    if (prof_inst) {
+        prof_inst.sim_params = null;
+        prof_inst.chemex_sim = null;
+    }
+
+    const notice = document.getElementById('chemex_sim_notice');
+    if (notice) notice.style.display = 'none';
+
+    init_single_peak_sim_panel(peakIndex);
+    show_pseudo3d_peak_profile(peakIndex);
+}
+
+/**
+ * Initializes values, ranges, and badges in the side panel for peak_index.
+ */
+function init_single_peak_sim_panel(peakIndex) {
+    if (!peakIndex) return;
+
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    let residue = peakIndex + "N";
+    let badge = document.getElementById('chemex_sim_status_badge');
+    let notice = document.getElementById('chemex_sim_notice');
+    if (notice) notice.style.display = 'none';
+
+    let x_col = (peaks_object && typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('X_PPM') : null;
+    let y_col = (peaks_object && typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('Y_PPM') : null;
+    let spec_params = get_cest_spectrometer_params();
+    let carrier = spec_params.carrier || 118.0;
+    let y_ppm = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : carrier;
+
+    // Check Case 1: Fitted params
+    let chemex_fit = (prof_inst && prof_inst.chemex_fit)
+        ? prof_inst.chemex_fit
+        : (peaks_object && peaks_object.chemex_results && peaks_object.chemex_results.profiles
+            ? peaks_object.chemex_results.profiles[residue]
+            : null);
+
+    let pb_val = 0.02;
+    let kex_val = 100.0;
+    let csa_val = y_ppm;
+    let dw_val = 3.0;
+    let badgeText = "Initial Guess";
+    let badgeBg = "#e0f2fe";
+    let badgeColor = "#0369a1";
+
+    if (chemex_fit && chemex_fit.fitted_params) {
+        let fp = chemex_fit.fitted_params;
+        let p_obj = chemex_fit.params || {};
+        if (fp.PB) pb_val = fp.PB.value;
+        else if (p_obj.PB !== undefined) pb_val = p_obj.PB;
+
+        if (fp.KEX_AB) kex_val = fp.KEX_AB.value;
+        else if (p_obj.KEX_AB !== undefined) kex_val = p_obj.KEX_AB;
+
+        if (fp.CS_A) csa_val = fp.CS_A.value;
+        else if (p_obj.CS_A !== undefined) csa_val = p_obj.CS_A;
+
+        if (fp.DW_AB) dw_val = fp.DW_AB.value;
+        else if (p_obj.DW_AB !== undefined) dw_val = p_obj.DW_AB;
+
+        badgeText = `ChemEx Fit (${(pb_val * 100).toFixed(1)}%, ${kex_val.toFixed(0)} s⁻¹)`;
+        badgeBg = "#dcfce7";
+        badgeColor = "#15803d";
+    } else if (prof_inst && prof_inst.sim_params) {
+        // Case 2: Modified user params
+        pb_val = prof_inst.sim_params.PB !== undefined ? prof_inst.sim_params.PB : pb_val;
+        kex_val = prof_inst.sim_params.KEX_AB !== undefined ? prof_inst.sim_params.KEX_AB : kex_val;
+        csa_val = prof_inst.sim_params.CS_A !== undefined ? prof_inst.sim_params.CS_A : csa_val;
+        dw_val = prof_inst.sim_params.DW_AB !== undefined ? prof_inst.sim_params.DW_AB : dw_val;
+
+        badgeText = "Modified Initial Guess";
+        badgeBg = "#fef3c7";
+        badgeColor = "#b45309";
+    } else {
+        // Case 3: Initial guess from pre-analysis or defaults
+        let b1 = parseFloat(document.getElementById("cest_b1") ? document.getElementById("cest_b1").value : 25) || 25.0;
+        let cestOffsetsInput = document.getElementById("cest_offsets");
+        let offsets_str = cestOffsetsInput ? cestOffsetsInput.value.trim() : "";
+        let offsets = offsets_str ? offsets_str.split(/\s+/).map(Number).filter(v => !isNaN(v)) : [];
+
+        let fitResult = prof_inst ? prof_inst.fit_result : null;
+        let peaksArr = (fitResult && Array.isArray(fitResult.peaks)) ? fitResult.peaks : (prof_inst && prof_inst.fitted_peaks ? prof_inst.fitted_peaks : null);
+
+        if (peaksArr && peaksArr.length >= 2 && offsets.length > 0 && spec_params.n15_mhz) {
+            let sorted_peaks = [...peaksArr].sort((a, b) => {
+                let vA = (a.A || 0) * (a.fwhm || 0);
+                let vB = (b.A || 0) * (b.fwhm || 0);
+                return vB - vA;
+            });
+            let dip1 = sorted_peaks[0];
+            let dip2 = sorted_peaks[1];
+
+            let on_res = [];
+            for (let i = 0; i < offsets.length; i++) {
+                if (Math.abs(offsets[i]) < 10000) on_res.push({ plane: i + 1, offset: offsets[i] });
+            }
+            function p2off_local(p) {
+                if (on_res.length === 0) return 0;
+                if (on_res.length === 1) return on_res[0].offset;
+                if (p <= on_res[0].plane) {
+                    let slope = (on_res[1].offset - on_res[0].offset) / (on_res[1].plane - on_res[0].plane);
+                    return on_res[0].offset + (p - on_res[0].plane) * slope;
+                }
+                let last = on_res.length - 1;
+                if (p >= on_res[last].plane) {
+                    let slope = (on_res[last].offset - on_res[last - 1].offset) / (on_res[last].plane - on_res[last - 1].plane);
+                    return on_res[last].offset + (p - on_res[last].plane) * slope;
+                }
+                for (let j = 0; j < last; j++) {
+                    if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                        let sp = on_res[j + 1].plane - on_res[j].plane;
+                        return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
+                    }
+                }
+                return on_res[last].offset;
+            }
+
+            let hz1 = p2off_local(dip1.x0);
+            let hz2 = p2off_local(dip2.x0);
+            let diff_ppm = (hz2 - hz1) / spec_params.n15_mhz;
+            if (Math.abs(diff_ppm) > 0.01 && Math.abs(diff_ppm) < 50.0) {
+                dw_val = parseFloat(diff_ppm.toFixed(2));
+                if (Object.is(dw_val, -0)) dw_val = 0.0;
+            }
+
+            let p_left = dip2.x0 - dip2.fwhm / 2.0;
+            let p_right = dip2.x0 + dip2.fwhm / 2.0;
+            let w_hz = Math.abs(p2off_local(p_right) - p2off_local(p_left));
+            let kex_diff = w_hz - 2.0 * b1;
+            kex_val = (kex_diff > 0) ? (Math.PI * kex_diff) : Math.max(10.0, Math.PI * Math.abs(kex_diff));
+            kex_val = parseFloat(kex_val.toFixed(1));
+
+            let vol1 = (dip1.A || 0) * (dip1.fwhm || 0);
+            let vol2 = (dip2.A || 0) * (dip2.fwhm || 0);
+            if (vol1 > 0 && kex_val > 0) {
+                let rel_vol = vol2 / vol1;
+                pb_val = parseFloat((rel_vol * (1.0 / kex_val)).toPrecision(3));
+                pb_val = Math.max(0.0001, Math.min(0.49, pb_val));
+            }
+        }
+
+        badgeText = "Initial Guess";
+        badgeBg = "#e0f2fe";
+        badgeColor = "#0369a1";
+    }
+
+    if (badge) {
+        badge.innerText = badgeText;
+        badge.style.background = badgeBg;
+        badge.style.color = badgeColor;
+    }
+
+    set_single_peak_sim_params_to_ui({
+        PB: pb_val,
+        KEX_AB: kex_val,
+        CS_A: csa_val,
+        DW_AB: dw_val
+    });
+
+    setup_sim_panel_events();
 }
 
 /**
@@ -7767,7 +8508,6 @@ let chemex_worker = null;
 let chemex_worker_ready = false;
 let chemex_is_running = false;
 let chemex_generated_manifest = null;
-let current_pseudo3d_profile_peak_index = null;
 
 // Lightweight Pure JS ZIP Archive Builder (Preserves folder hierarchies, STORE mode)
 let chemex_crc32_table = null;
@@ -8282,6 +9022,7 @@ ${dwToml}`;
         target_peaks: target_peaks,
         peaks_object: peaks_object
     };
+    chemex_virtual_files_synced = false;
 
     let b1_inh_log = b1_inh_inf ? "inf (ideal / dephasing disabled)" : "dephasing enabled";
     let logMsg = "\n" +
@@ -8405,6 +9146,7 @@ function run_chemex_only() {
             if (msg.type === "fit_all_complete") {
                 chemex_worker.removeEventListener("message", fitHandler);
                 chemex_is_running = false;
+                chemex_virtual_files_synced = true;
                 if (btnRun) btnRun.disabled = false;
                 if (btnGen) btnGen.disabled = false;
 

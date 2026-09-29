@@ -316,11 +316,13 @@ chemex_runner.get_residue_profile_data(residue=res_name)
     }
     try {
       const residue = data.residue || "13N";
+      const baseDir = data.baseDir || ".";
       pyodide.globals.set("res_name", residue);
       pyodide.globals.set("res_params", JSON.stringify(data.params || {}));
+      pyodide.globals.set("sim_base_dir", baseDir);
       const pyScript = `
 import chemex_runner, json
-chemex_runner.simulate_residue_lines(residue=res_name, params_override=json.loads(res_params))
+chemex_runner.simulate_residue_lines(residue=res_name, params_override=json.loads(res_params), base_dir=sim_base_dir)
 `;
       const resJson = pyodide.runPython(pyScript);
       const resData = JSON.parse(resJson);
@@ -331,6 +333,11 @@ chemex_runner.simulate_residue_lines(residue=res_name, params_override=json.load
       });
     } catch (err) {
       console.error("Error calculating live simulation:", err);
+      self.postMessage({
+        type: "simulation_update_error",
+        residue: data.residue,
+        error: err.message || String(err)
+      });
     }
   } else if (data.type === "fit_from_user_params") {
     if (!isReady || !pyodide) {
@@ -340,16 +347,19 @@ chemex_runner.simulate_residue_lines(residue=res_name, params_override=json.load
     try {
       const residue = data.residue || "13N";
       const outputDir = data.outputDir || "Output";
+      const baseDir = data.baseDir || ".";
       pyodide.globals.set("fit_res", residue);
       pyodide.globals.set("fit_params", JSON.stringify(data.params || {}));
       pyodide.globals.set("fit_out_dir", outputDir);
+      pyodide.globals.set("fit_base_dir", baseDir);
 
       const pyScript = `
 import chemex_runner, json
 chemex_runner.fit_from_user_parameters(
     residue=fit_res,
     params=json.loads(fit_params),
-    output_dir=fit_out_dir
+    output_dir=fit_out_dir,
+    base_dir=fit_base_dir
 )
 `;
       const resJson = pyodide.runPython(pyScript);

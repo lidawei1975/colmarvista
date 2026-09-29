@@ -498,14 +498,21 @@ def update_parameters_toml(path="Parameters/parameters.toml", residue="13N", par
     with open(resolved_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-def get_residue_profile_data(residue="13N", params_override=None, base_dir="CEST_15N"):
+def get_residue_profile_data(residue="13N", params_override=None, base_dir=None):
     """
     Returns experimental points and simulated lines for the given residue and parameters.
     """
     apply_compat_patches()
     original_cwd = os.getcwd()
     try:
-        cest_dir = base_dir if os.path.isdir(base_dir) else "."
+        if base_dir is not None and (os.path.isdir(base_dir) or base_dir == "."):
+            cest_dir = base_dir
+        elif os.path.isdir("Experiments") or os.path.isfile("Parameters/parameters.toml"):
+            cest_dir = "."
+        elif os.path.isdir("CEST_15N"):
+            cest_dir = "CEST_15N"
+        else:
+            cest_dir = "."
         os.chdir(cest_dir)
 
         if params_override:
@@ -745,7 +752,7 @@ def get_all_residues_profile_data(base_dir=None):
     finally:
         os.chdir(original_cwd)
 
-def simulate_residue_lines(residue="13N", params_override=None, base_dir="CEST_15N"):
+def simulate_residue_lines(residue="13N", params_override=None, base_dir=None):
     """
     Lightweight simulation calculation returning only the updated calculated lines for 13Hz and 26Hz.
     """
@@ -754,6 +761,7 @@ def simulate_residue_lines(residue="13N", params_override=None, base_dir="CEST_1
     return json.dumps({
         "status": "success",
         "residue": residue,
+        "calc": res.get("calc", res.get("calc_13hz", [])),
         "calc_13hz": res.get("calc_13hz", []),
         "calc_26hz": res.get("calc_26hz", []),
         "params": res.get("params", {})
@@ -893,7 +901,7 @@ def read_all_fitted_parameters(output_dir="Output", base_dir=None):
 
     return fitted
 
-def fit_from_user_parameters(residue="13N", params=None, output_dir="Output", base_dir="CEST_15N"):
+def fit_from_user_parameters(residue="13N", params=None, output_dir="Output", base_dir=None):
     """
     Updates initial parameters in Parameters/parameters.toml, runs ChemEx fit,
     extracts fitted parameters, updates baseline parameters, and computes the updated best-fit profile.
@@ -901,7 +909,14 @@ def fit_from_user_parameters(residue="13N", params=None, output_dir="Output", ba
     apply_compat_patches()
     original_cwd = os.getcwd()
     try:
-        cest_dir = base_dir if os.path.isdir(base_dir) else "."
+        if base_dir is not None and (os.path.isdir(base_dir) or base_dir == "."):
+            cest_dir = base_dir
+        elif os.path.isdir("Experiments") or os.path.isfile("Parameters/parameters.toml"):
+            cest_dir = "."
+        elif os.path.isdir("CEST_15N"):
+            cest_dir = "CEST_15N"
+        else:
+            cest_dir = "."
         os.chdir(cest_dir)
 
         # 1. Update starting parameters
@@ -911,7 +926,7 @@ def fit_from_user_parameters(residue="13N", params=None, output_dir="Output", ba
             update_parameters_toml("Parameters/parameters.toml", residue, params)
 
         # 2. Run ChemEx fit
-        run_res_str = run_chemex_command(command="fit", include_residue=residue, output_dir=output_dir)
+        run_res_str = run_chemex_command(command="fit", include_residue=residue, output_dir=output_dir, base_dir=cest_dir)
         run_res = json.loads(run_res_str)
 
         # 3. Read fitted parameters and uncertainties
@@ -945,6 +960,7 @@ def fit_from_user_parameters(residue="13N", params=None, output_dir="Output", ba
             "output_dir": output_dir,
             "run_result": run_res,
             "fitted_params": fitted_params,
+            "calc": prof_res.get("calc", prof_res.get("calc_13hz", [])),
             "calc_13hz": prof_res.get("calc_13hz", []),
             "calc_26hz": prof_res.get("calc_26hz", []),
             "params": prof_res.get("params", {}),

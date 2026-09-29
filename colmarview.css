@@ -543,9 +543,9 @@ li.spectrum-minimized-compact > div > button[id^="minimize-"] {
     position: fixed;
     top: 90px;
     right: 30px;
-    width: 480px;
-    height: 350px;
-    min-width: 320px;
+    width: 780px;
+    height: 360px;
+    min-width: 480px;
     min-height: 240px;
     background: #ffffff;
     border: 1px solid #b0bec5;
