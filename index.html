@@ -4,7 +4,76 @@
 <head>
     <title>COLMARvista</title>
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" type="text/css" href="colmarview.css">
+    <link rel="stylesheet" type="text/css" href="colmarview.css?v=20260928_7">
+    <style>
+        /* Compact minimized spectrum for 2D spectral list */
+        #spectra_list_ol > li.spectrum-minimized-compact,
+        ol#spectra_list_ol > li.spectrum-minimized-compact,
+        li.spectrum-minimized-compact {
+            display: inline-block !important;
+            list-style: none !important;
+            list-style-type: none !important;
+            counter-increment: list-item;
+            margin: 2px 2px !important;
+            padding: 0 !important;
+            vertical-align: middle;
+        }
+
+        li.spectrum-minimized-compact > div {
+            display: inline-flex !important;
+            align-items: center !important;
+            font-size: 0 !important;
+            line-height: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            background-color: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        li.spectrum-minimized-compact > div > *:not([id^="minimize-"]) {
+            display: none !important;
+        }
+
+        li.spectrum-minimized-compact > div > button[id^="minimize-"] {
+            display: inline-block !important;
+            font-size: 13px !important;
+            line-height: normal !important;
+            margin: 2px 2px !important;
+            padding: 2px 6px !important;
+            min-width: 22px;
+            height: 24px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        /* Multi-dip row highlighting for CEST / Pseudo-3D profiles */
+        tr.multi_peak_row,
+        tr.multi_peak_row td {
+            background-color: #ffe0b2 !important;
+        }
+
+        tr.multi_peak_row:hover,
+        tr.multi_peak_row:hover td {
+            background-color: #ffd199 !important;
+        }
+
+        #peak_table tbody tr.multi_peak_row td:first-child:hover {
+            background-color: #ffb74d !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row,
+        tr.multi_peak_row.selected_peak_row td {
+            background-color: lightblue !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row td:first-child:hover {
+            background-color: #9eccf0 !important;
+        }
+    </style>
 </head>
 
 <!-- Google tag (gtag.js) -->
@@ -211,9 +280,14 @@
                     pseudo-3D fitting of all spectra</button>
                 <button id="button_run_pseudo3d_voigt" disabled onclick="run_pseudo3d(0)">Run Voigt pseudo-3D
                     fitting of all spectra</button>
+                <br>
+                <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
+                    current showing peak list
+                    will be used as the initial guess. You can download pseudo-3D fitting result after
+                    finished.</span>
+                <br><br>
                 <label for="pseudo3d_file">Upload pseudo-3D fitted peaks (.tab): </label>
                 <input type="file" id="pseudo3d_file"><br>
-                <br>
                 <br>
                 <button id="button_download_fitted_peaks" disabled onclick="download_pseudo3d()">Download
                     pseudo-3D fitted peaks</button>
@@ -223,22 +297,58 @@
                 <label for="assignment_file">Upload an peak file with assignment information to be transferred to
                     pseudo-3D fitted peaks (.list): </label><input type="file" disabled id="assignment_file"><br>
                 <br>
-                <!-- DOSY fitting: one input text for gradients, one for rescale factor and one button -->
-                <div id="dosy_area" style="display:block;">
-                    <label for="dosy_gradient">DOSY gradient values (space separated): </label>
-                    <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
-                    <lable for="dosy_gradient_weight"> Weight: (e.g. 1 0 0 1 1)</lable>
-                    <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
-                    <label for="dosy_rescale">Rescale factor: </label>
-                    <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
-                    <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
-                    <span id="dosy_result"></span>
+                <!-- DOSY fitting tools sub-div, default minimized to 1 line -->
+                <div id="dosy_area" style="margin-top: 8px; border: 1px solid #c0c0c0; border-radius: 4px; padding: 4px 8px; height: auto;">
+                    <p style="margin: 0; line-height: 1.5;">
+                        <button id="button_minimize_dosy_area" onclick="minimize_dosy_area(this)">+</button>
+                        <strong>DOSY fitting tool</strong>
+                    </p>
+                    <div id="dosy_area_content" style="display: none; margin-top: 6px;">
+                        <label for="dosy_gradient">DOSY gradient values (space separated): </label>
+                        <input type="text" id="dosy_gradient" value="0.963 8.474 15.986 23.497 31.009 38.520" size="60"><br>
+                        <label for="dosy_gradient_weight">Weight: (e.g. 1 0 0 1 1) </label>
+                        <input type="text" id="dosy_gradient_weight" value="1 0 0 1 1" size="10"><br>
+                        <label for="dosy_rescale">Rescale factor: </label>
+                        <input type="number" id="dosy_rescale" value="1000.0" min="0.1" max="10" step="0.1">
+                        <button id="button_run_dosy" onclick="run_dosy()">Run DOSY fitting</button>
+                        <span id="dosy_result"></span>
+                    </div>
                 </div>
-                <span class="information">Use this button to run pseudo-3D on all experimental spectra. The
-                    current showing peak list
-                    will be used as the initial guess. You can download pseudo-3D fitting result after
-                    finished.</span>
-                </label>
+
+                <!-- CEST fitting tools sub-div, default minimized to 1 line -->
+                <div id="cest_area" style="margin-top: 8px; border: 1px solid #c0c0c0; border-radius: 4px; padding: 4px 8px; height: auto;">
+                    <p style="margin: 0; line-height: 1.5;">
+                        <button id="button_minimize_cest_area" onclick="minimize_cest_area(this)">+</button>
+                        <strong>CEST fitting tool</strong>
+                    </p>
+                    <div id="cest_area_content" style="display: none; margin-top: 6px;">
+                        <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <button id="button_cest_pre_analysis" onclick="run_cest_pre_analysis(true)" style="font-weight: bold; padding: 3px 10px; cursor: pointer;">Pre-analysis</button>
+                            <button id="button_cest_filter_multi_peaks" onclick="toggle_cest_filter_multi_peaks()" disabled style="padding: 3px 10px; cursor: pointer;">Show ≥2 Peaks Only</button>
+                            <span id="cest_pre_analysis_status" style="font-size: 12px; color: #444;"></span>
+                        </div>
+                        <label for="cest_offsets">CEST saturation offsets (Hz, space separated): </label>
+                        <input type="text" id="cest_offsets" value="" placeholder="e.g. -2000 -1500 -1000 -500 0 500 1000 1500 2000" size="50">
+                        <input type="file" id="cest_offsets_file" style="display: none;" accept=".txt,.list,.tab,.csv,.dat,*" onchange="load_cest_offsets_file(this)">
+                        <button type="button" id="button_upload_cest_offsets" onclick="document.getElementById('cest_offsets_file').click()" style="cursor: pointer; padding: 2px 8px; margin-left: 4px;">Upload offset file</button>
+                        <br>
+                        <label for="cest_b1">B1 field strength (Hz): </label>
+                        <input type="number" id="cest_b1" value="25" min="1" max="500">
+                        &nbsp;&nbsp;
+                        <label for="time_t1">CEST relaxation delay time_t1 (s): </label>
+                        <input type="number" id="time_t1" value="1.0" min="0" step="any" style="width: 80px;">
+                        &nbsp;&nbsp;
+                        <label for="cest_b1_inh_inf" style="cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="cest_b1_inh_inf"> b1_inh_scale = inf (disable B1 dephasing)
+                        </label>
+                        <br>
+                        <button id="button_gen_chemex_input" onclick="generate_chemex_input()" style="padding: 2px 10px; cursor: pointer;">Gen Chemex input</button>
+                        <button id="button_save_chemex_input" onclick="save_chemex_input()" disabled style="padding: 2px 10px; cursor: pointer;">Save input</button>
+                        <button id="button_run_chemex" onclick="run_chemex_only()" disabled style="padding: 2px 10px; cursor: pointer;">Run Chemex</button>
+                        <button id="button_download_cest" disabled onclick="download_chemex_cest_results()" style="padding: 2px 10px; cursor: pointer;">Download CEST results</button>
+                        <span id="cest_result" style="margin-left: 8px; font-size: 13px;"></span>
+                    </div>
+                </div>
             </div>
 
             <div id="spectra_list" style=" Padding: 10px; width: 1200px;" class="drop-area-neighbor">
@@ -417,6 +527,7 @@
                         <label for="peak_search_text">Search in peaks </label>
                         <input type="text" id="peak_search_text" placeholder="peak text">
                         <button id="peak_search" onclick="search_peak()">Search</button>
+                        <button id="button_peak_area_filter_multi" onclick="toggle_cest_filter_multi_peaks()" style="display: none; margin-left: 10px; padding: 2px 8px; cursor: pointer; border-radius: 3px; border: 1px solid #ff9800; background-color: #fff3e0; font-weight: bold; color: #e65100;">Show ≥2 Peaks Only</button>
                     </div>
                     <table id="peak_table">
                         <!-- table content will be managed by JS code -->
@@ -444,6 +555,78 @@
             <div id="pseudo3d_fitting_plot"></div>
         </div>
 
+        <!-- Floating Pseudo-3D Peak Profile Window -->
+        <div id="pseudo3d_profile_modal" class="floating_profile_window" style="display: none;">
+            <div class="floating_window_header" id="pseudo3d_profile_header">
+                <span class="floating_window_title" id="pseudo3d_profile_title">Pseudo-3D Peak Profile</span>
+                <div class="floating_window_actions">
+                    <button type="button" id="pseudo3d_profile_toggle_panel_btn" onclick="toggle_pseudo3d_profile_side_panel()" title="Toggle ChemEx Simulation &amp; Parameters Panel" style="font-size: 11px; padding: 1px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #7c3aed; background: #f5f3ff; font-weight: bold; color: #6d28d9; margin-right: 4px;">⚙ Sim &amp; Fit</button>
+                    <button type="button" id="pseudo3d_profile_toggle_voigt_btn" title="Toggle Pre-analysis Voigt Fit" style="font-size: 11px; padding: 1px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #1976d2; background: #e3f2fd; font-weight: bold; color: #1565c0; margin-right: 4px;">Voigt: ON</button>
+                    <button type="button" id="pseudo3d_profile_toggle_chemex_btn" title="Toggle ChemEx Fit" style="font-size: 11px; padding: 1px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #d32f2f; background: #ffebee; font-weight: bold; color: #c62828; margin-right: 4px;">ChemEx: ON</button>
+                    <button type="button" id="pseudo3d_profile_autozoom_btn" title="Autozoom to Dips" style="font-size: 11px; padding: 1px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #388e3c; background: #e8f5e9; font-weight: bold; color: #2e7d32; margin-right: 4px;">Zoom</button>
+                    <button type="button" id="pseudo3d_profile_reset_btn" title="Reset View">⟲</button>
+                    <button type="button" id="pseudo3d_profile_minimize_btn" onclick="toggle_pseudo3d_profile_minimize()" title="Minimize">—</button>
+                </div>
+            </div>
+            <div class="floating_window_body" id="pseudo3d_profile_body" style="display: flex; flex-direction: row; height: calc(100% - 32px); overflow: hidden;">
+                <div id="pseudo3d_profile_plot_container" style="flex: 1 1 0%; min-width: 250px; height: 100%; position: relative;"></div>
+                <div id="pseudo3d_profile_side_panel" style="width: 280px; flex: 0 0 280px; border-left: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+                        <strong style="font-size: 11px; color: #1e293b;">⚙ ChemEx Simulation</strong>
+                        <span id="chemex_sim_status_badge" style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #e0f2fe; color: #0369a1; font-weight: bold;">Initial Guess</span>
+                    </div>
+
+                    <!-- pB -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-size: 10px; font-weight: 600; color: #334155;">
+                            <label for="chemex_input_pb">p<sub>B</sub> (Minor Pop):</label>
+                            <input type="number" id="chemex_input_pb" step="0.001" min="0.0001" max="0.49" value="0.020" style="width: 65px; padding: 1px 3px; font-size: 10px; text-align: right; border: 1px solid #cbd5e1; border-radius: 3px; font-family: monospace;" />
+                        </div>
+                        <input type="range" id="chemex_slider_pb" min="0.001" max="0.150" step="0.001" value="0.020" style="width: 100%; cursor: pointer; margin: 0; accent-color: #2563eb;" />
+                    </div>
+
+                    <!-- kex -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-size: 10px; font-weight: 600; color: #334155;">
+                            <label for="chemex_input_kex">k<sub>ex</sub> (Rate, s⁻¹):</label>
+                            <input type="number" id="chemex_input_kex" step="1" min="1" max="5000" value="100" style="width: 65px; padding: 1px 3px; font-size: 10px; text-align: right; border: 1px solid #cbd5e1; border-radius: 3px; font-family: monospace;" />
+                        </div>
+                        <input type="range" id="chemex_slider_kex" min="5" max="500" step="1" value="100" style="width: 100%; cursor: pointer; margin: 0; accent-color: #2563eb;" />
+                    </div>
+
+                    <!-- cs_a -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-size: 10px; font-weight: 600; color: #334155;">
+                            <label for="chemex_input_csa">ϖ<sub>A</sub> (Major CS, ppm):</label>
+                            <input type="number" id="chemex_input_csa" step="0.01" value="118.50" style="width: 65px; padding: 1px 3px; font-size: 10px; text-align: right; border: 1px solid #cbd5e1; border-radius: 3px; font-family: monospace;" />
+                        </div>
+                        <input type="range" id="chemex_slider_csa" step="0.02" value="118.50" style="width: 100%; cursor: pointer; margin: 0; accent-color: #2563eb;" />
+                    </div>
+
+                    <!-- dw_ab -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-size: 10px; font-weight: 600; color: #334155;">
+                            <label for="chemex_input_dw">Δϖ<sub>AB</sub> (B - A, ppm):</label>
+                            <input type="number" id="chemex_input_dw" step="0.05" min="-25" max="25" value="3.00" style="width: 65px; padding: 1px 3px; font-size: 10px; text-align: right; border: 1px solid #cbd5e1; border-radius: 3px; font-family: monospace;" />
+                        </div>
+                        <input type="range" id="chemex_slider_dw" min="-15" max="15" step="0.05" value="3.00" style="width: 100%; cursor: pointer; margin: 0; accent-color: #2563eb;" />
+                    </div>
+
+                    <!-- Buttons -->
+                    <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px;">
+                        <button type="button" id="btn_fit_single_peak" style="width: 100%; padding: 5px 8px; font-size: 11px; font-weight: bold; background: #4f46e5; color: #ffffff; border: none; border-radius: 4px; cursor: pointer;">
+                            ⚡ Fit This Peak Only
+                        </button>
+                        <button type="button" id="btn_reset_single_peak_params" style="width: 100%; padding: 3px 6px; font-size: 10px; background: #ffffff; color: #475569; border: 1px solid #cbd5e1; border-radius: 3px; cursor: pointer;">
+                            🔄 Reset Initial Guess
+                        </button>
+                    </div>
+
+                    <div id="chemex_sim_notice" style="display: none; font-size: 9.5px; padding: 4px 6px; border-radius: 3px; line-height: 1.3;"></div>
+                </div>
+            </div>
+        </div>
+
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
         <script type="text/javascript" src="js/webgl-utils.js"></script>
         <script type="text/javascript" src="js/d3.7.min.js"></script>
@@ -453,17 +636,17 @@
         <script type="text/javascript" src="js/myplot/cross_section_plot.js"></script>
         <script type="text/javascript" src="js/myplot/myplot1_new.js"></script>
         <script type="text/javascript" src="js/myplot/myplot_fitting.js"></script>
-        <script type="text/javascript" src="js/peaks.js"></script>
+        <script type="text/javascript" src="js/peak_profile.js?v=20260928_6"></script>
+        <script type="text/javascript" src="js/myplot/pseudo3d_profile_plot.js?v=20260929_9"></script>
+        <script type="text/javascript" src="js/peaks.js?v=20260929_1"></script>
         <script type="text/javascript" src="js/spectrum.js"></script>
         <script type="text/javascript" src="js/spectrum_fit.js"></script>
         <script type="text/javascript" src="js/file_drop.js"></script>
-        <script type="text/javascript" src="js/make_table.js"></script>
+        <script type="text/javascript" src="js/make_table.js?v=20260926_1"></script>
         <script type="text/javascript" src="js/simple_peak_picker.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
         <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
-        <script type="text/javascript" src="js/2d.js"></script>
-        <script type="text/javascript" src="js/tutorial.js"></script>
+        <script type="text/javascript" src="js/2d.js?v=20260929_10"></script>
     </div>
 </body>
-
 </html>

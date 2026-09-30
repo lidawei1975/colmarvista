@@ -4,8 +4,8 @@
 ##NPOINTS= 1026	$$ modification sequence number
 ##ORIGIN= Bruker BioSpin GmbH
 ##OWNER= bruschweiler
-$$ 2023-06-01 03:44:09.849 -0400  bruschweiler@cbec850rb
-$$ /home/bruschweiler/Data/lb-li/data/Deepicker/nmr/Mouse_Serum_1_May31_2023/3/acqu2s
+$$ 2023-05-24 09:16:59.366 -0400  bruschweiler@cbec850rb
+$$ /home/bruschweiler/Data/lb-li/data/Deepicker/nmr/Mouse_Serum_1_May23_2023/3/acqu2s
 $$ process /opt/topspin3.6.2/prog/mod/go4
 ##$ACQT0= 0
 ##$BF1= 213.772902032
