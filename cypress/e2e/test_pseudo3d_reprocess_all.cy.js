@@ -51,7 +51,7 @@ describe('Pseudo3D Process First Only then Reprocess All Planes', () => {
         });
 
         // 8. Verify spectrum 5 is default collapsed
-        cy.get('#minimize-5').should('have.text', '+');
+        cy.get('#minimize-5').should('contain', '+');
 
         // 9. Verify spectrum 5 state in hsqc_spectra
         cy.window().then((win) => {

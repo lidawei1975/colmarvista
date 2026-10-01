@@ -9,3 +9,4 @@ scratch/
 __pycache__/
 *.pyc
 chemex/chemex/
+cypress/screenshots

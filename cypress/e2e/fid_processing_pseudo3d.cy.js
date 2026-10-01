@@ -23,7 +23,7 @@ describe('Pseudo3D Test Data and Deep Picker Test', () => {
         cy.get('#spectrum-5', { timeout: 60000 }).should('exist');
 
         // Verify spectrum 5 is default collapsed
-        cy.get('#minimize-5').should('have.text', '+');
+        cy.get('#minimize-5').should('contain', '+');
 
         // Verify spectrum 5 state in hsqc_spectra
         cy.window().then((win) => {

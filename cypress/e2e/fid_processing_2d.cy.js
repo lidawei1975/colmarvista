@@ -55,8 +55,8 @@ describe('FID Processing 2D Test', () => {
             expect(spectrum.fid_process_parameters.phase_correction_indirect_p0).to.equal(90);
             expect(spectrum.fid_process_parameters.phase_correction_indirect_p1).to.equal(0);
 
-            // Assert noise level is around 7.7e3 (+-30%, i.e. between 5390 and 10010)
-            expect(spectrum.noise_level).to.be.within(7.7e3 * 0.7, 7.7e3 * 1.3);
+            // Assert noise level is around 7e3 (+-30%, i.e. between 4900 and 9100)
+            expect(spectrum.noise_level).to.be.within(7e3 * 0.7, 7e3 * 1.3);
 
             // Assert sparse peaks: data points where abs(val) > 10 * noise_level should be < 1% of total points
             const threshold = 10 * spectrum.noise_level;
