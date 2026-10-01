@@ -137,6 +137,9 @@ function plotit(input) {
     this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
     this.$extra_peaks_group = null; // SVG group for extra peaks
 
+    this.assignment_overlay_data = []; // Array to store incoming assignment overlay items
+    this.$assignment_overlay_group = null; // SVG group for assignment overlay
+
     this.selected_peak_cross_pos = null; // { x_ppm, y_ppm }
     this.$selected_peak_cross_group = null; // SVG group for selected peak cross marker
 
@@ -436,6 +439,10 @@ plotit.prototype.reset_axis = function () {
      */
     if (this.extra_peaks && this.extra_peaks.length > 0) {
         this.draw_extra_peaks();
+    }
+
+    if (this.assignment_overlay_data && this.assignment_overlay_data.length > 0) {
+        this.draw_assignment_overlay();
     }
 
     if (this.bounding_box_data) {
@@ -2233,6 +2240,148 @@ plotit.prototype.draw_extra_peaks = function () {
                 // X invisible? D3 clip path handles it mostly.
             }
             return "visible";
+        });
+};
+
+/**
+ * Display assignment transfer preview overlay (diamonds for incoming assignments, arrows to matched peaks)
+ * @param {Array<{label: string, x: number, y: number, matched: boolean, peak_x?: number, peak_y?: number}>} items 
+ */
+plotit.prototype.show_assignment_overlay = function (items) {
+    this.assignment_overlay_data = items || [];
+    this.draw_assignment_overlay();
+};
+
+/**
+ * Remove assignment transfer preview overlay from 2D plot
+ */
+plotit.prototype.clear_assignment_overlay = function () {
+    this.assignment_overlay_data = [];
+    if (this.$assignment_overlay_group) {
+        this.$assignment_overlay_group.selectAll('*').remove();
+    }
+};
+
+/**
+ * Draw or update the assignment transfer preview overlay
+ */
+plotit.prototype.draw_assignment_overlay = function () {
+    let self = this;
+    if (!this.assignment_overlay_data || this.assignment_overlay_data.length === 0) {
+        if (this.$assignment_overlay_group) {
+            this.$assignment_overlay_group.selectAll('*').remove();
+        }
+        return;
+    }
+
+    if (!this.$assignment_overlay_group) {
+        this.$assignment_overlay_group = this.$vis.append('g').attr('class', 'assignment-overlay-group');
+    }
+
+    let defs = this.$vis.select("defs");
+    if (defs.empty()) {
+        defs = this.$vis.append("defs");
+    }
+    let markerId = "assign_arrow_" + (this.clipId || "main");
+    if (defs.select("#" + markerId).empty()) {
+        defs.append("marker")
+            .attr("id", markerId)
+            .attr("viewBox", "0 0 10 10")
+            .attr("refX", 7)
+            .attr("refY", 5)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M 0 1.5 L 8 5 L 0 8.5 z")
+            .attr("fill", "#1565c0");
+    }
+
+    // 1. Draw arrows connecting incoming assignment position (x, y) to matched peak position (peak_x, peak_y)
+    let matchedData = this.assignment_overlay_data.filter(d => d.matched && d.peak_x !== undefined && d.peak_y !== undefined);
+
+    let arrowSel = this.$assignment_overlay_group.selectAll('.assignment-arrow')
+        .data(matchedData, function (d) { return d.label; });
+
+    arrowSel.exit().remove();
+
+    let arrowEnter = arrowSel.enter().append('line')
+        .attr('class', 'assignment-arrow')
+        .attr("clip-path", "url(#" + self.clipId + ")")
+        .attr('stroke', '#1565c0')
+        .attr('stroke-width', 1.8)
+        .attr('marker-end', 'url(#' + markerId + ')');
+
+    arrowEnter.merge(arrowSel)
+        .attr('x1', function (d) { return self.xRange(d.x); })
+        .attr('y1', function (d) { return self.yRange(d.y); })
+        .attr('x2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let ux = (x2 - x1) / dist;
+                return x2 - ux * 2;
+            }
+            return x2;
+        })
+        .attr('y2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let uy = (y2 - y1) / dist;
+                return y2 - uy * 2;
+            }
+            return y2;
+        })
+        .attr('visibility', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            return (Math.hypot(x2 - x1, y2 - y1) < 2) ? "hidden" : "visible";
+        });
+
+    // 2. Draw incoming assignment symbols (Diamond: ◇)
+    let peakSel = this.$assignment_overlay_group.selectAll('.assignment-peak')
+        .data(this.assignment_overlay_data, function (d) { return d.label; });
+
+    peakSel.exit().remove();
+
+    let peakEnter = peakSel.enter().append('path')
+        .attr('class', 'assignment-peak')
+        .attr("clip-path", "url(#" + self.clipId + ")");
+
+    peakEnter.append('title');
+
+    peakEnter.merge(peakSel)
+        .attr('d', function (d) {
+            let cx = self.xRange(d.x);
+            let cy = self.yRange(d.y);
+            let r = 6.5; // Diamond radius
+            return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+        })
+        .attr('stroke', function (d) {
+            return d.matched ? '#1565c0' : '#f57c00'; // Blue for matched, amber for unmatched
+        })
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', function (d) {
+            return d.matched ? null : '2,2';
+        })
+        .attr('fill', function (d) {
+            return d.matched ? 'rgba(33, 150, 243, 0.3)' : 'rgba(255, 152, 0, 0.25)';
+        })
+        .select('title')
+        .text(function (d) {
+            let statusStr = d.matched
+                ? `→ Matched Peak: (${d.peak_x.toFixed(3)}, ${d.peak_y.toFixed(3)} ppm)`
+                : `(Unmatched - exceeds cutoff)`;
+            return `Assignment: ${d.label}\nIncoming Position: (${d.x.toFixed(3)}, ${d.y.toFixed(3)} ppm)\n${statusStr}`;
         });
 };
 
