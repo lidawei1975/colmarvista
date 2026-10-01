@@ -34,7 +34,16 @@ Warning: Modifying these settings poses a security risk. Do not load any local f
 
 # Functions
 
-Please refer to the documentation page of the webapp.
+COLMARvista provides an integrated suite for web-based NMR processing, interactive visualization, and spectral analysis:
+- **1D, 2D, and 3D NMR Spectral Viewing**: High-performance WebGL contours, 3D surface mesh rendering, synchronous zoom/pan, 1D orthogonal projections/slices, and 3D WebGL isosurfaces.
+- **Client-Side WebAssembly Processing**: Process raw Bruker time-domain FID data (`fid`, `ser`) directly in the browser with automated phase correction, apodization, zero filling, solvent suppression, and baseline correction.
+- **Non-Uniform Sampling (NUS)**: Fast direct-FT and iterative SMILE reconstruction for 2D, Pseudo-3D, and 3D NUS experiments.
+- **Peak Picking & 2D Line-Shape Fitting**: AI-driven DEEP Picker neural network, local maxima Simple Picker, and Voigt/Gaussian deconvolution.
+- **Pseudo-3D Series Processing & 2D DOSY**: Multi-plane sequential peak fitting across relaxation ($T_1, T_2$), titration, and kinetics series, plus pulsed field gradient DOSY diffusion fitting ($D$) with interactive decay plots.
+- **CEST Analysis & ChemEx Integration**: Automated pre-analysis Voigt dip finding, exchange-active residue filtering ("Show ≥2 Peaks Only"), floating profile visualizer with automatic dip autozoom, real-time client-side ChemEx simulation via Pyodide WebWorker ($k_{ex}, p_B, \varpi_A, \Delta\varpi_{AB}$), single-peak fitting, and batch global fitting.
+- **Automated Assignment Transfer**: Globally optimal bipartite Hungarian matching ($O(N^3)$) from reference lists (`.list`, `.tab`, `.txt`, `.csv`), customizable $^1$H / heteronucleus distance cutoffs, global calibration shift offsets, dynamic 2D diamond & arrow visual overlay, and one-click finalization.
+
+For detailed manuals and tutorials, refer to the documentation portal in `index_document.html` or the standalone manual pages (`doc_2d.html`, `doc_3d.html`, `doc_1d.html`).
 
 # Bug report or suggestions
 
