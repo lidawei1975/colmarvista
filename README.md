@@ -1,8 +1,11 @@
 # COLMARvista
-Web based NMR spectra viewer.
+Web based NMR spectra process, view and analysis tool.
 
 # Installation
 Download all files/folders into one location or visit as a web server.
+
+# License
+COLMARvista is open source under the GPL V3, with a linking exception for the proprietary SMILE WebAssembly plugin (used with permission from its original author).
 
 # Usage
 Visit the web server https://lidawei1975.github.io/colmarvista/ in your browser. COLMAR Viewer is a static web server, which means all your data stays on your computer; the server does not take any input or uploads from you.
@@ -31,7 +34,7 @@ Warning: Modifying these settings poses a security risk. Do not load any local f
 
 # Functions
 
-Please refer to the wiki page https://github.com/lidawei1975/colmarvista/wiki for user instructions. 
+Please refer to the documentation page of the webapp.
 
 # Bug report or suggestions
 
