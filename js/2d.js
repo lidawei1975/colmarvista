@@ -10139,6 +10139,16 @@ function transfer_assignments_from_text(content) {
     const CUTOFF_Y = (cutoff_hetero_input && !isNaN(parseFloat(cutoff_hetero_input.value)) && parseFloat(cutoff_hetero_input.value) > 0)
         ? parseFloat(cutoff_hetero_input.value) : 0.20; // Heteronucleus cutoff (ppm)
 
+    const shift_h_input = document.getElementById("assignment_shift_h");
+    const shift_hetero_input = document.getElementById("assignment_shift_hetero");
+    const SHIFT_X = (shift_h_input && !isNaN(parseFloat(shift_h_input.value)))
+        ? parseFloat(shift_h_input.value) : 0.0; // 1H global shift (ppm)
+    const SHIFT_Y = (shift_hetero_input && !isNaN(parseFloat(shift_hetero_input.value)))
+        ? parseFloat(shift_hetero_input.value) : 0.0; // Hetero global shift (ppm)
+
+    const ass_calib_x = assignments.map(a => a.x + SHIFT_X);
+    const ass_calib_y = assignments.map(a => a.y + SHIFT_Y);
+
     const COST_SCALE = 10000;
     const COST_DUMMY = 100000;
     const COST_FAR = 200000;
@@ -10150,8 +10160,8 @@ function transfer_assignments_from_text(content) {
         for (let j = 0; j < N; j++) {
             let cost = 0;
             if (i < R && j < C) {
-                let dx = Math.abs(assignments[i].x - peak_x[j]);
-                let dy = Math.abs(assignments[i].y - peak_y[j]);
+                let dx = Math.abs(ass_calib_x[i] - peak_x[j]);
+                let dy = Math.abs(ass_calib_y[i] - peak_y[j]);
                 if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
                     let d = Math.sqrt((dx / CUTOFF_X) ** 2 + (dy / CUTOFF_Y) ** 2);
                     cost = Math.round(d * COST_SCALE);
@@ -10180,8 +10190,8 @@ function transfer_assignments_from_text(content) {
     for (let i = 0; i < R; i++) {
         let j = match[i];
         if (j < C) {
-            let dx = Math.abs(assignments[i].x - peak_x[j]);
-            let dy = Math.abs(assignments[i].y - peak_y[j]);
+            let dx = Math.abs(ass_calib_x[i] - peak_x[j]);
+            let dy = Math.abs(ass_calib_y[i] - peak_y[j]);
             if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
                 matched_peaks_map[j] = i;
                 matched_count++;
@@ -10225,10 +10235,36 @@ function transfer_assignments_from_text(content) {
         }
     }
 
+    // Step 9: Show visual overlay on 2D plot (diamonds for all incoming assignments + arrows for matched)
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.show_assignment_overlay === 'function') {
+        let overlay_items = [];
+        for (let i = 0; i < R; i++) {
+            let j = match[i];
+            let is_matched = (j < C && Math.abs(ass_calib_x[i] - peak_x[j]) <= CUTOFF_X && Math.abs(ass_calib_y[i] - peak_y[j]) <= CUTOFF_Y);
+            overlay_items.push({
+                label: assignments[i].label,
+                x: ass_calib_x[i],
+                y: ass_calib_y[i],
+                orig_x: assignments[i].x,
+                orig_y: assignments[i].y,
+                matched: is_matched,
+                peak_x: is_matched ? peak_x[j] : undefined,
+                peak_y: is_matched ? peak_y[j] : undefined
+            });
+        }
+        main_plot.show_assignment_overlay(overlay_items);
+    }
+
+    const finBtn = document.getElementById("button_finalize_assignment");
+    if (finBtn) finBtn.disabled = false;
+
     let unassigned_peaks = C - matched_count;
     let unmatched_file = R - matched_count;
     let fileInfo = last_loaded_assignment_filename ? ` (${last_loaded_assignment_filename})` : '';
-    let summaryMsg = `✓ Transferred ${matched_count} assignments${fileInfo} to ${target_name} [cutoffs: 1H ≤ ${CUTOFF_X} ppm, hetero ≤ ${CUTOFF_Y} ppm] (${unassigned_peaks} peaks unassigned, ${unmatched_file} file entries outside cutoff/unmatched).`;
+    let shiftInfo = (SHIFT_X !== 0 || SHIFT_Y !== 0)
+        ? ` [shift: Δ1H=${SHIFT_X >= 0 ? '+' : ''}${SHIFT_X} ppm, Δhetero=${SHIFT_Y >= 0 ? '+' : ''}${SHIFT_Y} ppm]`
+        : '';
+    let summaryMsg = `✓ Transferred ${matched_count} assignments${fileInfo} to ${target_name}${shiftInfo} [cutoffs: 1H ≤ ${CUTOFF_X} ppm, hetero ≤ ${CUTOFF_Y} ppm] (${unassigned_peaks} peaks unassigned, ${unmatched_file} file entries outside cutoff/unmatched).`;
     console.log('[Assignment Transfer]', summaryMsg);
 
     if (statusEl) {
@@ -10238,6 +10274,21 @@ function transfer_assignments_from_text(content) {
 
 let last_loaded_assignment_text = null;
 let last_loaded_assignment_filename = null;
+
+/**
+ * Finalize assignment transfer and remove preview overlay (incoming assignment symbols & arrows)
+ */
+function finalize_assignments() {
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.clear_assignment_overlay === 'function') {
+        main_plot.clear_assignment_overlay();
+    }
+    const finBtn = document.getElementById("button_finalize_assignment");
+    if (finBtn) finBtn.disabled = true;
+    let statusEl = document.getElementById("assignment_transfer_status");
+    if (statusEl) {
+        statusEl.innerHTML += ` <span style="color: #2e7d32; font-weight: bold;">(Finalized)</span>`;
+    }
+}
 
 /**
  * Retry assignment transfer using the cached assignment file content and the current cutoffs
@@ -10277,7 +10328,7 @@ function load_assignment_file(inputElement) {
     reader.readAsText(file);
 }
 
-// Bind Enter key on cutoff inputs to retry assignment transfer
+// Bind Enter key on cutoff and shift inputs to retry assignment transfer
 (function setupAssignmentCutoffInputs() {
     function bindInput(id) {
         let el = document.getElementById(id);
@@ -10293,9 +10344,13 @@ function load_assignment_file(inputElement) {
         document.addEventListener("DOMContentLoaded", function () {
             bindInput("assignment_cutoff_h");
             bindInput("assignment_cutoff_hetero");
+            bindInput("assignment_shift_h");
+            bindInput("assignment_shift_hetero");
         });
     } else {
         bindInput("assignment_cutoff_h");
         bindInput("assignment_cutoff_hetero");
+        bindInput("assignment_shift_h");
+        bindInput("assignment_shift_hetero");
     }
 })();

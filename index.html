@@ -359,20 +359,36 @@
                 </p>
                 <div id="assignment_area_content" style="margin-top: 6px;">
                     <span class="information">Load an assignment file (.list, .tab, .txt) with Assignment, w1, w2 to transfer assignments to the current peak list (2D or pseudo-3D) using the Hungarian method.</span>
-                    <br><br>
-                    <label for="assignment_cutoff_h"><sup>1</sup>H cutoff (ppm): </label>
-                    <input type="number" id="assignment_cutoff_h" value="0.02" step="0.005" min="0.001" max="1" style="width: 65px;">
-                    &nbsp;&nbsp;
-                    <label for="assignment_cutoff_hetero">Heteronucleus cutoff (ppm): </label>
-                    <input type="number" id="assignment_cutoff_hetero" value="0.20" step="0.02" min="0.01" max="10" style="width: 65px;">
-                    &nbsp;&nbsp;
-                    <input type="file" id="assignment_transfer_file" style="display: none;" accept=".list,.tab,.txt,.csv,*" onchange="load_assignment_file(this)">
-                    <button type="button" id="button_load_assignment" onclick="document.getElementById('assignment_transfer_file').click()" style="padding: 3px 12px; font-weight: bold; cursor: pointer;">Load assignment file</button>
-                    <button type="button" id="button_retry_assignment" onclick="retry_assignment_transfer()" disabled style="padding: 3px 12px; cursor: pointer; margin-left: 6px;">Re-run transfer</button>
-                    <label style="margin-left: 12px; font-size: 12px; cursor: pointer; user-select: none;">
-                        <input type="checkbox" id="clear_unmatched_assignments"> Clear unmatched peak assignments
-                    </label>
-                    <span id="assignment_transfer_status" style="margin-left: 10px; font-size: 13px; font-weight: 500;"></span>
+                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span>
+                            <label for="assignment_cutoff_h"><strong><sup>1</sup>H Cutoff (ppm):</strong> </label>
+                            <input type="number" id="assignment_cutoff_h" value="0.10" step="0.005" min="0.001" style="width: 60px;">
+                        </span>
+                        <span>
+                            <label for="assignment_cutoff_hetero"><strong>Heteronucleus Cutoff (ppm):</strong> </label>
+                            <input type="number" id="assignment_cutoff_hetero" value="0.20" step="1.00" min="0.01" style="width: 60px;">
+                        </span>
+                        <span style="border-left: 1px solid #ccc; padding-left: 12px;">
+                            <label for="assignment_shift_h" title="Global shift offset added to incoming 1H assignments to correct calibration mismatch"><strong>Global <sup>1</sup>H Shift (ppm):</strong> </label>
+                            <input type="number" id="assignment_shift_h" value="0.00" step="0.005" style="width: 65px;">
+                        </span>
+                        <span>
+                            <label for="assignment_shift_hetero" title="Global shift offset added to incoming heteronucleus assignments to correct calibration mismatch"><strong>Global Hetero Shift (ppm):</strong> </label>
+                            <input type="number" id="assignment_shift_hetero" value="0.00" step="0.02" style="width: 65px;">
+                        </span>
+                    </div>
+                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <input type="file" id="assignment_transfer_file" style="display: none;" accept=".list,.tab,.txt,.csv,*" onchange="load_assignment_file(this)">
+                        <button type="button" id="button_load_assignment" onclick="document.getElementById('assignment_transfer_file').click()" style="padding: 3px 12px; font-weight: bold; cursor: pointer;">Load assignment file</button>
+                        <button type="button" id="button_retry_assignment" onclick="retry_assignment_transfer()" disabled style="padding: 3px 12px; cursor: pointer;">Re-run transfer</button>
+                        <button type="button" id="button_finalize_assignment" onclick="finalize_assignments()" disabled style="padding: 3px 14px; font-weight: bold; cursor: pointer; background-color: #2e7d32; color: white; border: 1px solid #1b5e20; border-radius: 3px;" title="Clear preview diamonds and arrows from plot while preserving transferred assignments">Finalize transfer</button>
+                        <label style="margin-left: 8px; font-size: 12px; cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="clear_unmatched_assignments"> Clear unmatched peak assignments
+                        </label>
+                    </div>
+                    <div style="margin-top: 6px;">
+                        <span id="assignment_transfer_status" style="font-size: 13px; font-weight: 500;"></span>
+                    </div>
                 </div>
             </div>
 
