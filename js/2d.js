@@ -355,17 +355,12 @@ $(document).ready(function () {
      * Upload a file with assignment information. 
      * Assignment will be transfer to current showing fitted peaks
      */
-    document.getElementById('assignment_file').addEventListener('change', function (e) {
-
-        /**
-         * Do nothing if pseudo3d_fitted_peaks_object is null
-         */
-        if (pseudo3d_fitted_peaks_object === null) {
-            return;
-        }
-
-        document.getElementById("webassembly_message").innerText = "Assignment transfer is under development.";
-    });
+    const assignmentFileInput = document.getElementById('assignment_file');
+    if (assignmentFileInput) {
+        assignmentFileInput.addEventListener('change', function (e) {
+            load_assignment_file(this);
+        });
+    }
 
     // Synchronize direct dimension phase correction checkboxes:
     // 1. If "ANN Auto PC" (ann_auto_direct) is checked:
@@ -2211,6 +2206,28 @@ function minimize_cest_area(self) {
     let button_text = self.innerText.trim();
     let content = document.getElementById("cest_area_content");
     let container = document.getElementById("cest_area");
+    if (button_text === "-") {
+        self.innerText = "+";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
+    }
+    else {
+        self.innerText = "-";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
+    }
+}
+
+function minimize_assignment_area(self) {
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("assignment_area_content");
+    let container = document.getElementById("assignment_area");
     if (button_text === "-") {
         self.innerText = "+";
         if (content) content.style.display = "none";
@@ -7191,7 +7208,14 @@ function show_pseudo3d_peak_profile(peak_index) {
         if (simBadge) fitSummaries.push(simBadge);
         let fitSummary = fitSummaries.length > 0 ? (' | ' + fitSummaries.join(' | ')) : '';
         let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
-        titleEl.textContent = `Pseudo-3D Peak #${peak_index} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
+        let assBadge = '';
+        if (peaks_object && peak_index - 1 >= 0) {
+            let assCol = peaks_object.get_column_by_header('ASS');
+            if (assCol && assCol[peak_index - 1]) {
+                assBadge = ` [${assCol[peak_index - 1]}]`;
+            }
+        }
+        titleEl.textContent = `Pseudo-3D Peak #${peak_index}${assBadge} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
     }
 
     modal.style.display = 'flex';
@@ -9907,3 +9931,371 @@ async function apply_baseline_correction() {
         });
     }
 }
+
+/**
+ * ============================================================================
+ * Assignment Transfer Tool (using Hungarian algorithm from HuangarianInt32.js)
+ * ============================================================================
+ */
+
+/**
+ * Parse an assignment file (Sparky .list, NMRPipe .tab, or whitespace-delimited table)
+ * @param {string} content - Raw text content of the assignment file
+ * @param {cpeaks} [target_peaks] - Optional target peak object to aid coordinate heuristic
+ * @returns {Array<{label: string, x: number, y: number}>} Array of parsed assignment objects
+ */
+function parse_assignment_text(content, target_peaks) {
+    if (!content || typeof content !== 'string') return [];
+
+    const lines = content.split(/\r?\n/);
+    let headerAssIdx = -1;
+    let headerW1Idx = -1;
+    let headerW2Idx = -1;
+    let dataStartIndex = 0;
+
+    // Scan for header line
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('!') || line.startsWith('REMARK') || line.startsWith('DATA')) continue;
+
+        const tokens = line.split(/\s+/);
+        const lower = tokens.map(t => t.toLowerCase());
+
+        const assIdx = lower.findIndex(t => t.includes('ass') || t === 'assignment' || t === 'label' || t === 'name');
+        const w1Idx = lower.findIndex(t => t === 'w1' || t === 'y_ppm' || t === '15n' || t === '13c' || t === 'y');
+        const w2Idx = lower.findIndex(t => t === 'w2' || t === 'x_ppm' || t === '1h' || t === 'hn' || t === 'x');
+
+        if (assIdx !== -1 || (w1Idx !== -1 && w2Idx !== -1)) {
+            headerAssIdx = assIdx;
+            headerW1Idx = w1Idx;
+            headerW2Idx = w2Idx;
+            dataStartIndex = i + 1;
+            break;
+        }
+    }
+
+    // Determine reference PPM ranges if available
+    let avgTargetX = null;
+    let avgTargetY = null;
+    if (target_peaks && target_peaks.column_headers && target_peaks.columns) {
+        let xIdx = target_peaks.column_headers.indexOf('X_PPM');
+        let yIdx = target_peaks.column_headers.indexOf('Y_PPM');
+        if (xIdx !== -1 && target_peaks.columns[xIdx] && target_peaks.columns[xIdx].length > 0) {
+            let xArr = target_peaks.columns[xIdx];
+            avgTargetX = xArr.reduce((a, b) => a + b, 0) / xArr.length;
+        }
+        if (yIdx !== -1 && target_peaks.columns[yIdx] && target_peaks.columns[yIdx].length > 0) {
+            let yArr = target_peaks.columns[yIdx];
+            avgTargetY = yArr.reduce((a, b) => a + b, 0) / yArr.length;
+        }
+    }
+
+    const records = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('!') || line.startsWith('REMARK') || line.startsWith('DATA') || line.startsWith('VARS') || line.startsWith('FORMAT')) continue;
+
+        const tokens = line.split(/\s+/);
+        if (tokens.length < 3) continue;
+
+        let label = '';
+        let w1 = NaN; // Heteronucleus (indirect, Y_PPM)
+        let w2 = NaN; // 1H (direct, X_PPM)
+
+        if (headerAssIdx !== -1 && headerW1Idx !== -1 && headerW2Idx !== -1 &&
+            tokens.length > Math.max(headerAssIdx, headerW1Idx, headerW2Idx)) {
+            label = tokens[headerAssIdx];
+            w1 = parseFloat(tokens[headerW1Idx]);
+            w2 = parseFloat(tokens[headerW2Idx]);
+        } else {
+            // Heuristic detection when explicit headers are absent or incomplete
+            // Find token that is a string label (contains non-numeric characters)
+            let strIdx = tokens.findIndex(t => isNaN(Number(t)));
+            if (strIdx === -1) strIdx = 0;
+            label = tokens[strIdx];
+
+            const numIndices = tokens.map((t, idx) => idx).filter(idx => idx !== strIdx && !isNaN(parseFloat(tokens[idx])));
+            if (numIndices.length >= 2) {
+                const val0 = parseFloat(tokens[numIndices[0]]);
+                const val1 = parseFloat(tokens[numIndices[1]]);
+
+                if (avgTargetX !== null && avgTargetY !== null) {
+                    let d0_to_x = Math.abs(val0 - avgTargetX);
+                    let d1_to_x = Math.abs(val1 - avgTargetX);
+                    if (d0_to_x < d1_to_x) {
+                        w2 = val0;
+                        w1 = val1;
+                    } else {
+                        w2 = val1;
+                        w1 = val0;
+                    }
+                } else {
+                    // Standard NMR heuristic: 1H (w2) < 25 ppm, 15N/13C (w1) > 25 ppm
+                    if (val0 < val1) {
+                        w2 = val0;
+                        w1 = val1;
+                    } else {
+                        w2 = val1;
+                        w1 = val0;
+                    }
+                }
+            }
+        }
+
+        if (label && !isNaN(w1) && !isNaN(w2)) {
+            records.push({ label: label.trim(), x: w2, y: w1 });
+        }
+    }
+    return records;
+}
+
+/**
+ * Transfer assignments from assignment file text to the current peak list using the Hungarian algorithm
+ * @param {string} content - Raw text content of assignment file
+ */
+function transfer_assignments_from_text(content) {
+    let statusEl = document.getElementById("assignment_transfer_status");
+
+    // Step 1: Identify target peak object
+    let target_obj = get_current_peak_object();
+    let target_name = "current peak list";
+
+    if (!target_obj || !target_obj.columns || target_obj.columns.length === 0 || !target_obj.columns[0] || target_obj.columns[0].length === 0) {
+        if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0] && pseudo3d_fitted_peaks_object.columns[0].length > 0) {
+            target_obj = pseudo3d_fitted_peaks_object;
+            target_name = "Pseudo-3D fitted peaks";
+        } else if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) {
+            for (let i = 0; i < hsqc_spectra.length; i++) {
+                let s = hsqc_spectra[i];
+                if (s && s.spectrum_origin !== -3) {
+                    if (s.fitted_peaks_object && s.fitted_peaks_object.columns && s.fitted_peaks_object.columns[0] && s.fitted_peaks_object.columns[0].length > 0) {
+                        target_obj = s.fitted_peaks_object;
+                        target_name = `Spectrum #${i + 1} fitted peaks`;
+                        break;
+                    }
+                    if (s.picked_peaks_object && s.picked_peaks_object.columns && s.picked_peaks_object.columns[0] && s.picked_peaks_object.columns[0].length > 0) {
+                        target_obj = s.picked_peaks_object;
+                        target_name = `Spectrum #${i + 1} picked peaks`;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        if (current_spectrum_index_of_peaks === -2) {
+            target_name = "Pseudo-3D fitted peaks";
+        } else if (current_spectrum_index_of_peaks >= 0) {
+            target_name = `Spectrum #${current_spectrum_index_of_peaks + 1} (${current_flag_of_peaks || 'peaks'})`;
+        }
+    }
+
+    if (!target_obj || !target_obj.columns || !target_obj.columns[0] || target_obj.columns[0].length === 0) {
+        let msg = "No peak list found. Please pick or load 2D peaks or pseudo-3D peaks first.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    let x_col_idx = target_obj.column_headers.indexOf('X_PPM');
+    let y_col_idx = target_obj.column_headers.indexOf('Y_PPM');
+    if (x_col_idx === -1 || y_col_idx === -1) {
+        let msg = "Target peak list is missing X_PPM or Y_PPM columns.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 2: Parse assignment file
+    const assignments = parse_assignment_text(content, target_obj);
+    if (!assignments || assignments.length === 0) {
+        let msg = "No valid assignment records found in the uploaded file.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 3: Check Hungarian solver availability
+    if (typeof solveHungarianInt32 !== 'function') {
+        let msg = "Hungarian algorithm solver (HuangarianInt32.js) is not available.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 4: Build cost matrix
+    last_loaded_assignment_text = content;
+    const retryBtn = document.getElementById("button_retry_assignment");
+    if (retryBtn) retryBtn.disabled = false;
+
+    const R = assignments.length;
+    const C = target_obj.columns[0].length;
+    const N = Math.max(R, C);
+    const matrix = new Int32Array(N * N);
+
+    const cutoff_h_input = document.getElementById("assignment_cutoff_h");
+    const cutoff_hetero_input = document.getElementById("assignment_cutoff_hetero");
+    const CUTOFF_X = (cutoff_h_input && !isNaN(parseFloat(cutoff_h_input.value)) && parseFloat(cutoff_h_input.value) > 0)
+        ? parseFloat(cutoff_h_input.value) : 0.02; // 1H cutoff (ppm)
+    const CUTOFF_Y = (cutoff_hetero_input && !isNaN(parseFloat(cutoff_hetero_input.value)) && parseFloat(cutoff_hetero_input.value) > 0)
+        ? parseFloat(cutoff_hetero_input.value) : 0.20; // Heteronucleus cutoff (ppm)
+
+    const COST_SCALE = 10000;
+    const COST_DUMMY = 100000;
+    const COST_FAR = 200000;
+
+    const peak_x = target_obj.columns[x_col_idx];
+    const peak_y = target_obj.columns[y_col_idx];
+
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            let cost = 0;
+            if (i < R && j < C) {
+                let dx = Math.abs(assignments[i].x - peak_x[j]);
+                let dy = Math.abs(assignments[i].y - peak_y[j]);
+                if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
+                    let d = Math.sqrt((dx / CUTOFF_X) ** 2 + (dy / CUTOFF_Y) ** 2);
+                    cost = Math.round(d * COST_SCALE);
+                } else {
+                    cost = COST_FAR;
+                }
+            } else if (i < R && j >= C) {
+                cost = COST_DUMMY;
+            } else if (i >= R && j < C) {
+                cost = COST_DUMMY;
+            } else {
+                cost = 0;
+            }
+            matrix[i * N + j] = cost;
+        }
+    }
+
+    // Step 5: Solve Hungarian assignment
+    const match = solveHungarianInt32(matrix, N);
+
+    // Step 6: Filter matches by cutoffs
+    let matched_count = 0;
+    let out_of_cutoff_count = 0;
+    let matched_peaks_map = {}; // peak index j -> assignment index i
+
+    for (let i = 0; i < R; i++) {
+        let j = match[i];
+        if (j < C) {
+            let dx = Math.abs(assignments[i].x - peak_x[j]);
+            let dy = Math.abs(assignments[i].y - peak_y[j]);
+            if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
+                matched_peaks_map[j] = i;
+                matched_count++;
+            } else {
+                out_of_cutoff_count++;
+            }
+        }
+    }
+
+    // Step 7: Ensure 'ASS' column exists in target_obj
+    let ass_idx = target_obj.column_headers.indexOf('ASS');
+    if (ass_idx === -1) {
+        let y_idx = target_obj.column_headers.indexOf('Y_PPM');
+        let insert_pos = (y_idx !== -1) ? y_idx + 1 : target_obj.column_headers.length;
+        target_obj.column_headers.splice(insert_pos, 0, 'ASS');
+        target_obj.column_formats.splice(insert_pos, 0, '%12s');
+        target_obj.columns.splice(insert_pos, 0, new Array(C).fill(''));
+        ass_idx = insert_pos;
+    }
+
+    const clear_unmatched = document.getElementById("clear_unmatched_assignments") && document.getElementById("clear_unmatched_assignments").checked;
+
+    for (let j = 0; j < C; j++) {
+        if (matched_peaks_map[j] !== undefined) {
+            let ass_i = matched_peaks_map[j];
+            target_obj.columns[ass_idx][j] = assignments[ass_i].label;
+        } else if (clear_unmatched) {
+            target_obj.columns[ass_idx][j] = '';
+        }
+    }
+
+    // Step 8: Update display
+    if (target_obj === pseudo3d_fitted_peaks_object) {
+        let p3dCheck = document.getElementById("show_pseudo3d_peaks");
+        if (p3dCheck) p3dCheck.checked = true;
+        show_hide_peaks(-2, 'fitted', true);
+    } else {
+        show_peak_table();
+        if (main_plot && typeof main_plot.redraw_peaks === 'function') {
+            main_plot.redraw_peaks();
+        }
+    }
+
+    let unassigned_peaks = C - matched_count;
+    let unmatched_file = R - matched_count;
+    let fileInfo = last_loaded_assignment_filename ? ` (${last_loaded_assignment_filename})` : '';
+    let summaryMsg = `✓ Transferred ${matched_count} assignments${fileInfo} to ${target_name} [cutoffs: 1H ≤ ${CUTOFF_X} ppm, hetero ≤ ${CUTOFF_Y} ppm] (${unassigned_peaks} peaks unassigned, ${unmatched_file} file entries outside cutoff/unmatched).`;
+    console.log('[Assignment Transfer]', summaryMsg);
+
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryMsg}</span>`;
+    }
+}
+
+let last_loaded_assignment_text = null;
+let last_loaded_assignment_filename = null;
+
+/**
+ * Retry assignment transfer using the cached assignment file content and the current cutoffs
+ */
+function retry_assignment_transfer() {
+    if (!last_loaded_assignment_text) {
+        let msg = "No assignment file has been loaded yet. Please click 'Load assignment file' first.";
+        let statusEl = document.getElementById("assignment_transfer_status");
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+    transfer_assignments_from_text(last_loaded_assignment_text);
+}
+
+/**
+ * File input handler to load assignment file
+ * @param {HTMLInputElement} inputElement 
+ */
+function load_assignment_file(inputElement) {
+    if (!inputElement || !inputElement.files || inputElement.files.length === 0) return;
+    const file = inputElement.files[0];
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        last_loaded_assignment_text = e.target.result;
+        last_loaded_assignment_filename = file.name;
+        const retryBtn = document.getElementById("button_retry_assignment");
+        if (retryBtn) retryBtn.disabled = false;
+        transfer_assignments_from_text(last_loaded_assignment_text);
+        inputElement.value = ''; // Allow re-uploading the same file
+    };
+    reader.onerror = function (err) {
+        console.error("Error reading assignment file:", err);
+        let statusEl = document.getElementById("assignment_transfer_status");
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ Failed to read file: ${file.name}</span>`;
+    };
+    reader.readAsText(file);
+}
+
+// Bind Enter key on cutoff inputs to retry assignment transfer
+(function setupAssignmentCutoffInputs() {
+    function bindInput(id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    retry_assignment_transfer();
+                }
+            });
+        }
+    }
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function () {
+            bindInput("assignment_cutoff_h");
+            bindInput("assignment_cutoff_hetero");
+        });
+    } else {
+        bindInput("assignment_cutoff_h");
+        bindInput("assignment_cutoff_hetero");
+    }
+})();
