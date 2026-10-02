@@ -187,7 +187,8 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            if (true) {
+            let is_spec_visible = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+            if (is_spec_visible) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {
@@ -217,7 +218,7 @@ class webgl_contour_plot {
             if (n >= this.contour_lbs_negative.length) {
                 continue;
             }
-            if (true) {
+            if (is_spec_visible) {
                 for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {
@@ -366,7 +367,8 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            if (hsqc_spectra[n].visible == true) {
+            let is_spec_visible = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+            if (is_spec_visible) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {
@@ -396,7 +398,7 @@ class webgl_contour_plot {
             if (n >= this.contour_lbs_negative.length) {
                 continue;
             }
-            if (hsqc_spectra[n].visible == true) {
+            if (is_spec_visible) {
                 for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
                     let i_start = 0;
                     if (m > 0) {

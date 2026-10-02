@@ -672,3 +672,20 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+----------------------------------------------------------------------
+Additional Permission / Linking Exception for the SMILE Plugin
+----------------------------------------------------------------------
+COLMARvista is distributed under the GNU General Public License (GPL).
+
+As a special exception, the copyright holders of COLMARvista grant 
+permission to link, bundle, host, and distribute this software with the 
+pre-compiled WebAssembly binary module of SMILE, regardless of the license 
+terms or source code availability of SMILE. 
+
+The source code for the SMILE plugin is proprietary and is not provided 
+under the GNU General Public License. Distribution of the SMILE binary is 
+made with explicit authorization from its author.
+
+All other components of COLMARvista remain subject to the terms and 
+conditions of the GNU General Public License.

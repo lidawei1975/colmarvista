@@ -137,6 +137,12 @@ function plotit(input) {
     this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
     this.$extra_peaks_group = null; // SVG group for extra peaks
 
+    this.assignment_overlay_data = []; // Array to store incoming assignment overlay items
+    this.$assignment_overlay_group = null; // SVG group for assignment overlay
+
+    this.selected_peak_cross_pos = null; // { x_ppm, y_ppm }
+    this.$selected_peak_cross_group = null; // SVG group for selected peak cross marker
+
     this.xlabel_text = input.xlabel || "Chemical Shift (ppm)";
     this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
 };
@@ -331,6 +337,13 @@ plotit.prototype.reset_axis = function () {
             d3.select(this).style("font-size", self.fontsize + "px");
         });
 
+    if (this.secondary_x_config && typeof this.update_secondary_x_axis === 'function') {
+        this.update_secondary_x_axis();
+    }
+    if (this.secondary_y_config && typeof this.update_secondary_y_axis === 'function') {
+        this.update_secondary_y_axis();
+    }
+
 
 
     /**
@@ -428,8 +441,16 @@ plotit.prototype.reset_axis = function () {
         this.draw_extra_peaks();
     }
 
+    if (this.assignment_overlay_data && this.assignment_overlay_data.length > 0) {
+        this.draw_assignment_overlay();
+    }
+
     if (this.bounding_box_data) {
         this.draw_bounding_box();
+    }
+
+    if (this.selected_peak_cross_pos) {
+        this.draw_selected_peak_cross();
     }
 
     if (this.zoom_on_call_function) {
@@ -779,6 +800,18 @@ plotit.prototype.draw = function () {
 
     this.$vis.selectAll('.xaxis').remove();
     this.$vis.selectAll('.yaxis').remove();
+    this.$vis.selectAll('.xaxis2').remove();
+    this.$vis.selectAll('.yaxis2').remove();
+    this.$vis.selectAll('.x2-label-group').remove();
+    this.$vis.selectAll('.y2-label-group').remove();
+    this.$xAxis2_svg = null;
+    this.$yAxis2_svg = null;
+    this.$xLabel2Group = null;
+    this.$yLabel2Group = null;
+    this.xRange2 = null;
+    this.yRange2 = null;
+    this.xAxis2 = null;
+    this.yAxis2 = null;
 
 
     this.$xAxis_svg = this.$vis.append('svg:g')
@@ -925,14 +958,71 @@ plotit.prototype.draw = function () {
             }
         }
 
+        // Calculate secondary Y axis value if secondary Y axis exists
+        let y2_val = null;
+        let y2_unit = "ppm";
+        let y2_str = "";
+        if (self.secondary_y_config) {
+            y2_unit = self.secondary_y_config.unit || "ppm";
+            if (self.yRange2 && typeof self.yRange2.invert === 'function') {
+                y2_val = self.yRange2.invert(coordinates[1]);
+            } else if (self.secondary_y_config.primary_range && self.secondary_y_config.secondary_range) {
+                const pStart = self.secondary_y_config.primary_range[0];
+                const pEnd = self.secondary_y_config.primary_range[1];
+                const sStart = self.secondary_y_config.secondary_range[0];
+                const sEnd = self.secondary_y_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    y2_val = sStart + ((y_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (y2_val !== null && !isNaN(y2_val)) {
+                let tag = (y2_unit.toLowerCase() === 'hz') ? "y2_hz" : "y2_ppm";
+                let valStr = (y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2);
+                y2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
+        // Calculate secondary X axis value if secondary X axis exists
+        let x2_val = null;
+        let x2_unit = "ppm";
+        let x2_str = "";
+        if (self.secondary_x_config) {
+            x2_unit = self.secondary_x_config.unit || "ppm";
+            if (self.xRange2 && typeof self.xRange2.invert === 'function') {
+                x2_val = self.xRange2.invert(coordinates[0]);
+            } else if (self.secondary_x_config.primary_range && self.secondary_x_config.secondary_range) {
+                const pStart = self.secondary_x_config.primary_range[0];
+                const pEnd = self.secondary_x_config.primary_range[1];
+                const sStart = self.secondary_x_config.secondary_range[0];
+                const sEnd = self.secondary_x_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    x2_val = sStart + ((x_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (x2_val !== null && !isNaN(x2_val)) {
+                let tag = (x2_unit.toLowerCase() === 'hz') ? "x2_hz" : "x2_ppm";
+                let valStr = (x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2);
+                x2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
         const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
+            let x2_info = (x2_val !== null && !isNaN(x2_val))
+                ? (", x2: " + ((x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2)) + " " + x2_unit)
+                : "";
+            let y2_info = (y2_val !== null && !isNaN(y2_val))
+                ? (", y2: " + ((y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2)) + " " + y2_unit)
+                : "";
+
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                     + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
                     + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
             }
@@ -940,7 +1030,7 @@ plotit.prototype.draw = function () {
         else {
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 
@@ -995,7 +1085,7 @@ plotit.prototype.draw = function () {
 };
 
 /**
- * Setups cross line.
+ * Setups cross line from event.
  *
  * @param {any} event - Event
  */
@@ -1008,9 +1098,6 @@ plotit.prototype.setup_cross_line = function (event) {
     /**
      * Send the cross line to other window
      */
-    /**
-     * Send the cross line to other window
-     */
     if (this.inter_window_channel) {
         this.inter_window_channel.postMessage({
             type: 'cross_line',
@@ -1020,70 +1107,149 @@ plotit.prototype.setup_cross_line = function (event) {
         });
     }
 
+    const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
+    if (cs_radio) cs_radio.checked = true;
+
+    self.show_cross_section(x_ppm, y_ppm);
+    self.sync_3d_views(true);
+};
+
+
+/**
+ * Shows cross section for visible spectra (or single spectrum in manual phase correction / reprocessing mode).
+ *
+ * @param {number} [x_ppm] - X PPM (defaults to current vline_ppm or center)
+ * @param {number} [y_ppm] - Y PPM (defaults to current hline_ppm or center)
+ */
+plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
+    let self = this;
+
+    self.b_show_cross_section = true;
+    self.b_show_projection = false;
+
+    if (x_ppm === undefined || x_ppm === null) {
+        if (self.vline_ppm !== null && self.vline_ppm !== undefined) {
+            x_ppm = self.vline_ppm;
+        } else {
+            x_ppm = (self.xscale[0] + self.xscale[1]) / 2.0;
+        }
+    }
+
+    if (y_ppm === undefined || y_ppm === null) {
+        if (self.hline_ppm !== null && self.hline_ppm !== undefined) {
+            y_ppm = self.hline_ppm;
+        } else {
+            y_ppm = (self.yscale[0] + self.yscale[1]) / 2.0;
+        }
+    }
+
+    self.vline_ppm = x_ppm;
+    self.hline_ppm = y_ppm;
+
     let spectra_source = self.local_spectra || hsqc_spectra;
     let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
     let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
     let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
     let y_ppm_end = y_ppm_start + self.y_ppm_step * self.n_indirect;
 
-    /**
-     * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
     self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-    self.$vis.selectAll(".hline").remove();
-    self.$vis.append("path")
-        .attr("class", "hline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.hline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
+    if (self.$vis) {
+        self.$vis.selectAll(".hline").remove();
+        self.$vis.append("path")
+            .attr("class", "hline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.hline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
 
-    /**
-     * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
-    self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-    self.$vis.selectAll(".vline").remove();
-    self.$vis.append("path")
-        .attr("class", "vline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.vline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
-
-    /**
-     * Keep a copy of the current hline,vline ppm values
-     */
-    self.hline_ppm = y_ppm;
-    self.vline_ppm = x_ppm;
-
-    /**
-     * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
-     */
-    // Note: Ortho plots likely don't support cross-section logic yet, 
-    // but we prevent crash by using spectra_source
-    if (self.b_show_cross_section && (spectra_source[self.current_spectral_index].spectrum_origin == -2 || spectra_source[self.current_spectral_index].spectrum_origin == -1) && (current_reprocess_spectrum_index == self.current_spectral_index || spectra_source.length == 1)) {
-        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1/**flag for phase correction */);
+        self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
+        self.$vis.selectAll(".vline").remove();
+        self.$vis.append("path")
+            .attr("class", "vline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.vline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
     }
-    /**
-     * else, show cross section of all spectra (except removed spectra)
-     * Loop through all spectra and show cross section
-     */
-    else if (self.b_show_cross_section) {
-        // Cross section plots may not be initialized for ortho views
-        if (this.x_cross_section_plot) this.x_cross_section_plot.clear_data();
-        if (this.y_cross_section_plot) this.y_cross_section_plot.clear_data();
 
-        for (let i = 0; i < spectra_source.length; i++) {
-            if (spectra_source[i].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
-            {
-                self.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+    let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
+    let is_reprocessing_active = (typeof current_reprocess_spectrum_index !== "undefined" && current_reprocess_spectrum_index !== -1 && current_reprocess_spectrum_index === self.current_spectral_index);
+    let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
+
+    if ((is_reprocessing_active || is_single_fid) && cur_spec && cur_spec.visible !== false) {
+        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1);
+        return;
+    }
+
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
+
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
+    for (let i = 0; i < spectra_source.length; i++) {
+        let spectrum = spectra_source[i];
+        if (!spectrum) continue;
+        if (spectrum.spectrum_origin > -3 && spectrum.visible !== false) {
+            let added_any = false;
+
+            // Direct dimension (horizontal, along x-axis) at row y_pos
+            let y_pos = Math.floor((y_ppm - spectrum.y_ppm_ref - spectrum.y_ppm_start) / spectrum.y_ppm_step);
+            if (y_pos >= 0 && y_pos < spectrum.n_indirect && spectrum.raw_data) {
+                let data_ppm = new Array(spectrum.n_direct);
+                for (let j = 0; j < spectrum.n_direct; j++) {
+                    data_ppm[j] = spectrum.x_ppm_start + spectrum.x_ppm_ref + j * spectrum.x_ppm_step;
+                }
+                let data_height = spectrum.raw_data.slice(y_pos * spectrum.n_direct, (y_pos + 1) * spectrum.n_direct);
+                for (let j = 0; j < data_height.length; j++) {
+                    let v = data_height[j];
+                    if (v > direct_max) direct_max = v;
+                    if (v < direct_min) direct_min = v;
+                }
+                if (self.x_cross_section_plot) {
+                    self.x_cross_section_plot.add_data([data_ppm, data_height], i, true);
+                    added_any = true;
+                }
+            }
+
+            // Indirect dimension (vertical, along y-axis) at col x_pos
+            let x_pos = Math.floor((x_ppm - spectrum.x_ppm_ref - spectrum.x_ppm_start) / spectrum.x_ppm_step);
+            if (x_pos >= 0 && x_pos < spectrum.n_direct && spectrum.raw_data) {
+                let data_ppm2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    data_ppm2[j] = spectrum.y_ppm_start + spectrum.y_ppm_ref + j * spectrum.y_ppm_step;
+                }
+                let data_height2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    let v = spectrum.raw_data[j * spectrum.n_direct + x_pos];
+                    data_height2[j] = v;
+                    if (v > indirect_max) indirect_max = v;
+                    if (v < indirect_min) indirect_min = v;
+                }
+                if (self.y_cross_section_plot) {
+                    self.y_cross_section_plot.add_data([data_ppm2, data_height2], i, true);
+                    added_any = true;
+                }
+            }
+
+            if (added_any) {
+                visible_count++;
             }
         }
     }
 
-    self.sync_3d_views(true);
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
+    }
 };
 
 
@@ -1097,6 +1263,9 @@ plotit.prototype.setup_cross_line = function (event) {
  */
 plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction) {
     let self = this;
+    if (spectrum_index === undefined || !flag_manual_phase_correction) {
+        return self.show_cross_section(x_ppm, y_ppm);
+    }
     let spectra_source = self.local_spectra || hsqc_spectra;
     let spectrum = spectra_source[spectrum_index];
 
@@ -1125,7 +1294,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
         /**
          * if y_pos is out of range, do nothing and return
          */
-        if (y_pos > 0 && y_pos < spectrum.n_indirect) {
+        if (y_pos >= 0 && y_pos < spectrum.n_indirect) {
             /**
              * Get ppm values for the data
              */
@@ -1159,6 +1328,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_x
              */
@@ -1197,9 +1368,6 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
          * if x_pos is out of range, do nothing and return
          */
         if (x_pos >= 0 && x_pos < spectrum.n_direct) {
-            // ... (rest of logic handles indirect dim which assumes column extraction)
-            // I'll update the rest in the next block if needed, but for now this chunk covers Direct dim logic
-
             /**
              * Get ppm values for the data
              */
@@ -1238,6 +1406,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_y
              */
@@ -1254,7 +1424,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             }
         }
     } //end of show cross section
-} //end of cross section
+}; //end of cross section
 
 /**
  * Gets phase correction.
@@ -1276,41 +1446,65 @@ plotit.prototype.show_projection = function () {
     let self = this;
 
     self.b_show_projection = true;
+    self.b_show_cross_section = false;
 
     /**
      * Clear the cross section plot
      */
-    self.x_cross_section_plot.clear_data();
-    self.y_cross_section_plot.clear_data();
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
+
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
+    let spectra_source = self.local_spectra || hsqc_spectra;
 
     /**
-     * Loop all spectrum, except unknown and removed
+     * Loop all spectrum, except unknown, removed and invisible
      */
-    for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++) {
-        if (hsqc_spectra[spe_index].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
+    for (let spe_index = 0; spe_index < spectra_source.length; spe_index++) {
+        let spec = spectra_source[spe_index];
+        if (!spec) continue;
+        if (spec.spectrum_origin > -3 && spec.visible !== false) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
         {
+            visible_count++;
+            if (spec.projection_direct_min < direct_min) direct_min = spec.projection_direct_min;
+            if (spec.projection_direct_max > direct_max) direct_max = spec.projection_direct_max;
+            if (spec.projection_indirect_min < indirect_min) indirect_min = spec.projection_indirect_min;
+            if (spec.projection_indirect_max > indirect_max) indirect_max = spec.projection_indirect_max;
 
             /**
              * data is an array of 2 numbers, [x_ppm, x_height]
              */
-            let ppm = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
+            let ppm = new Array(spec.n_direct);
+            for (let i = 0; i < spec.n_direct; i++) {
+                ppm[i] = spec.x_ppm_start + spec.x_ppm_ref + i * spec.x_ppm_step;
             }
-            self.x_cross_section_plot.zoom(self.xscale, [hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index);
+            if (self.x_cross_section_plot) self.x_cross_section_plot.add_data([ppm, spec.projection_direct], spe_index, true);
 
 
             /**
              * data2 is an array of 2 numbers, [y_height,y_ppm]
              */
-            let ppm2 = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
+            let ppm2 = new Array(spec.n_indirect);
+            for (let i = 0; i < spec.n_indirect; i++) {
+                ppm2[i] = spec.y_ppm_start + spec.y_ppm_ref + i * spec.y_ppm_step;
             }
-            self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max], self.yscale);
-            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index);
+            if (self.y_cross_section_plot) self.y_cross_section_plot.add_data([ppm2, spec.projection_indirect], spe_index, true);
         }
+    }
+
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
     }
 }
 
@@ -2049,6 +2243,148 @@ plotit.prototype.draw_extra_peaks = function () {
         });
 };
 
+/**
+ * Display assignment transfer preview overlay (diamonds for incoming assignments, arrows to matched peaks)
+ * @param {Array<{label: string, x: number, y: number, matched: boolean, peak_x?: number, peak_y?: number}>} items 
+ */
+plotit.prototype.show_assignment_overlay = function (items) {
+    this.assignment_overlay_data = items || [];
+    this.draw_assignment_overlay();
+};
+
+/**
+ * Remove assignment transfer preview overlay from 2D plot
+ */
+plotit.prototype.clear_assignment_overlay = function () {
+    this.assignment_overlay_data = [];
+    if (this.$assignment_overlay_group) {
+        this.$assignment_overlay_group.selectAll('*').remove();
+    }
+};
+
+/**
+ * Draw or update the assignment transfer preview overlay
+ */
+plotit.prototype.draw_assignment_overlay = function () {
+    let self = this;
+    if (!this.assignment_overlay_data || this.assignment_overlay_data.length === 0) {
+        if (this.$assignment_overlay_group) {
+            this.$assignment_overlay_group.selectAll('*').remove();
+        }
+        return;
+    }
+
+    if (!this.$assignment_overlay_group) {
+        this.$assignment_overlay_group = this.$vis.append('g').attr('class', 'assignment-overlay-group');
+    }
+
+    let defs = this.$vis.select("defs");
+    if (defs.empty()) {
+        defs = this.$vis.append("defs");
+    }
+    let markerId = "assign_arrow_" + (this.clipId || "main");
+    if (defs.select("#" + markerId).empty()) {
+        defs.append("marker")
+            .attr("id", markerId)
+            .attr("viewBox", "0 0 10 10")
+            .attr("refX", 7)
+            .attr("refY", 5)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M 0 1.5 L 8 5 L 0 8.5 z")
+            .attr("fill", "#1565c0");
+    }
+
+    // 1. Draw arrows connecting incoming assignment position (x, y) to matched peak position (peak_x, peak_y)
+    let matchedData = this.assignment_overlay_data.filter(d => d.matched && d.peak_x !== undefined && d.peak_y !== undefined);
+
+    let arrowSel = this.$assignment_overlay_group.selectAll('.assignment-arrow')
+        .data(matchedData, function (d) { return d.label; });
+
+    arrowSel.exit().remove();
+
+    let arrowEnter = arrowSel.enter().append('line')
+        .attr('class', 'assignment-arrow')
+        .attr("clip-path", "url(#" + self.clipId + ")")
+        .attr('stroke', '#1565c0')
+        .attr('stroke-width', 1.8)
+        .attr('marker-end', 'url(#' + markerId + ')');
+
+    arrowEnter.merge(arrowSel)
+        .attr('x1', function (d) { return self.xRange(d.x); })
+        .attr('y1', function (d) { return self.yRange(d.y); })
+        .attr('x2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let ux = (x2 - x1) / dist;
+                return x2 - ux * 2;
+            }
+            return x2;
+        })
+        .attr('y2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let uy = (y2 - y1) / dist;
+                return y2 - uy * 2;
+            }
+            return y2;
+        })
+        .attr('visibility', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            return (Math.hypot(x2 - x1, y2 - y1) < 2) ? "hidden" : "visible";
+        });
+
+    // 2. Draw incoming assignment symbols (Diamond: ◇)
+    let peakSel = this.$assignment_overlay_group.selectAll('.assignment-peak')
+        .data(this.assignment_overlay_data, function (d) { return d.label; });
+
+    peakSel.exit().remove();
+
+    let peakEnter = peakSel.enter().append('path')
+        .attr('class', 'assignment-peak')
+        .attr("clip-path", "url(#" + self.clipId + ")");
+
+    peakEnter.append('title');
+
+    peakEnter.merge(peakSel)
+        .attr('d', function (d) {
+            let cx = self.xRange(d.x);
+            let cy = self.yRange(d.y);
+            let r = 6.5; // Diamond radius
+            return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+        })
+        .attr('stroke', function (d) {
+            return d.matched ? '#1565c0' : '#f57c00'; // Blue for matched, amber for unmatched
+        })
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', function (d) {
+            return d.matched ? null : '2,2';
+        })
+        .attr('fill', function (d) {
+            return d.matched ? 'rgba(33, 150, 243, 0.3)' : 'rgba(255, 152, 0, 0.25)';
+        })
+        .select('title')
+        .text(function (d) {
+            let statusStr = d.matched
+                ? `→ Matched Peak: (${d.peak_x.toFixed(3)}, ${d.peak_y.toFixed(3)} ppm)`
+                : `(Unmatched - exceeds cutoff)`;
+            return `Assignment: ${d.label}\nIncoming Position: (${d.x.toFixed(3)}, ${d.y.toFixed(3)} ppm)\n${statusStr}`;
+        });
+};
+
 
 /**
  * Draw a bounding box on the 2D plot
@@ -2097,6 +2433,83 @@ plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
         .attr('width', function (d) { return Math.abs(self.xRange(d.x1) - self.xRange(d.x0)); })
         .attr('height', function (d) { return Math.abs(self.yRange(d.y1) - self.yRange(d.y0)); })
         .attr('stroke', function (d) { return d.color; });
+};
+
+/**
+ * Draw or update a cross marker to label a selected peak at (x_ppm, y_ppm)
+ * @param {number} [x_ppm]
+ * @param {number} [y_ppm]
+ */
+plotit.prototype.draw_selected_peak_cross = function (x_ppm, y_ppm) {
+    let self = this;
+    if (x_ppm !== undefined && y_ppm !== undefined && x_ppm !== null && y_ppm !== null) {
+        self.selected_peak_cross_pos = { x_ppm: x_ppm, y_ppm: y_ppm };
+    }
+    if (!self.selected_peak_cross_pos) {
+        self.remove_selected_peak_cross();
+        return;
+    }
+
+    if (!self.$vis) return;
+
+    let cx = self.xRange(self.selected_peak_cross_pos.x_ppm);
+    let cy = self.yRange(self.selected_peak_cross_pos.y_ppm);
+
+    if (isNaN(cx) || isNaN(cy)) return;
+
+    let arm = Math.max(16, (self.peak_size || 4) + 10);
+
+    if (!self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group = self.$vis.append("g")
+            .attr("class", "selected-peak-cross-group")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .style("pointer-events", "none");
+    }
+
+    self.$selected_peak_cross_group.selectAll("*").remove();
+
+    let lines = [
+        { x1: cx - arm, y1: cy, x2: cx + arm, y2: cy },
+        { x1: cx, y1: cy - arm, x2: cx, y2: cy + arm }
+    ];
+
+    // High contrast white halo lines underneath
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-halo")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", "white")
+            .attr("stroke-width", 4)
+            .attr("stroke-linecap", "square");
+    });
+
+    // Foreground lines
+    let cross_color = self.peak_color || "#ff0000";
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-line")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", cross_color)
+            .attr("stroke-width", 2)
+            .attr("stroke-linecap", "square");
+    });
+};
+
+/**
+ * Remove the selected peak cross from the plot
+ */
+plotit.prototype.remove_selected_peak_cross = function () {
+    let self = this;
+    self.selected_peak_cross_pos = null;
+    if (self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group.selectAll("*").remove();
+    }
 };
 
 
@@ -2406,6 +2819,7 @@ plotit.prototype.remove_picked_peaks = function () {
     self.spectrum = null;
     self.$vis.selectAll('.peak').remove();
     self.$vis.selectAll('.peak_text').remove();
+    self.remove_selected_peak_cross();
 };
 
 /**
@@ -2753,4 +3167,213 @@ plotit.prototype.pan_to_center_ppm = function (axis, center_ppm) {
     // But here we assume this is called from a slider or internal logic.
     self.sync_3d_views();
 };
+
+/**
+ * Sets a secondary (parallel) X axis on the top edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_x_axis = function (config) {
+    this.secondary_x_config = config;
+    this.update_secondary_x_axis();
+};
+
+/**
+ * Updates the secondary X axis scale, ticks, and label based on current primary X scale.
+ */
+plotit.prototype.update_secondary_x_axis = function () {
+    if (!this.secondary_x_config || !this.$vis) return;
+    const cfg = this.secondary_x_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.xRange2) {
+        this.xRange2 = d3.scaleLinear();
+    }
+    this.xRange2.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
+    const sec_dom0 = mapVal(this.xscale[0]);
+    const sec_dom1 = mapVal(this.xscale[1]);
+    this.xRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickWidth = self.fontsize * 4;
+    const maxTicks = Math.floor((this.WIDTH - this.MARGINS.left - this.MARGINS.right) / estimatedTickWidth);
+    this.xAxis2 = d3.axisTop(this.xRange2).ticks(maxTicks).tickSizeInner(6 * thickness);
+
+    if (!this.$xAxis2_svg) {
+        this.$xAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'xaxis2');
+    }
+    this.$xAxis2_svg.attr('transform', 'translate(0,' + this.MARGINS.top + ')');
+
+    this.$xAxis2_svg.call(this.xAxis2);
+
+    this.$xAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$xAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".xaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".xaxis2 path, .xaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary X label centered above axis
+    const xLabel2X = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
+    const xLabel2Y = this.MARGINS.top > 60
+        ? Math.max(16, this.MARGINS.top / 2 - this.fontsize / 2 + 5)
+        : Math.max(12, this.MARGINS.top - 20);
+
+    if (!this.$xLabel2Group) {
+        this.$xLabel2Group = this.$vis.append("g")
+            .attr("class", "x2-label-group");
+        this.$xLabel2Group.append("text")
+            .attr("class", "xlabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$xLabel2Group.attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
+    this.$xLabel2Group.select(".xlabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary X axis from the plot.
+ */
+plotit.prototype.remove_secondary_x_axis = function () {
+    this.secondary_x_config = null;
+    if (this.$xAxis2_svg) {
+        this.$xAxis2_svg.remove();
+        this.$xAxis2_svg = null;
+    }
+    if (this.$xLabel2Group) {
+        this.$xLabel2Group.remove();
+        this.$xLabel2Group = null;
+    }
+    this.xRange2 = null;
+    this.xAxis2 = null;
+};
+
+/**
+ * Sets a secondary (parallel) Y axis on the right edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_y_axis = function (config) {
+    this.secondary_y_config = config;
+    this.update_secondary_y_axis();
+};
+
+/**
+ * Updates the secondary Y axis scale, ticks, and label based on current primary Y scale.
+ */
+plotit.prototype.update_secondary_y_axis = function () {
+    if (!this.secondary_y_config || !this.$vis) return;
+    const cfg = this.secondary_y_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.yRange2) {
+        this.yRange2 = d3.scaleLinear();
+    }
+    this.yRange2.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
+    const sec_dom0 = mapVal(this.yscale[0]);
+    const sec_dom1 = mapVal(this.yscale[1]);
+    this.yRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickHeight = self.fontsize * 2;
+    const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
+    this.yAxis2 = d3.axisRight(this.yRange2).ticks(maxTicksY).tickSizeInner(6 * thickness);
+
+    if (!this.$yAxis2_svg) {
+        this.$yAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'yaxis2');
+    }
+    this.$yAxis2_svg.attr('transform', 'translate(' + (this.WIDTH - this.MARGINS.right) + ',0)');
+
+    this.$yAxis2_svg.call(this.yAxis2);
+
+    this.$yAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$yAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".yaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".yaxis2 path, .yaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary Y label placed on the right
+    const yLabel2X = this.MARGINS.right > 80
+        ? (this.WIDTH - (this.MARGINS.right / 2 - this.fontsize / 2 - 15))
+        : (this.WIDTH - this.MARGINS.right + 42);
+    const yLabel2Y = this.MARGINS.top + (this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / 2;
+
+    if (!this.$yLabel2Group) {
+        this.$yLabel2Group = this.$vis.append("g")
+            .attr("class", "y2-label-group");
+        this.$yLabel2Group.append("text")
+            .attr("class", "ylabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$yLabel2Group.attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
+    this.$yLabel2Group.select(".ylabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary Y axis from the plot.
+ */
+plotit.prototype.remove_secondary_y_axis = function () {
+    this.secondary_y_config = null;
+    if (this.$yAxis2_svg) {
+        this.$yAxis2_svg.remove();
+        this.$yAxis2_svg = null;
+    }
+    if (this.$yLabel2Group) {
+        this.$yLabel2Group.remove();
+        this.$yLabel2Group = null;
+    }
+    this.yRange2 = null;
+    this.yAxis2 = null;
+};
+
 

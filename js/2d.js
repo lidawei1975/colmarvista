@@ -65,6 +65,12 @@ var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently show
 var total_number_of_experimental_spectra = 0; //total number of experimental spectra
 var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
 var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
+var pending_pseudo3d_uncalculated_spectra = []; // pseudo 3D spectra indices (6th onwards) whose contour calculation is deferred
+var last_calculated_spectrum_index = -1; // track last spectrum sent to contour worker in a batch
+var baseline_correction_batch_total = 0;
+var baseline_correction_batch_completed = 0;
+var cest_multi_peak_indices = [];
+var cest_filter_multi_peaks_only = false;
 
 /**
  * For FID re-processing. Saved file data
@@ -349,17 +355,12 @@ $(document).ready(function () {
      * Upload a file with assignment information. 
      * Assignment will be transfer to current showing fitted peaks
      */
-    document.getElementById('assignment_file').addEventListener('change', function (e) {
-
-        /**
-         * Do nothing if pseudo3d_fitted_peaks_object is null
-         */
-        if (pseudo3d_fitted_peaks_object === null) {
-            return;
-        }
-
-        document.getElementById("webassembly_message").innerText = "Assignment transfer is under development.";
-    });
+    const assignmentFileInput = document.getElementById('assignment_file');
+    if (assignmentFileInput) {
+        assignmentFileInput.addEventListener('change', function (e) {
+            load_assignment_file(this);
+        });
+    }
 
     // Synchronize direct dimension phase correction checkboxes:
     // 1. If "ANN Auto PC" (ann_auto_direct) is checked:
@@ -398,7 +399,14 @@ $(document).ready(function () {
         });
     }
 
-    // baseline radio buttons change listener removed
+    // Invalidate ChemEx generated manifest when parameters change
+    ['cest_b1_inh_inf', 'cest_b1', 'time_t1', 'cest_offsets'].forEach(function (id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', function () { chemex_generated_manifest = null; });
+            el.addEventListener('input', function () { chemex_generated_manifest = null; });
+        }
+    });
 
 
     /**
@@ -646,6 +654,8 @@ $(document).ready(function () {
 
             if (processing_flag == 1) {
                 fid_process_parameters.pseudo3d_children = hsqc_spectra[spectrum_index].pseudo3d_children;
+                restart_webassembly_worker();
+                restart_webassembly_worker2();
             }
             else {
                 fid_process_parameters.pseudo3d_children = [];
@@ -668,7 +678,7 @@ $(document).ready(function () {
          * The default value of the button is "Upload experimental files and process"
          * For reprocessing, the button value is set to "Reprocess" by JS code.
          */
-        let button_value = e.submitter.value;
+        let button_value = (e.submitter && e.submitter.value) ? e.submitter.value : (document.getElementById("button_fid_process") ? document.getElementById("button_fid_process").value : "");
 
 
         if (button_value === "Reprocess") {
@@ -985,13 +995,35 @@ function run_pseudo3d(flag) {
         return;
     }
 
-    let initial_peaks;
-    if (current_flag_of_peaks === 'picked') {
-        initial_peaks = hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object.save_peaks_tab();
+    let peaks_source = current_flag_of_peaks === 'picked'
+        ? hsqc_spectra[current_spectrum_index_of_peaks].picked_peaks_object
+        : hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object;
+
+    if (!peaks_source || !peaks_source.columns || peaks_source.columns.length === 0 || peaks_source.columns[0].length === 0) {
+        alert("Please select a valid initial peak list to run pseudo 3D fitting");
+        return;
     }
-    else {
-        initial_peaks = hsqc_spectra[current_spectrum_index_of_peaks].fitted_peaks_object.save_peaks_tab();
+
+    let peaks_copy = new cpeaks();
+    peaks_copy.copy_data(peaks_source);
+
+    if (main_plot && typeof main_plot.get_visible_region === "function") {
+        let [x_ppm_visible_start, x_ppm_visible_end, y_ppm_visible_start, y_ppm_visible_end] = main_plot.get_visible_region();
+        let x_min = Math.min(x_ppm_visible_start, x_ppm_visible_end);
+        let x_max = Math.max(x_ppm_visible_start, x_ppm_visible_end);
+        let y_min = Math.min(y_ppm_visible_start, y_ppm_visible_end);
+        let y_max = Math.max(y_ppm_visible_start, y_ppm_visible_end);
+
+        peaks_copy.filter_by_column_range("X_PPM", x_min, x_max);
+        peaks_copy.filter_by_column_range("Y_PPM", y_min, y_max);
+
+        if (peaks_copy.columns.length === 0 || peaks_copy.columns[0].length === 0) {
+            alert("No peaks in current visible region to run pseudo 3D fitting.");
+            return;
+        }
     }
+
+    let initial_peaks = peaks_copy.save_peaks_tab();
 
     /**
      * Get input number "max_round" value (number type)
@@ -1114,7 +1146,7 @@ function run_pseudo3d(flag) {
     });
 }
 
-webassembly_worker2.onmessage = function (e) {
+function handle_webassembly_worker2_message(e) {
 
     /**
      * if result is stdout, it is the processing message
@@ -1156,6 +1188,16 @@ webassembly_worker2.onmessage = function (e) {
             pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
         });
     }
+}
+
+webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+
+function restart_webassembly_worker2() {
+    if (webassembly_worker2) {
+        webassembly_worker2.terminate();
+    }
+    webassembly_worker2 = new Worker('./js/webass_smile.js');
+    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
 }
 
 function finalize_peak_fitter_v2_if_done(spectrum_index) {
@@ -1239,8 +1281,9 @@ function finalize_peak_fitter_v2_if_done(spectrum_index) {
     }
 }
 
-webassembly_worker.onmessage = async function (e) {
-    const webassembly_job = get_webassembly_job_flag(e.data);
+function handle_webassembly_worker_message(e) {
+    return (async function() {
+        const webassembly_job = get_webassembly_job_flag(e.data);
 
     /**
      * if result is stdout, it is the processing message
@@ -1368,8 +1411,11 @@ webassembly_worker.onmessage = async function (e) {
 
         disable_enable_peak_buttons(e.data.spectrum_index, 1);
 
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+        let show_pk = document.getElementById("show_peaks-".concat(e.data.spectrum_index));
+        if (show_pk) {
+            show_pk.checked = false;
+            show_pk.click();
+        }
 
         document.getElementById("webassembly_message").innerText = "";
     }
@@ -1379,7 +1425,7 @@ webassembly_worker.onmessage = async function (e) {
         const s = hsqc_spectra[spectrum_index];
         if (s) {
             try {
-                const arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+                const arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
                 const result_spectrum = new spectrum();
                 result_spectrum.process_ft_file(arrayBuffer, s.filename, s.spectrum_origin);
 
@@ -1399,6 +1445,9 @@ webassembly_worker.onmessage = async function (e) {
                 result_spectrum.scale2 = s.scale2;
                 result_spectrum.fid_process_parameters = s.fid_process_parameters;
                 result_spectrum.pseudo3d_children = s.pseudo3d_children;
+                result_spectrum.parent = s.parent;
+                result_spectrum.default_collapsed = s.default_collapsed;
+                result_spectrum.contour_calculated = s.contour_calculated;
                 result_spectrum.reconstructed_indices = s.reconstructed_indices;
 
                 hsqc_spectra[spectrum_index] = result_spectrum;
@@ -1415,13 +1464,37 @@ webassembly_worker.onmessage = async function (e) {
                 // Restore peak/fitted peak buttons to correct enabled/disabled status
                 restore_spectrum_buttons_status(spectrum_index);
 
-                document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
-                clear_webassembly_message_after_delay(5000);
+                baseline_correction_batch_completed++;
+                if (baseline_correction_batch_total > 1) {
+                    if (baseline_correction_batch_completed < baseline_correction_batch_total) {
+                        document.getElementById("webassembly_message").innerText =
+                            "Applying baseline correction: " + baseline_correction_batch_completed + " of " + baseline_correction_batch_total + " planes complete...";
+                    } else {
+                        document.getElementById("webassembly_message").innerText =
+                            "Baseline correction complete for all " + baseline_correction_batch_total + " planes!";
+                        clear_webassembly_message_after_delay(5000);
+                        baseline_correction_batch_total = 0;
+                        baseline_correction_batch_completed = 0;
+                        update_baseline_button_status(main_plot.current_spectral_index);
+                    }
+                } else {
+                    document.getElementById("webassembly_message").innerText = "Baseline correction complete!";
+                    clear_webassembly_message_after_delay(5000);
+                    baseline_correction_batch_total = 0;
+                    baseline_correction_batch_completed = 0;
+                    update_baseline_button_status(main_plot.current_spectral_index);
+                }
             } catch (err) {
                 console.error('[baseline_correction] Failed to process:', err);
                 document.getElementById("webassembly_message").innerText = "Baseline correction failed: " + err.message;
                 // Restore buttons on failure as well
                 restore_spectrum_buttons_status(spectrum_index);
+                baseline_correction_batch_completed++;
+                if (baseline_correction_batch_completed >= baseline_correction_batch_total) {
+                    baseline_correction_batch_total = 0;
+                    baseline_correction_batch_completed = 0;
+                    update_baseline_button_status(main_plot.current_spectral_index);
+                }
             }
         }
     }
@@ -1462,8 +1535,11 @@ webassembly_worker.onmessage = async function (e) {
 
         disable_enable_peak_buttons(e.data.spectrum_index, 1);
 
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).checked = false;
-        document.getElementById("show_peaks-".concat(e.data.spectrum_index)).click();
+        let show_pk2 = document.getElementById("show_peaks-".concat(e.data.spectrum_index));
+        if (show_pk2) {
+            show_pk2.checked = false;
+            show_pk2.click();
+        }
 
         /**
          * Clear the processing message
@@ -1625,7 +1701,7 @@ webassembly_worker.onmessage = async function (e) {
      */
     else if (e.data.file_data && e.data.file_type && (e.data.file_type === 'full' || e.data.file_type === 'indirect') && e.data.phasing_data) {
         if (e.data.nus_auto_phase_prep) {
-            let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+            let arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
             let result_spectrum = new spectrum();
             result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
             result_spectrum.fid_process_parameters = fid_process_parameters;
@@ -1695,7 +1771,7 @@ webassembly_worker.onmessage = async function (e) {
          * if b_reprocess is false, we will add the spectrum to the hsqc_spectra array
          * Both are done in draw_spectrum function
          */
-        let arrayBuffer = new Uint8Array(e.data.file_data).buffer;
+        let arrayBuffer = (e.data.file_data && e.data.file_data.buffer) ? e.data.file_data.buffer : new Uint8Array(e.data.file_data).buffer;
         let result_spectrum = new spectrum();
         result_spectrum.process_ft_file(arrayBuffer, "from_fid.ft2", -2);
         let b_reprocess = e.data.processing_flag == 1 ? true : false;
@@ -1710,7 +1786,7 @@ webassembly_worker.onmessage = async function (e) {
         if (typeof e.data.pseudo3d_files !== "undefined" && Array.isArray(e.data.pseudo3d_files)) {
             console.log("Additional pseudo 3D ft2 files received:", e.data.pseudo3d_files.length);
             for (let i = 0; i < e.data.pseudo3d_files.length; i++) {
-                let arrayBuffer = new Uint8Array(e.data.pseudo3d_files[i]).buffer;
+                let arrayBuffer = (e.data.pseudo3d_files[i] && e.data.pseudo3d_files[i].buffer) ? e.data.pseudo3d_files[i].buffer : new Uint8Array(e.data.pseudo3d_files[i]).buffer;
                 let result_spectrum = new spectrum();
                 result_spectrum.process_ft_file(arrayBuffer, "pseudo3d-".concat((i + 1).toString(), ".ft2"), -4);
                 result_spectra.push(result_spectrum);
@@ -1784,8 +1860,10 @@ webassembly_worker.onmessage = async function (e) {
              * -3 means removed spectrum, all DOM element for removed spectrum is also removed
              */
             if (hsqc_spectra[i].spectrum_origin !== -3) {
-                document.getElementById("show_peaks-".concat(i)).checked = false;
-                document.getElementById("show_fitted_peaks-".concat(i)).checked = false;
+                let sp = document.getElementById("show_peaks-".concat(i));
+                if (sp) sp.checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-".concat(i));
+                if (sfp) sfp.checked = false;
             }
         }
 
@@ -1825,7 +1903,18 @@ webassembly_worker.onmessage = async function (e) {
     else {
         console.log(e.data);
     }
-};
+    })();
+}
+
+webassembly_worker.onmessage = handle_webassembly_worker_message;
+
+function restart_webassembly_worker() {
+    if (webassembly_worker) {
+        webassembly_worker.terminate();
+    }
+    webassembly_worker = new Worker('./js/webass_2d.js');
+    webassembly_worker.onmessage = handle_webassembly_worker_message;
+}
 
 var plot_div_resize_observer = new ResizeObserver(entries => {
     for (let entry of entries) {
@@ -1949,6 +2038,7 @@ sortableList.addEventListener(
             let index = parseInt(list_items[i].id.split("-")[1]); //ID is spectrum-index
             new_order.push(index);
         }
+        update_all_minimized_spectra_display();
         /**
          * In case new_order.length !== main_plot.spectral_order.length,
          * we need to wait for the worker to finish the calculation then update the order
@@ -2090,18 +2180,291 @@ function minimize_file_area(self) {
     }
 }
 
+function minimize_dosy_area(self) {
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("dosy_area_content");
+    let container = document.getElementById("dosy_area");
+    if (button_text === "-") {
+        self.innerText = "+";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
+    }
+    else {
+        self.innerText = "-";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
+    }
+}
+
+function minimize_cest_area(self) {
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("cest_area_content");
+    let container = document.getElementById("cest_area");
+    if (button_text === "-") {
+        self.innerText = "+";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
+    }
+    else {
+        self.innerText = "-";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
+    }
+}
+
+function minimize_assignment_area(self) {
+    let button_text = self.innerText.trim();
+    let content = document.getElementById("assignment_area_content");
+    let container = document.getElementById("assignment_area");
+    if (button_text === "-") {
+        self.innerText = "+";
+        if (content) content.style.display = "none";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "clip";
+        }
+    }
+    else {
+        self.innerText = "-";
+        if (content) content.style.display = "block";
+        if (container) {
+            container.style.height = "auto";
+            container.style.overflow = "visible";
+        }
+    }
+}
+
+
+/**
+ * Returns the index of the first plane (parent) for pseudo-3D spectra.
+ * If the spectrum is not part of a pseudo-3D dataset, returns the given index.
+ */
+function get_pseudo3d_first_spectrum_index(index) {
+    if (index === null || index === undefined || index < 0 || typeof hsqc_spectra === "undefined" || index >= hsqc_spectra.length || !hsqc_spectra[index]) {
+        return index;
+    }
+    const s = hsqc_spectra[index];
+    // Reconstructed spectra have origin >= 0 && < 10000; they are not pseudo-3D planes
+    if (s.spectrum_origin >= 0 && s.spectrum_origin < 10000) {
+        return index;
+    }
+    // Check explicit parent reference
+    if (typeof s.parent === "number" && s.parent >= 0 && s.parent < hsqc_spectra.length) {
+        if (s.spectrum_origin >= 10000 || (hsqc_spectra[s.parent] && hsqc_spectra[s.parent].pseudo3d_children && hsqc_spectra[s.parent].pseudo3d_children.length > 0)) {
+            return s.parent;
+        }
+    }
+    // Check spectrum_origin (>= 10000 means pseudo-3D plane, first plane is origin - 10000)
+    if (s.spectrum_origin >= 10000) {
+        return s.spectrum_origin - 10000;
+    }
+    // If it has children, it is the 1st plane
+    if (s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+        return index;
+    }
+    return index;
+}
+
+/**
+ * Checks if a spectrum belongs to a pseudo-3D dataset (either 1st plane or a child plane).
+ */
+function is_pseudo3d_spectrum(index) {
+    if (index === null || index === undefined || index < 0 || typeof hsqc_spectra === "undefined" || index >= hsqc_spectra.length || !hsqc_spectra[index]) {
+        return false;
+    }
+    const s = hsqc_spectra[index];
+    if (s.spectrum_origin >= 0 && s.spectrum_origin < 10000) return false;
+    if (s.spectrum_origin >= 10000) return true;
+    if (s.pseudo3d_children && s.pseudo3d_children.length > 0) return true;
+    if (typeof s.parent === "number" && s.parent >= 0 && s.parent < hsqc_spectra.length) {
+        const p = hsqc_spectra[s.parent];
+        if (p && p.pseudo3d_children && p.pseudo3d_children.length > 0) return true;
+    }
+    return false;
+}
+
+function is_pseudo3d_sixth_or_later(index) {
+    if (!hsqc_spectra[index]) return false;
+    const s = hsqc_spectra[index];
+    if (s.spectrum_origin >= 0 && s.spectrum_origin < 10000) return false;
+    let parent_index = get_pseudo3d_first_spectrum_index(index);
+    if (parent_index !== index && hsqc_spectra[parent_index]) {
+        let parent = hsqc_spectra[parent_index];
+        if (parent && parent.pseudo3d_children && parent.pseudo3d_children.length > 0) {
+            let child_idx = parent.pseudo3d_children.indexOf(index);
+            if (child_idx !== -1) {
+                // plane 0 is parent, child_idx 0 is plane 1, ..., child_idx 4 is plane 5 (the 6th plane)
+                return child_idx >= 4;
+            }
+        }
+        if (index - parent_index >= 5) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function calculate_contour_for_spectrum(index) {
+    let spec = hsqc_spectra[index];
+    if (!spec || !spec.raw_data) return;
+    if (spec.contour_calculated === true || spec.contour_calculated === "calculating") return;
+    spec.contour_calculated = "calculating";
+
+    let msg = document.getElementById("contour_message");
+    if (msg) {
+        msg.innerText = "Calculating contours for spectrum " + index + "...";
+    }
+
+    let spectrum_information = {
+        n_direct: spec.n_direct,
+        n_indirect: spec.n_indirect,
+        levels: spec.levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: spec.spectrum_origin,
+        contour_sign: 0
+    };
+    my_contour_worker.postMessage({ response_value: spec.raw_data, spectrum: spectrum_information });
+
+    let spectrum_information_neg = {
+        n_direct: spec.n_direct,
+        n_indirect: spec.n_indirect,
+        levels: spec.negative_levels,
+        spectrum_type: "full",
+        spectrum_index: index,
+        spectrum_origin: spec.spectrum_origin,
+        contour_sign: 1
+    };
+    my_contour_worker.postMessage({ response_value: spec.raw_data, spectrum: spectrum_information_neg });
+}
+
+function flush_pending_pseudo3d_spectra() {
+    if (!main_plot || !main_plot.levels_length || !main_plot.levels_length_negative) return;
+    if (pending_pseudo3d_uncalculated_spectra.length === 0) return;
+
+    let flushed_any = false;
+    while (pending_pseudo3d_uncalculated_spectra.length > 0 &&
+           main_plot.levels_length.length === pending_pseudo3d_uncalculated_spectra[0] &&
+           main_plot.levels_length_negative.length === pending_pseudo3d_uncalculated_spectra[0]) {
+        let uncalc_index = pending_pseudo3d_uncalculated_spectra.shift();
+        main_plot.levels_length.push([]);
+        main_plot.polygon_length.push([]);
+        main_plot.colors.push(hexToRgb(hsqc_spectra[uncalc_index].spectrum_color));
+        main_plot.contour_lbs.push(0);
+        main_plot.points_start.push(main_plot.points.length);
+        main_plot.spectral_information.push({
+            n_direct: hsqc_spectra[uncalc_index].n_direct,
+            n_indirect: hsqc_spectra[uncalc_index].n_indirect,
+            x_ppm_start: hsqc_spectra[uncalc_index].x_ppm_start,
+            x_ppm_step: hsqc_spectra[uncalc_index].x_ppm_step,
+            y_ppm_start: hsqc_spectra[uncalc_index].y_ppm_start,
+            y_ppm_step: hsqc_spectra[uncalc_index].y_ppm_step,
+            x_ppm_ref: hsqc_spectra[uncalc_index].x_ppm_ref,
+            y_ppm_ref: hsqc_spectra[uncalc_index].y_ppm_ref,
+        });
+        main_plot.levels_length_negative.push([]);
+        main_plot.polygon_length_negative.push([]);
+        main_plot.colors_negative.push(hexToRgb(hsqc_spectra[uncalc_index].spectrum_color_negative));
+        main_plot.contour_lbs_negative.push(0);
+        main_plot.points_start_negative.push(main_plot.points.length);
+        main_plot.spectral_order.push(uncalc_index);
+
+        add_to_list(uncalc_index);
+        flushed_any = true;
+    }
+    if (flushed_any) {
+        last_calculated_spectrum_index = -1;
+        main_plot.redraw_contour();
+        update_all_minimized_spectra_display();
+    }
+}
+
+function get_total_spectra_count() {
+    let list_ol = document.getElementById("spectra_list_ol");
+    let dom_count = list_ol ? list_ol.querySelectorAll(":scope > li").length : 0;
+    let exp_count = (typeof total_number_of_experimental_spectra !== "undefined") ? total_number_of_experimental_spectra : 0;
+    let hsqc_count = (typeof hsqc_spectra !== "undefined") ? hsqc_spectra.filter(s => s && s.spectrum_origin !== -3).length : 0;
+    return Math.max(dom_count, exp_count, hsqc_count);
+}
+
+function update_all_minimized_spectra_display() {
+    let list_ol = document.getElementById("spectra_list_ol");
+    if (!list_ol) return;
+
+    let items = list_ol.querySelectorAll(":scope > li");
+    let val = 1;
+    for (let li of items) {
+        let child_id = li.id;
+        if (!child_id || !child_id.startsWith("spectrum-")) continue;
+        if (li.style.display === "none") continue;
+        li.value = val++;
+        let index = parseInt(child_id.split("-")[1]);
+        let btn = document.getElementById("minimize-" + index);
+        if (!btn) continue;
+        let is_minimized = (btn.innerText.trim().startsWith("+")) || li.classList.contains("spectrum-minimized-compact");
+        let spectrum_div = li.querySelector("div");
+        if (!spectrum_div) continue;
+
+        if (is_minimized) {
+            li.classList.add("spectrum-minimized-compact");
+            spectrum_div.style.height = "";
+            spectrum_div.style.overflow = "";
+            btn.innerText = is_pseudo3d_spectrum(index) ? ("+ " + (index + 1)) : "+";
+            if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
+                btn.title = "Restore: " + hsqc_spectra[index].filename + " (Plane: " + (index + 1) + ")";
+            }
+        } else {
+            li.classList.remove("spectrum-minimized-compact");
+            spectrum_div.style.height = "auto";
+            spectrum_div.style.overflow = "";
+            btn.innerText = "-";
+            btn.removeAttribute("title");
+        }
+    }
+}
 
 function minimize_spectrum(button, index) {
-    let spectrum_div = document.getElementById("spectrum-".concat(index)).querySelector("div");
-    let minimize_button = button;
-    if (minimize_button.innerText === "-") {
-        minimize_button.innerText = "+";
-        spectrum_div.style.height = "1.75rem";
-        spectrum_div.style.overflow = "clip";
+    if (typeof button === 'number' && index === undefined) {
+        index = button;
+        button = null;
+    }
+    let spec_el = document.getElementById("spectrum-".concat(index));
+    if (!spec_el) return;
+    let spectrum_div = spec_el.querySelector("div");
+    if (!spectrum_div) return;
+    let minimize_button = button || document.getElementById("minimize-" + index);
+    if (!minimize_button) return;
+
+    let is_minimized = spec_el.classList.contains("spectrum-minimized-compact") || (minimize_button.innerText.trim().startsWith("+"));
+
+    if (!is_minimized) {
+        // Current state: expanded -> Action: Minimize
+        minimize_button.innerText = is_pseudo3d_spectrum(index) ? ("+ " + (index + 1)) : "+";
+        spec_el.classList.add("spectrum-minimized-compact");
+        spectrum_div.style.height = "";
+        spectrum_div.style.overflow = "";
+
+        if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
+            minimize_button.title = "Restore: " + hsqc_spectra[index].filename + " (Plane: " + (index + 1) + ")";
+        }
         /**
          * Also set lbs to hide all contours for this spectrum
          */
-        hsqc_spectra[index].visible = false;
+        if (hsqc_spectra[index]) {
+            hsqc_spectra[index].visible = false;
+        }
 
         /**
          * Loop all spectra, find children of this spectrum, hide them too
@@ -2113,9 +2476,15 @@ function minimize_spectrum(button, index) {
         }
     }
     else {
+        // Current state: minimized -> Action: Restore
         minimize_button.innerText = "-";
+        minimize_button.removeAttribute("title");
+        spec_el.classList.remove("spectrum-minimized-compact");
         spectrum_div.style.height = "auto";
-        hsqc_spectra[index].visible = true;
+        spectrum_div.style.overflow = "";
+        if (hsqc_spectra[index]) {
+            hsqc_spectra[index].visible = true;
+        }
 
         /**
          * Loop all spectra, find children of this spectrum, show them too
@@ -2125,9 +2494,22 @@ function minimize_spectrum(button, index) {
                 hsqc_spectra[i].visible = true;
             }
         }
+
+        if (hsqc_spectra[index] && hsqc_spectra[index].contour_calculated === false) {
+            calculate_contour_for_spectrum(index);
+        }
     }
-    main_plot.redraw_contour();
-    main_plot.redraw_1d();
+    if (main_plot) {
+        main_plot.redraw_contour();
+        if (main_plot.b_show_projection) {
+            main_plot.show_projection();
+        } else if (main_plot.b_show_cross_section) {
+            main_plot.show_cross_section();
+        } else {
+            main_plot.redraw_1d();
+        }
+    }
+    update_all_minimized_spectra_display();
 }
 
 /**
@@ -2136,6 +2518,12 @@ function minimize_spectrum(button, index) {
  * IMPORTANT: This function is called AFTER contour is drawn
  */
 function add_to_list(index) {
+    if (!hsqc_spectra[index]) {
+        return;
+    }
+    if (document.getElementById("spectrum-".concat(index))) {
+        return;
+    }
     let new_spectrum = hsqc_spectra[index];
     let new_spectrum_div_list = document.createElement("li");
     let new_spectrum_div = document.createElement("div");
@@ -2153,6 +2541,8 @@ function add_to_list(index) {
         return;
     }
 
+    let b_collapsed = (new_spectrum.default_collapsed === true) || is_pseudo3d_sixth_or_later(index);
+
     /**
      * Add a draggable div to the new spectrum div, only if the spectrum is experimental
      */
@@ -2162,20 +2552,26 @@ function add_to_list(index) {
          */
         let minimize_button = document.createElement("button");
         minimize_button.id = "minimize-".concat(index);
-        minimize_button.innerText = "-";
+        minimize_button.innerText = b_collapsed ? (is_pseudo3d_spectrum(index) ? ("+ " + (index + 1)) : "+") : "-";
         minimize_button.onclick = function () { minimize_spectrum(this, index); };
         new_spectrum_div.appendChild(minimize_button);
 
         let draggable_span = document.createElement("span");
-        draggable_span.draggable = true;
         draggable_span.classList.add("draggable");
         draggable_span.appendChild(document.createTextNode("\u2195 Drag me. "));
         draggable_span.style.cursor = "move";
         new_spectrum_div.appendChild(draggable_span);
+
+        if (b_collapsed) {
+            new_spectrum_div_list.classList.add("spectrum-minimized-compact");
+            new_spectrum.visible = false;
+            if (new_spectrum.filename) {
+                minimize_button.title = "Restore: " + new_spectrum.filename + " (Plane: " + (index + 1) + ")";
+            }
+        }
     }
 
     /**
-     * Add a "Reprocess" button to the new spectrum div if
      * 1. spectrum_origin == -2 (experimental spectrum from fid, and must be first if from pseudo 3D)
      * TODO: 2. spectrum_origin == -1 (experimental spectrum from ft2) && raw_data_ri or raw_data_ir is not empty
      */
@@ -2187,13 +2583,36 @@ function add_to_list(index) {
     }
 
     /**
-     * If this is a reconstructed spectrum, add a button called "Remove me"
+     * If this is a reconstructed spectrum, add a title, visibility checkbox, and "Remove me" button
      */
     if (new_spectrum.spectrum_origin >= 0 && new_spectrum.spectrum_origin < 10000) {
         let remove_button = document.createElement("button");
         remove_button.innerText = "Remove me";
         remove_button.onclick = function () { remove_spectrum_caller(index); };
         new_spectrum_div.appendChild(remove_button);
+
+        let recon_name = new_spectrum.filename || ("recon-" + new_spectrum.spectrum_origin + ".ft2");
+        let recon_span = document.createElement("span");
+        recon_span.style.fontWeight = "bold";
+        recon_span.innerText = " " + recon_name + " (fitted from plane " + (new_spectrum.spectrum_origin + 1) + ") ";
+        new_spectrum_div.appendChild(recon_span);
+
+        let show_recon_checkbox = document.createElement("input");
+        show_recon_checkbox.setAttribute("type", "checkbox");
+        show_recon_checkbox.setAttribute("id", "show_recon-" + index);
+        show_recon_checkbox.checked = (new_spectrum.visible !== false);
+        show_recon_checkbox.onchange = function () {
+            new_spectrum.visible = this.checked;
+            if (this.checked && new_spectrum.contour_calculated === false) {
+                calculate_contour_for_spectrum(index);
+            }
+            if (main_plot) main_plot.redraw_contour();
+        };
+        let show_recon_label = document.createElement("label");
+        show_recon_label.setAttribute("for", "show_recon-" + index);
+        show_recon_label.innerText = " Show reconstructed spectrum ";
+        new_spectrum_div.appendChild(show_recon_checkbox);
+        new_spectrum_div.appendChild(show_recon_label);
     }
 
     if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
@@ -2206,37 +2625,42 @@ function add_to_list(index) {
         span_for_index.appendChild(original_index_node);
         new_spectrum_div.appendChild(span_for_index);
         /**
-         * make this one the default selected spectrum
+         * Make this one the default selected spectrum only if not default collapsed,
+         * and for pseudo-3D datasets, always keep the 1st one as current.
          */
-        if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+        let is_p3d = is_pseudo3d_spectrum(index);
+        let p3d_first_index = get_pseudo3d_first_spectrum_index(index);
+        let is_p3d_child = is_p3d && (index !== p3d_first_index);
 
-            let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
-            if (current_spectrum_div) {
-                current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+        if (!b_collapsed && !is_p3d_child) {
+            if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
+                let current_spectrum_div = document.getElementById("spectrum-".concat(main_plot.current_spectral_index));
+                if (current_spectrum_div) {
+                    current_spectrum_div.querySelector("div").style.backgroundColor = "white";
+                }
             }
-        }
-        main_plot.current_spectral_index = index;
-        update_automatic_pc_button_status(index);
-        update_baseline_button_status(index);
-        /**
-         * Highlight the current spectrum in the list
-         */
-        new_spectrum_div.style.backgroundColor = "lightblue";
-
-
-        /**
-         * Add a onclick function to the new spectrum div to set the current spectrum index
-         */
-        span_for_index.onclick = function () {
-            /**
-             * Un-highlight the current spectrum in the list
-             */
-            set_current_spectrum(index);
-            /**
-             * If this new spectrum has no imaginary part, disable auto phase correction button
-             */
+            main_plot.current_spectral_index = index;
             update_automatic_pc_button_status(index);
             update_baseline_button_status(index);
+            /**
+             * Highlight the current spectrum in the list
+             */
+            new_spectrum_div.style.backgroundColor = "lightblue";
+        }
+        else {
+            new_spectrum_div.style.backgroundColor = "white";
+            // For pseudo-3D children, ensure the 1st plane is kept as current
+            if (is_p3d_child && (main_plot.current_spectral_index === -1 || !hsqc_spectra[main_plot.current_spectral_index])) {
+                set_current_spectrum(p3d_first_index);
+            }
+        }
+
+        /**
+         * Add a onclick function to the new spectrum div to set the current spectrum index.
+         * For pseudo-3D, set_current_spectrum will always resolve to and keep the 1st plane as current.
+         */
+        span_for_index.onclick = function () {
+            set_current_spectrum(index);
         }
         /**
          * Add filename as a text node
@@ -2423,7 +2847,7 @@ function add_to_list(index) {
             let option = parseInt(run_voigt_fitter_select.value);
             run_Voigt_fitter_v2(index, option);
         };
-        if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
+        if (!hsqc_spectra[index].picked_peaks_object || !hsqc_spectra[index].picked_peaks_object.column_headers || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
             run_voigt_fitter_button0.disabled = true;
         }
         run_voigt_fitter_button0.setAttribute("id", "run_voigt_fitter-".concat(index));
@@ -2501,11 +2925,11 @@ function add_to_list(index) {
     /**
      * Disable the download or show picked or fitted peaks buttons, depending on the state of the picked or fitted peaks
      */
-    if (hsqc_spectra[index].picked_peaks_object === null || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
+    if (!hsqc_spectra[index].picked_peaks_object || !hsqc_spectra[index].picked_peaks_object.column_headers || hsqc_spectra[index].picked_peaks_object.column_headers.length === 0) {
         show_peaks_checkbox.disabled = true;
         download_peaks_button.disabled = true;
     }
-    if (hsqc_spectra[index].fitted_peaks_object === null || hsqc_spectra[index].fitted_peaks_object.column_headers.length === 0) {
+    if (!hsqc_spectra[index].fitted_peaks_object || !hsqc_spectra[index].fitted_peaks_object.column_headers || hsqc_spectra[index].fitted_peaks_object.column_headers.length === 0) {
         show_fitted_peaks_checkbox.disabled = true;
         download_fitted_peaks_button.disabled = true;
     }
@@ -2632,7 +3056,7 @@ function add_to_list(index) {
     contour_level_span.setAttribute("id", "contour_level-".concat(index));
     contour_level_span.classList.add("information");
 
-    if (total_number_of_experimental_spectra <= 4) {
+    if (total_number_of_experimental_spectra <= 4 || b_collapsed) {
         contour_slider.setAttribute("value", "1");
         contour_level_span.innerText = new_spectrum.levels[0].toExponential(4);
     }
@@ -2785,7 +3209,7 @@ function add_to_list(index) {
     contour_level_span_negative.setAttribute("id", "contour_level_negative-".concat(index));
     contour_level_span_negative.classList.add("information");
 
-    if (total_number_of_experimental_spectra <= 4) {
+    if (total_number_of_experimental_spectra <= 4 || b_collapsed) {
         contour_slider_negative.setAttribute("value", "1");
         contour_level_span_negative.innerText = new_spectrum.negative_levels[0].toExponential(4);
     }
@@ -2838,13 +3262,35 @@ function add_to_list(index) {
      * Add the new spectrum div to the list of spectra if it is from experimental data
     */
     if (hsqc_spectra[index].spectrum_origin < 0 || hsqc_spectra[index].spectrum_origin >= 10000) {
-        document.getElementById("spectra_list_ol").appendChild(new_spectrum_div_list);
+        let list_ol = document.getElementById("spectra_list_ol");
+        let inserted = false;
+        let children = list_ol.children;
+        for (let i = 0; i < children.length; i++) {
+            let child_id = children[i].id;
+            if (child_id && child_id.startsWith("spectrum-")) {
+                let child_idx = parseInt(child_id.split("-")[1]);
+                if (child_idx > index) {
+                    list_ol.insertBefore(new_spectrum_div_list, children[i]);
+                    inserted = true;
+                    break;
+                }
+            }
+        }
+        if (!inserted) {
+            list_ol.appendChild(new_spectrum_div_list);
+        }
     }
     /**
      * If the spectrum is reconstructed, add the new spectrum div to the reconstructed spectrum list
      */
     else {
-        document.getElementById("reconstructed_spectrum_ol-".concat(hsqc_spectra[index].spectrum_origin)).appendChild(new_spectrum_div_list);
+        let recon_ol = document.getElementById("reconstructed_spectrum_ol-".concat(hsqc_spectra[index].spectrum_origin));
+        if (recon_ol) {
+            recon_ol.appendChild(new_spectrum_div_list);
+        } else {
+            let list_ol = document.getElementById("spectra_list_ol");
+            if (list_ol) list_ol.appendChild(new_spectrum_div_list);
+        }
     }
 
     if (new_spectrum.spectrum_origin === -1 || new_spectrum.spectrum_origin === -2 || new_spectrum.spectrum_origin >= 10000) {
@@ -2859,8 +3305,14 @@ function add_to_list(index) {
 
         /**
          * For experimental spectrum, switch default to show projection
+         * Only call for uncollapsed spectra to prevent UI freezing on large pseudo3D datasets
          */
-        show_projection();
+        if (!b_collapsed) {
+            show_projection();
+        }
+    }
+    if (!pending_pseudo3d_uncalculated_spectra || pending_pseudo3d_uncalculated_spectra.length === 0) {
+        update_all_minimized_spectra_display();
     }
 }
 
@@ -2881,6 +3333,7 @@ my_contour_worker.onmessage = (e) => {
 
     console.log("Message received from worker, spectral type: " + e.data.spectrum_type);
 
+    flush_pending_pseudo3d_spectra();
 
     if (e.data.spectrum_type === "full" && e.data.spectrum_index > main_plot.levels_length_negative.length) {
         /**
@@ -2937,17 +3390,26 @@ my_contour_worker.onmessage = (e) => {
              * For experimental spectra, we add the index to the end of main_plot.spectral_order array
              */
             if (e.data.spectrum_origin < 0 || e.data.spectrum_origin >= 10000) {
-                main_plot.spectral_order.push(e.data.spectrum_index);
+                if (main_plot.spectral_order.indexOf(e.data.spectrum_index) === -1) {
+                    main_plot.spectral_order.push(e.data.spectrum_index);
+                }
             }
             /**
              * For reconstructed spectra, we first find location of the spectrum_origin in main_plot.spectral_order array
              * Then insert the index of the new spectrum after the location
              */
             else {
-                let index = main_plot.spectral_order.indexOf(e.data.spectrum_origin);
-                main_plot.spectral_order.splice(index + 1, 0, e.data.spectrum_index);
+                if (main_plot.spectral_order.indexOf(e.data.spectrum_index) === -1) {
+                    let index = main_plot.spectral_order.indexOf(e.data.spectrum_origin);
+                    if (index !== -1) {
+                        main_plot.spectral_order.splice(index + 1, 0, e.data.spectrum_index);
+                    } else {
+                        main_plot.spectral_order.push(e.data.spectrum_index);
+                    }
+                }
             }
             main_plot.redraw_contour();
+            flush_pending_pseudo3d_spectra();
         }
         else if (e.data.contour_sign === 1) {
             /**
@@ -2976,6 +3438,8 @@ my_contour_worker.onmessage = (e) => {
              * So no need to update spectral_information array again
              */
             main_plot.redraw_contour();
+
+            flush_pending_pseudo3d_spectra();
         }
     }
 
@@ -3047,6 +3511,14 @@ my_contour_worker.onmessage = (e) => {
         else if (e.data.contour_sign === 1) {
             main_plot.levels_length_negative[e.data.spectrum_index] = e.data.levels_length;
             main_plot.polygon_length_negative[e.data.spectrum_index] = e.data.polygon_length;
+            if (hsqc_spectra[e.data.spectrum_index]) {
+                hsqc_spectra[e.data.spectrum_index].contour_calculated = true;
+            }
+            let msg = document.getElementById("contour_message");
+            if (msg && msg.innerText.indexOf("spectrum " + e.data.spectrum_index) !== -1) {
+                msg.innerText = "";
+            }
+            flush_pending_pseudo3d_spectra();
         }
 
         /**
@@ -3229,7 +3701,7 @@ function init_plot(input) {
 
         else if (event.data.type === 'cross_line' && event.data.peak_group === peak_group) {
             if (main_plot !== null) {
-                main_plot.setup_cross_line_from_ppm(event.data.x_ppm, event.data.y_ppm);
+                main_plot.show_cross_section(event.data.x_ppm, event.data.y_ppm);
             }
         }
     }
@@ -3318,7 +3790,7 @@ function show_cross_section() {
      */
     const index = main_plot.current_spectral_index;
     update_automatic_pc_button_status(index);
-    if (hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
+    if (hsqc_spectra[index] && hsqc_spectra[index].raw_data_ri && hsqc_spectra[index].raw_data_ri.length > 0) {
         /**
          * If there is only one spectrum, we will also enable apply phase correction,
          * because we allow manual phase correction in this case.
@@ -3327,6 +3799,7 @@ function show_cross_section() {
             document.getElementById("button_apply_ps").disabled = false;
         }
     }
+    main_plot.show_cross_section();
 }
 
 function show_projection() {
@@ -3889,6 +4362,8 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
          */
         spectrum_index = hsqc_spectra.length;
         result_spectra[0].spectrum_index = spectrum_index;
+        result_spectra[0].parent = (result_spectra[0].spectrum_origin >= 0) ? result_spectra[0].spectrum_origin : spectrum_index;
+        result_spectra[0].pseudo3d_children = [];
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
         hsqc_spectra.push(result_spectra[0]);
@@ -3919,9 +4394,13 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 result_spectra[i].fid_process_parameters = fid_process_parameters;
                 first_spectrum_index = result_spectra[i].spectrum_index;
                 result_spectra[i].spectrum_origin = -2; //from fid
+                result_spectra[i].parent = first_spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
             }
             else {
                 result_spectra[i].spectrum_origin = 10000 + first_spectrum_index;
+                result_spectra[i].parent = first_spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 hsqc_spectra[first_spectrum_index].pseudo3d_children.push(result_spectra[i].spectrum_index);
             }
 
@@ -3934,9 +4413,20 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
          * Also, update the fid_process_parameters
          */
         spectrum_index = result_spectra[0].spectrum_index;
+        result_spectra[0].parent = spectrum_index;
+        if (!result_spectra[0].pseudo3d_children) {
+            result_spectra[0].pseudo3d_children = pseudo3d_children || [];
+        }
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
+        if (hsqc_spectra[spectrum_index]) {
+            hsqc_spectra[spectrum_index].raw_data = null;
+            hsqc_spectra[spectrum_index].raw_data_ri = null;
+            hsqc_spectra[spectrum_index].raw_data_ir = null;
+            hsqc_spectra[spectrum_index].raw_data_ii = null;
+            hsqc_spectra[spectrum_index].header = null;
+        }
         hsqc_spectra[spectrum_index] = result_spectra[0];
 
         /**
@@ -3960,11 +4450,20 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 let new_spectrum_index = pseudo3d_children[i - 1];
                 result_spectra[i].spectrum_index = new_spectrum_index;
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
+                result_spectra[i].parent = spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 /**
                  * Copy previous colors
                  */
                 result_spectra[i].spectrum_color = hsqc_spectra[new_spectrum_index].spectrum_color;
                 result_spectra[i].spectrum_color_negative = hsqc_spectra[new_spectrum_index].spectrum_color_negative;
+                if (hsqc_spectra[new_spectrum_index]) {
+                    hsqc_spectra[new_spectrum_index].raw_data = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ri = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ir = null;
+                    hsqc_spectra[new_spectrum_index].raw_data_ii = null;
+                    hsqc_spectra[new_spectrum_index].header = null;
+                }
                 hsqc_spectra[new_spectrum_index] = result_spectra[i];
             }
         }
@@ -3978,6 +4477,8 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 result_spectra[i].spectrum_color = rgbToHex(color_list[(new_spectrum_index * 2) % color_list.length]);
                 result_spectra[i].spectrum_color_negative = rgbToHex(color_list[(new_spectrum_index * 2 + 1) % color_list.length]);
                 result_spectra[i].spectrum_origin = 10000 + spectrum_index;
+                result_spectra[i].parent = spectrum_index;
+                result_spectra[i].pseudo3d_children = [];
                 hsqc_spectra[spectrum_index].pseudo3d_children.push(new_spectrum_index);
                 hsqc_spectra.push(result_spectra[i]);
             }
@@ -3997,7 +4498,55 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
      */
     init_plot(hsqc_spectra[0]);
 
+    let is_pseudo3d = (result_spectra.length > 1) || (pseudo3d_children && pseudo3d_children.length > 0);
+    pending_pseudo3d_uncalculated_spectra = [];
+    last_calculated_spectrum_index = -1;
+
     for (let i = 0; i < result_spectra.length; i++) {
+        let is_sixth_or_later = is_pseudo3d && (i >= 5);
+
+        if (is_sixth_or_later) {
+            result_spectra[i].contour_calculated = false;
+            result_spectra[i].visible = false;
+            result_spectra[i].default_collapsed = true;
+
+            let spec_idx = result_spectra[i].spectrum_index;
+            let spec_div = document.getElementById("spectrum-" + spec_idx);
+            if (!spec_div) {
+                pending_pseudo3d_uncalculated_spectra.push(spec_idx);
+            }
+            else {
+                if (main_plot && main_plot.levels_length && spec_idx < main_plot.levels_length.length) {
+                    main_plot.levels_length[spec_idx] = [];
+                }
+                if (main_plot && main_plot.levels_length_negative && spec_idx < main_plot.levels_length_negative.length) {
+                    main_plot.levels_length_negative[spec_idx] = [];
+                }
+                if (main_plot && main_plot.polygon_length && spec_idx < main_plot.polygon_length.length) {
+                    main_plot.polygon_length[spec_idx] = [];
+                }
+                if (main_plot && main_plot.polygon_length_negative && spec_idx < main_plot.polygon_length_negative.length) {
+                    main_plot.polygon_length_negative[spec_idx] = [];
+                }
+                let btn = document.getElementById("minimize-" + spec_idx);
+                if (btn) {
+                    btn.innerText = "+ " + (spec_idx + 1);
+                    if (result_spectra[i] && result_spectra[i].filename) {
+                        btn.title = "Restore: " + result_spectra[i].filename + " (Plane: " + (spec_idx + 1) + ")";
+                    }
+                }
+                spec_div.classList.add("spectrum-minimized-compact");
+                if (spec_div.querySelector("div")) {
+                    spec_div.querySelector("div").style.overflow = "";
+                    spec_div.querySelector("div").style.whiteSpace = "";
+                }
+            }
+            continue;
+        }
+
+        result_spectra[i].contour_calculated = true;
+        result_spectra[i].default_collapsed = false;
+        last_calculated_spectrum_index = result_spectra[i].spectrum_index;
 
         /**
          * Positive contour calculation for the spectrum
@@ -4031,6 +4580,11 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
         spectrum_information.levels = result_spectra[i].negative_levels;
         my_contour_worker.postMessage({ response_value: result_spectra[i].raw_data, spectrum: spectrum_information });
     }
+
+    if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
+        flush_pending_pseudo3d_spectra();
+    }
+    update_all_minimized_spectra_display();
 }
 
 /**
@@ -4040,7 +4594,31 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
 function draw_spectrum_from_loading() {
     init_plot(hsqc_spectra[0]);
 
+    pending_pseudo3d_uncalculated_spectra = [];
+    last_calculated_spectrum_index = -1;
+
+    let spectra_to_calculate = [];
     for (let i = 0; i < hsqc_spectra.length; i++) {
+        if (is_pseudo3d_sixth_or_later(i)) {
+            hsqc_spectra[i].contour_calculated = false;
+            hsqc_spectra[i].visible = false;
+            hsqc_spectra[i].default_collapsed = true;
+            pending_pseudo3d_uncalculated_spectra.push(i);
+        } else {
+            hsqc_spectra[i].contour_calculated = true;
+            hsqc_spectra[i].default_collapsed = false;
+            spectra_to_calculate.push(i);
+            last_calculated_spectrum_index = i;
+        }
+    }
+
+    if (last_calculated_spectrum_index === -1 && pending_pseudo3d_uncalculated_spectra.length > 0) {
+        flush_pending_pseudo3d_spectra();
+    }
+    update_all_minimized_spectra_display();
+
+    for (let k = 0; k < spectra_to_calculate.length; k++) {
+        let i = spectra_to_calculate[k];
 
         /**
          * Positive contour calculation for the spectrum
@@ -4051,7 +4629,7 @@ function draw_spectrum_from_loading() {
              */
             n_direct: hsqc_spectra[i].n_direct,
             n_indirect: hsqc_spectra[i].n_indirect,
-            levels: hsqc_spectra[i].levels,
+            levels: (hsqc_spectra[i].levels && Array.isArray(hsqc_spectra[i].levels)) ? hsqc_spectra[i].levels : [],
 
             /**
              * These are flags to be send back to the main thread
@@ -4071,7 +4649,7 @@ function draw_spectrum_from_loading() {
          * Negative contour calculation for the spectrum
          */
         spectrum_information.contour_sign = 1;
-        spectrum_information.levels = hsqc_spectra[i].negative_levels;
+        spectrum_information.levels = (hsqc_spectra[i].negative_levels && Array.isArray(hsqc_spectra[i].negative_levels)) ? hsqc_spectra[i].negative_levels : [];
         my_contour_worker.postMessage({ response_value: hsqc_spectra[i].raw_data, spectrum: spectrum_information });
     }
 }
@@ -4285,30 +4863,31 @@ function load_peak_list(spectrum_index) {
  * Disable or enable buttons of download_peaks-, run_deep_picker-, run_voigt_fitter-, show_peaks-
  */
 function disable_enable_peak_buttons(spectrum_index, flag) {
+    let dp_btn = document.getElementById("download_peaks-".concat(spectrum_index));
+    let rlp_btn = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    let rsp_btn = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    let rdp_btn = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    let rvf_btn = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+    let sp_btn = document.getElementById("show_peaks-".concat(spectrum_index));
+
     if (flag === 0 || flag === 2) {
-        /**
-         * Disable the buttons to run deep picker and voigt fitter
-         */
-        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = true;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = true;
-        if (flag === 0) {
-            document.getElementById("show_peaks-".concat(spectrum_index)).disabled = true;
-            document.getElementById("show_peaks-".concat(spectrum_index)).checked = false;
+        if (dp_btn) dp_btn.disabled = true;
+        if (rlp_btn) rlp_btn.disabled = true;
+        if (rsp_btn) rsp_btn.disabled = true;
+        if (rdp_btn) rdp_btn.disabled = true;
+        if (rvf_btn) rvf_btn.disabled = true;
+        if (flag === 0 && sp_btn) {
+            sp_btn.disabled = true;
+            sp_btn.checked = false;
         }
     }
     else if (flag === 1) {
-        /**
-         * Enable the buttons to run deep picker and voigt fitter
-         */
-        document.getElementById("download_peaks-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
-        document.getElementById("show_peaks-".concat(spectrum_index)).disabled = false;
+        if (dp_btn) dp_btn.disabled = false;
+        if (rlp_btn) rlp_btn.disabled = false;
+        if (rsp_btn) rsp_btn.disabled = false;
+        if (rdp_btn) rdp_btn.disabled = false;
+        if (rvf_btn) rvf_btn.disabled = false;
+        if (sp_btn) sp_btn.disabled = false;
     }
 }
 
@@ -4316,21 +4895,27 @@ function disable_enable_peak_buttons(spectrum_index, flag) {
  * Disable or enable buttons for download_fitted_peaks and show_fitted_peaks
  */
 function disable_enable_fitted_peak_buttons(spectrum_index, flag) {
+    let dfp_btn = document.getElementById("download_fitted_peaks-".concat(spectrum_index));
+    let sfp_btn = document.getElementById("show_fitted_peaks-".concat(spectrum_index));
+    let rlp_btn = document.getElementById("run_load_peak_list-".concat(spectrum_index));
+    let rsp_btn = document.getElementById("run_simple_picker-".concat(spectrum_index));
+    let rdp_btn = document.getElementById("run_deep_picker-".concat(spectrum_index));
+    let rvf_btn = document.getElementById("run_voigt_fitter-".concat(spectrum_index));
+
     if (flag == 0) {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = true;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).checked = false;
+        if (dfp_btn) dfp_btn.disabled = true;
+        if (sfp_btn) {
+            sfp_btn.disabled = true;
+            sfp_btn.checked = false;
+        }
     }
     else if (flag == 1) {
-        document.getElementById("download_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        document.getElementById("show_fitted_peaks-".concat(spectrum_index)).disabled = false;
-        /**
-         * Enable run deep picker and run voigt fitter buttons (allow run again)
-         */
-        document.getElementById("run_load_peak_list-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_simple_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_deep_picker-".concat(spectrum_index)).disabled = false;
-        document.getElementById("run_voigt_fitter-".concat(spectrum_index)).disabled = false;
+        if (dfp_btn) dfp_btn.disabled = false;
+        if (sfp_btn) sfp_btn.disabled = false;
+        if (rlp_btn) rlp_btn.disabled = false;
+        if (rsp_btn) rsp_btn.disabled = false;
+        if (rdp_btn) rdp_btn.disabled = false;
+        if (rvf_btn) rvf_btn.disabled = false;
     }
 }
 
@@ -4613,12 +5198,14 @@ function show_hide_peaks(index, flag, b_show) {
     for (let i = 0; i < hsqc_spectra.length; i++) {
         if (i !== index) {
             /**
-             * If spectrum is deleted, these checkboxes are no longer available.
+             * If spectrum is deleted or DOM element not created, these checkboxes are not available.
              * So we need to check if they are available
              */
             if (hsqc_spectra[i].spectrum_origin !== -3) {
-                document.getElementById("show_peaks-" + i).checked = false;
-                document.getElementById("show_fitted_peaks-" + i).checked = false;
+                let sp = document.getElementById("show_peaks-" + i);
+                if (sp) sp.checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-" + i);
+                if (sfp) sfp.checked = false;
             }
         }
         /**
@@ -4626,10 +5213,12 @@ function show_hide_peaks(index, flag, b_show) {
          */
         else {
             if (flag === 'picked') {
-                document.getElementById("show_fitted_peaks-" + i).checked = false;
+                let sfp = document.getElementById("show_fitted_peaks-" + i);
+                if (sfp) sfp.checked = false;
             }
             else if (flag === 'fitted') {
-                document.getElementById("show_peaks-" + i).checked = false;
+                let sp = document.getElementById("show_peaks-" + i);
+                if (sp) sp.checked = false;
             }
         }
     }
@@ -4638,7 +5227,8 @@ function show_hide_peaks(index, flag, b_show) {
      * If index is not -2, we need to uncheck the checkbox of pseudo 3D peaks
      */
     if (index !== -2) {
-        document.getElementById("show_pseudo3d_peaks").checked = false;
+        let p3d = document.getElementById("show_pseudo3d_peaks");
+        if (p3d) p3d.checked = false;
     }
 
     /**
@@ -4648,6 +5238,20 @@ function show_hide_peaks(index, flag, b_show) {
         current_spectrum_index_of_peaks = index;
         current_flag_of_peaks = 'fitted';
         show_peak_table();
+        // If CEST analysis results are present, switch to highlight mode automatically
+        if (typeof cest_multi_peak_indices !== 'undefined' && cest_multi_peak_indices.length > 0) {
+            apply_multi_peak_highlights();
+            let btnHeader = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeader) {
+                btnHeader.style.display = 'inline-block';
+                btnHeader.disabled = false;
+                let total_peaks = (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0])
+                    ? pseudo3d_fitted_peaks_object.columns[0].length : '';
+                btnHeader.textContent = cest_filter_multi_peaks_only
+                    ? `Show All Peaks (${total_peaks})`
+                    : `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+            }
+        }
         /**
          * flag is always 'fitted' for pseudo 3D peaks.
          * First define a dummy hsqc_spectrum object. When flag is fitted, main_plot will only use fitted_peaks of the spectrum
@@ -4721,6 +5325,8 @@ function show_hide_peaks(index, flag, b_show) {
         current_spectrum_index_of_peaks = index;
         set_current_spectrum(index);
         current_flag_of_peaks = flag;
+        let btnHeader = document.getElementById("button_peak_area_filter_multi");
+        if (btnHeader) btnHeader.style.display = 'none';
         show_peak_table();
 
         /**
@@ -4755,11 +5361,66 @@ function show_hide_peaks(index, flag, b_show) {
         main_plot.add_peaks(hsqc_spectra[index], flag, ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
         update_label_select(['INDEX', 'HEIGHT']);
         color_map_list = ['HEIGHT'];
-        color_map_limit = [get_peak_limit(hsqc_spectra[index].picked_peaks_object, 'HEIGHT')];
+        let p_obj = (flag === 'fitted' && hsqc_spectra[index].fitted_peaks_object) ? hsqc_spectra[index].fitted_peaks_object : hsqc_spectra[index].picked_peaks_object;
+        color_map_limit = [get_peak_limit(p_obj, 'HEIGHT')];
         update_colormap_select();
         main_plot.allow_hover_on_peaks(false);
+
+        if (flag === 'fitted') {
+            let recon_indices = [];
+            if (hsqc_spectra[index] && hsqc_spectra[index].reconstructed_indices) {
+                recon_indices = recon_indices.concat(hsqc_spectra[index].reconstructed_indices);
+            }
+            for (let i = 0; i < hsqc_spectra.length; i++) {
+                if (hsqc_spectra[i] && hsqc_spectra[i].spectrum_origin === index && recon_indices.indexOf(i) === -1) {
+                    recon_indices.push(i);
+                }
+            }
+            if (hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin >= 0 && hsqc_spectra[index].spectrum_origin < 10000) {
+                if (recon_indices.indexOf(index) === -1) {
+                    recon_indices.push(index);
+                }
+            }
+            for (let r = 0; r < recon_indices.length; r++) {
+                let r_idx = recon_indices[r];
+                if (hsqc_spectra[r_idx]) {
+                    hsqc_spectra[r_idx].visible = true;
+                    if (hsqc_spectra[r_idx].contour_calculated === false) {
+                        calculate_contour_for_spectrum(r_idx);
+                    }
+                    let r_cb = document.getElementById("show_recon-" + r_idx);
+                    if (r_cb) r_cb.checked = true;
+                }
+            }
+            if (main_plot) main_plot.redraw_contour();
+        }
     }
     else {
+        if (flag === 'fitted' && typeof index === 'number' && index >= 0 && hsqc_spectra[index]) {
+            let recon_indices = [];
+            if (hsqc_spectra[index].reconstructed_indices) {
+                recon_indices = recon_indices.concat(hsqc_spectra[index].reconstructed_indices);
+            }
+            for (let i = 0; i < hsqc_spectra.length; i++) {
+                if (hsqc_spectra[i] && hsqc_spectra[i].spectrum_origin === index && recon_indices.indexOf(i) === -1) {
+                    recon_indices.push(i);
+                }
+            }
+            if (hsqc_spectra[index].spectrum_origin >= 0 && hsqc_spectra[index].spectrum_origin < 10000) {
+                if (recon_indices.indexOf(index) === -1) {
+                    recon_indices.push(index);
+                }
+            }
+            for (let r = 0; r < recon_indices.length; r++) {
+                let r_idx = recon_indices[r];
+                if (hsqc_spectra[r_idx]) {
+                    hsqc_spectra[r_idx].visible = false;
+                    let r_cb = document.getElementById("show_recon-" + r_idx);
+                    if (r_cb) r_cb.checked = false;
+                }
+            }
+            if (main_plot) main_plot.redraw_contour();
+        }
         current_spectrum_index_of_peaks = -1; // -1 means no spectrum is selected. flag is not important
         main_plot.remove_picked_peaks();
         color_map_list = [];
@@ -4963,6 +5624,7 @@ function remove_spectrum(index) {
 
     main_plot.redraw_contour();
     update_baseline_button_status(main_plot.current_spectral_index);
+    update_all_minimized_spectra_display();
 }
 
 
@@ -5048,6 +5710,7 @@ function apply_phase_correction_in_place(spectrum_obj, phase_deg) {
 
 function refresh_contours_for_spectrum(index) {
     const s = hsqc_spectra[index];
+    if (!s || s.contour_calculated === false) return;
     let spectrum_information = {
         n_direct: s.n_direct,
         n_indirect: s.n_indirect,
@@ -5082,18 +5745,12 @@ function refresh_cross_sections_after_phase(index) {
     const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
         && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
 
-    if (single_manual_mode) {
+    if (single_manual_mode && hsqc_spectra[index].visible !== false) {
         main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, index, 1);
         return;
     }
 
-    main_plot.x_cross_section_plot.clear_data();
-    main_plot.y_cross_section_plot.clear_data();
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        if (hsqc_spectra[i].spectrum_origin > -3) {
-            main_plot.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
-        }
-    }
+    main_plot.show_cross_section(x_ppm, y_ppm);
 }
 
 /**
@@ -5325,12 +5982,24 @@ async function apply_current_pc_or_auto_pc(flag) {
      * Run webass worker to apply phase correction.
      * First, pass the spectrum as a file. 
      */
-    let index = main_plot.current_spectral_index;
+    let index = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
 
     // Manual phase correction is fast enough to run on main thread.
     if (flag == 0) {
         apply_phase_correction_in_place(hsqc_spectra[index], current_ps);
         refresh_contours_for_spectrum(index);
+
+        const s = hsqc_spectra[index];
+        if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+            for (let i = 0; i < s.pseudo3d_children.length; i++) {
+                const child_idx = s.pseudo3d_children[i];
+                if (hsqc_spectra[child_idx]) {
+                    apply_phase_correction_in_place(hsqc_spectra[child_idx], current_ps);
+                    refresh_contours_for_spectrum(child_idx);
+                }
+            }
+        }
+
         refresh_cross_sections_after_phase(index);
         document.getElementById("webassembly_message").innerText = "";
         return;
@@ -5344,7 +6013,7 @@ async function apply_current_pc_or_auto_pc(flag) {
         const phases = await run_ann_phase_correction_for_spectrum(hsqc_spectra[index]);
         if (phases) {
             const s = hsqc_spectra[index];
-            if (s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+            if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
                 for (let i = 0; i < s.pseudo3d_children.length; i++) {
                     const child_idx = s.pseudo3d_children[i];
                     if (hsqc_spectra[child_idx]) {
@@ -5579,75 +6248,118 @@ function reprocess_spectrum(self, spectrum_index) {
  * Onclick event from save button
 */
 function save_to_file() {
-    /**
-     * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
-     * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
-     */
-    let hsqc_spectra_copy = [];
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
-        hsqc_spectra_copy.push(spectrum_copy);
+    try {
+        /**
+         * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
+         * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
+         */
+        let hsqc_spectra_copy = [];
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
+            hsqc_spectra_copy.push(spectrum_copy);
+        }
+
+        if (pseudo3d_fitted_peaks_object !== null) {
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.cest_offsets = cestOffsetsInput.value.trim();
+            }
+            let cestB1Input = document.getElementById("cest_b1");
+            if (cestB1Input && cestB1Input.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.cest_b1 = parseFloat(cestB1Input.value);
+            }
+            let timeT1Input = document.getElementById("time_t1");
+            if (timeT1Input && timeT1Input.value.trim().length > 0) {
+                pseudo3d_fitted_peaks_object.time_t1 = parseFloat(timeT1Input.value);
+            }
+            pseudo3d_fitted_peaks_object.cest_multi_peak_indices = cest_multi_peak_indices;
+        }
+
+        let currPeakObj = (typeof get_current_peak_object === 'function') ? get_current_peak_object() : null;
+        let saved_chemex_results = (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.chemex_results)
+            ? pseudo3d_fitted_peaks_object.chemex_results
+            : ((currPeakObj && currPeakObj.chemex_results) ? currPeakObj.chemex_results : null);
+
+        let to_save = {
+            hsqc_spectra: hsqc_spectra_copy,
+            pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
+            pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
+            cest_multi_peak_indices: cest_multi_peak_indices,
+            chemex_results: saved_chemex_results
+        };
+
+        /**
+         * Step 2, prepare the binaryData, which is a concatenation of all 
+         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
+         */
+        let totalLength = 0;
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            const s = hsqc_spectra[i];
+            totalLength += (s.header ? s.header.length : 0) +
+                (s.raw_data ? s.raw_data.length : 0) +
+                (s.raw_data_ri ? s.raw_data_ri.length : 0) +
+                (s.raw_data_ir ? s.raw_data_ir.length : 0) +
+                (s.raw_data_ii ? s.raw_data_ii.length : 0);
+        }
+
+        const jsonString = JSON.stringify(to_save);
+        const jsonBytes = new TextEncoder().encode(jsonString);
+        const jsonLength = jsonBytes.length;
+
+        // Create a DataView to write the length as an Int32:
+        const lengthBuffer = new ArrayBuffer(4);
+        const lengthView = new DataView(lengthBuffer);
+        lengthView.setInt32(0, jsonLength, true); // true for little-endian
+
+        // Combine length, JSON, and binary data:
+        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
+        const combinedView = new Uint8Array(combinedBuffer);
+
+        combinedView.set(new Uint8Array(lengthBuffer), 0);
+        combinedView.set(jsonBytes, 4);
+
+        /**
+         * Step 3, copy all binary data into combinedView
+         */
+        let offset = 4 + jsonLength;
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            const s = hsqc_spectra[i];
+            if (s.header && s.header.length > 0) {
+                combinedView.set(new Uint8Array(s.header.buffer, s.header.byteOffset, s.header.byteLength), offset);
+                offset += s.header.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data && s.raw_data.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data.buffer, s.raw_data.byteOffset, s.raw_data.byteLength), offset);
+                offset += s.raw_data.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ri && s.raw_data_ri.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ri.buffer, s.raw_data_ri.byteOffset, s.raw_data_ri.byteLength), offset);
+                offset += s.raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ir && s.raw_data_ir.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ir.buffer, s.raw_data_ir.byteOffset, s.raw_data_ir.byteLength), offset);
+                offset += s.raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (s.raw_data_ii && s.raw_data_ii.length > 0) {
+                combinedView.set(new Uint8Array(s.raw_data_ii.buffer, s.raw_data_ii.byteOffset, s.raw_data_ii.byteLength), offset);
+                offset += s.raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+        }
+
+        // Create Blob and download:
+        const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "colmarvista_save.bin";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error("Error saving session to file:", err);
+        alert("Failed to save session: " + err.message);
     }
-
-    let to_save = {
-        hsqc_spectra: hsqc_spectra_copy,
-        pseudo3d_fitted_peaks_object: pseudo3d_fitted_peaks_object,
-        pseudo3d_fitted_peaks_error: pseudo3d_fitted_peaks_error,
-    };
-
-    /**
-     * Step 2, prepare the binaryData, which is a concatenation of all 
-     *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
-     */
-    let totalLength = 0;
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        totalLength += hsqc_spectra[i].header.length + hsqc_spectra[i].raw_data.length + hsqc_spectra[i].raw_data_ri.length + hsqc_spectra[i].raw_data_ir.length + hsqc_spectra[i].raw_data_ii.length;
-    }
-
-    const jsonString = JSON.stringify(to_save);
-    const jsonBytes = new TextEncoder().encode(jsonString);
-    const jsonLength = jsonBytes.length;
-
-    // Create a DataView to write the length as an Int32:
-    const lengthBuffer = new ArrayBuffer(4);
-    const lengthView = new DataView(lengthBuffer);
-    lengthView.setInt32(0, jsonLength, true); // true for little-endian
-
-    // Combine length, JSON, and binary data:
-    const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
-    const combinedView = new Uint8Array(combinedBuffer);
-
-    combinedView.set(new Uint8Array(lengthBuffer), 0);
-    combinedView.set(jsonBytes, 4);
-    /**
-     * Step 3, copy all binary data into combinedView
-     */
-    let offset = 4 + jsonLength;
-    for (let i = 0; i < hsqc_spectra.length; i++) {
-        combinedView.set(new Uint8Array(hsqc_spectra[i].header.buffer), offset);
-        console.log('set header at offset ' + offset);
-        console.log(hsqc_spectra[i].header);
-        offset += hsqc_spectra[i].header.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data.buffer), offset);
-        offset += hsqc_spectra[i].raw_data.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ri.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ri.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ir.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ir.length * Float32Array.BYTES_PER_ELEMENT;
-        combinedView.set(new Uint8Array(hsqc_spectra[i].raw_data_ii.buffer), offset);
-        offset += hsqc_spectra[i].raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
-    }
-
-    // Create Blob and download:
-    const blob = new Blob([combinedBuffer], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "colmarvista_save.bin";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 };
 
 /**
@@ -5674,35 +6386,149 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         pseudo3d_fitted_peaks_error = to_save.pseudo3d_fitted_peaks_error;
     }
 
+    // Reset UI state, peak tables, and plot arrays for a clean session load
+    total_number_of_experimental_spectra = 0;
+    current_spectrum_index_of_peaks = -1;
+    current_flag_of_peaks = 'picked';
+    cest_multi_peak_indices = [];
+    if (typeof remove_peak_table === "function") {
+        remove_peak_table();
+    }
+
+    let spectra_list_ol = document.getElementById("spectra_list_ol");
+    if (spectra_list_ol) {
+        spectra_list_ol.innerHTML = "";
+    }
+
+    let show_pseudo3d = document.getElementById("show_pseudo3d_peaks");
+    if (show_pseudo3d) show_pseudo3d.checked = false;
+
+    if (main_plot) {
+        if (typeof main_plot.remove_picked_peaks === "function") {
+            main_plot.remove_picked_peaks();
+        }
+        main_plot.polygon_length = [];
+        main_plot.polygon_length_negative = [];
+        main_plot.levels_length = [];
+        main_plot.levels_length_negative = [];
+        main_plot.colors = [];
+        main_plot.colors_negative = [];
+        main_plot.contour_lbs = [];
+        main_plot.contour_lbs_negative = [];
+        main_plot.spectral_information = [];
+        main_plot.spectral_order = [];
+        main_plot.points_start = [];
+        main_plot.points_start_negative = [];
+        main_plot.points = new Float32Array();
+        main_plot.current_spectral_index = 0;
+        if (hsqc_spectra[0]) {
+            let x_range = [hsqc_spectra[0].x_ppm_start, hsqc_spectra[0].x_ppm_start + hsqc_spectra[0].x_ppm_step * hsqc_spectra[0].n_direct];
+            let y_range = [hsqc_spectra[0].y_ppm_start, hsqc_spectra[0].y_ppm_start + hsqc_spectra[0].y_ppm_step * hsqc_spectra[0].n_indirect];
+            if (typeof main_plot.zoom_to === "function") {
+                main_plot.zoom_to(x_range, y_range);
+            }
+        }
+    }
+
+    /**
+     * Helper to restore peak_profile prototype methods on deserialized peak_profiles
+     */
+    function rehydrate_cpeaks_profiles(peaks_obj) {
+        if (!peaks_obj || !peaks_obj.peak_profiles || typeof peak_profile !== 'function') return;
+        for (let k in peaks_obj.peak_profiles) {
+            let prof = peaks_obj.peak_profiles[k];
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function') {
+                Object.setPrototypeOf(prof, peak_profile.prototype);
+            }
+        }
+    }
+
     /**
      * Reattach methods defined in spectrum.js to all hsqc_spectra objects
      */
     for (let i = 0; i < hsqc_spectra.length; i++) {
+        hsqc_spectra[i].spectrum_index = i;
+        if (!hsqc_spectra[i].levels || !Array.isArray(hsqc_spectra[i].levels)) {
+            hsqc_spectra[i].levels = [];
+        }
+        if (!hsqc_spectra[i].negative_levels || !Array.isArray(hsqc_spectra[i].negative_levels)) {
+            hsqc_spectra[i].negative_levels = [];
+        }
+        if (!hsqc_spectra[i].spectrum_color) {
+            hsqc_spectra[i].spectrum_color = rgbToHex(color_list[(i * 2) % color_list.length]);
+        }
+        if (!hsqc_spectra[i].spectrum_color_negative) {
+            hsqc_spectra[i].spectrum_color_negative = rgbToHex(color_list[(i * 2 + 1) % color_list.length]);
+        }
         /**
          * Loop all methods of class spectrum and attach them to the hsqc_spectra[i] object
          */
-        let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
-        for (let j = 0; j < spectrum_methods.length; j++) {
-            if (spectrum_methods[j] !== 'constructor') {
-                hsqc_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
-            }
-        }
-        /**
-         * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
-         */
-        if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
-            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for (let j = 0; j < peaks_methods.length; j++) {
-                if (peaks_methods[j] !== 'constructor') {
-                    hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+        if (typeof spectrum !== 'undefined' && spectrum.prototype) {
+            let spectrum_methods = Object.getOwnPropertyNames(spectrum.prototype);
+            for (let j = 0; j < spectrum_methods.length; j++) {
+                if (spectrum_methods[j] !== 'constructor') {
+                    hsqc_spectra[i][spectrum_methods[j]] = spectrum.prototype[spectrum_methods[j]];
                 }
             }
         }
-        if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
+
+        /**
+         * For hsqc_spectra[i].fitted_peaks_object and picked_peaks_object, we need to reattach methods as well
+         */
+        if (typeof cpeaks !== 'undefined' && cpeaks.prototype) {
             let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-            for (let j = 0; j < peaks_methods.length; j++) {
-                if (peaks_methods[j] !== 'constructor') {
-                    hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+            if (hsqc_spectra[i].picked_peaks_object !== null && hsqc_spectra[i].picked_peaks_object.column_headers && hsqc_spectra[i].picked_peaks_object.column_headers.length > 0) {
+                for (let j = 0; j < peaks_methods.length; j++) {
+                    if (peaks_methods[j] !== 'constructor') {
+                        hsqc_spectra[i].picked_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    }
+                }
+            }
+            if (hsqc_spectra[i].fitted_peaks_object !== null && hsqc_spectra[i].fitted_peaks_object.column_headers && hsqc_spectra[i].fitted_peaks_object.column_headers.length > 0) {
+                for (let j = 0; j < peaks_methods.length; j++) {
+                    if (peaks_methods[j] !== 'constructor') {
+                        hsqc_spectra[i].fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    }
+                }
+            }
+        }
+        rehydrate_cpeaks_profiles(hsqc_spectra[i].picked_peaks_object);
+        rehydrate_cpeaks_profiles(hsqc_spectra[i].fitted_peaks_object);
+
+        // Ensure parent and pseudo3d_children are properly tracked
+        if (typeof hsqc_spectra[i].parent === "undefined" || hsqc_spectra[i].parent === null) {
+            if (hsqc_spectra[i].spectrum_origin >= 10000) {
+                hsqc_spectra[i].parent = hsqc_spectra[i].spectrum_origin - 10000;
+            } else if (hsqc_spectra[i].pseudo3d_children && hsqc_spectra[i].pseudo3d_children.length > 0) {
+                hsqc_spectra[i].parent = i;
+            } else if (hsqc_spectra[i].spectrum_origin >= 0) {
+                hsqc_spectra[i].parent = hsqc_spectra[i].spectrum_origin;
+            } else {
+                hsqc_spectra[i].parent = i;
+            }
+        }
+        if (!hsqc_spectra[i].pseudo3d_children) {
+            hsqc_spectra[i].pseudo3d_children = [];
+        }
+        if (!hsqc_spectra[i].reconstructed_indices) {
+            hsqc_spectra[i].reconstructed_indices = [];
+        }
+        if (hsqc_spectra[i].spectrum_origin >= 10000) {
+            let p_idx = hsqc_spectra[i].spectrum_origin - 10000;
+            if (hsqc_spectra[p_idx] && hsqc_spectra[p_idx].pseudo3d_children) {
+                if (hsqc_spectra[p_idx].pseudo3d_children.indexOf(i) === -1) {
+                    hsqc_spectra[p_idx].pseudo3d_children.push(i);
+                }
+            }
+        }
+        if (hsqc_spectra[i].spectrum_origin >= 0 && hsqc_spectra[i].spectrum_origin < 10000) {
+            let orig = hsqc_spectra[i].spectrum_origin;
+            if (hsqc_spectra[orig]) {
+                if (!hsqc_spectra[orig].reconstructed_indices) {
+                    hsqc_spectra[orig].reconstructed_indices = [];
+                }
+                if (hsqc_spectra[orig].reconstructed_indices.indexOf(i) === -1) {
+                    hsqc_spectra[orig].reconstructed_indices.push(i);
                 }
             }
         }
@@ -5712,58 +6538,192 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
      * If pseudo3d_fitted_peaks_object is not null, we need to reattach methods as well
      */
     if (pseudo3d_fitted_peaks_object !== null) {
-        let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
-        for (let j = 0; j < peaks_methods.length; j++) {
-            if (peaks_methods[j] !== 'constructor') {
-                pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
-                if (typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error !== null) {
-                    for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
-                        pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+        if (typeof cpeaks !== 'undefined' && cpeaks.prototype) {
+            let peaks_methods = Object.getOwnPropertyNames(cpeaks.prototype);
+            for (let j = 0; j < peaks_methods.length; j++) {
+                if (peaks_methods[j] !== 'constructor') {
+                    pseudo3d_fitted_peaks_object[peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                    if (typeof pseudo3d_fitted_peaks_error !== 'undefined' && pseudo3d_fitted_peaks_error !== null) {
+                        for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
+                            pseudo3d_fitted_peaks_error[i][peaks_methods[j]] = cpeaks.prototype[peaks_methods[j]];
+                        }
                     }
                 }
             }
         }
+        rehydrate_cpeaks_profiles(pseudo3d_fitted_peaks_object);
     }
 
     /**
-     * Because we will re-calculate contour plot, we reset all visible to true
+     * Set initial visibility and collapsed states:
+     * First 5 planes (or non-pseudo3D) are visible and expanded;
+     * 6th plane onwards in pseudo3D are initially hidden and collapsed to protect memory.
      */
     for (let i = 0; i < hsqc_spectra.length; i++) {
-        hsqc_spectra[i].visible = true;
+        if (is_pseudo3d_sixth_or_later(i)) {
+            hsqc_spectra[i].visible = false;
+            hsqc_spectra[i].contour_calculated = false;
+            hsqc_spectra[i].default_collapsed = true;
+        } else {
+            hsqc_spectra[i].visible = true;
+            hsqc_spectra[i].default_collapsed = false;
+        }
     }
 
     // Now we need to extract the binary data
     let offset = 4 + jsonLength;
     for (let i = 0; i < hsqc_spectra.length; i++) {
-        hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT));
-        console.log('load header at offset ' + offset);
-        console.log(hsqc_spectra[i].header);
-        offset += hsqc_spectra[i].header_length * Float32Array.BYTES_PER_ELEMENT;
+        let h_len = hsqc_spectra[i].header_length || 0;
+        let rd_len = hsqc_spectra[i].raw_data_length || 0;
+        let ri_len = hsqc_spectra[i].raw_data_ri_length || 0;
+        let ir_len = hsqc_spectra[i].raw_data_ir_length || 0;
+        let ii_len = hsqc_spectra[i].raw_data_ii_length || 0;
 
-        hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_length * Float32Array.BYTES_PER_ELEMENT;
+        if (h_len > 0) {
+            hsqc_spectra[i].header = new Float32Array(arrayBuffer.slice(offset, offset + h_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += h_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].header = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ri_length * Float32Array.BYTES_PER_ELEMENT;
+        if (rd_len > 0) {
+            hsqc_spectra[i].raw_data = new Float32Array(arrayBuffer.slice(offset, offset + rd_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += rd_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ir_length * Float32Array.BYTES_PER_ELEMENT;
+        if (ri_len > 0) {
+            hsqc_spectra[i].raw_data_ri = new Float32Array(arrayBuffer.slice(offset, offset + ri_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ri_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ri = new Float32Array(0);
+        }
 
-        hsqc_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT));
-        offset += hsqc_spectra[i].raw_data_ii_length * Float32Array.BYTES_PER_ELEMENT;
+        if (ir_len > 0) {
+            hsqc_spectra[i].raw_data_ir = new Float32Array(arrayBuffer.slice(offset, offset + ir_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ir_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ir = new Float32Array(0);
+        }
+
+        if (ii_len > 0) {
+            hsqc_spectra[i].raw_data_ii = new Float32Array(arrayBuffer.slice(offset, offset + ii_len * Float32Array.BYTES_PER_ELEMENT));
+            offset += ii_len * Float32Array.BYTES_PER_ELEMENT;
+        } else {
+            hsqc_spectra[i].raw_data_ii = new Float32Array(0);
+        }
+
+        if (typeof hsqc_spectra[i].calculate_projections === "function") {
+            hsqc_spectra[i].calculate_projections();
+        }
     }
     draw_spectrum_from_loading();
     /**
      * process pseudo-3D buttons and dosy information
      */
     if (pseudo3d_fitted_peaks_object !== null) {
-        if (pseudo3d_fitted_peaks_object.gradients !== null) {
+        if (pseudo3d_fitted_peaks_object.gradients && Array.isArray(pseudo3d_fitted_peaks_object.gradients)) {
             document.getElementById("dosy_gradient").value = pseudo3d_fitted_peaks_object.gradients.join(' ');
             document.getElementById("dosy_rescale").value = pseudo3d_fitted_peaks_object.scale_constant;
             document.getElementById("dosy_result").textContent = "Dosy result is available";
         }
+        if (pseudo3d_fitted_peaks_object.cest_offsets !== undefined) {
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            if (cestOffsetsInput) cestOffsetsInput.value = pseudo3d_fitted_peaks_object.cest_offsets;
+        }
+        if (pseudo3d_fitted_peaks_object.cest_b1 !== undefined) {
+            let cestB1Input = document.getElementById("cest_b1");
+            if (cestB1Input) cestB1Input.value = pseudo3d_fitted_peaks_object.cest_b1;
+        }
+        if (pseudo3d_fitted_peaks_object.time_t1 !== undefined) {
+            let timeT1Input = document.getElementById("time_t1");
+            if (timeT1Input) timeT1Input.value = pseudo3d_fitted_peaks_object.time_t1;
+        }
         document.getElementById("button_download_fitted_peaks").disabled = false;
         document.getElementById("show_pseudo3d_peaks").disabled = false;
+
+        // Restore cest_multi_peak_indices
+        if (Array.isArray(to_save.cest_multi_peak_indices) && to_save.cest_multi_peak_indices.length > 0) {
+            cest_multi_peak_indices = to_save.cest_multi_peak_indices;
+        } else if (Array.isArray(pseudo3d_fitted_peaks_object.cest_multi_peak_indices) && pseudo3d_fitted_peaks_object.cest_multi_peak_indices.length > 0) {
+            cest_multi_peak_indices = pseudo3d_fitted_peaks_object.cest_multi_peak_indices;
+        } else {
+            cest_multi_peak_indices = [];
+            if (pseudo3d_fitted_peaks_object.peak_profiles) {
+                for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                    let p = pseudo3d_fitted_peaks_object.peak_profiles[k];
+                    if (p && p.fit_result && (p.fit_result.num_peaks >= 2 || (p.fit_result.peaks && p.fit_result.peaks.length >= 2))) {
+                        let kNum = parseInt(k);
+                        if (!isNaN(kNum) && !cest_multi_peak_indices.includes(kNum)) {
+                            cest_multi_peak_indices.push(kNum);
+                        }
+                    }
+                }
+                cest_multi_peak_indices.sort((a, b) => a - b);
+            }
+        }
+
+        // Restore chemex_results and peak_profile.chemex_fit
+        if (!pseudo3d_fitted_peaks_object.chemex_results && to_save.chemex_results) {
+            pseudo3d_fitted_peaks_object.chemex_results = to_save.chemex_results;
+        }
+        if (pseudo3d_fitted_peaks_object.chemex_results && pseudo3d_fitted_peaks_object.chemex_results.profiles) {
+            let chemProf = pseudo3d_fitted_peaks_object.chemex_results.profiles;
+            for (let resKey in chemProf) {
+                let pNum = parseInt(resKey);
+                if (!isNaN(pNum) && typeof pseudo3d_fitted_peaks_object.get_peak_profile === 'function') {
+                    let profInst = pseudo3d_fitted_peaks_object.get_peak_profile(pNum);
+                    if (profInst && !profInst.chemex_fit) {
+                        profInst.chemex_fit = chemProf[resKey];
+                    }
+                }
+            }
+        }
+
+        // Update pre-analysis UI & highlights
+        if (cest_multi_peak_indices && cest_multi_peak_indices.length > 0) {
+            let total_peaks = (pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0]) ? pseudo3d_fitted_peaks_object.columns[0].length : 0;
+            let statusEl = document.getElementById("cest_pre_analysis_status");
+            if (statusEl) {
+                statusEl.innerHTML = `<strong>Pre-analysis complete:</strong> Found <b style="color: #e65100;">${cest_multi_peak_indices.length}</b> peak${cest_multi_peak_indices.length === 1 ? '' : 's'} with ≥2 components${total_peaks > 0 ? ` (out of ${total_peaks} peaks)` : ''}.`;
+            }
+            let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+            if (btnFilter) {
+                btnFilter.disabled = false;
+                btnFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+            }
+            let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeaderFilter) {
+                btnHeaderFilter.style.display = 'inline-block';
+                btnHeaderFilter.disabled = false;
+                btnHeaderFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnHeaderFilter.style.backgroundColor = "#fff3e0";
+            }
+            let btnGen = document.getElementById("button_gen_chemex_input");
+            if (btnGen) btnGen.disabled = false;
+            let btnRun = document.getElementById("button_run_chemex");
+            if (btnRun) btnRun.disabled = false;
+
+            apply_multi_peak_highlights();
+        }
+
+        // Update ChemEx UI
+        if (pseudo3d_fitted_peaks_object.chemex_results) {
+            let cr = pseudo3d_fitted_peaks_object.chemex_results;
+            let gParams = (cr.fitted_params && cr.fitted_params.global) ? cr.fitted_params.global : {};
+            let pb_val = (gParams.PB && typeof gParams.PB.value === 'number') ? gParams.PB.value : null;
+            let kex_val = (gParams.KEX_AB && typeof gParams.KEX_AB.value === 'number') ? gParams.KEX_AB.value : null;
+            let summaryStr = `ChemEx fit results loaded`;
+            if (pb_val !== null) summaryStr += ` | pB: ${(pb_val * 100).toFixed(1)}%`;
+            if (kex_val !== null) summaryStr += ` | kex: ${kex_val.toFixed(0)} s⁻¹`;
+            let statusEl = document.getElementById("cest_result");
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryStr}</span>`;
+            }
+            let btnDl = document.getElementById("button_download_cest");
+            if (btnDl) btnDl.disabled = false;
+        }
     }
 };
 
@@ -5784,9 +6744,2623 @@ function zoom_to_peak(index) {
 }
 
 
+let current_selected_peak_row = null;
+let current_selected_peak_index = null;
+let current_pseudo3d_profile_peak_index = null;
+let pseudo3d_profile_plot_instance = null;
+let pseudo3d_profile_resize_observer = null;
+let chemex_virtual_files_synced = false;
+let sim_debounce_timer = null;
+let sim_panel_events_initialized = false;
+
+function is_pseudo3d_active() {
+    if (current_spectrum_index_of_peaks === -2) return true;
+    let peaks_object = get_current_peak_object();
+    if (peaks_object && peaks_object.column_headers) {
+        let has_za = peaks_object.column_headers.some(h => h.startsWith('Z_A') && !h.endsWith('_STD'));
+        if (has_za) return true;
+    }
+    if (typeof main_plot !== "undefined" && main_plot !== null && typeof is_pseudo3d_spectrum === "function") {
+        if (is_pseudo3d_spectrum(main_plot.current_spectral_index)) return true;
+    }
+    return false;
+}
+
+function get_pseudo3d_peak_profile_data(peak_index, peaks_obj) {
+    let peaks_object = peaks_obj || get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let idx = peak_index - 1;
+    let profile = [];
+
+    // Method 1: If peaks_object has Z_A columns (fitted pseudo-3D peaks)
+    if (peaks_object && peaks_object.column_headers) {
+        let za_headers = [];
+        peaks_object.column_headers.forEach((h, ndx) => {
+            if (h.startsWith('Z_A') && !h.endsWith('_STD')) {
+                za_headers.push({ name: h, colIndex: ndx });
+            }
+        });
+
+        if (za_headers.length > 0 && idx >= 0 && peaks_object.columns[0] && idx < peaks_object.columns[0].length) {
+            za_headers.forEach((h, planeIdx) => {
+                let val = parseFloat(peaks_object.columns[h.colIndex][idx]);
+                let stdVal = undefined;
+                let stdHeader = h.name + '_STD';
+                let stdColIdx = peaks_object.column_headers.indexOf(stdHeader);
+                if (stdColIdx !== -1) {
+                    let s = parseFloat(peaks_object.columns[stdColIdx][idx]);
+                    if (!isNaN(s)) stdVal = s;
+                }
+                profile.push({
+                    plane: planeIdx + 1,
+                    label: h.name,
+                    value: isNaN(val) ? 0 : val,
+                    std: stdVal
+                });
+            });
+            return profile;
+        }
+    }
+
+    // Method 2: If hsqc_spectra has pseudo-3D child planes
+    if (peaks_object && idx >= 0 && typeof hsqc_spectra !== "undefined" && hsqc_spectra && hsqc_spectra.length > 0) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        if (x_col && y_col && idx < x_col.length) {
+            let x_ppm = x_col[idx];
+            let y_ppm = y_col[idx];
+
+            let active_spec_idx = (typeof main_plot !== "undefined" && main_plot !== null && main_plot.current_spectral_index !== undefined)
+                ? main_plot.current_spectral_index : 0;
+            let first_idx = get_pseudo3d_first_spectrum_index(active_spec_idx);
+            let parent_spec = hsqc_spectra[first_idx] || hsqc_spectra[0];
+            if (parent_spec && parent_spec.pseudo3d_children && parent_spec.pseudo3d_children.length > 0) {
+                let plane_indices = [first_idx, ...parent_spec.pseudo3d_children];
+                plane_indices.forEach((specIdx, pIdx) => {
+                    let spec = hsqc_spectra[specIdx];
+                    let val = 0;
+                    if (spec && spec.raw_data && spec.n_direct && spec.n_indirect) {
+                        let y_pos = Math.floor((y_ppm - spec.y_ppm_ref - spec.y_ppm_start) / spec.y_ppm_step);
+                        let x_pos = Math.floor((x_ppm - spec.x_ppm_ref - spec.x_ppm_start) / spec.x_ppm_step);
+                        if (x_pos >= 0 && x_pos < spec.n_direct && y_pos >= 0 && y_pos < spec.n_indirect) {
+                            val = spec.raw_data[y_pos * spec.n_direct + x_pos];
+                        }
+                    }
+                    profile.push({
+                        plane: pIdx + 1,
+                        label: 'Plane ' + (pIdx + 1),
+                        value: val
+                    });
+                });
+                return profile;
+            }
+        }
+    }
+
+    return profile;
+}
+
+/**
+ * Map curveData generated from peak_profile (plane units 1..N) to Hz offsets
+ * excluding reference points (|offset| >= 10,000 Hz) to prevent collapsing the X axis.
+ */
+function map_curve_data_to_offsets(curveData, explicit_x) {
+    if (!curveData || !explicit_x || explicit_x.length === 0) return curveData;
+
+    // Collect on-resonance planes (exclude reference points with |offset| >= 10,000 Hz)
+    let on_res = [];
+    for (let i = 0; i < explicit_x.length; i++) {
+        if (Math.abs(explicit_x[i]) < 10000) {
+            on_res.push({ plane: i + 1, offset: explicit_x[i] });
+        }
+    }
+    if (on_res.length < 2) return curveData;
+
+    function plane_to_offset(p) {
+        if (p <= on_res[0].plane) return on_res[0].offset;
+        if (p >= on_res[on_res.length - 1].plane) return on_res[on_res.length - 1].offset;
+        for (let j = 0; j < on_res.length - 1; j++) {
+            if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                let span = on_res[j + 1].plane - on_res[j].plane;
+                let frac = span > 0 ? (p - on_res[j].plane) / span : 0;
+                return on_res[j].offset + frac * (on_res[j + 1].offset - on_res[j].offset);
+            }
+        }
+        return on_res[on_res.length - 1].offset;
+    }
+
+    // Map total_curve points
+    let mapped_total = [];
+    if (curveData.total_curve) {
+        for (let pt of curveData.total_curve) {
+            if (pt.x >= on_res[0].plane && pt.x <= on_res[on_res.length - 1].plane) {
+                mapped_total.push({
+                    x: plane_to_offset(pt.x),
+                    y: pt.y
+                });
+            }
+        }
+        mapped_total.sort((a, b) => b.x - a.x);
+    }
+
+    // Map components
+    let mapped_components = [];
+    if (curveData.components) {
+        for (let comp of curveData.components) {
+            let mapped_pts = [];
+            for (let pt of comp.points) {
+                if (pt.x >= on_res[0].plane && pt.x <= on_res[on_res.length - 1].plane) {
+                    mapped_pts.push({
+                        x: plane_to_offset(pt.x),
+                        y: pt.y
+                    });
+                }
+            }
+            mapped_pts.sort((a, b) => b.x - a.x);
+            mapped_components.push({
+                ...comp,
+                points: mapped_pts
+            });
+        }
+    }
+
+    // Map peak centers
+    let mapped_centers = [];
+    if (curveData.peak_centers) {
+        for (let pc of curveData.peak_centers) {
+            let halfW = (pc.fwhm || 2.0) / 2.0;
+            let fwhm_hz = Math.abs(plane_to_offset(pc.x0 + halfW) - plane_to_offset(pc.x0 - halfW));
+            mapped_centers.push({
+                ...pc,
+                x0: plane_to_offset(pc.x0),
+                fwhm: (fwhm_hz && !isNaN(fwhm_hz) && fwhm_hz > 0) ? fwhm_hz : pc.fwhm
+            });
+        }
+    }
+
+    let min_off = on_res[0].offset;
+    let max_off = on_res[on_res.length - 1].offset;
+    if (min_off > max_off) {
+        let tmp = min_off; min_off = max_off; max_off = tmp;
+    }
+
+    return {
+        ...curveData,
+        total_curve: mapped_total,
+        components: mapped_components,
+        peak_centers: mapped_centers,
+        fit_range: [min_off, max_off]
+    };
+}
+
+/**
+ * Retrieve 1H spectrometer frequency (MHz), 15N indirect dimension carrier (ppm),
+ * and calculated 15N Larmor frequency (MHz) using IUPAC ratio 0.101329118.
+ * Formula for ppm: ppm = carrier + (offset_hz / n15_mhz)
+ */
+function get_cest_spectrometer_params() {
+    let h_larmor_frq = 600.0;
+    let carrier = 118.5;
+    let s = null;
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.current_spectral_index === 'number' && main_plot.current_spectral_index >= 0) {
+        if (typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[main_plot.current_spectral_index]) {
+            s = hsqc_spectra[main_plot.current_spectral_index];
+        }
+    }
+    if (!s && typeof hsqc_spectra !== 'undefined' && hsqc_spectra && hsqc_spectra[0]) {
+        s = hsqc_spectra[0];
+    }
+    if (s) {
+        if (typeof s.frq1 === 'number' && s.frq1 > 50.0) {
+            h_larmor_frq = s.frq1;
+        } else if (s.header && s.header.length >= 220 && s.header[119] > 50.0) {
+            h_larmor_frq = s.header[119];
+        }
+        if (s.header && s.header.length >= 220 && s.header[67] > 10.0 && s.header[67] < 200.0) {
+            carrier = s.header[67];
+        } else if (typeof s.y_ppm_start === 'number' && typeof s.y_ppm_step === 'number' && s.n_indirect) {
+            carrier = s.y_ppm_start + (s.y_ppm_step * s.n_indirect) / 2.0;
+        } else if (typeof s.y_ppm_start === 'number' && typeof s.y_ppm_end === 'number') {
+            carrier = (s.y_ppm_start + s.y_ppm_end) / 2.0;
+        }
+    }
+    let n15_mhz = h_larmor_frq * 0.101329118;
+    return { h_larmor_frq, carrier, n15_mhz };
+}
+
+function show_pseudo3d_peak_profile(peak_index) {
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    let container = document.getElementById('pseudo3d_profile_plot_container');
+    if (!modal || !container) return;
+
+    let profileData = get_pseudo3d_peak_profile_data(peak_index);
+    if (!profileData || profileData.length === 0) {
+        hide_pseudo3d_peak_profile();
+        return;
+    }
+
+    let peaks_object = get_current_peak_object();
+    let x_str = '';
+    let y_str = '';
+    let x_val_ppm = null;
+    let y_val_ppm = null;
+    if (peaks_object && peak_index - 1 >= 0) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        if (x_col && y_col && x_col[peak_index - 1] !== undefined) {
+            x_val_ppm = x_col[peak_index - 1];
+            y_val_ppm = y_col[peak_index - 1];
+            x_str = x_val_ppm.toFixed(2);
+            y_str = y_val_ppm.toFixed(2);
+        }
+    }
+
+    // Check if explicit CEST saturation offsets (Hz) are provided
+    let cestOffsetsInput = document.getElementById("cest_offsets");
+    let explicit_x = null;
+    if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+        let parsed = cestOffsetsInput.value.trim().split(/\s+/).map(Number).filter(v => !isNaN(v));
+        if (parsed.length === profileData.length) {
+            explicit_x = parsed;
+        }
+    }
+
+    let plotData = profileData;
+    let xLabel = 'Plane';
+    if (explicit_x) {
+        plotData = profileData.map((d, i) => ({
+            ...d,
+            plane: explicit_x[i]
+        }));
+        xLabel = 'Offset (Hz)';
+
+        // Exclude reference points (|offset| >= 10,000 Hz, e.g. -1e6 Hz or -100 kHz) to prevent collapse of X axis
+        plotData = plotData.filter(d => Math.abs(d.plane) < 10000);
+        // Follow NMR convention: descending order (large positive on left, smaller/negative on right)
+        plotData.sort((a, b) => b.plane - a.plane);
+    }
+
+    // Spectrometer parameters for Hz <-> ppm conversion
+    let spec_params = get_cest_spectrometer_params();
+    let ppm_converter = explicit_x ? {
+        carrier: spec_params.carrier,
+        n15_mhz: spec_params.n15_mhz,
+        h_larmor_frq: spec_params.h_larmor_frq
+    } : null;
+
+    // Retrieve or instantiate peak_profile and run negative pseudo-Voigt EM fit
+    let profile_instance = null;
+    let curveData = null;
+    let fitResult = null;
+    let voigtCurveData = null;
+    let voigtBadge = '';
+    let chemexCurveData = null;
+    let chemexBadge = '';
+    let simCurveData = null;
+    let simBadge = '';
+    if (typeof peak_profile === 'function') {
+        if (peaks_object && typeof peaks_object.get_peak_profile === 'function') {
+            profile_instance = peaks_object.get_peak_profile(peak_index);
+        }
+        if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em !== 'function') {
+            Object.setPrototypeOf(profile_instance, peak_profile.prototype);
+        }
+        if (!profile_instance || typeof profile_instance.fit_negative_pseudo_voigt_em !== 'function' || !profile_instance.x || profile_instance.x.length === 0) {
+            profile_instance = new peak_profile(peak_index, profileData, {
+                x_ppm: x_val_ppm,
+                y_ppm: y_val_ppm,
+                x_coords: null,
+                fit_window: 20,
+                asym_factor: 2.0
+            });
+            if (peaks_object && typeof peaks_object.set_peak_profile === 'function') {
+                peaks_object.set_peak_profile(peak_index, profile_instance);
+            }
+        }
+
+        voigtCurveData = null;
+        voigtBadge = '';
+        if (profile_instance && typeof profile_instance.fit_negative_pseudo_voigt_em === 'function') {
+            fitResult = profile_instance.fit_negative_pseudo_voigt_em();
+            if (fitResult && typeof profile_instance.get_fitted_curve_points === 'function') {
+                voigtCurveData = profile_instance.get_fitted_curve_points(350);
+                if (explicit_x) {
+                    voigtCurveData = map_curve_data_to_offsets(voigtCurveData, explicit_x);
+                }
+            }
+        }
+
+        if (fitResult && fitResult.num_peaks >= 2 && voigtCurveData && voigtCurveData.peak_centers && voigtCurveData.peak_centers.length >= 2 && explicit_x && spec_params.n15_mhz) {
+            let pc = voigtCurveData.peak_centers;
+            let dip1 = pc[0], dip2 = pc[1];
+            if (fitResult.peaks && fitResult.peaks.length >= 2) {
+                let sorted_p = [...fitResult.peaks].sort((a, b) => {
+                    let vA = (a.A || 0) * (a.fwhm || 0);
+                    let vB = (b.A || 0) * (b.fwhm || 0);
+                    return vB - vA;
+                });
+                let p1 = pc.find(p => Math.abs(p.A - sorted_p[0].A) < 1e-4) || pc[0];
+                let p2 = pc.find(p => Math.abs(p.A - sorted_p[1].A) < 1e-4) || pc[1];
+                dip1 = p1; dip2 = p2;
+            }
+            let dw_ppm = (dip2.x0 - dip1.x0) / spec_params.n15_mhz;
+            voigtBadge = `Voigt Fit | 2 Dips | Δω: ${dw_ppm.toFixed(2)} ppm | R²: ${(fitResult.r2 || 0).toFixed(3)}`;
+            if (!voigtCurveData.stats) voigtCurveData.stats = {};
+            voigtCurveData.stats.custom_badge = voigtBadge;
+        } else if (fitResult && typeof fitResult.r2 === 'number' && voigtCurveData) {
+            voigtBadge = `Voigt Fit | ${fitResult.num_peaks || 1} Dip${(fitResult.num_peaks || 1) > 1 ? 's' : ''} | R²: ${fitResult.r2.toFixed(3)}`;
+            if (!voigtCurveData.stats) voigtCurveData.stats = {};
+            voigtCurveData.stats.custom_badge = voigtBadge;
+        }
+
+        // Check if ChemEx fit result exists for this peak
+        let chemex_profile = (profile_instance && profile_instance.chemex_fit)
+            ? profile_instance.chemex_fit
+            : (peaks_object && peaks_object.chemex_results && peaks_object.chemex_results.profiles
+                ? peaks_object.chemex_results.profiles[peak_index + 'N']
+                : null);
+
+        chemexCurveData = null;
+        chemexBadge = '';
+        if (chemex_profile && chemex_profile.calc && chemex_profile.calc.length > 0) {
+            let base_intensity = 1.0;
+            if (fitResult && typeof fitResult.y0 === 'number') {
+                base_intensity = fitResult.y0;
+            } else if (plotData && plotData.length > 0) {
+                base_intensity = d3.max(plotData, d => d.value) || 1.0;
+            }
+
+            let calc_max = d3.max(chemex_profile.calc, d => d.y) || 1.0;
+            let scale_factor = 1.0;
+            // ChemEx calc points are already on the experimental data scale (e.g. baseline ~0.67).
+            // Only apply a scale factor if the calculated curve is normalized (e.g. ~1.0) while exp data is not.
+            if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+                scale_factor = base_intensity / calc_max;
+            }
+
+            let scaled_total_curve = chemex_profile.calc.map(pt => ({
+                x: pt.x,
+                y: pt.y * scale_factor
+            }));
+
+            let pb_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.PB)
+                ? chemex_profile.fitted_params.PB.value
+                : (chemex_profile.params && chemex_profile.params.PB ? chemex_profile.params.PB : 0.02);
+            let kex_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.KEX_AB)
+                ? chemex_profile.fitted_params.KEX_AB.value
+                : (chemex_profile.params && chemex_profile.params.KEX_AB ? chemex_profile.params.KEX_AB : 100);
+            let dw_val = (chemex_profile.fitted_params && chemex_profile.fitted_params.DW_AB)
+                ? chemex_profile.fitted_params.DW_AB.value
+                : (chemex_profile.params && chemex_profile.params.DW_AB ? chemex_profile.params.DW_AB : 0);
+
+            chemexBadge = `ChemEx Fit | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+            chemexCurveData = {
+                total_curve: scaled_total_curve,
+                components: [],
+                peak_centers: [],
+                fit_range: [d3.min(scaled_total_curve, d => d.x), d3.max(scaled_total_curve, d => d.x)],
+                baseline: base_intensity,
+                stats: {
+                    custom_badge: chemexBadge,
+                    num_peaks: 2
+                }
+            };
+        }
+
+        let sim_profile = (profile_instance && profile_instance.chemex_sim)
+            ? profile_instance.chemex_sim
+            : null;
+
+        simCurveData = null;
+        simBadge = '';
+        if (sim_profile && sim_profile.calc && sim_profile.calc.length > 0) {
+            let base_intensity = 1.0;
+            if (fitResult && typeof fitResult.y0 === 'number') {
+                base_intensity = fitResult.y0;
+            } else if (plotData && plotData.length > 0) {
+                base_intensity = d3.max(plotData, d => d.value) || 1.0;
+            }
+
+            let calc_max = d3.max(sim_profile.calc, d => d.y) || 1.0;
+            let scale_factor = 1.0;
+            if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+                scale_factor = base_intensity / calc_max;
+            }
+
+            let scaled_sim_curve = sim_profile.calc.map(pt => ({
+                x: pt.x,
+                y: pt.y * scale_factor
+            }));
+
+            let pb_val = (sim_profile.params && sim_profile.params.PB !== undefined) ? sim_profile.params.PB : 0.02;
+            let kex_val = (sim_profile.params && sim_profile.params.KEX_AB !== undefined) ? sim_profile.params.KEX_AB : 100;
+            let dw_val = (sim_profile.params && sim_profile.params.DW_AB !== undefined) ? sim_profile.params.DW_AB : 0;
+
+            simBadge = `Sim | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+            simCurveData = {
+                total_curve: scaled_sim_curve,
+                components: [],
+                peak_centers: [],
+                fit_range: [d3.min(scaled_sim_curve, d => d.x), d3.max(scaled_sim_curve, d => d.x)],
+                baseline: base_intensity,
+                stats: {
+                    custom_badge: simBadge,
+                    num_peaks: 2
+                }
+            };
+        }
+
+        curveData = {
+            voigt: voigtCurveData,
+            chemex: chemexCurveData,
+            sim: simCurveData
+        };
+    }
+
+    current_pseudo3d_profile_peak_index = peak_index;
+
+    let titleEl = document.getElementById('pseudo3d_profile_title');
+    if (titleEl) {
+        let fitSummaries = [];
+        if (voigtBadge) fitSummaries.push(voigtBadge);
+        if (chemexBadge) fitSummaries.push(chemexBadge);
+        if (simBadge) fitSummaries.push(simBadge);
+        let fitSummary = fitSummaries.length > 0 ? (' | ' + fitSummaries.join(' | ')) : '';
+        let countUnit = explicit_x ? 'Offsets (Hz)' : 'Planes';
+        let assBadge = '';
+        if (peaks_object && peak_index - 1 >= 0) {
+            let assCol = peaks_object.get_column_by_header('ASS');
+            if (assCol && assCol[peak_index - 1]) {
+                assBadge = ` [${assCol[peak_index - 1]}]`;
+            }
+        }
+        titleEl.textContent = `Pseudo-3D Peak #${peak_index}${assBadge} Profile (${x_str}, ${y_str} ppm) - ${profileData.length} ${countUnit}${fitSummary}`;
+    }
+
+    modal.style.display = 'flex';
+
+    let bodyEl = document.getElementById('pseudo3d_profile_body');
+    let minBtn = document.getElementById('pseudo3d_profile_minimize_btn');
+    if (bodyEl && bodyEl.style.display === 'none') {
+        bodyEl.style.display = 'flex';
+        modal.style.height = modal.dataset.lastHeight || '360px';
+        modal.style.width = modal.dataset.lastWidth || '780px';
+        modal.style.resize = 'both';
+        if (minBtn) {
+            minBtn.innerText = '—';
+            minBtn.title = 'Minimize';
+        }
+    }
+
+    let plotContainer = document.getElementById('pseudo3d_profile_plot_container');
+
+    if (!pseudo3d_profile_plot_instance && typeof pseudo3d_profile_plot === 'function') {
+        pseudo3d_profile_plot_instance = new pseudo3d_profile_plot('#pseudo3d_profile_plot_container', {
+            xLabel: xLabel,
+            yLabel: 'Peak Intensity',
+            ppmConverter: ppm_converter,
+            invertX: !!(explicit_x && ppm_converter)
+        });
+
+        if (window.ResizeObserver && !pseudo3d_profile_resize_observer && plotContainer) {
+            pseudo3d_profile_resize_observer = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const cr = entry.contentRect;
+                    if (pseudo3d_profile_plot_instance && cr.width > 50 && cr.height > 50) {
+                        pseudo3d_profile_plot_instance.resize(cr.width, cr.height);
+                    }
+                }
+            });
+            pseudo3d_profile_resize_observer.observe(plotContainer);
+        }
+
+        modal.addEventListener('mouseup', function () {
+            if (pseudo3d_profile_plot_instance && plotContainer) {
+                pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
+            }
+        });
+
+        setup_pseudo3d_profile_modal_drag();
+
+        if (minBtn) {
+            minBtn.onclick = toggle_pseudo3d_profile_minimize;
+        }
+
+        let resetBtn = document.getElementById('pseudo3d_profile_reset_btn');
+        if (resetBtn) {
+            resetBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    pseudo3d_profile_plot_instance.reset_view();
+                }
+            };
+        }
+
+        let autozoomBtn = document.getElementById('pseudo3d_profile_autozoom_btn');
+        if (autozoomBtn) {
+            autozoomBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    pseudo3d_profile_plot_instance.toggle_autozoom();
+                }
+            };
+        }
+
+        let voigtBtn = document.getElementById('pseudo3d_profile_toggle_voigt_btn');
+        if (voigtBtn) {
+            voigtBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_voigt_fit();
+                    voigtBtn.innerText = isVis ? 'Voigt: ON' : 'Voigt: OFF';
+                    voigtBtn.style.opacity = isVis ? '1.0' : '0.6';
+                    voigtBtn.style.background = isVis ? '#e3f2fd' : '#eceff1';
+                    voigtBtn.style.color = isVis ? '#1565c0' : '#546e7a';
+                    voigtBtn.style.borderColor = isVis ? '#1976d2' : '#b0bec5';
+                }
+            };
+        }
+
+        let chemexBtn = document.getElementById('pseudo3d_profile_toggle_chemex_btn');
+        if (chemexBtn) {
+            chemexBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_chemex_fit();
+                    chemexBtn.innerText = isVis ? 'ChemEx: ON' : 'ChemEx: OFF';
+                    chemexBtn.style.opacity = isVis ? '1.0' : '0.6';
+                    chemexBtn.style.background = isVis ? '#ffebee' : '#eceff1';
+                    chemexBtn.style.color = isVis ? '#c62828' : '#546e7a';
+                    chemexBtn.style.borderColor = isVis ? '#d32f2f' : '#b0bec5';
+                }
+            };
+        }
+
+        let toggleFitBtn = document.getElementById('pseudo3d_profile_toggle_fit_btn');
+        if (toggleFitBtn) {
+            toggleFitBtn.onclick = function () {
+                if (pseudo3d_profile_plot_instance) {
+                    let isVis = pseudo3d_profile_plot_instance.toggle_fit_visibility();
+                    toggleFitBtn.innerText = isVis ? 'Fit: ON' : 'Fit: OFF';
+                    toggleFitBtn.style.opacity = isVis ? '1.0' : '0.6';
+                }
+            };
+        }
+    }
+
+    // Update toggle button states according to availability for this peak
+    let hasVoigt = !!(voigtCurveData && voigtCurveData.total_curve && voigtCurveData.total_curve.length > 0);
+    let hasChemex = !!(chemexCurveData && chemexCurveData.total_curve && chemexCurveData.total_curve.length > 0);
+
+    let voigtBtn = document.getElementById('pseudo3d_profile_toggle_voigt_btn');
+    if (voigtBtn) {
+        voigtBtn.disabled = !hasVoigt;
+        let isVis = pseudo3d_profile_plot_instance ? pseudo3d_profile_plot_instance.showVoigtFit : true;
+        if (!hasVoigt) {
+            voigtBtn.innerText = 'Voigt: N/A';
+            voigtBtn.style.opacity = '0.4';
+            voigtBtn.style.background = '#eceff1';
+            voigtBtn.style.color = '#90a4ae';
+            voigtBtn.style.borderColor = '#cfd8dc';
+        } else {
+            voigtBtn.innerText = isVis ? 'Voigt: ON' : 'Voigt: OFF';
+            voigtBtn.style.opacity = isVis ? '1.0' : '0.6';
+            voigtBtn.style.background = isVis ? '#e3f2fd' : '#eceff1';
+            voigtBtn.style.color = isVis ? '#1565c0' : '#546e7a';
+            voigtBtn.style.borderColor = isVis ? '#1976d2' : '#b0bec5';
+        }
+    }
+
+    let chemexBtn = document.getElementById('pseudo3d_profile_toggle_chemex_btn');
+    if (chemexBtn) {
+        chemexBtn.disabled = !hasChemex;
+        let isVis = pseudo3d_profile_plot_instance ? pseudo3d_profile_plot_instance.showChemexFit : true;
+        if (!hasChemex) {
+            chemexBtn.innerText = 'ChemEx: N/A';
+            chemexBtn.style.opacity = '0.4';
+            chemexBtn.style.background = '#eceff1';
+            chemexBtn.style.color = '#90a4ae';
+            chemexBtn.style.borderColor = '#cfd8dc';
+        } else {
+            chemexBtn.innerText = isVis ? 'ChemEx: ON' : 'ChemEx: OFF';
+            chemexBtn.style.opacity = isVis ? '1.0' : '0.6';
+            chemexBtn.style.background = isVis ? '#ffebee' : '#eceff1';
+            chemexBtn.style.color = isVis ? '#c62828' : '#546e7a';
+            chemexBtn.style.borderColor = isVis ? '#d32f2f' : '#b0bec5';
+        }
+    }
+
+    if (pseudo3d_profile_plot_instance && plotContainer) {
+        let w = plotContainer.clientWidth || 460;
+        let h = plotContainer.clientHeight || 280;
+        pseudo3d_profile_plot_instance.resize(w, h);
+        if (typeof pseudo3d_profile_plot_instance.set_ppm_converter === 'function') {
+            pseudo3d_profile_plot_instance.set_ppm_converter(ppm_converter, !!(explicit_x && ppm_converter));
+        }
+        if (typeof pseudo3d_profile_plot_instance.set_invert_x === 'function') {
+            pseudo3d_profile_plot_instance.set_invert_x(!!(explicit_x && ppm_converter));
+        }
+        if (typeof pseudo3d_profile_plot_instance.set_x_label === 'function') {
+            pseudo3d_profile_plot_instance.set_x_label(xLabel);
+        }
+        pseudo3d_profile_plot_instance.set_data(plotData, curveData, ppm_converter, !!(explicit_x && ppm_converter));
+    }
+
+    init_single_peak_sim_panel(peak_index);
+}
+
+function hide_pseudo3d_peak_profile() {
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * Minimizes or restores the floating pseudo-3D peak profile window.
+ */
+function toggle_pseudo3d_profile_minimize() {
+    const modal = document.getElementById('pseudo3d_profile_modal');
+    const body = document.getElementById('pseudo3d_profile_body');
+    const minBtn = document.getElementById('pseudo3d_profile_minimize_btn');
+    if (!modal || !body || !minBtn) return;
+
+    if (body.style.display === 'none') {
+        body.style.display = 'flex';
+        modal.style.height = modal.dataset.lastHeight || '360px';
+        modal.style.width = modal.dataset.lastWidth || '780px';
+        modal.style.resize = 'both';
+        minBtn.innerText = '—';
+        minBtn.title = 'Minimize';
+        let plotContainer = document.getElementById('pseudo3d_profile_plot_container');
+        if (pseudo3d_profile_plot_instance && plotContainer) {
+            pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
+        }
+    } else {
+        modal.dataset.lastHeight = modal.offsetHeight + 'px';
+        modal.dataset.lastWidth = modal.offsetWidth + 'px';
+        body.style.display = 'none';
+        modal.style.height = 'auto';
+        modal.style.width = '300px';
+        modal.style.resize = 'none';
+        minBtn.innerText = '□';
+        minBtn.title = 'Restore';
+    }
+}
+
+function setup_pseudo3d_profile_modal_drag() {
+    let header = document.getElementById('pseudo3d_profile_header');
+    let modal = document.getElementById('pseudo3d_profile_modal');
+    if (!header || !modal || header.dataset.dragInitialized) return;
+    header.dataset.dragInitialized = 'true';
+
+    let isDragging = false;
+    let initialX = 0;
+    let initialY = 0;
+
+    header.addEventListener('mousedown', function (e) {
+        if (e.target.tagName === 'BUTTON') return;
+        isDragging = true;
+        initialX = e.clientX - modal.offsetLeft;
+        initialY = e.clientY - modal.offsetTop;
+        header.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', function (e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        modal.style.left = (e.clientX - initialX) + 'px';
+        modal.style.top = (e.clientY - initialY) + 'px';
+        modal.style.right = 'auto';
+    });
+
+    window.addEventListener('mouseup', function () {
+        if (isDragging) {
+            isDragging = false;
+            header.style.cursor = 'move';
+        }
+    });
+}
+
+/**
+ * Toggles the ChemEx Simulation & Single-Peak Fit side panel in the profile window.
+ */
+function toggle_pseudo3d_profile_side_panel() {
+    const sidePanel = document.getElementById('pseudo3d_profile_side_panel');
+    const modal = document.getElementById('pseudo3d_profile_modal');
+    const btn = document.getElementById('pseudo3d_profile_toggle_panel_btn');
+    const plotContainer = document.getElementById('pseudo3d_profile_plot_container');
+    if (!sidePanel || !modal) return;
+
+    const isHidden = (sidePanel.style.display === 'none');
+    if (isHidden) {
+        sidePanel.style.display = 'flex';
+        if (modal.offsetWidth < 680) {
+            modal.style.width = '780px';
+        }
+        if (btn) {
+            btn.style.background = '#f5f3ff';
+            btn.style.color = '#6d28d9';
+            btn.style.borderColor = '#7c3aed';
+        }
+    } else {
+        sidePanel.style.display = 'none';
+        if (modal.offsetWidth >= 700) {
+            modal.style.width = '520px';
+        }
+        if (btn) {
+            btn.style.background = '#f1f5f9';
+            btn.style.color = '#64748b';
+            btn.style.borderColor = '#cbd5e1';
+        }
+    }
+
+    if (pseudo3d_profile_plot_instance && plotContainer) {
+        setTimeout(() => {
+            pseudo3d_profile_plot_instance.resize(plotContainer.clientWidth, plotContainer.clientHeight);
+        }, 50);
+    }
+}
+
+/**
+ * Reads the current simulation/initial-guess parameter values from the side panel.
+ */
+function get_single_peak_sim_params_from_ui() {
+    const pbInput = document.getElementById('chemex_input_pb');
+    const kexInput = document.getElementById('chemex_input_kex');
+    const csaInput = document.getElementById('chemex_input_csa');
+    const dwInput = document.getElementById('chemex_input_dw');
+
+    const pb = pbInput ? Math.max(0.0001, Math.min(0.49, parseFloat(pbInput.value) || 0.02)) : 0.02;
+    const kex = kexInput ? Math.max(1.0, Math.min(10000.0, parseFloat(kexInput.value) || 100.0)) : 100.0;
+    const csa = csaInput ? (parseFloat(csaInput.value) || 118.0) : 118.0;
+    const dw = dwInput ? (parseFloat(dwInput.value) || 3.0) : 3.0;
+
+    return {
+        PB: parseFloat(pb.toFixed(4)),
+        KEX_AB: parseFloat(kex.toFixed(1)),
+        CS_A: parseFloat(csa.toFixed(3)),
+        DW_AB: parseFloat(dw.toFixed(2))
+    };
+}
+
+/**
+ * Writes parameter values to the side panel inputs and sliders.
+ */
+function set_single_peak_sim_params_to_ui(params) {
+    if (!params) return;
+
+    // 1. PB
+    if (params.PB !== undefined && params.PB !== null) {
+        const pb = parseFloat(params.PB);
+        const pbInput = document.getElementById('chemex_input_pb');
+        const pbSlider = document.getElementById('chemex_slider_pb');
+        if (pbInput) pbInput.value = pb.toFixed(3);
+        if (pbSlider) {
+            if (pb > parseFloat(pbSlider.max)) {
+                pbSlider.max = Math.min(0.49, Math.ceil(pb * 1.5 * 100) / 100).toFixed(3);
+            }
+            pbSlider.value = pb;
+        }
+    }
+
+    // 2. KEX_AB
+    if (params.KEX_AB !== undefined && params.KEX_AB !== null) {
+        const kex = parseFloat(params.KEX_AB);
+        const kexInput = document.getElementById('chemex_input_kex');
+        const kexSlider = document.getElementById('chemex_slider_kex');
+        if (kexInput) kexInput.value = Math.round(kex);
+        if (kexSlider) {
+            if (kex > parseFloat(kexSlider.max)) {
+                kexSlider.max = Math.ceil(kex * 1.5 / 100) * 100;
+            }
+            kexSlider.value = Math.round(kex);
+        }
+    }
+
+    // 3. CS_A
+    if (params.CS_A !== undefined && params.CS_A !== null) {
+        const csa = parseFloat(params.CS_A);
+        const csaInput = document.getElementById('chemex_input_csa');
+        const csaSlider = document.getElementById('chemex_slider_csa');
+        if (csaInput) csaInput.value = csa.toFixed(2);
+        if (csaSlider) {
+            csaSlider.min = (csa - 5.0).toFixed(2);
+            csaSlider.max = (csa + 5.0).toFixed(2);
+            csaSlider.value = csa.toFixed(2);
+        }
+    }
+
+    // 4. DW_AB
+    if (params.DW_AB !== undefined && params.DW_AB !== null) {
+        const dw = parseFloat(params.DW_AB);
+        const dwInput = document.getElementById('chemex_input_dw');
+        const dwSlider = document.getElementById('chemex_slider_dw');
+        if (dwInput) dwInput.value = dw.toFixed(2);
+        if (dwSlider) {
+            if (dw < parseFloat(dwSlider.min)) dwSlider.min = Math.floor(dw - 5);
+            if (dw > parseFloat(dwSlider.max)) dwSlider.max = Math.ceil(dw + 5);
+            dwSlider.value = dw.toFixed(2);
+        }
+    }
+}
+
+/**
+ * Attaches event listeners for sliders and inputs in the simulation side panel.
+ */
+function setup_sim_panel_events() {
+    if (sim_panel_events_initialized) return;
+    sim_panel_events_initialized = true;
+
+    function bindPair(sliderId, inputId, isInt, isFloat2) {
+        const slider = document.getElementById(sliderId);
+        const input = document.getElementById(inputId);
+        if (!slider || !input) return;
+
+        slider.addEventListener('input', function () {
+            let val = parseFloat(slider.value);
+            input.value = isInt ? Math.round(val) : (isFloat2 ? val.toFixed(2) : val.toFixed(3));
+            trigger_single_peak_simulation(current_pseudo3d_profile_peak_index);
+        });
+
+        input.addEventListener('change', function () {
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+            if (val > parseFloat(slider.max)) slider.max = val * 1.3;
+            if (val < parseFloat(slider.min)) slider.min = val * 0.7;
+            slider.value = val;
+            trigger_single_peak_simulation(current_pseudo3d_profile_peak_index);
+        });
+    }
+
+    bindPair('chemex_slider_pb', 'chemex_input_pb', false, false);
+    bindPair('chemex_slider_kex', 'chemex_input_kex', true, false);
+    bindPair('chemex_slider_csa', 'chemex_input_csa', false, true);
+    bindPair('chemex_slider_dw', 'chemex_input_dw', false, true);
+
+    const fitBtn = document.getElementById('btn_fit_single_peak');
+    if (fitBtn) {
+        fitBtn.onclick = function () {
+            run_single_peak_chemex_fit(current_pseudo3d_profile_peak_index);
+        };
+    }
+
+    const resetBtn = document.getElementById('btn_reset_single_peak_params');
+    if (resetBtn) {
+        resetBtn.onclick = function () {
+            reset_single_peak_params(current_pseudo3d_profile_peak_index);
+        };
+    }
+}
+
+/**
+ * Ensures ChemEx virtual files are generated and synced into the Pyodide MEMFS.
+ */
+async function ensure_chemex_files_synced(worker) {
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) throw new Error("Could not generate ChemEx input files. Please verify CEST offsets.");
+    }
+    if (chemex_virtual_files_synced) return true;
+
+    return new Promise((resolve, reject) => {
+        const handler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "virtual_files_synced") {
+                worker.removeEventListener("message", handler);
+                chemex_virtual_files_synced = true;
+                resolve(true);
+            } else if (msg.type === "sync_error") {
+                worker.removeEventListener("message", handler);
+                reject(new Error(msg.error));
+            }
+        };
+        worker.addEventListener("message", handler);
+        worker.postMessage({
+            type: "sync_virtual_files",
+            files: chemex_generated_manifest.files,
+            baseDir: "."
+        });
+    });
+}
+
+/**
+ * Debounced live ChemEx simulation triggered on slider or input adjustment.
+ */
+function trigger_single_peak_simulation(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) return;
+
+    if (sim_debounce_timer) {
+        clearTimeout(sim_debounce_timer);
+    }
+
+    sim_debounce_timer = setTimeout(async () => {
+        const params = get_single_peak_sim_params_from_ui();
+        const badge = document.getElementById('chemex_sim_status_badge');
+        const notice = document.getElementById('chemex_sim_notice');
+
+        if (badge) {
+            badge.innerText = 'Simulating...';
+            badge.style.background = '#fef3c7';
+            badge.style.color = '#b45309';
+        }
+
+        // Cache modified params on profile instance
+        let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+        let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+            ? peaks_object.get_peak_profile(peakIndex)
+            : null;
+        if (prof_inst) {
+            prof_inst.sim_params = params;
+        }
+
+        try {
+            const worker = await get_or_init_chemex_worker();
+            await ensure_chemex_files_synced(worker);
+
+            const simHandler = function (e) {
+                const msg = e.data || {};
+                if (msg.type === "simulation_update_result" && msg.residue === (peakIndex + "N")) {
+                    worker.removeEventListener("message", simHandler);
+                    apply_simulation_result_to_plot(peakIndex, msg.data, params);
+                } else if (msg.type === "simulation_update_error" && msg.residue === (peakIndex + "N")) {
+                    worker.removeEventListener("message", simHandler);
+                    console.warn("Simulation error for peak #" + peakIndex + ":", msg.error);
+                    if (badge) {
+                        badge.innerText = 'Sim Error';
+                        badge.style.background = '#fee2e2';
+                        badge.style.color = '#b91c1c';
+                    }
+                    if (notice) {
+                        notice.style.display = 'block';
+                        notice.style.background = '#fee2e2';
+                        notice.style.color = '#b91c1c';
+                        notice.innerText = 'Sim: ' + (msg.error || 'Unknown error');
+                    }
+                }
+            };
+            worker.addEventListener("message", simHandler);
+
+            worker.postMessage({
+                type: "simulate_residue",
+                residue: peakIndex + "N",
+                params: params,
+                baseDir: "."
+            });
+        } catch (err) {
+            console.error("Failed to run live simulation:", err);
+            if (badge) {
+                badge.innerText = 'Initial Guess';
+                badge.style.background = '#e0f2fe';
+                badge.style.color = '#0369a1';
+            }
+        }
+    }, 200);
+}
+
+/**
+ * Updates the plot with newly computed simulation points while preserving user zoom.
+ */
+function apply_simulation_result_to_plot(peakIndex, simData, params) {
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    if (!simData || !simData.calc || simData.calc.length === 0) return;
+
+    if (prof_inst) {
+        prof_inst.chemex_sim = {
+            calc: simData.calc,
+            params: params
+        };
+    }
+
+    const badge = document.getElementById('chemex_sim_status_badge');
+    const notice = document.getElementById('chemex_sim_notice');
+    if (badge) {
+        badge.innerText = 'Simulated (Live)';
+        badge.style.background = '#f3e8ff';
+        badge.style.color = '#6b21a8';
+    }
+    if (notice) {
+        notice.style.display = 'none';
+    }
+
+    // If currently viewing this peak, update the plot curve
+    if (current_pseudo3d_profile_peak_index === peakIndex && pseudo3d_profile_plot_instance) {
+        let profData = get_pseudo3d_peak_profile_data(peakIndex, peaks_object);
+        let base_intensity = 1.0;
+        if (prof_inst && prof_inst.fit_result && typeof prof_inst.fit_result.y0 === 'number') {
+            base_intensity = prof_inst.fit_result.y0;
+        } else if (profData && profData.length > 0) {
+            base_intensity = d3.max(profData, d => d.value) || 1.0;
+        }
+
+        let calc_max = d3.max(simData.calc, d => d.y) || 1.0;
+        let scale_factor = 1.0;
+        if (calc_max > 0 && Math.abs(calc_max - base_intensity) / Math.max(base_intensity, 1e-6) > 0.08) {
+            scale_factor = base_intensity / calc_max;
+        }
+
+        let scaled_sim_curve = simData.calc.map(pt => ({
+            x: pt.x,
+            y: pt.y * scale_factor
+        }));
+
+        let pb_val = (params && params.PB !== undefined) ? params.PB : 0.02;
+        let kex_val = (params && params.KEX_AB !== undefined) ? params.KEX_AB : 100;
+        let dw_val = (params && params.DW_AB !== undefined) ? params.DW_AB : 0;
+
+        let simBadge = `Sim | pB: ${(pb_val * 100).toFixed(1)}% | kex: ${kex_val.toFixed(0)} s⁻¹ | Δω: ${dw_val.toFixed(2)} ppm`;
+
+        let simCurveData = {
+            total_curve: scaled_sim_curve,
+            components: [],
+            peak_centers: [],
+            fit_range: [d3.min(scaled_sim_curve, d => d.x), d3.max(scaled_sim_curve, d => d.x)],
+            baseline: base_intensity,
+            stats: {
+                custom_badge: simBadge,
+                num_peaks: 2
+            }
+        };
+
+        if (!pseudo3d_profile_plot_instance.fitData) {
+            pseudo3d_profile_plot_instance.fitData = {};
+        }
+        pseudo3d_profile_plot_instance.fitData.sim = simCurveData;
+        pseudo3d_profile_plot_instance.update_fit_data_preserve_zoom(pseudo3d_profile_plot_instance.fitData);
+    }
+}
+
+/**
+ * Runs ChemEx fit for the single currently selected peak.
+ */
+async function run_single_peak_chemex_fit(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) {
+        alert("Please select a peak profile first.");
+        return;
+    }
+    if (chemex_is_running) {
+        alert("A ChemEx fitting job is already running. Please wait for it to complete.");
+        return;
+    }
+
+    const fitBtn = document.getElementById('btn_fit_single_peak');
+    const badge = document.getElementById('chemex_sim_status_badge');
+    const notice = document.getElementById('chemex_sim_notice');
+
+    const params = get_single_peak_sim_params_from_ui();
+
+    if (fitBtn) {
+        fitBtn.disabled = true;
+        fitBtn.innerText = '⏳ Fitting Peak #' + peakIndex + '...';
+        fitBtn.style.background = '#94a3b8';
+    }
+    if (badge) {
+        badge.innerText = 'Fitting...';
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#b45309';
+    }
+    if (notice) {
+        notice.style.display = 'block';
+        notice.style.background = '#eff6ff';
+        notice.style.color = '#1d4ed8';
+        notice.innerText = `Fitting peak #${peakIndex} (${peakIndex}N) with ChemEx in WebAssembly...`;
+    }
+
+    try {
+        const worker = await get_or_init_chemex_worker();
+        await ensure_chemex_files_synced(worker);
+
+        const residue = peakIndex + "N";
+
+        const singleFitHandler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "fit_complete_with_params" && msg.residue === residue) {
+                worker.removeEventListener("message", singleFitHandler);
+                if (fitBtn) {
+                    fitBtn.disabled = false;
+                    fitBtn.innerText = '⚡ Fit This Peak Only';
+                    fitBtn.style.background = '#4f46e5';
+                }
+
+                const resData = msg.data || {};
+                let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+                if (peaks_object) {
+                    if (!peaks_object.chemex_results) {
+                        peaks_object.chemex_results = { profiles: {}, fitted_params: { global: {}, all: {} } };
+                    }
+                    peaks_object.chemex_results.profiles[residue] = resData;
+
+                    let prof_inst = (typeof peaks_object.get_peak_profile === 'function')
+                        ? peaks_object.get_peak_profile(peakIndex)
+                        : null;
+                    if (prof_inst) {
+                        prof_inst.chemex_fit = resData;
+                        prof_inst.chemex_sim = null;
+                        prof_inst.sim_params = null;
+                    }
+                }
+
+                // Update inputs/sliders to the newly fitted parameter values
+                let fp = resData.fitted_params || {};
+                let fittedVals = {};
+                if (fp.PB) fittedVals.PB = fp.PB.value;
+                if (fp.KEX_AB) fittedVals.KEX_AB = fp.KEX_AB.value;
+                if (fp.CS_A) fittedVals.CS_A = fp.CS_A.value;
+                if (fp.DW_AB) fittedVals.DW_AB = fp.DW_AB.value;
+                set_single_peak_sim_params_to_ui(fittedVals);
+
+                // Update status badge
+                let pb_str = fp.PB ? (fp.PB.value * 100).toFixed(1) + '%' : 'N/A';
+                let kex_str = fp.KEX_AB ? fp.KEX_AB.value.toFixed(0) + ' s⁻¹' : 'N/A';
+                if (badge) {
+                    badge.innerText = `Fit Complete (${pb_str}, ${kex_str})`;
+                    badge.style.background = '#dcfce7';
+                    badge.style.color = '#15803d';
+                }
+                if (notice) {
+                    notice.style.display = 'block';
+                    notice.style.background = '#dcfce7';
+                    notice.style.color = '#15803d';
+                    notice.innerText = `Fitted Peak #${peakIndex}: pB=${pb_str}, kex=${kex_str}`;
+                }
+
+                // Enable Download CEST results
+                let btnDl = document.getElementById("button_download_cest");
+                if (btnDl) btnDl.disabled = false;
+
+                // Log the fit
+                append_chemex_log(`\n> [ChemEx Single Peak Fit Complete] Peak #${peakIndex} (${residue}): pB=${pb_str}, kex=${kex_str}\n`);
+
+                // Re-render the plot to display the updated ChemEx fit line
+                show_pseudo3d_peak_profile(peakIndex);
+
+            } else if (msg.type === "user_fit_error" && msg.residue === residue) {
+                worker.removeEventListener("message", singleFitHandler);
+                if (fitBtn) {
+                    fitBtn.disabled = false;
+                    fitBtn.innerText = '⚡ Fit This Peak Only';
+                    fitBtn.style.background = '#4f46e5';
+                }
+                if (badge) {
+                    badge.innerText = 'Fit Failed';
+                    badge.style.background = '#fee2e2';
+                    badge.style.color = '#b91c1c';
+                }
+                if (notice) {
+                    notice.style.display = 'block';
+                    notice.style.background = '#fee2e2';
+                    notice.style.color = '#b91c1c';
+                    notice.innerText = 'Fit error: ' + (msg.error || 'Unknown error');
+                }
+                alert("ChemEx fit error for peak #" + peakIndex + ": " + msg.error);
+            }
+        };
+
+        worker.addEventListener("message", singleFitHandler);
+
+        worker.postMessage({
+            type: "fit_from_user_params",
+            residue: residue,
+            params: params,
+            outputDir: "Output",
+            baseDir: "."
+        });
+
+    } catch (err) {
+        if (fitBtn) {
+            fitBtn.disabled = false;
+            fitBtn.innerText = '⚡ Fit This Peak Only';
+            fitBtn.style.background = '#4f46e5';
+        }
+        if (notice) {
+            notice.style.display = 'block';
+            notice.style.background = '#fee2e2';
+            notice.style.color = '#b91c1c';
+            notice.innerText = 'Worker error: ' + (err.message || err);
+        }
+        alert("Failed to run ChemEx fit: " + (err.message || err));
+    }
+}
+
+/**
+ * Resets user modifications back to the baseline initial guess or fitted result.
+ */
+function reset_single_peak_params(peakIndex) {
+    if (!peakIndex) peakIndex = current_pseudo3d_profile_peak_index;
+    if (!peakIndex) return;
+
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    if (prof_inst) {
+        prof_inst.sim_params = null;
+        prof_inst.chemex_sim = null;
+    }
+
+    const notice = document.getElementById('chemex_sim_notice');
+    if (notice) notice.style.display = 'none';
+
+    init_single_peak_sim_panel(peakIndex);
+    show_pseudo3d_peak_profile(peakIndex);
+}
+
+/**
+ * Initializes values, ranges, and badges in the side panel for peak_index.
+ */
+function init_single_peak_sim_panel(peakIndex) {
+    if (!peakIndex) return;
+
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let prof_inst = (peaks_object && typeof peaks_object.get_peak_profile === 'function')
+        ? peaks_object.get_peak_profile(peakIndex)
+        : null;
+
+    let residue = peakIndex + "N";
+    let badge = document.getElementById('chemex_sim_status_badge');
+    let notice = document.getElementById('chemex_sim_notice');
+    if (notice) notice.style.display = 'none';
+
+    let x_col = (peaks_object && typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('X_PPM') : null;
+    let y_col = (peaks_object && typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('Y_PPM') : null;
+    let spec_params = get_cest_spectrometer_params();
+    let carrier = spec_params.carrier || 118.0;
+    let y_ppm = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : carrier;
+
+    // Check Case 1: Fitted params
+    let chemex_fit = (prof_inst && prof_inst.chemex_fit)
+        ? prof_inst.chemex_fit
+        : (peaks_object && peaks_object.chemex_results && peaks_object.chemex_results.profiles
+            ? peaks_object.chemex_results.profiles[residue]
+            : null);
+
+    let pb_val = 0.02;
+    let kex_val = 100.0;
+    let csa_val = y_ppm;
+    let dw_val = 3.0;
+    let badgeText = "Initial Guess";
+    let badgeBg = "#e0f2fe";
+    let badgeColor = "#0369a1";
+
+    if (chemex_fit && chemex_fit.fitted_params) {
+        let fp = chemex_fit.fitted_params;
+        let p_obj = chemex_fit.params || {};
+        if (fp.PB) pb_val = fp.PB.value;
+        else if (p_obj.PB !== undefined) pb_val = p_obj.PB;
+
+        if (fp.KEX_AB) kex_val = fp.KEX_AB.value;
+        else if (p_obj.KEX_AB !== undefined) kex_val = p_obj.KEX_AB;
+
+        if (fp.CS_A) csa_val = fp.CS_A.value;
+        else if (p_obj.CS_A !== undefined) csa_val = p_obj.CS_A;
+
+        if (fp.DW_AB) dw_val = fp.DW_AB.value;
+        else if (p_obj.DW_AB !== undefined) dw_val = p_obj.DW_AB;
+
+        badgeText = `ChemEx Fit (${(pb_val * 100).toFixed(1)}%, ${kex_val.toFixed(0)} s⁻¹)`;
+        badgeBg = "#dcfce7";
+        badgeColor = "#15803d";
+    } else if (prof_inst && prof_inst.sim_params) {
+        // Case 2: Modified user params
+        pb_val = prof_inst.sim_params.PB !== undefined ? prof_inst.sim_params.PB : pb_val;
+        kex_val = prof_inst.sim_params.KEX_AB !== undefined ? prof_inst.sim_params.KEX_AB : kex_val;
+        csa_val = prof_inst.sim_params.CS_A !== undefined ? prof_inst.sim_params.CS_A : csa_val;
+        dw_val = prof_inst.sim_params.DW_AB !== undefined ? prof_inst.sim_params.DW_AB : dw_val;
+
+        badgeText = "Modified Initial Guess";
+        badgeBg = "#fef3c7";
+        badgeColor = "#b45309";
+    } else {
+        // Case 3: Initial guess from pre-analysis or defaults
+        let b1 = parseFloat(document.getElementById("cest_b1") ? document.getElementById("cest_b1").value : 25) || 25.0;
+        let cestOffsetsInput = document.getElementById("cest_offsets");
+        let offsets_str = cestOffsetsInput ? cestOffsetsInput.value.trim() : "";
+        let offsets = offsets_str ? offsets_str.split(/\s+/).map(Number).filter(v => !isNaN(v)) : [];
+
+        let fitResult = prof_inst ? prof_inst.fit_result : null;
+        let peaksArr = (fitResult && Array.isArray(fitResult.peaks)) ? fitResult.peaks : (prof_inst && prof_inst.fitted_peaks ? prof_inst.fitted_peaks : null);
+
+        if (peaksArr && peaksArr.length >= 2 && offsets.length > 0 && spec_params.n15_mhz) {
+            let sorted_peaks = [...peaksArr].sort((a, b) => {
+                let vA = (a.A || 0) * (a.fwhm || 0);
+                let vB = (b.A || 0) * (b.fwhm || 0);
+                return vB - vA;
+            });
+            let dip1 = sorted_peaks[0];
+            let dip2 = sorted_peaks[1];
+
+            let on_res = [];
+            for (let i = 0; i < offsets.length; i++) {
+                if (Math.abs(offsets[i]) < 10000) on_res.push({ plane: i + 1, offset: offsets[i] });
+            }
+            function p2off_local(p) {
+                if (on_res.length === 0) return 0;
+                if (on_res.length === 1) return on_res[0].offset;
+                if (p <= on_res[0].plane) {
+                    let slope = (on_res[1].offset - on_res[0].offset) / (on_res[1].plane - on_res[0].plane);
+                    return on_res[0].offset + (p - on_res[0].plane) * slope;
+                }
+                let last = on_res.length - 1;
+                if (p >= on_res[last].plane) {
+                    let slope = (on_res[last].offset - on_res[last - 1].offset) / (on_res[last].plane - on_res[last - 1].plane);
+                    return on_res[last].offset + (p - on_res[last].plane) * slope;
+                }
+                for (let j = 0; j < last; j++) {
+                    if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                        let sp = on_res[j + 1].plane - on_res[j].plane;
+                        return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
+                    }
+                }
+                return on_res[last].offset;
+            }
+
+            let hz1 = p2off_local(dip1.x0);
+            let hz2 = p2off_local(dip2.x0);
+            let diff_ppm = (hz2 - hz1) / spec_params.n15_mhz;
+            if (Math.abs(diff_ppm) > 0.01 && Math.abs(diff_ppm) < 50.0) {
+                dw_val = parseFloat(diff_ppm.toFixed(2));
+                if (Object.is(dw_val, -0)) dw_val = 0.0;
+            }
+
+            let p_left = dip2.x0 - dip2.fwhm / 2.0;
+            let p_right = dip2.x0 + dip2.fwhm / 2.0;
+            let w_hz = Math.abs(p2off_local(p_right) - p2off_local(p_left));
+            let kex_diff = w_hz - 2.0 * b1;
+            kex_val = (kex_diff > 0) ? (Math.PI * kex_diff) : Math.max(10.0, Math.PI * Math.abs(kex_diff));
+            kex_val = parseFloat(kex_val.toFixed(1));
+
+            let vol1 = (dip1.A || 0) * (dip1.fwhm || 0);
+            let vol2 = (dip2.A || 0) * (dip2.fwhm || 0);
+            if (vol1 > 0 && kex_val > 0) {
+                let rel_vol = vol2 / vol1;
+                pb_val = parseFloat((rel_vol * (1.0 / kex_val)).toPrecision(3));
+                pb_val = Math.max(0.0001, Math.min(0.49, pb_val));
+            }
+        }
+
+        badgeText = "Initial Guess";
+        badgeBg = "#e0f2fe";
+        badgeColor = "#0369a1";
+    }
+
+    if (badge) {
+        badge.innerText = badgeText;
+        badge.style.background = badgeBg;
+        badge.style.color = badgeColor;
+    }
+
+    set_single_peak_sim_params_to_ui({
+        PB: pb_val,
+        KEX_AB: kex_val,
+        CS_A: csa_val,
+        DW_AB: dw_val
+    });
+
+    setup_sim_panel_events();
+}
+
+/**
+ * Run CEST pre-analysis: negative peak picking/fitting along the profile of all pseudo3D peaks.
+ * Highlights peaks with >= 2 peaks in their profile.
+ * Note: Does not add overlay rings to main_plot per user specification.
+ */
+function run_cest_pre_analysis(is_manual = false) {
+    let peaks_object = get_current_peak_object();
+    // If no peaks currently displayed, or displayed peaks have no pseudo3D data, check pseudo3d_fitted_peaks_object
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+        if (peaks_object) {
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    } else {
+        // If current peaks don't have Z_A headers and don't have pseudo3d profile, fallback to pseudo3d_fitted_peaks_object
+        let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+        if ((!testProfile || testProfile.length < 3) && pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0] && pseudo3d_fitted_peaks_object.columns[0].length > 0) {
+            peaks_object = pseudo3d_fitted_peaks_object;
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    }
+
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        if (is_manual) alert("No pseudo-3D peak data found. Please load or fit pseudo-3D peaks first.");
+        return;
+    }
+
+    let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+    if (!testProfile || testProfile.length < 3) {
+        if (is_manual) alert("Current peak dataset does not contain pseudo-3D profile data (e.g. Z_A columns).");
+        return;
+    }
+
+    let statusEl = document.getElementById("cest_pre_analysis_status");
+    let btnPre = document.getElementById("button_cest_pre_analysis");
+    if (statusEl) {
+        statusEl.innerHTML = '<span style="color: #1976d2;">Running pre-analysis fitting...</span>';
+    }
+    if (btnPre) btnPre.disabled = true;
+
+    // Reset filter state
+    cest_filter_multi_peaks_only = false;
+
+    // In case of rerun preanalysis, clear previous result first:
+    cest_multi_peak_indices = [];
+    if (peaks_object) {
+        peaks_object.cest_multi_peak_indices = [];
+        if (peaks_object.peak_profiles) {
+            for (let k in peaks_object.peak_profiles) {
+                if (peaks_object.peak_profiles[k]) {
+                    peaks_object.peak_profiles[k].fit_result = null;
+                }
+            }
+        }
+    }
+    if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object !== peaks_object) {
+        pseudo3d_fitted_peaks_object.cest_multi_peak_indices = [];
+        if (pseudo3d_fitted_peaks_object.peak_profiles) {
+            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                if (pseudo3d_fitted_peaks_object.peak_profiles[k]) {
+                    pseudo3d_fitted_peaks_object.peak_profiles[k].fit_result = null;
+                }
+            }
+        }
+    }
+
+    apply_multi_peak_highlights();
+    let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+    if (btnFilter) {
+        btnFilter.disabled = true;
+        btnFilter.textContent = "Show ≥2 Peaks Only";
+        btnFilter.style.backgroundColor = "";
+    }
+    let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+    if (btnHeaderFilter) {
+        btnHeaderFilter.style.display = 'none';
+        btnHeaderFilter.disabled = true;
+    }
+
+    if (pseudo3d_profile_plot_instance && current_pseudo3d_profile_peak_index) {
+        show_pseudo3d_peak_profile(current_pseudo3d_profile_peak_index);
+    }
+
+    // If using pseudo3d_fitted_peaks_object, make sure the checkbox is checked
+    if (peaks_object === pseudo3d_fitted_peaks_object) {
+        let p3dCheck = document.getElementById("show_pseudo3d_peaks");
+        if (p3dCheck) p3dCheck.checked = true;
+    }
+
+    setTimeout(() => {
+        try {
+            const total_peaks = peaks_object.columns[0].length;
+            cest_multi_peak_indices = [];
+
+            let cestOffsetsInput = document.getElementById("cest_offsets");
+            let explicit_x = null;
+            if (cestOffsetsInput && cestOffsetsInput.value.trim().length > 0) {
+                let parsed = cestOffsetsInput.value.trim().split(/\s+/).map(Number).filter(v => !isNaN(v));
+                if (parsed.length === testProfile.length) {
+                    explicit_x = parsed;
+                }
+            }
+
+            let x_col = peaks_object.get_column_by_header('X_PPM');
+            let y_col = peaks_object.get_column_by_header('Y_PPM');
+
+            for (let k = 1; k <= total_peaks; k++) {
+                let profileData = get_pseudo3d_peak_profile_data(k, peaks_object);
+                if (!profileData || profileData.length < 3) continue;
+
+                let x_val = (x_col && x_col[k - 1] !== undefined) ? x_col[k - 1] : null;
+                let y_val = (y_col && y_col[k - 1] !== undefined) ? y_col[k - 1] : null;
+
+                let prof = null;
+                if (typeof peaks_object.get_peak_profile === 'function') {
+                    prof = peaks_object.get_peak_profile(k);
+                }
+                if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+                    Object.setPrototypeOf(prof, peak_profile.prototype);
+                }
+                if (!prof || typeof prof.fit_negative_pseudo_voigt_em !== 'function' || !prof.x || prof.x.length === 0) {
+                    prof = new peak_profile(k, profileData, {
+                        x_ppm: x_val,
+                        y_ppm: y_val,
+                        x_coords: null,
+                        fit_window: 20,
+                        asym_factor: 2.0,
+                        max_intensity: 0.98
+                    });
+                    if (typeof peaks_object.set_peak_profile === 'function') {
+                        peaks_object.set_peak_profile(k, prof);
+                    }
+                } else {
+                    prof.fit_result = null;
+                }
+
+                let fitResult = (prof && typeof prof.fit_negative_pseudo_voigt_em === 'function')
+                    ? prof.fit_negative_pseudo_voigt_em({ force_refit: true })
+                    : null;
+                let num_peaks = 0;
+                if (fitResult && typeof fitResult.num_peaks === 'number') {
+                    num_peaks = fitResult.num_peaks;
+                } else if (prof && prof.fitted_peaks && Array.isArray(prof.fitted_peaks)) {
+                    num_peaks = prof.fitted_peaks.length;
+                }
+
+                if (num_peaks >= 2) {
+                    cest_multi_peak_indices.push(k);
+                }
+            }
+
+            // Update status display
+            if (statusEl) {
+                statusEl.innerHTML = `<strong>Pre-analysis complete:</strong> Found <b style="color: #e65100;">${cest_multi_peak_indices.length}</b> peak${cest_multi_peak_indices.length === 1 ? '' : 's'} with ≥2 components (out of ${total_peaks} peaks).`;
+            }
+
+            // Enable filter button in CEST section
+            let btnFilter = document.getElementById("button_cest_filter_multi_peaks");
+            if (btnFilter) {
+                btnFilter.disabled = false;
+                btnFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnFilter.style.backgroundColor = "";
+            }
+
+            let btnGen = document.getElementById("button_gen_chemex_input");
+            if (btnGen) {
+                btnGen.disabled = false;
+            }
+            let btnRun = document.getElementById("button_run_chemex");
+            if (btnRun) {
+                btnRun.disabled = false;
+            }
+
+            // Enable and display quick filter button in peak table header
+            let btnHeaderFilter = document.getElementById("button_peak_area_filter_multi");
+            if (btnHeaderFilter) {
+                btnHeaderFilter.style.display = 'inline-block';
+                btnHeaderFilter.disabled = false;
+                btnHeaderFilter.textContent = `Show ≥2 Peaks Only (${cest_multi_peak_indices.length})`;
+                btnHeaderFilter.style.backgroundColor = "#fff3e0";
+            }
+
+            // Show or refresh the peak table
+            show_peak_table();
+            apply_multi_peak_highlights();
+        } finally {
+            if (btnPre) btnPre.disabled = false;
+        }
+    }, 10);
+}
+
+/**
+ * Apply highlighting to table rows for all peaks with >= 2 components.
+ */
+function apply_multi_peak_highlights() {
+    let table = document.getElementById("peak_table");
+    if (!table) return;
+    let tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    let rows = tbody.querySelectorAll("tr");
+    rows.forEach(row => {
+        let tds = row.querySelectorAll("td");
+        if (tds.length === 0) return;
+        let peakIndex = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
+        if (isNaN(peakIndex)) return;
+
+        if (cest_multi_peak_indices.includes(peakIndex)) {
+            row.classList.add("multi_peak_row");
+            row.style.backgroundColor = "#ffe0b2";
+            for (let c = 0; c < tds.length; c++) {
+                tds[c].style.backgroundColor = "#ffe0b2";
+            }
+        } else {
+            row.classList.remove("multi_peak_row");
+            row.style.backgroundColor = "";
+            for (let c = 0; c < tds.length; c++) {
+                tds[c].style.backgroundColor = "";
+            }
+        }
+        let badge = row.querySelector(".badge_multi_peak");
+        if (badge) badge.remove();
+    });
+}
+
+/**
+ * Toggle peak list filtering to show only peaks with >= 2 components or show all peaks.
+ */
+function toggle_cest_filter_multi_peaks() {
+    cest_filter_multi_peaks_only = !cest_filter_multi_peaks_only;
+
+    let table = document.getElementById("peak_table");
+    let rows = table ? table.querySelectorAll("tbody tr") : [];
+    let peaks_object = get_current_peak_object() || pseudo3d_fitted_peaks_object;
+    let total_count = (peaks_object && peaks_object.columns && peaks_object.columns[0]) ? peaks_object.columns[0].length : rows.length;
+    let multi_count = cest_multi_peak_indices.length;
+
+    rows.forEach(row => {
+        let tds = row.querySelectorAll("td");
+        if (tds.length === 0) return;
+        let peakIndex = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
+        if (isNaN(peakIndex)) return;
+
+        if (cest_filter_multi_peaks_only) {
+            if (cest_multi_peak_indices.includes(peakIndex)) {
+                row.style.display = "";
+            } else {
+                row.style.display = "none";
+            }
+        } else {
+            row.style.display = "";
+        }
+    });
+
+    let btnCest = document.getElementById("button_cest_filter_multi_peaks");
+    let btnHeader = document.getElementById("button_peak_area_filter_multi");
+
+    let text, bgColor;
+    if (cest_filter_multi_peaks_only) {
+        text = `Show All Peaks (${total_count})`;
+        bgColor = "#ffe0b2";
+    } else {
+        text = `Show ≥2 Peaks Only (${multi_count})`;
+        bgColor = "";
+    }
+
+    if (btnCest) {
+        btnCest.textContent = text;
+        btnCest.style.backgroundColor = bgColor;
+    }
+    if (btnHeader) {
+        btnHeader.textContent = text;
+        btnHeader.style.backgroundColor = bgColor || "#fff3e0";
+    }
+}
+
+/**
+ * Load CEST saturation offsets from an uploaded text/list/tab file and fill in #cest_offsets
+ * @param {HTMLInputElement} inputEl
+ */
+function load_cest_offsets_file(inputEl) {
+    if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
+    const file = inputEl.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (e) {
+        const text = e.target.result;
+        if (!text || typeof text !== 'string') return;
+
+        const lines = text.split(/\r?\n/);
+        let numbers = [];
+
+        // Filter comment lines and empty lines
+        let validLines = [];
+        for (let line of lines) {
+            let trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';') || trimmed.startsWith('//') || trimmed.startsWith('/*')) {
+                continue;
+            }
+            validLines.push(trimmed);
+        }
+
+        // Check if 2-column table format (index, offset)
+        let isTwoColumn = validLines.length > 1 && validLines.every(l => {
+            let parts = l.split(/[\s,]+/);
+            return parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]));
+        });
+
+        if (isTwoColumn) {
+            let firstCols = validLines.map(l => Number(l.split(/[\s,]+/)[0]));
+            let isIndex = firstCols.every((v, i) => v === i + 1 || v === i);
+            if (isIndex) {
+                numbers = validLines.map(l => Number(l.split(/[\s,]+/)[1]));
+            } else {
+                numbers = validLines.flatMap(l => l.split(/[\s,]+/).map(Number).filter(v => !isNaN(v)));
+            }
+        } else {
+            for (let line of validLines) {
+                let tokens = line.split(/[\s,]+/);
+                for (let tok of tokens) {
+                    let num = Number(tok);
+                    if (!isNaN(num) && isFinite(num)) {
+                        numbers.push(num);
+                    }
+                }
+            }
+        }
+
+        if (numbers.length === 0) {
+            alert("No numeric offset values found in the uploaded file: " + file.name);
+            inputEl.value = "";
+            return;
+        }
+
+        const offsetsInput = document.getElementById("cest_offsets");
+        if (offsetsInput) {
+            offsetsInput.value = numbers.join(' ');
+        }
+
+        const statusEl = document.getElementById("cest_pre_analysis_status");
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">Loaded ${numbers.length} offsets (Hz) from ${file.name}</span>`;
+        }
+
+        console.log(`Loaded ${numbers.length} CEST offsets from ${file.name}:`, numbers);
+
+        if (typeof pseudo3d_fitted_peaks_object !== 'undefined' && pseudo3d_fitted_peaks_object) {
+            pseudo3d_fitted_peaks_object.cest_offsets = offsetsInput ? offsetsInput.value : numbers.join(' ');
+        }
+
+        chemex_generated_manifest = null;
+        let btnGen = document.getElementById("button_gen_chemex_input");
+        if (btnGen) {
+            btnGen.disabled = false;
+        }
+        let btnRun = document.getElementById("button_run_chemex");
+        if (btnRun) {
+            btnRun.disabled = false;
+        }
+
+        inputEl.value = "";
+
+        // If profile modal is open, refresh current peak profile plot
+        if (typeof current_selected_peak_index === 'number' && current_selected_peak_index > 0) {
+            let modal = document.getElementById('pseudo3d_profile_modal');
+            if (modal && modal.style.display !== 'none') {
+                show_pseudo3d_peak_profile(current_selected_peak_index);
+            }
+        }
+    };
+
+    reader.onerror = function (err) {
+        console.error("Error reading offset file:", err);
+        alert("Failed to read file: " + file.name);
+        inputEl.value = "";
+    };
+
+    reader.readAsText(file);
+}
+
+// ==========================================
+// ChemEx CEST Fitting Integration
+// ==========================================
+let chemex_worker = null;
+let chemex_worker_ready = false;
+let chemex_is_running = false;
+let chemex_generated_manifest = null;
+
+// Lightweight Pure JS ZIP Archive Builder (Preserves folder hierarchies, STORE mode)
+let chemex_crc32_table = null;
+function get_chemex_crc32_table() {
+    if (!chemex_crc32_table) {
+        let table = [];
+        for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) {
+                c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+            }
+            table[n] = c;
+        }
+        chemex_crc32_table = table;
+    }
+    return chemex_crc32_table;
+}
+
+function calc_chemex_crc32(bytes) {
+    const table = get_chemex_crc32_table();
+    let crc = 0 ^ (-1);
+    for (let i = 0; i < bytes.length; i++) {
+        crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+    }
+    return (crc ^ (-1)) >>> 0;
+}
+
+function create_zip_archive(filesMap) {
+    const encoder = new TextEncoder();
+    const localHeaders = [];
+    const centralEntries = [];
+    let offset = 0;
+
+    const dirs = new Set();
+    for (const rawPath of Object.keys(filesMap)) {
+        const parts = rawPath.replace(/\\/g, '/').split('/');
+        for (let i = 1; i < parts.length; i++) {
+            dirs.add(parts.slice(0, i).join('/') + '/');
+        }
+    }
+
+    const allEntries = [];
+    for (const d of dirs) {
+        allEntries.push({ path: d, content: new Uint8Array(0), isDir: true });
+    }
+    for (const [p, c] of Object.entries(filesMap)) {
+        allEntries.push({ path: p.replace(/\\/g, '/'), content: c, isDir: false });
+    }
+
+    for (const entry of allEntries) {
+        const nameBytes = encoder.encode(entry.path);
+        const dataBytes = entry.isDir ? new Uint8Array(0) : ((typeof entry.content === 'string') ? encoder.encode(entry.content) : new Uint8Array(entry.content));
+        const dataCrc = entry.isDir ? 0 : calc_chemex_crc32(dataBytes);
+        const dataLen = dataBytes.length;
+
+        // DOS date/time (2026-01-01 00:00:00)
+        const dosTime = 0;
+        const dosDate = ((2026 - 1980) << 9) | (1 << 5) | 1;
+
+        // Local Header (30 bytes + name + data)
+        const lh = new Uint8Array(30 + nameBytes.length + dataBytes.length);
+        const lhView = new DataView(lh.buffer);
+        lhView.setUint32(0, 0x04034b50, true);
+        lhView.setUint16(4, 20, true);
+        lhView.setUint16(6, 0x0800, true);     // bit 11 = UTF-8
+        lhView.setUint16(8, 0, true);          // STORE (no compression)
+        lhView.setUint16(10, dosTime, true);
+        lhView.setUint16(12, dosDate, true);
+        lhView.setUint32(14, dataCrc, true);
+        lhView.setUint32(18, dataLen, true);
+        lhView.setUint32(22, dataLen, true);
+        lhView.setUint16(26, nameBytes.length, true);
+        lhView.setUint16(28, 0, true);
+        lh.set(nameBytes, 30);
+        lh.set(dataBytes, 30 + nameBytes.length);
+        localHeaders.push(lh);
+
+        // Central Directory Entry (46 bytes + name)
+        const cd = new Uint8Array(46 + nameBytes.length);
+        const cdView = new DataView(cd.buffer);
+        cdView.setUint32(0, 0x02014b50, true);
+        cdView.setUint16(4, 20, true);
+        cdView.setUint16(6, 20, true);
+        cdView.setUint16(8, 0x0800, true);
+        cdView.setUint16(10, 0, true);
+        cdView.setUint16(12, dosTime, true);
+        cdView.setUint16(14, dosDate, true);
+        cdView.setUint32(16, dataCrc, true);
+        cdView.setUint32(20, dataLen, true);
+        cdView.setUint32(24, dataLen, true);
+        cdView.setUint16(28, nameBytes.length, true);
+        cdView.setUint16(30, 0, true);
+        cdView.setUint16(32, 0, true);
+        cdView.setUint16(34, 0, true);
+        cdView.setUint16(36, 0, true);
+        cdView.setUint32(38, entry.isDir ? 0x10 : 0x20, true);
+        cdView.setUint32(42, offset, true);
+        cd.set(nameBytes, 46);
+        centralEntries.push(cd);
+
+        offset += lh.length;
+    }
+
+    const cdOffset = offset;
+    let cdSize = 0;
+    for (const cd of centralEntries) cdSize += cd.length;
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    eocdView.setUint32(0, 0x06054b50, true);
+    eocdView.setUint16(4, 0, true);
+    eocdView.setUint16(6, 0, true);
+    eocdView.setUint16(8, centralEntries.length, true);
+    eocdView.setUint16(10, centralEntries.length, true);
+    eocdView.setUint32(12, cdSize, true);
+    eocdView.setUint32(16, cdOffset, true);
+    eocdView.setUint16(20, 0, true);
+
+    const totalLen = cdOffset + cdSize + 22;
+    const out = new Uint8Array(totalLen);
+    let p = 0;
+    for (const lh of localHeaders) {
+        out.set(lh, p);
+        p += lh.length;
+    }
+    for (const cd of centralEntries) {
+        out.set(cd, p);
+        p += cd.length;
+    }
+    out.set(eocd, p);
+    return out;
+}
+
+function append_chemex_log(msg) {
+    const logEl = document.getElementById("log");
+    if (logEl) {
+        logEl.value += msg;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+}
+
+function get_or_init_chemex_worker() {
+    return new Promise((resolve, reject) => {
+        if (chemex_worker && chemex_worker_ready) {
+            resolve(chemex_worker);
+            return;
+        }
+
+        const statusEl = document.getElementById("cest_result");
+        if (statusEl) {
+            statusEl.innerHTML = '<span style="color: #1976d2;">Initializing ChemEx (loading Pyodide & Python packages)...</span>';
+        }
+        append_chemex_log("\n[ChemEx] Initializing WebAssembly environment (Pyodide v0.28.0)...\n");
+
+        if (!chemex_worker) {
+            chemex_worker = new Worker("js/chemex_worker.js?v=" + Date.now());
+
+            chemex_worker.onmessage = function (e) {
+                const msg = e.data || {};
+                if (msg.type === "stdout" || msg.type === "stderr") {
+                    append_chemex_log(msg.text);
+                } else if (msg.type === "status") {
+                    append_chemex_log(`> [ChemEx Status] ${msg.text}\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color: #1976d2;">${msg.text}</span>`;
+                    }
+                } else if (msg.type === "ready") {
+                    chemex_worker_ready = true;
+                    append_chemex_log(`> [ChemEx Ready] Python ${msg.pythonVersion}, ChemEx v${msg.chemexVersion} loaded.\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = '<span style="color: #2e7d32;">ChemEx ready</span>';
+                    }
+                    resolve(chemex_worker);
+                } else if (msg.type === "init_error") {
+                    chemex_worker_ready = false;
+                    append_chemex_log(`> [ChemEx Init Error] ${msg.error}\n`);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color: #d32f2f;">ChemEx Init Error: ${msg.error}</span>`;
+                    }
+                    reject(new Error(msg.error));
+                }
+            };
+
+            chemex_worker.onerror = function (err) {
+                console.error("ChemEx Worker Error:", err);
+                append_chemex_log(`> [ChemEx Worker Error] ${err.message || err}\n`);
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #d32f2f;">ChemEx worker error: ${err.message || err}</span>`;
+                }
+                reject(err);
+            };
+
+            chemex_worker.postMessage({ type: "init" });
+        } else {
+            const readyHandler = function (e) {
+                if (e.data && e.data.type === "ready") {
+                    chemex_worker.removeEventListener("message", readyHandler);
+                    resolve(chemex_worker);
+                } else if (e.data && e.data.type === "init_error") {
+                    chemex_worker.removeEventListener("message", readyHandler);
+                    reject(new Error(e.data.error));
+                }
+            };
+            chemex_worker.addEventListener("message", readyHandler);
+        }
+    });
+}
+
+function generate_chemex_input() {
+    let peaks_object = get_current_peak_object();
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        peaks_object = pseudo3d_fitted_peaks_object;
+        if (peaks_object) {
+            current_spectrum_index_of_peaks = -2;
+            current_flag_of_peaks = 'fitted';
+        }
+    }
+    if (!peaks_object || !peaks_object.columns || peaks_object.columns.length === 0 || !peaks_object.columns[0] || peaks_object.columns[0].length === 0) {
+        alert("No pseudo-3D peak data found. Please load or fit pseudo-3D peaks first.");
+        return null;
+    }
+
+    let testProfile = get_pseudo3d_peak_profile_data(1, peaks_object);
+    if (!testProfile || testProfile.length < 3) {
+        alert("Current peak dataset does not contain pseudo-3D profile data (e.g. Z_A columns).");
+        return null;
+    }
+
+    let cestOffsetsInput = document.getElementById("cest_offsets");
+    let offsets_str = cestOffsetsInput ? cestOffsetsInput.value.trim() : "";
+    if (!offsets_str) {
+        alert("Please provide CEST saturation offsets in Hz (or click 'Upload offset file').");
+        return null;
+    }
+    let offsets = offsets_str.split(/\s+/).map(Number).filter(v => !isNaN(v));
+    if (offsets.length !== testProfile.length) {
+        alert(`Mismatch: You provided ${offsets.length} saturation offsets, but the profile has ${testProfile.length} planes.`);
+        return null;
+    }
+
+    let x_col = (typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('X_PPM') : null;
+    let y_col = (typeof peaks_object.get_column_by_header === 'function') ? peaks_object.get_column_by_header('Y_PPM') : null;
+
+    // Determine target peaks: fit all peaks where preprocessing shows >= 2 dips
+    let target_peaks = [];
+    if (Array.isArray(cest_multi_peak_indices) && cest_multi_peak_indices.length > 0) {
+        target_peaks = [...cest_multi_peak_indices];
+    } else {
+        const total_peaks = peaks_object.columns[0].length;
+        for (let k = 1; k <= total_peaks; k++) {
+            let profData = get_pseudo3d_peak_profile_data(k, peaks_object);
+            if (!profData || profData.length < 3) continue;
+            let x_val = (x_col && x_col[k - 1] !== undefined) ? x_col[k - 1] : null;
+            let y_val = (y_col && y_col[k - 1] !== undefined) ? y_col[k - 1] : null;
+            let prof = null;
+            if (typeof peaks_object.get_peak_profile === 'function') prof = peaks_object.get_peak_profile(k);
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+                Object.setPrototypeOf(prof, peak_profile.prototype);
+            }
+            if ((!prof || typeof prof.fit_negative_pseudo_voigt_em !== 'function' || !prof.x || prof.x.length === 0) && typeof peak_profile === 'function') {
+                prof = new peak_profile(k, profData, { x_ppm: x_val, y_ppm: y_val, x_coords: null, fit_window: 20, asym_factor: 2.0 });
+                if (typeof peaks_object.set_peak_profile === 'function') peaks_object.set_peak_profile(k, prof);
+            }
+            if (prof && typeof prof.fit_negative_pseudo_voigt_em === 'function') {
+                let fitResult = prof.fit_negative_pseudo_voigt_em();
+                let num_peaks = (fitResult && typeof fitResult.num_peaks === 'number') ? fitResult.num_peaks : (prof.fitted_peaks ? prof.fitted_peaks.length : 0);
+                if (num_peaks >= 2) target_peaks.push(k);
+            }
+        }
+        cest_multi_peak_indices = target_peaks;
+        apply_multi_peak_highlights();
+    }
+
+    if (target_peaks.length === 0) {
+        alert("Pre-analysis found no peaks with ≥2 dips along their CEST profile. Please verify your offsets or peak picking.");
+        return null;
+    }
+
+    let b1 = parseFloat(document.getElementById("cest_b1").value) || 25.0;
+    let time_t1 = parseFloat(document.getElementById("time_t1").value) || 1.0;
+    let b1_inh_inf = document.getElementById("cest_b1_inh_inf") ? document.getElementById("cest_b1_inh_inf").checked : false;
+
+    // Retrieve spectrometer frequency and carrier
+    let spec_params = get_cest_spectrometer_params();
+    let h_larmor_frq = spec_params.h_larmor_frq;
+    let carrier = spec_params.carrier;
+    let n15_mhz = spec_params.n15_mhz;
+
+    // Helper to calculate pseudo-Voigt dip integrated volume / area:
+    function calc_dip_volume(p) {
+        if (!p) return 0;
+        let A = Math.abs(p.A || 0);
+        let fwhm = Math.max(p.fwhm || 0, 1e-6);
+        let lf = Math.min(1.0, Math.max(0.0, (typeof p.lfrac === 'number') ? p.lfrac : 0.5));
+        // Pseudo-Voigt area: A * fwhm * ((1 - lf)*sqrt(pi/(4*ln2)) + lf*(pi/2))
+        let g_factor = 1.064467019;
+        let l_factor = 1.570796327;
+        return A * fwhm * ((1.0 - lf) * g_factor + lf * l_factor);
+    }
+
+    // Collect on-resonance planes for interpolation
+    let on_res = [];
+    for (let i = 0; i < offsets.length; i++) {
+        if (Math.abs(offsets[i]) < 10000) {
+            on_res.push({ plane: i + 1, offset: offsets[i] });
+        }
+    }
+    function p2off(p) {
+        if (on_res.length === 0) return 0;
+        if (on_res.length === 1) return on_res[0].offset;
+        if (p <= on_res[0].plane) {
+            let slope = (on_res[1].offset - on_res[0].offset) / (on_res[1].plane - on_res[0].plane);
+            return on_res[0].offset + (p - on_res[0].plane) * slope;
+        }
+        let last = on_res.length - 1;
+        if (p >= on_res[last].plane) {
+            let slope = (on_res[last].offset - on_res[last - 1].offset) / (on_res[last].plane - on_res[last - 1].plane);
+            return on_res[last].offset + (p - on_res[last].plane) * slope;
+        }
+        for (let j = 0; j < last; j++) {
+            if (p >= on_res[j].plane && p <= on_res[j + 1].plane) {
+                let sp = on_res[j + 1].plane - on_res[j].plane;
+                return on_res[j].offset + ((p - on_res[j].plane) / sp) * (on_res[j + 1].offset - on_res[j].offset);
+            }
+        }
+        return on_res[last].offset;
+    }
+
+    let hasRefPoint = offsets.some(off => Math.abs(off) > 10000);
+    let filesManifest = {};
+    let profilesDictToml = "";
+    let csaToml = "";
+    let dwToml = "";
+    let sampleDataPreview = "";
+    let all_rel_vols = [];
+    let all_w = [];
+    let all_kex = [];
+    let all_pb = [];
+    let dipSummaryLines = [];
+
+    for (let peakIndex of target_peaks) {
+        let residue = peakIndex + "N";
+        let profData = get_pseudo3d_peak_profile_data(peakIndex, peaks_object);
+        if (!profData || profData.length === 0) continue;
+
+        let y_ppm = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : carrier;
+
+        let dw_est = 3.0;
+        let peak_rel_vol = null;
+        let prof_inst = typeof peaks_object.get_peak_profile === 'function' ? peaks_object.get_peak_profile(peakIndex) : null;
+        if (prof_inst && typeof prof_inst.fit_negative_pseudo_voigt_em !== 'function' && typeof peak_profile === 'function') {
+            Object.setPrototypeOf(prof_inst, peak_profile.prototype);
+        }
+        if ((!prof_inst || typeof prof_inst.fit_negative_pseudo_voigt_em !== 'function' || !prof_inst.x || prof_inst.x.length === 0) && typeof peak_profile === 'function') {
+            let x_val = (x_col && x_col[peakIndex - 1] !== undefined) ? x_col[peakIndex - 1] : null;
+            let y_val = (y_col && y_col[peakIndex - 1] !== undefined) ? y_col[peakIndex - 1] : null;
+            prof_inst = new peak_profile(peakIndex, profData, { x_ppm: x_val, y_ppm: y_val, x_coords: null, fit_window: 20, asym_factor: 2.0 });
+            if (typeof peaks_object.set_peak_profile === 'function') peaks_object.set_peak_profile(peakIndex, prof_inst);
+        }
+
+        let fitResult = (prof_inst && prof_inst.fit_result) ? prof_inst.fit_result : (prof_inst && typeof prof_inst.fit_negative_pseudo_voigt_em === 'function' ? prof_inst.fit_negative_pseudo_voigt_em() : null);
+        let peaksArr = (fitResult && Array.isArray(fitResult.peaks)) ? fitResult.peaks : (prof_inst && prof_inst.fitted_peaks ? prof_inst.fitted_peaks : null);
+
+        if (peaksArr && peaksArr.length >= 2) {
+            // Sort dips descending by volume so dip1 is major (ground state A), dip2 is minor (excited state B)
+            let sorted_peaks = [...peaksArr].sort((a, b) => calc_dip_volume(b) - calc_dip_volume(a));
+            let dip1 = sorted_peaks[0]; // 1st one: major dip
+            let dip2 = sorted_peaks[1]; // 2nd one: minor dip
+
+            let vol1 = calc_dip_volume(dip1);
+            let vol2 = calc_dip_volume(dip2);
+            if (vol1 > 0) {
+                peak_rel_vol = vol2 / vol1;
+                all_rel_vols.push(peak_rel_vol);
+            }
+
+            let hz1 = p2off(dip1.x0);
+            let hz2 = p2off(dip2.x0);
+
+            // Dip distance in unit of ppm, keeping correct algebraic sign:
+            // Delta_omega_AB = (offset_B - offset_A) / (15N frequency in MHz)
+            let diff_hz = hz2 - hz1;
+            let diff_ppm = diff_hz / n15_mhz;
+            if (Math.abs(diff_ppm) > 0.01 && Math.abs(diff_ppm) < 50.0) {
+                dw_est = parseFloat(diff_ppm.toFixed(2));
+                if (Object.is(dw_est, -0)) dw_est = 0.0;
+            }
+
+            // Calculate minor peak width w (in Hz):
+            let p_left = dip2.x0 - dip2.fwhm / 2.0;
+            let p_right = dip2.x0 + dip2.fwhm / 2.0;
+            let w_hz = Math.abs(p2off(p_right) - p2off(p_left));
+            all_w.push(w_hz);
+
+            // Initial guess of KEX_AB for this peak: pi * (w - 2 * b1)
+            let kex_diff = w_hz - 2.0 * b1;
+            let kex_peak = (kex_diff > 0) ? (Math.PI * kex_diff) : Math.max(10.0, Math.PI * Math.abs(kex_diff));
+            all_kex.push(kex_peak);
+
+            // Initial guess of Pb for this peak: (peak volume ratio) * (1 / KEX_AB)
+            let pb_peak = null;
+            if (peak_rel_vol !== null && kex_peak > 0) {
+                pb_peak = peak_rel_vol * (1.0 / kex_peak);
+                all_pb.push(pb_peak);
+            }
+
+            let relPctStr = peak_rel_vol !== null ? (peak_rel_vol * 100).toFixed(2) + "%" : "N/A";
+            let pbStr = pb_peak !== null ? (pb_peak * 100).toFixed(3) + "%" : "N/A";
+            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): Dip 1 @ ${hz1.toFixed(1)} Hz (vol: ${vol1.toFixed(3)}), Dip 2 @ ${hz2.toFixed(1)} Hz (vol: ${vol2.toFixed(3)}, w: ${w_hz.toFixed(1)} Hz) -> DW_AB = ${dw_est >= 0 ? '+' : ''}${dw_est.toFixed(2)} ppm, vol_ratio = ${relPctStr}, KEX_AB = ${kex_peak.toFixed(1)} s⁻¹, pB = ${pbStr}`);
+        } else {
+            dipSummaryLines.push(`  Peak #${peakIndex} (${residue}): <2 dips resolved, using default DW_AB = ${dw_est.toFixed(2)} ppm`);
+        }
+
+        profilesDictToml += `${residue} = "${residue}.out"\n`;
+        csaToml += `${residue} = ${y_ppm.toFixed(3)}\n`;
+        dwToml += `${residue} = ${dw_est.toFixed(2)}\n`;
+
+        let baseline_intensity = 1.0;
+        if (prof_inst && prof_inst.fit_result && typeof prof_inst.fit_result.y0 === 'number') {
+            baseline_intensity = prof_inst.fit_result.y0;
+        } else {
+            baseline_intensity = d3.max(profData, d => d.value) || 1.0;
+        }
+        let noise_est = Math.abs(baseline_intensity) * 0.01;
+
+        let outLines = ["#Offset (Hz)        Intensity    Uncertainty"];
+        if (!hasRefPoint) {
+            outLines.push(` -1.00000000e+05  ${baseline_intensity.toExponential(7)}  ${noise_est.toExponential(7)}`);
+        }
+
+        for (let i = 0; i < profData.length; i++) {
+            let off = offsets[i];
+            let val = profData[i].value;
+            let err = (typeof profData[i].std === 'number' && profData[i].std > 0) ? profData[i].std : noise_est;
+            outLines.push(`  ${off.toExponential(7)}  ${val.toExponential(7)}  ${err.toExponential(7)}`);
+        }
+
+        let dataContent = outLines.join("\n") + "\n";
+        filesManifest[`Data/${residue}.out`] = dataContent;
+
+        if (!sampleDataPreview) {
+            sampleDataPreview = `--- File: Data/${residue}.out (Peak #${peakIndex}, ${outLines.length - 1} points) ---\n` +
+                outLines.slice(0, 8).join("\n") + "\n  ...\n";
+        }
+    }
+
+    // Global initial guess for KEX_AB: pi * (w - 2*b1)
+    let kex_input = 100.0;
+    if (all_kex.length > 0) {
+        all_kex.sort((a, b) => a - b);
+        let mid = Math.floor(all_kex.length / 2);
+        let median_kex = (all_kex.length % 2 !== 0)
+            ? all_kex[mid]
+            : (all_kex[mid - 1] + all_kex[mid]) / 2.0;
+        kex_input = Math.max(5.0, Math.min(10000.0, median_kex));
+        kex_input = parseFloat(kex_input.toFixed(1));
+    }
+
+    // Global initial guess for PB: (peak volume ratio) * (1 / KEX_AB)
+    let pb_input = 0.03;
+    if (all_pb.length > 0) {
+        all_pb.sort((a, b) => a - b);
+        let mid = Math.floor(all_pb.length / 2);
+        let median_pb = (all_pb.length % 2 !== 0)
+            ? all_pb[mid]
+            : (all_pb[mid - 1] + all_pb[mid]) / 2.0;
+        pb_input = Math.max(0.0001, Math.min(0.49, median_pb));
+        pb_input = parseFloat(pb_input.toPrecision(4));
+    } else if (all_rel_vols.length > 0 && kex_input > 0) {
+        all_rel_vols.sort((a, b) => a - b);
+        let mid = Math.floor(all_rel_vols.length / 2);
+        let median_rel = (all_rel_vols.length % 2 !== 0)
+            ? all_rel_vols[mid]
+            : (all_rel_vols[mid - 1] + all_rel_vols[mid]) / 2.0;
+        pb_input = Math.max(0.0001, Math.min(0.49, median_rel * (1.0 / kex_input)));
+        pb_input = parseFloat(pb_input.toPrecision(4));
+    }
+
+    // b1_inh_scale = inf removes b1_distribution = { type = "dephasing" }
+    let b1_dist_toml = b1_inh_inf ? "" : 'b1_distribution = { type = "dephasing" }\n';
+
+    let expToml = `[experiment]
+name = "cest_15n"
+time_t1 = ${time_t1}
+carrier = ${carrier.toFixed(3)}
+b1_frq = ${b1.toFixed(1)}
+${b1_dist_toml}
+[conditions]
+h_larmor_frq = ${h_larmor_frq.toFixed(3)}
+
+[data]
+path = "../Data/"
+error = "scatter"
+
+[data.profiles]
+${profilesDictToml}`;
+
+    let paramToml = `[GLOBAL]
+PB = ${pb_input}
+KEX_AB = ${kex_input}
+
+[CS_A]
+${csaToml}
+[DW_AB]
+${dwToml}`;
+
+    filesManifest["Experiments/cest_15n.toml"] = expToml;
+    filesManifest["Parameters/parameters.toml"] = paramToml;
+
+    chemex_generated_manifest = {
+        files: filesManifest,
+        target_peaks: target_peaks,
+        peaks_object: peaks_object
+    };
+    chemex_virtual_files_synced = false;
+
+    let b1_inh_log = b1_inh_inf ? "inf (ideal / dephasing disabled)" : "dephasing enabled";
+    let logMsg = "\n" +
+        "================================================================================\n" +
+        `[ChemEx] Generated Input Files for ${target_peaks.length} Multi-Dip Peak(s):\n` +
+        `Target Peaks: ${target_peaks.map(p => '#' + p).join(', ')}\n` +
+        `Spectrometer: 1H ${h_larmor_frq.toFixed(1)} MHz (15N ${n15_mhz.toFixed(3)} MHz), Carrier: ${carrier.toFixed(2)} ppm, B1: ${b1.toFixed(1)} Hz, Delay: ${time_t1} s\n` +
+        `B1 Inhomogeneity: ${b1_inh_log}\n` +
+        `Global Initial KEX_AB: ${kex_input} s⁻¹ (derived from π * (w - 2*b1) with B1 = ${b1.toFixed(1)} Hz)\n` +
+        `Global Initial PB: ${pb_input} (${(pb_input * 100).toFixed(3)}% derived from vol_ratio * (1/KEX_AB))\n` +
+        "--------------------------------------------------------------------------------\n" +
+        "Dip Analysis per Peak:\n" +
+        dipSummaryLines.join("\n") + "\n" +
+        "================================================================================\n" +
+        "--- File: Experiments/cest_15n.toml ---\n" +
+        expToml + "\n\n" +
+        "--- File: Parameters/parameters.toml ---\n" +
+        paramToml + "\n\n" +
+        sampleDataPreview +
+        "================================================================================\n";
+    append_chemex_log(logMsg);
+
+    let btnSave = document.getElementById("button_save_chemex_input");
+    if (btnSave) btnSave.disabled = false;
+    let btnRun = document.getElementById("button_run_chemex");
+    if (btnRun) btnRun.disabled = false;
+
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32;">Generated ChemEx input for ${target_peaks.length} peak(s).</span>`;
+    }
+
+    return chemex_generated_manifest;
+}
+
+function save_chemex_input() {
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) return;
+    }
+
+    let filesMap = chemex_generated_manifest.files;
+    let fileCount = Object.keys(filesMap).length;
+    let zipBytes = create_zip_archive(filesMap);
+
+    let blob = new Blob([zipBytes], { type: "application/zip" });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement("a");
+    a.href = url;
+    a.download = "chemex_input.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">Saved chemex_input.zip (${fileCount} files)</span>`;
+    }
+    append_chemex_log(`> [ChemEx] Saved ${fileCount} input file(s) as chemex_input.zip\n`);
+}
+
+function run_chemex_only() {
+    if (chemex_is_running) {
+        alert("ChemEx fitting is already in progress. Please wait for the current run to finish.");
+        return;
+    }
+
+    if (!chemex_generated_manifest || !chemex_generated_manifest.files) {
+        let gen = generate_chemex_input();
+        if (!gen) return;
+    }
+
+    let filesManifest = chemex_generated_manifest.files;
+    let target_peaks = chemex_generated_manifest.target_peaks;
+    let peaks_object = chemex_generated_manifest.peaks_object;
+
+    // In case of rerun chemex, clear previous result first:
+    if (peaks_object) {
+        peaks_object.chemex_results = null;
+        if (peaks_object.peak_profiles) {
+            for (let k in peaks_object.peak_profiles) {
+                if (peaks_object.peak_profiles[k]) {
+                    peaks_object.peak_profiles[k].chemex_fit = null;
+                }
+            }
+        }
+    }
+    if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object !== peaks_object) {
+        pseudo3d_fitted_peaks_object.chemex_results = null;
+        if (pseudo3d_fitted_peaks_object.peak_profiles) {
+            for (let k in pseudo3d_fitted_peaks_object.peak_profiles) {
+                if (pseudo3d_fitted_peaks_object.peak_profiles[k]) {
+                    pseudo3d_fitted_peaks_object.peak_profiles[k].chemex_fit = null;
+                }
+            }
+        }
+    }
+
+    let btnDl = document.getElementById("button_download_cest");
+    if (btnDl) btnDl.disabled = true;
+
+    // Refresh open profile plot if open to remove old ChemEx curve while running
+    if (pseudo3d_profile_plot_instance && current_pseudo3d_profile_peak_index) {
+        show_pseudo3d_peak_profile(current_pseudo3d_profile_peak_index);
+    }
+
+    chemex_is_running = true;
+    let btnRun = document.getElementById("button_run_chemex");
+    let btnGen = document.getElementById("button_gen_chemex_input");
+    let statusEl = document.getElementById("cest_result");
+    if (btnRun) btnRun.disabled = true;
+    if (btnGen) btnGen.disabled = true;
+    if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Launching ChemEx Web Worker...</span>';
+
+    get_or_init_chemex_worker().then(worker => {
+        if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Writing dataset to virtual filesystem...</span>';
+
+        const fitHandler = function (e) {
+            const msg = e.data || {};
+            if (msg.type === "fit_all_complete") {
+                chemex_worker.removeEventListener("message", fitHandler);
+                chemex_is_running = false;
+                chemex_virtual_files_synced = true;
+                if (btnRun) btnRun.disabled = false;
+                if (btnGen) btnGen.disabled = false;
+
+                const resultData = msg.data || {};
+                peaks_object.chemex_results = resultData;
+
+                // Cache fitted profiles on peak_profile instances
+                if (resultData.profiles) {
+                    for (let resKey in resultData.profiles) {
+                        let pNum = parseInt(resKey);
+                        if (!isNaN(pNum) && typeof peaks_object.get_peak_profile === 'function') {
+                            let profInst = peaks_object.get_peak_profile(pNum);
+                            if (profInst) {
+                                profInst.chemex_fit = resultData.profiles[resKey];
+                            }
+                        }
+                    }
+                }
+
+                let gParams = (resultData.fitted_params && resultData.fitted_params.global) ? resultData.fitted_params.global : {};
+                let pb_val = (gParams.PB && typeof gParams.PB.value === 'number') ? gParams.PB.value : null;
+                let kex_val = (gParams.KEX_AB && typeof gParams.KEX_AB.value === 'number') ? gParams.KEX_AB.value : null;
+
+                let summaryStr = `ChemEx fit finished for ${target_peaks.length} peak(s)`;
+                if (pb_val !== null) summaryStr += ` | pB: ${(pb_val * 100).toFixed(1)}%`;
+                if (kex_val !== null) summaryStr += ` | kex: ${kex_val.toFixed(0)} s⁻¹`;
+
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryStr}</span>`;
+                }
+                append_chemex_log(`\n> [ChemEx Fit Complete] ${summaryStr}\n`);
+
+                let btnDl = document.getElementById("button_download_cest");
+                if (btnDl) btnDl.disabled = false;
+
+                // Overlap result to pop-up profile map:
+                // If profile modal is open for a peak, update that peak; otherwise open modal for first multi-dip peak
+                let activePeak = current_pseudo3d_profile_peak_index || current_selected_peak_index;
+                if (!activePeak || !target_peaks.includes(activePeak)) {
+                    activePeak = target_peaks[0];
+                }
+                show_pseudo3d_peak_profile(activePeak);
+            } else if (msg.type === "fit_all_error") {
+                chemex_worker.removeEventListener("message", fitHandler);
+                chemex_is_running = false;
+                if (btnRun) btnRun.disabled = false;
+                if (btnGen) btnGen.disabled = false;
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color: #d32f2f;">Fit error: ${msg.error}</span>`;
+                }
+                append_chemex_log(`\n> [ChemEx Error] ${msg.error}\n`);
+                alert("ChemEx fitting failed: " + msg.error);
+            }
+        };
+
+        worker.addEventListener("message", fitHandler);
+
+        // 1. Sync virtual files into Pyodide MEMFS
+        worker.postMessage({
+            type: "sync_virtual_files",
+            files: filesManifest,
+            baseDir: "."
+        });
+
+        // 2. Execute ChemEx fit
+        worker.postMessage({
+            type: "run_chemex_fit_all",
+            outputDir: "Output",
+            baseDir: "."
+        });
+    }).catch(err => {
+        chemex_is_running = false;
+        if (btnRun) btnRun.disabled = false;
+        if (btnGen) btnGen.disabled = false;
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color: #d32f2f;">Failed to start ChemEx: ${err.message || err}</span>`;
+        }
+        append_chemex_log(`\n> [ChemEx Worker Failed] ${err.message || err}\n`);
+    });
+}
+
+function run_chemex_cest_fitting() {
+    return run_chemex_only();
+}
+
+function download_chemex_cest_results() {
+    if (!chemex_worker || !chemex_worker_ready) {
+        alert("No ChemEx results available to download.");
+        return;
+    }
+    let statusEl = document.getElementById("cest_result");
+    if (statusEl) statusEl.innerHTML = '<span style="color: #1976d2;">Packaging results into zip...</span>';
+
+    const zipHandler = function (e) {
+        const msg = e.data || {};
+        if (msg.type === "output_zip_ready") {
+            chemex_worker.removeEventListener("message", zipHandler);
+            if (statusEl) statusEl.innerHTML = '<span style="color: #2e7d32;">Results zip downloaded.</span>';
+
+            let byteCharacters = atob(msg.zipBase64);
+            let byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            let byteArray = new Uint8Array(byteNumbers);
+            let blob = new Blob([byteArray], { type: "application/zip" });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement("a");
+            a.href = url;
+            a.download = "chemex_cest_results.zip";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } else if (msg.type === "zip_error") {
+            chemex_worker.removeEventListener("message", zipHandler);
+            if (statusEl) statusEl.innerHTML = `<span style="color: #d32f2f;">Zip packaging error: ${msg.error}</span>`;
+            alert("Failed to package ChemEx results: " + msg.error);
+        }
+    };
+
+    chemex_worker.addEventListener("message", zipHandler);
+    chemex_worker.postMessage({ type: "get_output_zip", outputDir: "Output" });
+}
+
+function unselect_peak_row() {
+    if (current_selected_peak_row) {
+        current_selected_peak_row.classList.remove('selected_peak_row');
+        let isMulti = current_selected_peak_row.classList.contains('multi_peak_row');
+        let bg = isMulti ? "#ffe0b2" : "";
+        current_selected_peak_row.style.backgroundColor = bg;
+        let tds = current_selected_peak_row.querySelectorAll("td");
+        tds.forEach(td => td.style.backgroundColor = bg);
+    }
+    let peak_table = document.getElementById("peak_table");
+    if (peak_table) {
+        let highlighted = peak_table.querySelectorAll(".selected_peak_row");
+        highlighted.forEach(r => {
+            r.classList.remove("selected_peak_row");
+            let isMulti = r.classList.contains('multi_peak_row');
+            let bg = isMulti ? "#ffe0b2" : "";
+            r.style.backgroundColor = bg;
+            let tds = r.querySelectorAll("td");
+            tds.forEach(td => td.style.backgroundColor = bg);
+        });
+    }
+    current_selected_peak_row = null;
+    current_selected_peak_index = null;
+    if (main_plot && typeof main_plot.remove_selected_peak_cross === "function") {
+        main_plot.remove_selected_peak_cross();
+    }
+    hide_pseudo3d_peak_profile();
+}
+
+function select_peak_row(row, peak_index) {
+    unselect_peak_row();
+
+    current_selected_peak_row = row;
+    current_selected_peak_index = peak_index;
+
+    row.classList.add('selected_peak_row');
+    row.style.backgroundColor = "lightblue";
+    let tds = row.querySelectorAll("td");
+    tds.forEach(td => td.style.backgroundColor = "lightblue");
+
+    let peaks_object = get_current_peak_object();
+    if (peaks_object && main_plot) {
+        let x_col = peaks_object.get_column_by_header('X_PPM');
+        let y_col = peaks_object.get_column_by_header('Y_PPM');
+        let idx = peak_index - 1;
+        if (x_col && y_col && idx >= 0 && idx < x_col.length) {
+            let x_ppm = x_col[idx];
+            let y_ppm = y_col[idx];
+            if (typeof main_plot.draw_selected_peak_cross === "function") {
+                main_plot.draw_selected_peak_cross(x_ppm, y_ppm);
+            }
+        }
+    }
+
+    if (is_pseudo3d_active()) {
+        show_pseudo3d_peak_profile(peak_index);
+    }
+}
+
 function remove_peak_table() {
+    unselect_peak_row();
     let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
+    let btnHeader = document.getElementById("button_peak_area_filter_multi");
+    if (btnHeader) btnHeader.style.display = 'none';
 
     /**
      * Remove all children from the table
@@ -5823,6 +9397,7 @@ function get_current_peak_object() {
 
 
 function show_peak_table() {
+    unselect_peak_row();
     /**
      * Step 1, clear current peak_table.
      * Get peak_area's all table children and remove them
@@ -5909,7 +9484,7 @@ function table_click_handler(event) {
                 /**
                  * Need to update the peaks_object as well
                  */
-                let peak_index = parseInt(tds[0].innerText);
+                let peak_index = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
                 let peaks_object = get_current_peak_object();
                 if (peak_index > 0) {
                     peaks_object.set_column_row_value('ASS', peak_index - 1, newText);
@@ -5923,13 +9498,25 @@ function table_click_handler(event) {
                 }
             }
         }
-        else {
+        else if (cell && cell === tds[0]) {
             /**
-             * Zoom to the peak, using the first column of the row to get the peak index
+             * Only index cell (1st column) is clickable for peak selection
              */
-            let peak_index = parseInt(tds[0].innerText);
+            let peak_index = parseInt(row.getAttribute('data-peak-index') || tds[0].innerText);
             console.log('peak_index:', peak_index);
-            zoom_to_peak(peak_index - 1); // Call zoom_to_peak with the row index
+            if (isNaN(peak_index)) {
+                return;
+            }
+
+            // Click on same row / peak toggles selection off
+            if (row.classList.contains('selected_peak_row') || current_selected_peak_index === peak_index) {
+                unselect_peak_row();
+            }
+            else {
+                // Select peak, add cross to label it, highlight row, and zoom/pan to center it
+                select_peak_row(row, peak_index);
+                zoom_to_peak(peak_index - 1);
+            }
         }
 
     }
@@ -5989,15 +9576,72 @@ function search_peak() {
     }
 };
 
+/**
+ * ============================================================================
+ * CURRENT (ACTIVE / HIGHLIGHTED) SPECTRUM MANAGEMENT
+ * ============================================================================
+ * In the 2D spectral list, one spectrum is designated as the "current"
+ * spectrum (tracked via main_plot.current_spectral_index and visually highlighted
+ * with a light blue background).
+ *
+ * 1. Purpose of the "Current" Spectrum:
+ *    - Targets global/top toolbar actions:
+ *      * Baseline Correction: 'Apply Baseline Correction' (apply_baseline_correction())
+ *        operates on main_plot.current_spectral_index.
+ *      * Phase Correction: Top-level manual phasing and 'Automated PC'
+ *        (run_phase_correction()) operate on main_plot.current_spectral_index.
+ *      * Button state synchronization: update_baseline_button_status() and
+ *        update_automatic_pc_button_status() enable or disable the top toolbar
+ *        buttons based on whether the current spectrum has FID parameters/imaginary data.
+ *      * FID Reprocessing: Tracks the active FID data being adjusted.
+ *
+ * 2. What it does NOT control:
+ *    - Contour rendering, peak picking (DEEP / Simple Picker), Voigt fitting,
+ *      and peak table downloads operate on their own respective spectrum indices.
+ *    - 2D contour display and 1D cross section / projection render all visible
+ *      (non-collapsed) spectra independently of which spectrum is current.
+ *
+ * 3. Pseudo-3D Rule:
+ *    - For pseudo-3D datasets, all planes share the FID parameters, phase, and
+ *      processing origin of the first plane.
+ *    - Each spectrum keeps track of its parent (via .parent property and
+ *      spectrum_origin >= 10000), and the first plane keeps track of its child
+ *      planes (via .pseudo3d_children).
+ *    - The first plane is ALWAYS kept as the current spectrum. Child planes cannot
+ *      become current; any attempt to set a child plane as current resolves to its first plane.
+ *    - When running baseline correction or applying manual/automated phase correction,
+ *      the operation is automatically applied across ALL planes of the pseudo-3D dataset.
+ * ============================================================================
+ */
 function set_current_spectrum(spectrum_index) {
+    if (spectrum_index === null || spectrum_index === undefined) return;
+
+    // For pseudo-3D datasets, always resolve to and keep the 1st plane as current
+    let target_index = get_pseudo3d_first_spectrum_index(spectrum_index);
+    if (target_index === undefined || target_index === null || target_index < 0 || target_index >= hsqc_spectra.length) {
+        target_index = spectrum_index;
+    }
+
     if (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length) {
-        if (main_plot.current_spectral_index !== spectrum_index) {
-            document.getElementById("spectrum-" + main_plot.current_spectral_index).querySelector("div").style.backgroundColor = "white";
+        if (main_plot.current_spectral_index !== target_index) {
+            let prev_el = document.getElementById("spectrum-" + main_plot.current_spectral_index);
+            if (prev_el && prev_el.querySelector("div")) {
+                prev_el.querySelector("div").style.backgroundColor = "white";
+            }
         }
     }
-    main_plot.current_spectral_index = spectrum_index;
-    document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
-    update_baseline_button_status(spectrum_index);
+    main_plot.current_spectral_index = target_index;
+    let target_el = document.getElementById("spectrum-" + target_index);
+    if (target_el && target_el.querySelector("div")) {
+        target_el.querySelector("div").style.backgroundColor = "lightblue";
+    }
+    update_baseline_button_status(target_index);
+    update_automatic_pc_button_status(target_index);
+    if (main_plot && main_plot.b_show_cross_section) {
+        if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
+            main_plot.show_cross_section();
+        }
+    }
 }
 
 
@@ -6212,13 +9856,34 @@ function toggle_baseline_order_visibility() {
 function update_baseline_button_status(index) {
     const btn = document.getElementById("button_apply_baseline");
     if (!btn) return;
+    if (baseline_correction_batch_total > 0 && baseline_correction_batch_completed < baseline_correction_batch_total) {
+        btn.disabled = true;
+        return;
+    }
     btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
 }
 
 async function apply_baseline_correction() {
-    const index = main_plot.current_spectral_index;
+    const index = get_pseudo3d_first_spectrum_index(main_plot.current_spectral_index);
     if (index === -1 || !hsqc_spectra[index]) {
         console.error("No active spectrum to apply baseline correction.");
+        return;
+    }
+
+    const s = hsqc_spectra[index];
+    const target_indices = [index];
+    if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+        for (let i = 0; i < s.pseudo3d_children.length; i++) {
+            const child_idx = s.pseudo3d_children[i];
+            if (hsqc_spectra[child_idx]) {
+                target_indices.push(child_idx);
+            }
+        }
+    }
+
+    const valid_indices = target_indices.filter(idx => hsqc_spectra[idx] && hsqc_spectra[idx].raw_data && hsqc_spectra[idx].raw_data.length > 0);
+    if (valid_indices.length === 0) {
+        console.error("No valid spectra data to apply baseline correction.");
         return;
     }
 
@@ -6235,26 +9900,457 @@ async function apply_baseline_correction() {
         return;
     }
 
-    document.getElementById("webassembly_message").innerText = "Applying baseline correction, please wait...";
+    const is_multi_plane = valid_indices.length > 1;
+    document.getElementById("webassembly_message").innerText = is_multi_plane
+        ? "Applying baseline correction to all " + valid_indices.length + " planes, please wait..."
+        : "Applying baseline correction, please wait...";
 
-    // Disable peak/fitting buttons during baseline correction
-    disable_enable_peak_buttons(index, 0);
-    disable_enable_fitted_peak_buttons(index, 0);
+    const btn = document.getElementById("button_apply_baseline");
+    if (btn) btn.disabled = true;
 
-    const s = hsqc_spectra[index];
+    baseline_correction_batch_total = valid_indices.length;
+    baseline_correction_batch_completed = 0;
 
-    // Reconstruct the nmrPipe bytes from s.header and s.raw_data
-    const header = new Float32Array(s.header);
-    header[55] = 1.0; // quad flag: real
-    header[56] = 1.0; // quad flag: real
-    header[219] = s.n_indirect;
-    const spectrumFloat32 = Float32Concat(header, s.raw_data);
-    const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+    for (const plane_idx of valid_indices) {
+        disable_enable_peak_buttons(plane_idx, 0);
+        disable_enable_fitted_peak_buttons(plane_idx, 0);
 
-    webassembly_worker.postMessage({
-        [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
-        file_data: inputFt2FileBytes,
-        polynomial_order: polyOrder,
-        spectrum_index: index
-    });
+        const current_s = hsqc_spectra[plane_idx];
+        const header = new Float32Array(current_s.header);
+        header[55] = 1.0; // quad flag: real
+        header[56] = 1.0; // quad flag: real
+        header[219] = current_s.n_indirect;
+        const spectrumFloat32 = Float32Concat(header, current_s.raw_data);
+        const inputFt2FileBytes = new Uint8Array(spectrumFloat32.buffer);
+
+        webassembly_worker.postMessage({
+            [WEBASSEMBLY_JOB_KEY]: "baseline_correction",
+            file_data: inputFt2FileBytes,
+            polynomial_order: polyOrder,
+            spectrum_index: plane_idx
+        });
+    }
 }
+
+/**
+ * ============================================================================
+ * Assignment Transfer Tool (using Hungarian algorithm from HuangarianInt32.js)
+ * ============================================================================
+ */
+
+/**
+ * Parse an assignment file (Sparky .list, NMRPipe .tab, or whitespace-delimited table)
+ * @param {string} content - Raw text content of the assignment file
+ * @param {cpeaks} [target_peaks] - Optional target peak object to aid coordinate heuristic
+ * @returns {Array<{label: string, x: number, y: number}>} Array of parsed assignment objects
+ */
+function parse_assignment_text(content, target_peaks) {
+    if (!content || typeof content !== 'string') return [];
+
+    const lines = content.split(/\r?\n/);
+    let headerAssIdx = -1;
+    let headerW1Idx = -1;
+    let headerW2Idx = -1;
+    let dataStartIndex = 0;
+
+    // Scan for header line
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('!') || line.startsWith('REMARK') || line.startsWith('DATA')) continue;
+
+        const tokens = line.split(/\s+/);
+        const lower = tokens.map(t => t.toLowerCase());
+
+        const assIdx = lower.findIndex(t => t.includes('ass') || t === 'assignment' || t === 'label' || t === 'name');
+        const w1Idx = lower.findIndex(t => t === 'w1' || t === 'y_ppm' || t === '15n' || t === '13c' || t === 'y');
+        const w2Idx = lower.findIndex(t => t === 'w2' || t === 'x_ppm' || t === '1h' || t === 'hn' || t === 'x');
+
+        if (assIdx !== -1 || (w1Idx !== -1 && w2Idx !== -1)) {
+            headerAssIdx = assIdx;
+            headerW1Idx = w1Idx;
+            headerW2Idx = w2Idx;
+            dataStartIndex = i + 1;
+            break;
+        }
+    }
+
+    // Determine reference PPM ranges if available
+    let avgTargetX = null;
+    let avgTargetY = null;
+    if (target_peaks && target_peaks.column_headers && target_peaks.columns) {
+        let xIdx = target_peaks.column_headers.indexOf('X_PPM');
+        let yIdx = target_peaks.column_headers.indexOf('Y_PPM');
+        if (xIdx !== -1 && target_peaks.columns[xIdx] && target_peaks.columns[xIdx].length > 0) {
+            let xArr = target_peaks.columns[xIdx];
+            avgTargetX = xArr.reduce((a, b) => a + b, 0) / xArr.length;
+        }
+        if (yIdx !== -1 && target_peaks.columns[yIdx] && target_peaks.columns[yIdx].length > 0) {
+            let yArr = target_peaks.columns[yIdx];
+            avgTargetY = yArr.reduce((a, b) => a + b, 0) / yArr.length;
+        }
+    }
+
+    const records = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('!') || line.startsWith('REMARK') || line.startsWith('DATA') || line.startsWith('VARS') || line.startsWith('FORMAT')) continue;
+
+        const tokens = line.split(/\s+/);
+        if (tokens.length < 3) continue;
+
+        let label = '';
+        let w1 = NaN; // Heteronucleus (indirect, Y_PPM)
+        let w2 = NaN; // 1H (direct, X_PPM)
+
+        if (headerAssIdx !== -1 && headerW1Idx !== -1 && headerW2Idx !== -1 &&
+            tokens.length > Math.max(headerAssIdx, headerW1Idx, headerW2Idx)) {
+            label = tokens[headerAssIdx];
+            w1 = parseFloat(tokens[headerW1Idx]);
+            w2 = parseFloat(tokens[headerW2Idx]);
+        } else {
+            // Heuristic detection when explicit headers are absent or incomplete
+            // Find token that is a string label (contains non-numeric characters)
+            let strIdx = tokens.findIndex(t => isNaN(Number(t)));
+            if (strIdx === -1) strIdx = 0;
+            label = tokens[strIdx];
+
+            const numIndices = tokens.map((t, idx) => idx).filter(idx => idx !== strIdx && !isNaN(parseFloat(tokens[idx])));
+            if (numIndices.length >= 2) {
+                const val0 = parseFloat(tokens[numIndices[0]]);
+                const val1 = parseFloat(tokens[numIndices[1]]);
+
+                if (avgTargetX !== null && avgTargetY !== null) {
+                    let d0_to_x = Math.abs(val0 - avgTargetX);
+                    let d1_to_x = Math.abs(val1 - avgTargetX);
+                    if (d0_to_x < d1_to_x) {
+                        w2 = val0;
+                        w1 = val1;
+                    } else {
+                        w2 = val1;
+                        w1 = val0;
+                    }
+                } else {
+                    // Standard NMR heuristic: 1H (w2) < 25 ppm, 15N/13C (w1) > 25 ppm
+                    if (val0 < val1) {
+                        w2 = val0;
+                        w1 = val1;
+                    } else {
+                        w2 = val1;
+                        w1 = val0;
+                    }
+                }
+            }
+        }
+
+        if (label && !isNaN(w1) && !isNaN(w2)) {
+            records.push({ label: label.trim(), x: w2, y: w1 });
+        }
+    }
+    return records;
+}
+
+/**
+ * Transfer assignments from assignment file text to the current peak list using the Hungarian algorithm
+ * @param {string} content - Raw text content of assignment file
+ */
+function transfer_assignments_from_text(content) {
+    let statusEl = document.getElementById("assignment_transfer_status");
+
+    // Step 1: Identify target peak object
+    let target_obj = get_current_peak_object();
+    let target_name = "current peak list";
+
+    if (!target_obj || !target_obj.columns || target_obj.columns.length === 0 || !target_obj.columns[0] || target_obj.columns[0].length === 0) {
+        if (pseudo3d_fitted_peaks_object && pseudo3d_fitted_peaks_object.columns && pseudo3d_fitted_peaks_object.columns[0] && pseudo3d_fitted_peaks_object.columns[0].length > 0) {
+            target_obj = pseudo3d_fitted_peaks_object;
+            target_name = "Pseudo-3D fitted peaks";
+        } else if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) {
+            for (let i = 0; i < hsqc_spectra.length; i++) {
+                let s = hsqc_spectra[i];
+                if (s && s.spectrum_origin !== -3) {
+                    if (s.fitted_peaks_object && s.fitted_peaks_object.columns && s.fitted_peaks_object.columns[0] && s.fitted_peaks_object.columns[0].length > 0) {
+                        target_obj = s.fitted_peaks_object;
+                        target_name = `Spectrum #${i + 1} fitted peaks`;
+                        break;
+                    }
+                    if (s.picked_peaks_object && s.picked_peaks_object.columns && s.picked_peaks_object.columns[0] && s.picked_peaks_object.columns[0].length > 0) {
+                        target_obj = s.picked_peaks_object;
+                        target_name = `Spectrum #${i + 1} picked peaks`;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        if (current_spectrum_index_of_peaks === -2) {
+            target_name = "Pseudo-3D fitted peaks";
+        } else if (current_spectrum_index_of_peaks >= 0) {
+            target_name = `Spectrum #${current_spectrum_index_of_peaks + 1} (${current_flag_of_peaks || 'peaks'})`;
+        }
+    }
+
+    if (!target_obj || !target_obj.columns || !target_obj.columns[0] || target_obj.columns[0].length === 0) {
+        let msg = "No peak list found. Please pick or load 2D peaks or pseudo-3D peaks first.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    let x_col_idx = target_obj.column_headers.indexOf('X_PPM');
+    let y_col_idx = target_obj.column_headers.indexOf('Y_PPM');
+    if (x_col_idx === -1 || y_col_idx === -1) {
+        let msg = "Target peak list is missing X_PPM or Y_PPM columns.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 2: Parse assignment file
+    const assignments = parse_assignment_text(content, target_obj);
+    if (!assignments || assignments.length === 0) {
+        let msg = "No valid assignment records found in the uploaded file.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 3: Check Hungarian solver availability
+    if (typeof solveHungarianInt32 !== 'function') {
+        let msg = "Hungarian algorithm solver (HuangarianInt32.js) is not available.";
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+
+    // Step 4: Build cost matrix
+    last_loaded_assignment_text = content;
+    const retryBtn = document.getElementById("button_retry_assignment");
+    if (retryBtn) retryBtn.disabled = false;
+
+    const R = assignments.length;
+    const C = target_obj.columns[0].length;
+    const N = Math.max(R, C);
+    const matrix = new Int32Array(N * N);
+
+    const cutoff_h_input = document.getElementById("assignment_cutoff_h");
+    const cutoff_hetero_input = document.getElementById("assignment_cutoff_hetero");
+    const CUTOFF_X = (cutoff_h_input && !isNaN(parseFloat(cutoff_h_input.value)) && parseFloat(cutoff_h_input.value) > 0)
+        ? parseFloat(cutoff_h_input.value) : 0.02; // 1H cutoff (ppm)
+    const CUTOFF_Y = (cutoff_hetero_input && !isNaN(parseFloat(cutoff_hetero_input.value)) && parseFloat(cutoff_hetero_input.value) > 0)
+        ? parseFloat(cutoff_hetero_input.value) : 0.20; // Heteronucleus cutoff (ppm)
+
+    const shift_h_input = document.getElementById("assignment_shift_h");
+    const shift_hetero_input = document.getElementById("assignment_shift_hetero");
+    const SHIFT_X = (shift_h_input && !isNaN(parseFloat(shift_h_input.value)))
+        ? parseFloat(shift_h_input.value) : 0.0; // 1H global shift (ppm)
+    const SHIFT_Y = (shift_hetero_input && !isNaN(parseFloat(shift_hetero_input.value)))
+        ? parseFloat(shift_hetero_input.value) : 0.0; // Hetero global shift (ppm)
+
+    const ass_calib_x = assignments.map(a => a.x + SHIFT_X);
+    const ass_calib_y = assignments.map(a => a.y + SHIFT_Y);
+
+    const COST_SCALE = 10000;
+    const COST_DUMMY = 100000;
+    const COST_FAR = 200000;
+
+    const peak_x = target_obj.columns[x_col_idx];
+    const peak_y = target_obj.columns[y_col_idx];
+
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            let cost = 0;
+            if (i < R && j < C) {
+                let dx = Math.abs(ass_calib_x[i] - peak_x[j]);
+                let dy = Math.abs(ass_calib_y[i] - peak_y[j]);
+                if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
+                    let d = Math.sqrt((dx / CUTOFF_X) ** 2 + (dy / CUTOFF_Y) ** 2);
+                    cost = Math.round(d * COST_SCALE);
+                } else {
+                    cost = COST_FAR;
+                }
+            } else if (i < R && j >= C) {
+                cost = COST_DUMMY;
+            } else if (i >= R && j < C) {
+                cost = COST_DUMMY;
+            } else {
+                cost = 0;
+            }
+            matrix[i * N + j] = cost;
+        }
+    }
+
+    // Step 5: Solve Hungarian assignment
+    const match = solveHungarianInt32(matrix, N);
+
+    // Step 6: Filter matches by cutoffs
+    let matched_count = 0;
+    let out_of_cutoff_count = 0;
+    let matched_peaks_map = {}; // peak index j -> assignment index i
+
+    for (let i = 0; i < R; i++) {
+        let j = match[i];
+        if (j < C) {
+            let dx = Math.abs(ass_calib_x[i] - peak_x[j]);
+            let dy = Math.abs(ass_calib_y[i] - peak_y[j]);
+            if (dx <= CUTOFF_X && dy <= CUTOFF_Y) {
+                matched_peaks_map[j] = i;
+                matched_count++;
+            } else {
+                out_of_cutoff_count++;
+            }
+        }
+    }
+
+    // Step 7: Ensure 'ASS' column exists in target_obj
+    let ass_idx = target_obj.column_headers.indexOf('ASS');
+    if (ass_idx === -1) {
+        let y_idx = target_obj.column_headers.indexOf('Y_PPM');
+        let insert_pos = (y_idx !== -1) ? y_idx + 1 : target_obj.column_headers.length;
+        target_obj.column_headers.splice(insert_pos, 0, 'ASS');
+        target_obj.column_formats.splice(insert_pos, 0, '%12s');
+        target_obj.columns.splice(insert_pos, 0, new Array(C).fill(''));
+        ass_idx = insert_pos;
+    }
+
+    const clear_unmatched = document.getElementById("clear_unmatched_assignments") && document.getElementById("clear_unmatched_assignments").checked;
+
+    for (let j = 0; j < C; j++) {
+        if (matched_peaks_map[j] !== undefined) {
+            let ass_i = matched_peaks_map[j];
+            target_obj.columns[ass_idx][j] = assignments[ass_i].label;
+        } else if (clear_unmatched) {
+            target_obj.columns[ass_idx][j] = '';
+        }
+    }
+
+    // Step 8: Update display
+    if (target_obj === pseudo3d_fitted_peaks_object) {
+        let p3dCheck = document.getElementById("show_pseudo3d_peaks");
+        if (p3dCheck) p3dCheck.checked = true;
+        show_hide_peaks(-2, 'fitted', true);
+    } else {
+        show_peak_table();
+        if (main_plot && typeof main_plot.redraw_peaks === 'function') {
+            main_plot.redraw_peaks();
+        }
+    }
+
+    // Step 9: Show visual overlay on 2D plot (diamonds for all incoming assignments + arrows for matched)
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.show_assignment_overlay === 'function') {
+        let overlay_items = [];
+        for (let i = 0; i < R; i++) {
+            let j = match[i];
+            let is_matched = (j < C && Math.abs(ass_calib_x[i] - peak_x[j]) <= CUTOFF_X && Math.abs(ass_calib_y[i] - peak_y[j]) <= CUTOFF_Y);
+            overlay_items.push({
+                label: assignments[i].label,
+                x: ass_calib_x[i],
+                y: ass_calib_y[i],
+                orig_x: assignments[i].x,
+                orig_y: assignments[i].y,
+                matched: is_matched,
+                peak_x: is_matched ? peak_x[j] : undefined,
+                peak_y: is_matched ? peak_y[j] : undefined
+            });
+        }
+        main_plot.show_assignment_overlay(overlay_items);
+    }
+
+    const finBtn = document.getElementById("button_finalize_assignment");
+    if (finBtn) finBtn.disabled = false;
+
+    let unassigned_peaks = C - matched_count;
+    let unmatched_file = R - matched_count;
+    let fileInfo = last_loaded_assignment_filename ? ` (${last_loaded_assignment_filename})` : '';
+    let shiftInfo = (SHIFT_X !== 0 || SHIFT_Y !== 0)
+        ? ` [shift: Δ1H=${SHIFT_X >= 0 ? '+' : ''}${SHIFT_X} ppm, Δhetero=${SHIFT_Y >= 0 ? '+' : ''}${SHIFT_Y} ppm]`
+        : '';
+    let summaryMsg = `✓ Transferred ${matched_count} assignments${fileInfo} to ${target_name}${shiftInfo} [cutoffs: 1H ≤ ${CUTOFF_X} ppm, hetero ≤ ${CUTOFF_Y} ppm] (${unassigned_peaks} peaks unassigned, ${unmatched_file} file entries outside cutoff/unmatched).`;
+    console.log('[Assignment Transfer]', summaryMsg);
+
+    if (statusEl) {
+        statusEl.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">${summaryMsg}</span>`;
+    }
+}
+
+let last_loaded_assignment_text = null;
+let last_loaded_assignment_filename = null;
+
+/**
+ * Finalize assignment transfer and remove preview overlay (incoming assignment symbols & arrows)
+ */
+function finalize_assignments() {
+    if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.clear_assignment_overlay === 'function') {
+        main_plot.clear_assignment_overlay();
+    }
+    const finBtn = document.getElementById("button_finalize_assignment");
+    if (finBtn) finBtn.disabled = true;
+    let statusEl = document.getElementById("assignment_transfer_status");
+    if (statusEl) {
+        statusEl.innerHTML += ` <span style="color: #2e7d32; font-weight: bold;">(Finalized)</span>`;
+    }
+}
+
+/**
+ * Retry assignment transfer using the cached assignment file content and the current cutoffs
+ */
+function retry_assignment_transfer() {
+    if (!last_loaded_assignment_text) {
+        let msg = "No assignment file has been loaded yet. Please click 'Load assignment file' first.";
+        let statusEl = document.getElementById("assignment_transfer_status");
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ ${msg}</span>`;
+        alert(msg);
+        return;
+    }
+    transfer_assignments_from_text(last_loaded_assignment_text);
+}
+
+/**
+ * File input handler to load assignment file
+ * @param {HTMLInputElement} inputElement 
+ */
+function load_assignment_file(inputElement) {
+    if (!inputElement || !inputElement.files || inputElement.files.length === 0) return;
+    const file = inputElement.files[0];
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        last_loaded_assignment_text = e.target.result;
+        last_loaded_assignment_filename = file.name;
+        const retryBtn = document.getElementById("button_retry_assignment");
+        if (retryBtn) retryBtn.disabled = false;
+        transfer_assignments_from_text(last_loaded_assignment_text);
+        inputElement.value = ''; // Allow re-uploading the same file
+    };
+    reader.onerror = function (err) {
+        console.error("Error reading assignment file:", err);
+        let statusEl = document.getElementById("assignment_transfer_status");
+        if (statusEl) statusEl.innerHTML = `<span style="color: #c62828;">❌ Failed to read file: ${file.name}</span>`;
+    };
+    reader.readAsText(file);
+}
+
+// Bind Enter key on cutoff and shift inputs to retry assignment transfer
+(function setupAssignmentCutoffInputs() {
+    function bindInput(id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    retry_assignment_transfer();
+                }
+            });
+        }
+    }
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function () {
+            bindInput("assignment_cutoff_h");
+            bindInput("assignment_cutoff_hetero");
+            bindInput("assignment_shift_h");
+            bindInput("assignment_shift_hetero");
+        });
+    } else {
+        bindInput("assignment_cutoff_h");
+        bindInput("assignment_cutoff_hetero");
+        bindInput("assignment_shift_h");
+        bindInput("assignment_shift_hetero");
+    }
+})();

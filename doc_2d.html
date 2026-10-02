@@ -56,7 +56,9 @@
     <li><a href="#2d-peak-picking" class="nav-link">4. Peak Picking & Fitting</a></li>
     <li><a href="#2d-bruker-processing" class="nav-link">5. Process Raw 2D & Pseudo-3D Data</a></li>
     <li><a href="#2d-phase-correction" class="nav-link">6. Manual Phase Correction</a></li>
-    <li><a href="#2d-pseudo-3d" class="nav-link">7. Pseudo-3D & DOSY</a></li>
+    <li><a href="#2d-pseudo-3d" class="nav-link">7. Pseudo-3D Series & DOSY</a></li>
+    <li><a href="#2d-cest-chemex" class="nav-link">8. CEST & ChemEx Workflow</a></li>
+    <li><a href="#2d-assignment-transfer" class="nav-link">9. Assignment Transfer Tool</a></li>
   </ul>
 </div>
 
@@ -68,7 +70,7 @@
 <section class="hero-banner" id="overview">
   <h1 class="hero-title">2D & Pseudo-3D NMR Documentation</h1>
   <p class="hero-subtitle">
-    Complete user guide for 2D NMR spectrum viewing, 3D surface rendering of 2D spectra, WebAssembly FID processing, Non-Uniform Sampling (NUS), Pseudo-3D series fitting, 2D DOSY diffusion analysis, and baseline correction.
+    Complete user guide for 2D NMR spectrum viewing, 3D surface rendering of 2D spectra, WebAssembly FID processing, Non-Uniform Sampling (NUS), Pseudo-3D series fitting, 2D DOSY diffusion analysis, CEST conformational exchange & ChemEx simulation/fitting, and automated assignment transfer.
   </p>
 </section>
 
@@ -326,24 +328,181 @@
           </div>
           <div class="card-body">
             
-        <h2>Pseudo-3D Data Processing & 2D DOSY Workflow</h2>
+        <h2>Pseudo-3D Series Processing & 2D DOSY Workflow</h2>
+        <p>Pseudo-3D experiments consist of a sequence of 2D NMR planes recorded under varying experimental conditions, such as relaxation delays ($T_1, T_2, T_{1\rho}$), titration concentrations, kinetics time points, pulsed field gradient strengths (DOSY), or saturation frequency offsets (CEST). COLMARvista provides an integrated pipeline to process raw time-domain datasets, deconvolve and fit peaks across all planes sequentially, and extract physical observables.</p>
 
-        <h3>Processing Pre-processed Planes or Time-Domain Datasets</h3>
+        <h3>1. Loading or Processing Pseudo-3D Data</h3>
+        <p>You can supply Pseudo-3D datasets in either raw time-domain or pre-processed frequency-domain format:</p>
+        <ul>
+          <li><b>Raw Bruker Time-Domain Processing:</b> Drag and drop the Bruker experiment folder containing <code>ser</code> (or <code>fid</code>), <code>acqus</code>, <code>acqu2s</code>, and <code>acqu3s</code> (plus <code>nuslist</code> if Non-Uniform Sampling was employed). Under <i>Pseudo-3D processing options</i>, select <b>Process all planes</b> and click <b>Upload experimental files and process</b>. The WebAssembly processing pipeline transforms each plane into frequency space with consistent phase and apodization.</li>
+          <li><b>Pre-processed Spectral Planes:</b> Drag and drop or upload a series of processed 2D planes (NMRPipe <code>.ft2</code>, Sparky <code>.ucsf</code>, or ASCII <code>.txt</code>) into the <i>Frequency domain spectra</i> area. All planes will be indexed into <i>Your spectra list</i>.</li>
+        </ul>
+
+        <h3>2. Master Peak Picking & Initial Deconvolution (Plane 1)</h3>
+        <p>To ensure consistent peak identities across planes, pseudo-3D fitting relies on a high-quality master peak list established on reference Plane 1 (typically the first spectrum or maximum intensity plane):</p>
         <ol>
-          <li><b>Upload / Process Planes:</b> Upload pre-processed 2D planes or process raw Pseudo-3D time-domain data (selecting <i>Process all planes</i>).</li>
-          <li><b>Peak Picking & Fitting (Plane 1):</b> Perform peak picking (DEEP Picker) and Voigt/Gaussian peak fitting on Plane 1 to establish a master peak list guess.</li>
-          <li><b>Set Max Fitting Rounds:</b> Set <i>Max round of pseudo-3D fitting</i> (1–1000, default 50).</li>
-          <li><b>Run Pseudo-3D Fitting:</b> Click <b>Run Gaussian pseudo-3D fitting of all spectra</b> or <b>Run Voigt pseudo-3D fitting of all spectra</b> to fit all planes sequentially.</li>
-          <li><b>Transfer Assignments:</b> Upload a Sparky peak list (<code>.list</code>) with assignment labels in <i>Upload an peak file with assignment information</i> to automatically transfer peak labels to pseudo-3D fitted peaks.</li>
-          <li><b>Download Results:</b> Download the complete fitted pseudo-3D peak table (<code>.tab</code>).</li>
+          <li>Select Plane 1 in <i>Your spectra list</i>.</li>
+          <li>Pick peaks using <b>DEEP Picker</b> (deep neural network deconvolution) or <b>Simple Picker</b> (local maxima), or upload an existing peak list (<code>.list</code>).</li>
+          <li>Perform initial line-shape fitting by choosing <b>Voigt</b> or <b>Gaussian</b> and clicking <b>Peak Fitting</b>. This sets accurate starting coordinates, line widths, and initial amplitudes for every peak.</li>
         </ol>
 
-        <h3>2D DOSY Diffusion Analysis</h3>
+        <h3>3. Multi-Plane Sequential Pseudo-3D Fitting</h3>
         <ol>
-          <li><b>Input Gradient Values:</b> Enter space-separated gradient strength values into <i>DOSY gradient values</i> (e.g., <code>0.963 8.474 15.986 23.497 31.009 38.520</code>).</li>
-          <li><b>Set Gradient Weights & Rescale Factor:</b> Enter space-separated gradient weight values (e.g. <code>1 0 0 1 1</code>) and set the <i>Rescale factor</i> (0.1–10, default 1000.0).</li>
-          <li><b>Run DOSY Fitting:</b> Click <b>Run DOSY fitting</b> to calculate diffusion constants ($D$) for all pseudo-3D fitted peaks.</li>
-          <li><b>Visualization & Decay Curves:</b> Fitted diffusion constants automatically color-code peak markers and populate peak labels. Hover the cursor over any pseudo-3D peak to display the 2D exponential diffusion decay fitting plot in a pop-up window.</li>
+          <li>Open the <b>Pseudo-3D fitting tool</b> panel.</li>
+          <li>Set the <b>Max round of pseudo-3D fitting</b> (1–1000 iterations, default <code>50</code>).</li>
+          <li>Click <b>Run Gaussian pseudo-3D fitting of all spectra</b> or <b>Run Voigt pseudo-3D fitting of all spectra</b>.</li>
+          <li><b>Fitting Mechanism:</b> The algorithm uses the master peak list from Plane 1 as an initial guess. For each subsequent plane, it optimizes peak intensities, volumes, and positions while accounting for slight peak drifting across the series.</li>
+          <li><b>Visual Inspection:</b> Check <b>Show pseudo-3D fitting result</b> to overlay fitted peak markers on the active 2D plane. Select different planes from <i>Your spectra list</i> to verify peak tracking and fitting fidelity.</li>
+          <li><b>Download Results:</b> Click <b>Download pseudo-3D fitted peaks</b> to save a comprehensive peak table (<code>.tab</code>) containing peak frequencies, line widths, and fitted amplitudes across every plane.</li>
+          <li><b>Reload Saved Pseudo-3D Peaks:</b> Use <b>Upload pseudo-3D fitted peaks (.tab)</b> to restore previously fitted pseudo-3D peak tables without refitting.</li>
+        </ol>
+
+        <h3>4. 2D DOSY Diffusion Analysis</h3>
+        <p>For pulsed field gradient diffusion experiments (DOSY), COLMARvista extracts diffusion constants ($D$) directly from pseudo-3D fitted peak intensities:</p>
+        <ol>
+          <li>Expand the <b>DOSY fitting tool</b> sub-panel.</li>
+          <li><b>Input Gradient Strengths:</b> Enter space-separated gradient values (in G/cm or normalized units) into <i>DOSY gradient values</i> (e.g., <code>0.963 8.474 15.986 23.497 31.009 38.520</code>).</li>
+          <li><b>Set Gradient Weights:</b> Specify fitting weights (e.g., <code>1 0 0 1 1</code>) to emphasize or de-emphasize specific gradient planes.</li>
+          <li><b>Adjust Rescale Factor:</b> Modify the <i>Rescale factor</i> (default <code>1000.0</code>) to scale physical diffusion units appropriately.</li>
+          <li><b>Run DOSY Fitting:</b> Click <b>Run DOSY fitting</b>. The engine fits each peak's intensity decay to the Stejskal-Tanner relation:
+            <br>
+            <code style="display: block; margin: 8px 0; padding: 8px;">I(G) = I&#8320; &times; exp(-&gamma;&sup2; G&sup2; &delta;&sup2; (&Delta; - &delta;/3) D)</code>
+          </li>
+          <li><b>Interactive Decay Curves & Color-Coding:</b> Fitted diffusion constants ($D$) automatically populate the peak table and color-code peak markers on the 2D plot. Hovering over any peak displays its exponential diffusion decay curve and fit quality in an interactive pop-up window.</li>
+        </ol>
+        
+          </div>
+        </section>
+
+        <section class="doc-card" id="2d-cest-chemex">
+          <div class="card-header">
+            <span class="badge badge-3d">2D / Pseudo-3D</span>
+            <h2 class="card-title">Chemical Exchange Saturation Transfer (CEST) & ChemEx Workflow</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Chemical Exchange Saturation Transfer (CEST) & ChemEx Workflow</h2>
+        <p>Chemical Exchange Saturation Transfer (CEST) NMR is a powerful technique for probing slow-to-intermediate microsecond-to-millisecond ($k_{\text{ex}} \approx 10\text{--}1000\text{ s}^{-1}$) conformational exchange between a major, visible ground state ($A$) and sparsely populated, invisible "dark" excited states ($B$). In COLMARvista, CEST profiles ($I/I_0$ vs. saturation offset $\Omega_{\text{RF}}$) are analyzed using both automated multi-peak Voigt deconvolution and real-time numerical Bloch-McConnell simulation and fitting powered by <b>ChemEx</b> running directly in the browser via Pyodide WebAssembly.</p>
+
+        <h3>1. Setting Up CEST Experimental Parameters</h3>
+        <p>Expand the <b>CEST fitting tool</b> sub-panel and configure your acquisition parameters:</p>
+        <ul>
+          <li><b>CEST Saturation Offsets (Hz):</b> Enter space-separated saturation offsets in Hz (e.g., <code>-2000 -1500 -1000 -500 0 500 1000 1500 2000</code>), or click <b>Upload offset file</b> to load an offset list (<code>.txt</code>, <code>.list</code>, <code>.tab</code>, <code>.dat</code>, or <code>.csv</code>).</li>
+          <li><b>B1 Field Strength (Hz):</b> Enter the continuous-wave or shaped weak irradiation field strength $B_1$ in Hz (e.g., <code>25</code> Hz).</li>
+          <li><b>CEST Relaxation Delay time_t1 (s):</b> Enter the duration of the saturation period $T_1$ in seconds (e.g., <code>1.0</code> s).</li>
+          <li><b>B1 Inhomogeneity Bypass:</b> Check <i>b1_inh_scale = inf (disable B1 dephasing)</i> if assuming an ideal homogeneous $B_1$ field or to accelerate simulation during initial exploratory analysis.</li>
+        </ul>
+
+        <h3>2. Automated Pre-Analysis & Multi-Peak Filtering</h3>
+        <ol>
+          <li><b>Run Pre-Analysis:</b> Click <b>Pre-analysis</b>. COLMARvista fits empirical multi-peak Voigt line-shapes to all extracted residue profiles. This rapidly locates major dips (&varpi;<sub>A</sub>) and identifies secondary dips (&varpi;<sub>B</sub>) indicative of chemical exchange.</li>
+          <li><b>Filter Exchange-Active Residues:</b> Click <b>Show &ge;2 Peaks Only</b> in the CEST panel or the peak table header. The peak table and 2D spectrum will immediately filter to show only residues with two or more detected dips, filtering out inactive single-dip peaks and highlighting exchange-active sites.</li>
+        </ol>
+
+        <h3>3. Interactive Floating CEST Profile Viewer & Autozoom</h3>
+        <p>Click on any peak in the peak table or click a peak circle on the 2D plot to open the floating <b>Pseudo-3D Peak Profile</b> window:</p>
+        <ul>
+          <li><b>Automatic Autozoom to Dips:</b> When opening a CEST profile, COLMARvista automatically scans the profile for negative dips. If one or two dips are present, the viewer automatically zooms into the dip region, bypassing broad flat baseline regions so you can immediately inspect the exchange feature. (Autozoom is skipped if no distinct dip is detected).</li>
+          <li><b>Zoom Button (<kbd>Zoom</kbd>):</b> Click to manually re-trigger autozoom onto the resonance dips at any time.</li>
+          <li><b>Reset View (<kbd>&circlearrowleft;</kbd>):</b> Click the reset button in the window header to restore the full unzoomed profile view across all saturation offsets.</li>
+          <li><b>Voigt Fit Overlay (<kbd>Voigt: ON/OFF</kbd>):</b> Toggles display of the empirical pre-analysis Voigt deconvolution curve.</li>
+          <li><b>ChemEx Fit Overlay (<kbd>ChemEx: ON/OFF</kbd>):</b> Toggles display of the numerical Bloch-McConnell ChemEx fit curve.</li>
+          <li><b>Resize & Drag:</b> Drag the window header to reposition, or drag any border/corner to resize the plot.</li>
+        </ul>
+
+        <h3>4. Real-Time ChemEx Simulation & Interactive Side Panel</h3>
+        <p>Click the purple <b>⚙ Sim &amp; Fit</b> button in the profile window header to slide open the interactive ChemEx parameter panel:</p>
+        <ul>
+          <li><b>Client-Side Execution:</b> Powered by Pyodide WebAssembly running the Python ChemEx package entirely inside a browser WebWorker. No server upload or local Python installation required!</li>
+          <li><b>Interactive Parameter Sliders & Number Boxes:</b>
+            <ul>
+              <li><b>p<sub>B</sub> (Minor Pop):</b> Population of the excited state (slider <code>0.001–0.150</code>, number input <code>0.0001–0.49</code>).</li>
+              <li><b>k<sub>ex</sub> (Rate, s⁻¹):</b> Total exchange rate constant $k_{\text{ex}} = k_{AB} + k_{BA}$ (slider <code>5–500</code>, number input <code>1–5000</code>).</li>
+              <li><b>&varpi;<sub>A</sub> (Major CS, ppm):</b> Chemical shift of the ground state $A$.</li>
+              <li><b>&Delta;&varpi;<sub>AB</sub> (B - A, ppm):</b> Chemical shift difference &varpi;<sub>B</sub> - &varpi;<sub>A</sub> between excited state $B$ and ground state $A$ (slider <code>-15 to +15</code>, number input <code>-25 to +25</code>).</li>
+            </ul>
+          </li>
+          <li><b>Instant Live Curve Simulation:</b> Adjusting any slider or number box immediately recalculates the Bloch-McConnell matrix simulation curve in real time, allowing you to manually align the simulation with experimental data points.</li>
+          <li><b>⚡ Fit This Peak Only:</b> Click to run a fast, isolated Levenberg-Marquardt fit for the active peak. ChemEx numerically converges $k_{\text{ex}}$, $p_B$, &varpi;<sub>A</sub>, and &Delta;&varpi;<sub>AB</sub> for that individual residue within seconds and updates the profile display and initial guess.</li>
+          <li><b>🔄 Reset Initial Guess:</b> Restores default or pre-analysis initial values.</li>
+        </ul>
+
+        <h3>5. Global ChemEx Batch Fitting & Results Export</h3>
+        <ol>
+          <li><b>Generate ChemEx Input:</b> Click <b>Gen Chemex input</b> to generate the complete experiment definition files (including <code>experiment.toml</code>, parameters, and experimental intensity profiles).</li>
+          <li><b>Save Input:</b> Click <b>Save input</b> to download a <code>.zip</code> bundle of the generated ChemEx project directory (ideal for running on high-performance computing clusters).</li>
+          <li><b>Run ChemEx:</b> Click <b>Run Chemex</b> to execute simultaneous global multi-peak fitting across all peaks directly inside the browser. Progress is displayed in real time in the status area.</li>
+          <li><b>Download Results:</b> Once fitting completes, click <b>Download CEST results</b> to export fitted kinetic rates ($k_{\text{ex}}$, $p_B$), chemical shifts, error bars, and normalized profiles.</li>
+        </ol>
+        
+          </div>
+        </section>
+
+        <section class="doc-card" id="2d-assignment-transfer">
+          <div class="card-header">
+            <span class="badge badge-2d">2D / Pseudo-3D</span>
+            <h2 class="card-title">Automated Assignment Transfer Tool (Hungarian Algorithm)</h2>
+          </div>
+          <div class="card-body">
+            
+        <h2>Automated Assignment Transfer Tool</h2>
+        <p>The <b>Assignment transfer tool</b> allows you to rapidly transfer resonance assignments (such as backbone sequence assignments, e.g. <code>A154N-HN</code>, <code>V157N-HN</code>) from a reference assignment file to your active 2D peak list or Pseudo-3D series peaks using the globally optimal <b>Hungarian matching algorithm</b>.</p>
+
+        <h3>1. Supported File Formats & Column Parsing</h3>
+        <p>Click <b>Load assignment file</b> and select your reference assignment list. COLMARvista supports:</p>
+        <ul>
+          <li><b>Sparky Peak Lists (<code>.list</code>):</b> Standard Sparky formatted lists containing <code>Assignment</code>, <code>w1</code> (indirect/heteronucleus chemical shift in ppm), and <code>w2</code> (direct/$^1$H chemical shift in ppm).</li>
+          <li><b>NMRPipe Tables (<code>.tab</code>):</b> Formatted tables with <code>ASS</code>, <code>X_PPM</code>, and <code>Y_PPM</code> columns.</li>
+          <li><b>Tabular Plain Text (<code>.txt</code>, <code>.dat</code>, <code>.csv</code>):</b> Any whitespace- or comma-delimited table with a header line specifying <code>Assignment</code>, <code>w1</code>, and <code>w2</code>.</li>
+        </ul>
+
+        <h3>2. Globally Optimal Hungarian Matching Algorithm</h3>
+        <p>Traditional nearest-neighbor assignment can fail in congested regions where multiple experimental peaks compete for the same reference assignment. COLMARvista implements the exact <b>Hungarian algorithm</b> (Kuhn-Munkres, $O(N^3)$ via <code>HuangarianInt32.js</code>):</p>
+        <ul>
+          <li>A cost matrix is constructed using normalized chemical shift distances:
+            <br>
+            <code style="display: block; margin: 8px 0; padding: 8px;">Distance = &radic;[ (&Delta;&omega;<sub>¹H</sub> / Cutoff<sub>¹H</sub>)&sup2; + (&Delta;&omega;<sub>hetero</sub> / Cutoff<sub>hetero</sub>)&sup2; ]</code>
+          </li>
+          <li>The algorithm globally minimizes total distance across all assignments simultaneously, ensuring a mathematically optimal, conflict-free 1-to-1 matching.</li>
+          <li>Pairs exceeding user-defined distance cutoffs are assigned high dummy penalty costs and rejected as unmatched.</li>
+        </ul>
+
+        <h3>3. Distance Cutoffs & Global Chemical Shift Calibration</h3>
+        <p>Located in the assignment transfer panel:</p>
+        <ul>
+          <li><b>¹H Cutoff (ppm):</b> Maximum allowable chemical shift deviation in the direct dimension (default: <code>0.02</code> ppm, or customized).</li>
+          <li><b>Heteronucleus Cutoff (ppm):</b> Maximum allowable chemical shift deviation in the indirect dimension (default: <code>0.20</code> ppm, or customized).</li>
+          <li><b>Global ¹H Shift (ppm):</b> Calibration offset added to all incoming reference $^1$H coordinates (&omega;<sub>¹H, calib</sub> = &omega;<sub>¹H, ref</sub> + &Delta;<sub>¹H</sub>) prior to matching.</li>
+          <li><b>Global Hetero Shift (ppm):</b> Calibration offset added to all incoming reference heteronucleus coordinates (&omega;<sub>hetero, calib</sub> = &omega;<sub>hetero, ref</sub> + &Delta;<sub>hetero</sub>) prior to matching.</li>
+          <li><b>Correcting Referencing Offsets:</b> When transferring assignments between spectra acquired on different spectrometers, temperatures, or referencing standards (e.g. DSS vs. TSP), adjust the global shifts to align the reference overlay directly over the experimental peaks.</li>
+        </ul>
+
+        <h3>4. Interactive Re-Run & Clear Unmatched Option</h3>
+        <ul>
+          <li><b>Instant Re-Run (<kbd>Enter</kbd> or Re-run Button):</b> You do not need to re-upload your file to test different cutoffs or shifts. Simply modify any cutoff or shift input and press <kbd>Enter</kbd> or click <b>Re-run transfer</b>. Matching recalculates and updates the 2D visual overlay in milliseconds.</li>
+          <li><b>Clear Unmatched Checkbox:</b> Check <i>Clear unmatched peak assignments</i> before running transfer if you want experimental peaks that fall outside the cutoff to have their existing assignment text cleared.</li>
+        </ul>
+
+        <h3>5. Real-Time 2D Visual Overlay & Verification</h3>
+        <p>Upon transferring assignments, COLMARvista displays a dynamic graphical overlay directly on the 2D contour plot:</p>
+        <ul>
+          <li><b>Diamonds (&loz;):</b> All incoming reference assignments are plotted as diamond markers:
+            <ul>
+              <li><b style="color: #1976d2;">Solid Blue Diamond:</b> Successfully matched to an experimental peak within cutoffs.</li>
+              <li><b style="color: #f57c00;">Dashed Amber Diamond:</b> Unmatched reference entry (exceeds cutoffs or no corresponding peak).</li>
+            </ul>
+          </li>
+          <li><b>Directed Match Arrows:</b> A solid blue arrow points from each reference diamond directly to the center of its matched experimental peak circle, providing unambiguous visual confirmation of which peak received each assignment.</li>
+          <li><b>Interactive Tooltips:</b> Hover the cursor over any diamond to view a tooltip showing the assignment label, incoming/calibrated coordinates, and the matched peak's experimental coordinates.</li>
+          <li><b>Dynamic Zoom &amp; Pan Sync:</b> All diamonds and arrows remain locked to their exact chemical shift coordinates and smoothly reposition during zooming and panning.</li>
+        </ul>
+
+        <h3>6. Finalizing Assignments</h3>
+        <ol>
+          <li>Inspect the 2D overlay and the peak table to ensure satisfactory matching.</li>
+          <li>Click the prominent green <b>Finalize transfer</b> button.</li>
+          <li>The preview diamonds and arrows are immediately cleared from the 2D plot.</li>
+          <li>All transferred assignment labels are permanently applied to your active peak list and table, ready for label repositioning, peak profile inspection, or workspace session saving (<code>.save</code>).</li>
         </ol>
         
           </div>

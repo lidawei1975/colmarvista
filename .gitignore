@@ -5,3 +5,8 @@ test_code/data.mat
 test_code/*.txt
 
 node_modules/
+scratch/
+__pycache__/
+*.pyc
+chemex/chemex/
+cypress/screenshots
