@@ -370,6 +370,71 @@ class spectrum {
         }
     };
 
+    /**
+     * Flip spectrum data along the indirect dimension (swap rows)
+     * without re-processing from time domain FID.
+     */
+    flip_indirect() {
+        if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
+            return false;
+        }
+        const n_d = this.n_direct;
+        const n_ind = this.n_indirect;
+        if (this.raw_data.length !== n_d * n_ind) {
+            return false;
+        }
+
+        const flip_buffer = (buf, negate = false) => {
+            if (!buf || buf.length !== n_d * n_ind) return;
+            const temp_row = new Float32Array(n_d);
+            const half = Math.floor(n_ind / 2);
+            for (let r = 0; r < half; r++) {
+                const r_opp = n_ind - 1 - r;
+                const off1 = r * n_d;
+                const off2 = r_opp * n_d;
+                temp_row.set(buf.subarray(off1, off1 + n_d));
+                buf.set(buf.subarray(off2, off2 + n_d), off1);
+                buf.set(temp_row, off2);
+            }
+            if (negate) {
+                for (let i = 0; i < buf.length; i++) {
+                    buf[i] = -buf[i];
+                }
+            }
+        };
+
+        // 1. Flip real-real frequency data
+        flip_buffer(this.raw_data, false);
+
+        // 2. Flip real-imaginary data (direct imag)
+        if (this.raw_data_ri && this.raw_data_ri.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ri, false);
+        }
+
+        // 3. Flip imaginary-real data (indirect imag) - negate due to conjugation
+        if (this.raw_data_ir && this.raw_data_ir.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ir, true);
+        }
+
+        // 4. Flip imaginary-imaginary data
+        if (this.raw_data_ii && this.raw_data_ii.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ii, true);
+        }
+
+        // 5. Recalculate projections
+        this.calculate_projections();
+
+        // 6. Flip peaks if any exist
+        if (this.picked_peaks_object && typeof this.picked_peaks_object.flip_indirect === "function") {
+            this.picked_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+        }
+        if (this.fitted_peaks_object && typeof this.fitted_peaks_object.flip_indirect === "function") {
+            this.fitted_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+        }
+
+        return true;
+    };
+
 
     /**
      * Process the raw file data of a 2D FT spectrum (.txt from Topspin totxt command)

@@ -236,9 +236,12 @@
 
 
                         <span>
-                            <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
-                            <label for="neg_imaginary">Negative imaginary data (along indirect dimension), which will
+                            <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes"
+                                title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing.">
+                            <label for="neg_imaginary"
+                                title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing.">Negative imaginary data (along indirect dimension), which will
                                 cause spectrum flipping along indirect dimension</label>
+                            <span title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing." style="cursor: help; color: #0284c7; font-weight: bold; margin-left: 4px;">ⓘ</span>
                         </span>
 
                         <span>
@@ -416,6 +419,9 @@
                             PC</button>
                         <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
                             PC</button>
+                        <button id="button_flip_indirect" disabled onclick="flip_indirect_dimension()"
+                            title="Flip indirect dimension data on the frequency domain spectrum without re-processing">Flip
+                            Indirect</button>
                         <!-- Information for user: phase correction applied -->
                         <span id="pc_info"></span>
                         <label for="plot_font_size">Plot font size: </label>
