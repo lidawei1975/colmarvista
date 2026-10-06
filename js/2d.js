@@ -4793,7 +4793,7 @@ function calculate_spectrum_ratio() {
     }
 
     if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, threshold, 2.0)) {
-        alert("Spectrum is too large for a WebGL texture on this device.");
+        alert("Cannot create the ratio heatmap: the spectrum is too large for a WebGL texture, or this device lacks float texture / highp shader support.");
         return;
     }
     main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
