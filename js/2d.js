@@ -4792,11 +4792,91 @@ function calculate_spectrum_ratio() {
         threshold = 0.01 * max_abs;
     }
 
-    if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, threshold, 2.0)) {
+    if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, b, threshold, 2.0)) {
         alert("Cannot create the ratio heatmap: the spectrum is too large for a WebGL texture, or this device lacks float texture / highp shader support.");
         return;
     }
+    main_plot.contour_plot.set_ratio_colormap(parseInt(document.getElementById("ratio_colormap").value));
     main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
+    main_plot.contour_plot.drawScene();
+}
+
+/**
+ * CPU versions of the heatmap colormaps (must match the fragment shader in myplot_webgl.js).
+ * @param {number} id - colormap id; @param {number} s - value in [0, 1]; returns [r, g, b] in 0..255
+ */
+function ratio_colormap_rgb(id, s) {
+    const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+    const poly = (c, t) => c[0].map((_, k) => {
+        let v = c[6][k];
+        for (let j = 5; j >= 0; j--) v = c[j][k] + t * v;
+        return v;
+    });
+    let rgb;
+    switch (id) {
+        case 1: {
+            const cold = [0.23, 0.30, 0.75], mid = [0.87, 0.87, 0.87], hot = [0.71, 0.02, 0.15];
+            rgb = s >= 0.5 ? mix(mid, hot, (s - 0.5) * 2) : mix(cold, mid, s * 2);
+            break;
+        }
+        case 2:
+            rgb = poly([[0.2777273272234177, 0.005407344544966578, 0.3340998053353061],
+            [0.1050930431085774, 1.404613529898575, 1.384590162594685],
+            [-0.3308618287255563, 0.214847559468213, 0.09509516302823659],
+            [-4.634230498983486, -5.799100973351585, -19.33244095627987],
+            [6.228269936347081, 14.17993336680509, 56.69055260068105],
+            [4.776384997670288, -13.74514537774601, -65.35303263337234],
+            [-5.435455855934631, 4.645852612178535, 26.3124352495832]], s);
+            break;
+        case 3:
+            rgb = poly([[0.05873234392399702, 0.02333670892565664, 0.5433401826748754],
+            [2.176514634195958, 0.2383834171260182, 0.7539604599784036],
+            [-2.689460476458034, -7.455851135738909, 3.110799939717086],
+            [6.130348345893603, 42.3461881477227, -28.51885465332158],
+            [-11.10743619062271, -82.66631109428045, 60.13984767418263],
+            [10.02306557647065, 71.41361770095349, -54.07218655560067],
+            [-3.658713842777788, -22.93153465461149, 18.19190778539828]], s);
+            break;
+        case 4:
+            rgb = [1.5 - Math.abs(4 * s - 3), 1.5 - Math.abs(4 * s - 2), 1.5 - Math.abs(4 * s - 1)];
+            break;
+        case 5:
+            rgb = [s, s, s];
+            break;
+        default: {
+            const red = [0.70, 0.09, 0.17], blue = [0.13, 0.40, 0.67], white = [1, 1, 1];
+            rgb = s >= 0.5 ? mix(white, red, (s - 0.5) * 2) : mix(white, blue, (0.5 - s) * 2);
+        }
+    }
+    return rgb.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255));
+}
+
+/**
+ * Draw the horizontal colorbar of the selected ratio colormap (0 at left, 1 at right).
+ */
+function draw_ratio_colorbar() {
+    const canvas = document.getElementById("ratio_colorbar");
+    const select = document.getElementById("ratio_colormap");
+    if (!canvas || !select) {
+        return;
+    }
+    const id = parseInt(select.value);
+    const ctx = canvas.getContext("2d");
+    for (let x = 0; x < canvas.width; x++) {
+        const [r, g, b] = ratio_colormap_rgb(id, x / (canvas.width - 1));
+        ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+        ctx.fillRect(x, 0, 1, canvas.height);
+    }
+}
+document.addEventListener("DOMContentLoaded", draw_ratio_colorbar);
+draw_ratio_colorbar();
+
+function change_ratio_colormap() {
+    draw_ratio_colorbar();
+    if (!main_plot || !main_plot.contour_plot) {
+        return;
+    }
+    main_plot.contour_plot.set_ratio_colormap(parseInt(document.getElementById("ratio_colormap").value));
     main_plot.contour_plot.drawScene();
 }
 
