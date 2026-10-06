@@ -4792,13 +4792,31 @@ function calculate_spectrum_ratio() {
         threshold = 0.01 * max_abs;
     }
 
-    if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, b, threshold, 2.0)) {
+    if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, b, threshold)) {
         alert("Cannot create the ratio heatmap: the spectrum is too large for a WebGL texture, or this device lacks float texture / highp shader support.");
         return;
     }
     main_plot.contour_plot.set_ratio_colormap(parseInt(document.getElementById("ratio_colormap").value));
     main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
     main_plot.contour_plot.drawScene();
+
+    // Update colorbar min and max labels with true min and max ratio
+    update_ratio_colorbar_labels();
+}
+
+function update_ratio_colorbar_labels() {
+    const min_el = document.getElementById("ratio_colorbar_min");
+    const max_el = document.getElementById("ratio_colorbar_max");
+    if (!min_el || !max_el) return;
+    if (main_plot && main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
+        const hm = main_plot.contour_plot.ratio_heatmap;
+        const fmt = (v) => (v >= 100 || (v < 0.01 && v > 0)) ? v.toExponential(2) : v.toFixed(3);
+        min_el.innerText = fmt(hm.min_ratio);
+        max_el.innerText = fmt(hm.max_ratio);
+    } else {
+        min_el.innerText = "0";
+        max_el.innerText = "1";
+    }
 }
 
 /**
@@ -4886,6 +4904,7 @@ function clear_spectrum_ratio() {
     }
     main_plot.contour_plot.clear_ratio_heatmap();
     main_plot.contour_plot.drawScene();
+    update_ratio_colorbar_labels();
 }
 
 async function download_plot() {
