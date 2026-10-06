@@ -237,6 +237,12 @@ class spectrum {
          */
         this.nspect = 1; //number of spectra, default is 1
 
+        /**
+         * Nuclear names (e.g. "1H", "13C", "15N")
+         */
+        this.nucleus_direct = "";
+        this.nucleus_indirect = "";
+        this.nucleus_indirect2 = "";
     };
 
     /**
@@ -370,6 +376,154 @@ class spectrum {
         }
     };
 
+    /**
+     * Flip spectrum data along the indirect dimension (swap rows)
+     * without re-processing from time domain FID.
+     */
+    flip_indirect() {
+        if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
+            return false;
+        }
+        const n_d = this.n_direct;
+        const n_ind = this.n_indirect;
+        if (this.raw_data.length !== n_d * n_ind) {
+            return false;
+        }
+
+        const flip_buffer = (buf, negate = false) => {
+            if (!buf || buf.length !== n_d * n_ind) return;
+            const temp_row = new Float32Array(n_d);
+            const half = Math.floor(n_ind / 2);
+            for (let r = 0; r < half; r++) {
+                const r_opp = n_ind - 1 - r;
+                const off1 = r * n_d;
+                const off2 = r_opp * n_d;
+                temp_row.set(buf.subarray(off1, off1 + n_d));
+                buf.set(buf.subarray(off2, off2 + n_d), off1);
+                buf.set(temp_row, off2);
+            }
+            if (negate) {
+                for (let i = 0; i < buf.length; i++) {
+                    buf[i] = -buf[i];
+                }
+            }
+        };
+
+        // 1. Flip real-real frequency data
+        flip_buffer(this.raw_data, false);
+
+        // 2. Flip real-imaginary data (direct imag)
+        if (this.raw_data_ri && this.raw_data_ri.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ri, false);
+        }
+
+        // 3. Flip imaginary-real data (indirect imag) - negate due to conjugation
+        if (this.raw_data_ir && this.raw_data_ir.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ir, true);
+        }
+
+        // 4. Flip imaginary-imaginary data
+        if (this.raw_data_ii && this.raw_data_ii.length === n_d * n_ind) {
+            flip_buffer(this.raw_data_ii, true);
+        }
+
+        // 5. Recalculate projections
+        this.calculate_projections();
+
+        // 6. Flip peaks if any exist
+        if (this.picked_peaks_object && typeof this.picked_peaks_object.flip_indirect === "function") {
+            this.picked_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+        }
+        if (this.fitted_peaks_object && typeof this.fitted_peaks_object.flip_indirect === "function") {
+            this.fitted_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+        }
+
+        return true;
+    };
+
+    /**
+     * Read ASCII label for a specific dimension from NMRPipe header.
+     * NMRPipe stores 8-character ASCII labels:
+     * Dim 1: FDF1LABEL (word 18, byte 72)
+     * Dim 2: FDF2LABEL (word 16, byte 64)
+     * Dim 3: FDF3LABEL (word 20, byte 80)
+     * Dim 4: FDF4LABEL (word 22, byte 88)
+     * @param {number} dim - 1-based dimension index (1, 2, 3, 4)
+     * @returns {string} Cleaned label string
+     */
+    read_nmrpipe_label(dim) {
+        if (!this.header || !this.header.buffer) return "";
+        const label_words = [18, 16, 20, 22];
+        if (dim < 1 || dim > 4) return "";
+        const word = label_words[dim - 1];
+        const byteOffset = (this.header.byteOffset || 0) + word * 4;
+        if (byteOffset + 8 > this.header.buffer.byteLength) return "";
+        const bytes = new Uint8Array(this.header.buffer, byteOffset, 8);
+        let str = "";
+        for (let i = 0; i < 8; i++) {
+            if (bytes[i] === 0) break;
+            str += String.fromCharCode(bytes[i]);
+        }
+        return str.trim();
+    };
+
+    /**
+     * Normalize nucleus label (e.g. "<1H>", "1H", "HN", "13C", "<15N>")
+     * or infer from spectrometer frequency ratio relative to 1H (baseFrq).
+     * @param {string} rawName 
+     * @param {number} frq - Spectrometer frequency for this dimension in MHz
+     * @param {number} baseFrq - Reference spectrometer frequency (typically 1H) in MHz
+     * @returns {string} Normalized nucleus name (e.g. "1H", "13C", "15N", "31P", "19F")
+     */
+    normalize_nucleus_name(rawName, frq, baseFrq) {
+        let clean = (rawName || "").replace(/[\x00-\x1F\x7F-\x9F<>]/g, "").trim();
+        if (/^1?H$|^1H\b|^HN$|^H1$/i.test(clean)) return "1H";
+        if (/^13?C$|^13C\b|^C13$|^C$|^CA$|^CB$|^CO$/i.test(clean)) return "13C";
+        if (/^15?N$|^15N\b|^N15$|^N$/i.test(clean)) return "15N";
+        if (/^31?P$|^31P\b|^P31$|^P$/i.test(clean)) return "31P";
+        if (/^19?F$|^19F\b|^F19$|^F$/i.test(clean)) return "19F";
+        if (/^2H$|^H2$/i.test(clean)) return "2H";
+
+        // Frequency-based inference fallback (relative to 1H spectrometer frequency)
+        if (baseFrq && baseFrq > 0 && frq && frq > 0) {
+            let ratio = frq / baseFrq;
+            if (ratio >= 0.92 && ratio <= 0.96) return "19F";
+            if (ratio >= 0.97 && ratio <= 1.03) return "1H";
+            if (ratio >= 0.20 && ratio <= 0.30) return "13C";
+            if (ratio >= 0.08 && ratio <= 0.15) return "15N";
+            if (ratio >= 0.35 && ratio <= 0.45) return "31P";
+            if (ratio >= 0.14 && ratio <= 0.17) return "2H";
+        }
+
+        // If clean is a generic placeholder like "X", "Y", "Z", don't return it as nucleus
+        if (/^[XYZABCD]$/i.test(clean)) {
+            return "";
+        }
+
+        return clean || "";
+    };
+
+    /**
+     * Get X-axis label with nucleus name if available
+     * @returns {string} e.g. "1H (ppm)" or "Chemical Shift (ppm)"
+     */
+    get_x_axis_label() {
+        if (this.nucleus_direct) {
+            return `${this.nucleus_direct} (ppm)`;
+        }
+        return "Chemical Shift (ppm)";
+    };
+
+    /**
+     * Get Y-axis label with nucleus name if available
+     * @returns {string} e.g. "13C (ppm)", "15N (ppm)", or "Chemical Shift (ppm)"
+     */
+    get_y_axis_label() {
+        if (this.nucleus_indirect) {
+            return `${this.nucleus_indirect} (ppm)`;
+        }
+        return "Chemical Shift (ppm)";
+    };
 
     /**
      * Process the raw file data of a 2D FT spectrum (.txt from Topspin totxt command)
@@ -555,6 +709,8 @@ class spectrum {
         this.frq1 = this.header[119];
         this.frq2 = this.header[218];
 
+        this.nucleus_direct = "1H";
+        this.nucleus_indirect = this.normalize_nucleus_name("", this.frq2, this.frq1);
     };
 
 
@@ -680,6 +836,18 @@ class spectrum {
         this.sw3 = this.sw[this.indirect_ndx2 - 1];
         this.frq3 = this.frq[this.indirect_ndx2 - 1];
         this.ref3 = this.ref[this.indirect_ndx2 - 1];
+
+        /**
+         * Read nuclear names from NMRPipe header for each dimension
+         */
+        let raw_direct_label = this.read_nmrpipe_label(this.direct_ndx);
+        let raw_indirect_label = this.read_nmrpipe_label(this.indirect_ndx);
+        this.nucleus_direct = this.normalize_nucleus_name(raw_direct_label, this.frq1, this.frq1);
+        this.nucleus_indirect = this.normalize_nucleus_name(raw_indirect_label, this.frq2, this.frq1);
+        if (this.indirect_ndx2) {
+            let raw_indirect2_label = this.read_nmrpipe_label(this.indirect_ndx2);
+            this.nucleus_indirect2 = this.normalize_nucleus_name(raw_indirect2_label, this.frq3, this.frq1);
+        }
 
 
         this.x_ppm_start = (this.ref1 + this.sw1) / this.frq1;
@@ -843,6 +1011,21 @@ class spectrum {
         this.x_ppm_start = this.center1 + this.sw1 / this.frq1 / 2.0; //ppm of the start of the spectrum
         this.x_ppm_width = this.sw1 / this.frq1; //width of the spectrum in ppm
         this.x_ppm_step = -this.x_ppm_width / this.n_direct; //step size in ppm
+
+        const read_sparky_ascii = (offset, maxLen) => {
+            if (offset + maxLen > arrayBuffer.byteLength) return "";
+            const bytes = new Uint8Array(arrayBuffer, offset, maxLen);
+            let str = "";
+            for (let i = 0; i < maxLen; i++) {
+                if (bytes[i] === 0) break;
+                str += String.fromCharCode(bytes[i]);
+            }
+            return str.trim();
+        };
+        let raw_direct_label = read_sparky_ascii(308, 6);
+        let raw_indirect_label = read_sparky_ascii(180, 6);
+        this.nucleus_direct = this.normalize_nucleus_name(raw_direct_label, this.frq1, this.frq1);
+        this.nucleus_indirect = this.normalize_nucleus_name(raw_indirect_label, this.frq2, this.frq1);
 
         this.raw_data = new Float32Array(this.n_direct * this.n_indirect);
 

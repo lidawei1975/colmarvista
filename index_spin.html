@@ -285,8 +285,11 @@
 
 
                             <span>
-                                <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes">
-                                <label for="neg_imaginary">Negative imaginary data (indirect dimension)?</label>
+                                <input type="checkbox" name="neg_imaginary" id="neg_imaginary" value="yes"
+                                    title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing.">
+                                <label for="neg_imaginary"
+                                    title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing.">Negative imaginary data (indirect dimension)?</label>
+                                <span title="Cannot be decided automatically because it is determined by the pulse sequence (e.g. phase cycling or quadrature detection scheme), which might not follow standard form. If your spectrum appears inverted along the indirect dimension, check this option or use the 'Flip Indirect' button on the frequency domain spectrum to flip it without re-processing." style="cursor: help; color: #0284c7; font-weight: bold; margin-left: 4px;">ⓘ</span>
                             </span>
 
                             <span>
@@ -368,6 +371,8 @@
                         <button onclick="zoomout()">Zoom out 120%</button>
                         <button onclick="download_plot()">Download plot</button>
                         <button id="button_apply_ps" disabled onclick="apply_current_pc()">Apply PC</button>
+                        <button id="button_flip_indirect" disabled onclick="flip_indirect_dimension()"
+                            title="Flip indirect dimension data on the frequency domain spectrum without re-processing">Flip Indirect</button>
                         <br>
                         <label for="baseline_method">Baseline: </label>
                         <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
