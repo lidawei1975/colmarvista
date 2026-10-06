@@ -429,6 +429,31 @@
                         <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
                         <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
                         <button onclick="download_plot()">Download plot</button>
+                         <br>
+                         <strong>Ratio heatmap:</strong>
+                         <input type="number" id="ratio_spectrum_a" value="1" min="1" step="1" style="width: 60px;"
+                             title="Numerator spectrum (spectrum number, starting from 1)">
+                         <span>/</span>
+                         <input type="number" id="ratio_spectrum_b" value="2" min="1" step="1" style="width: 60px;"
+                             title="Denominator spectrum (spectrum number, starting from 1)">
+                         <button id="button_ratio_heatmap" onclick="calculate_spectrum_ratio()"
+                             title="Heatmap of log2(A/B), drawn below the contours. Red: A &gt; B, blue: A &lt; B">Spectrum ratio</button>
+                         <button id="button_clear_ratio_heatmap" onclick="clear_spectrum_ratio()">Clear ratio</button>
+                         <label for="ratio_colormap">Colormap: </label>
+                         <select id="ratio_colormap" onchange="change_ratio_colormap()" style="width: auto; display: inline;">
+                             <option value="0" selected>Red/Blue</option>
+                             <option value="1">Coolwarm</option>
+                             <option value="2">Viridis</option>
+                             <option value="3">Plasma</option>
+                             <option value="4">Jet</option>
+                             <option value="5">Grayscale</option>
+                         </select>
+                         <span style="display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;">
+                             <span>0</span>
+                             <canvas id="ratio_colorbar" width="200" height="16"
+                                 style="border: 1px solid #888;"></canvas>
+                             <span>1</span>
+                         </span>
                         <br>
                         <label for="baseline_method">Baseline: </label>
                         <select id="baseline_method" onchange="toggle_baseline_order_visibility()">

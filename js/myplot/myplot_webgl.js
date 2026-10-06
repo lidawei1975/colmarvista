@@ -147,6 +147,9 @@ class webgl_contour_plot {
         this.gl.clearColor(1, 1, 1, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
+        // Ratio heatmap goes below the contours
+        this._draw_ratio_heatmap(this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm);
+
         let number_of_spectra = this.levels_length.length;
         /**
          * Draw the contour plot
@@ -314,6 +317,11 @@ class webgl_contour_plot {
         this.gl.scissor(x_scissor, y_scissor, x_width_scissor, y_height_scissor);
         this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to Gray
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        this._draw_ratio_heatmap(
+            cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor);
 
         // console.log("x_scissor: " + x_scissor + " y_scissor: " + y_scissor + " x_width_scissor: " + x_width_scissor + " y_height_scissor: " + y_height_scissor);
         // console.log("x_ppm_center: " + x_ppm_center + " y_ppm_center: " + y_ppm_center);
@@ -426,6 +434,281 @@ class webgl_contour_plot {
          * Disable the scissor test.
          */
         this.gl.disable(this.gl.SCISSOR_TEST);
+    }
+
+    /**
+     * Create (lazily) the program used to draw the ratio heatmap.
+     * The heatmap is a single textured quad. Spectra A and B are float textures and the
+     * log2 ratio, noise mask and diverging blue-white-red colormap are computed in the fragment shader.
+     */
+    _init_heatmap_program() {
+        if (this.heatmap_program) {
+            return;
+        }
+        const gl = this.gl;
+        const vs = `
+            attribute vec2 a_position;
+            uniform mat3 u_matrix;
+            uniform vec2 u_size;
+            varying vec2 v_uv;
+            void main() {
+                v_uv = a_position / u_size;
+                gl_Position = vec4((u_matrix * vec3(a_position, 1)).xy, 0, 1);
+            }`;
+        const fs = `
+            precision highp float;
+            uniform sampler2D u_tex_a;
+            uniform sampler2D u_tex_b;
+            uniform vec2 u_size;
+            uniform vec4 u_threshold;
+            uniform float u_range;
+            uniform int u_cmap;
+            varying vec2 v_uv;
+
+            // Colormaps: input s in [0, 1]
+            vec3 cm_rdbu(float s) {   // 0: blue - white - red (default)
+                vec3 red = vec3(0.70, 0.09, 0.17);
+                vec3 blue = vec3(0.13, 0.40, 0.67);
+                return s >= 0.5 ? mix(vec3(1.0), red, (s - 0.5) * 2.0) : mix(vec3(1.0), blue, (0.5 - s) * 2.0);
+            }
+            vec3 cm_coolwarm(float s) {   // 1
+                vec3 cold = vec3(0.23, 0.30, 0.75);
+                vec3 mid = vec3(0.87, 0.87, 0.87);
+                vec3 hot = vec3(0.71, 0.02, 0.15);
+                return s >= 0.5 ? mix(mid, hot, (s - 0.5) * 2.0) : mix(cold, mid, s * 2.0);
+            }
+            vec3 cm_viridis(float t) {   // 2 (polynomial fit)
+                const vec3 c0 = vec3(0.2777273272234177, 0.005407344544966578, 0.3340998053353061);
+                const vec3 c1 = vec3(0.1050930431085774, 1.404613529898575, 1.384590162594685);
+                const vec3 c2 = vec3(-0.3308618287255563, 0.214847559468213, 0.09509516302823659);
+                const vec3 c3 = vec3(-4.634230498983486, -5.799100973351585, -19.33244095627987);
+                const vec3 c4 = vec3(6.228269936347081, 14.17993336680509, 56.69055260068105);
+                const vec3 c5 = vec3(4.776384997670288, -13.74514537774601, -65.35303263337234);
+                const vec3 c6 = vec3(-5.435455855934631, 4.645852612178535, 26.3124352495832);
+                return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
+            }
+            vec3 cm_plasma(float t) {   // 3 (polynomial fit)
+                const vec3 c0 = vec3(0.05873234392399702, 0.02333670892565664, 0.5433401826748754);
+                const vec3 c1 = vec3(2.176514634195958, 0.2383834171260182, 0.7539604599784036);
+                const vec3 c2 = vec3(-2.689460476458034, -7.455851135738909, 3.110799939717086);
+                const vec3 c3 = vec3(6.130348345893603, 42.3461881477227, -28.51885465332158);
+                const vec3 c4 = vec3(-11.10743619062271, -82.66631109428045, 60.13984767418263);
+                const vec3 c5 = vec3(10.02306557647065, 71.41361770095349, -54.07218655560067);
+                const vec3 c6 = vec3(-3.658713842777788, -22.93153465461149, 18.19190778539828);
+                return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
+            }
+            vec3 cm_jet(float s) {   // 4
+                return clamp(vec3(1.5 - abs(4.0 * s - 3.0), 1.5 - abs(4.0 * s - 2.0), 1.5 - abs(4.0 * s - 1.0)), 0.0, 1.0);
+            }
+            vec3 cm_gray(float s) {   // 5
+                return vec3(s);
+            }
+            vec3 colormap(float s) {
+                if (u_cmap == 1) return cm_coolwarm(s);
+                if (u_cmap == 2) return cm_viridis(s);
+                if (u_cmap == 3) return cm_plasma(s);
+                if (u_cmap == 4) return cm_jet(s);
+                if (u_cmap == 5) return cm_gray(s);
+                return cm_rdbu(s);
+            }
+
+            // Manual bilinear interpolation (float textures are sampled with NEAREST)
+            float bilerp(sampler2D tex, vec2 p) {
+                vec2 q = p - 0.5;
+                vec2 i0 = floor(q);
+                vec2 f = q - i0;
+                vec2 s = 1.0 / u_size;
+                float v00 = texture2D(tex, (i0 + vec2(0.5, 0.5)) * s).r;
+                float v10 = texture2D(tex, (i0 + vec2(1.5, 0.5)) * s).r;
+                float v01 = texture2D(tex, (i0 + vec2(0.5, 1.5)) * s).r;
+                float v11 = texture2D(tex, (i0 + vec2(1.5, 1.5)) * s).r;
+                return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+            }
+
+            void main() {
+                vec2 p = v_uv * u_size;
+                float va = bilerp(u_tex_a, p);
+                float vb = bilerp(u_tex_b, p);
+                // Lowest displayed contour level for the sign of each value (x: A pos, y: A neg, z: B pos, w: B neg)
+                float ta = va >= 0.0 ? u_threshold.x : u_threshold.y;
+                float tb = vb >= 0.0 ? u_threshold.z : u_threshold.w;
+                float a = abs(va);
+                float b = abs(vb);
+                // Drawn (and used) only where BOTH spectra reach their lowest displayed contour level
+                if (a < ta || b < tb) discard;
+                // log2 ratio normalized to [0, 1]: 0 = A << B, 0.5 = A == B, 1 = A >> B
+                float s = clamp(log2(a / b) / u_range, -1.0, 1.0) * 0.5 + 0.5;
+                gl_FragColor = vec4(colormap(s), 1.0);
+            }`;
+        this.heatmap_program = webglUtils.createProgramFromSources(gl, [vs, fs]);
+        this.heatmap_loc = {
+            position: gl.getAttribLocation(this.heatmap_program, "a_position"),
+            matrix: gl.getUniformLocation(this.heatmap_program, "u_matrix"),
+            size: gl.getUniformLocation(this.heatmap_program, "u_size"),
+            tex_a: gl.getUniformLocation(this.heatmap_program, "u_tex_a"),
+            tex_b: gl.getUniformLocation(this.heatmap_program, "u_tex_b"),
+            threshold: gl.getUniformLocation(this.heatmap_program, "u_threshold"),
+            range: gl.getUniformLocation(this.heatmap_program, "u_range"),
+            cmap: gl.getUniformLocation(this.heatmap_program, "u_cmap"),
+        };
+        this.heatmap_buffer = gl.createBuffer();
+    }
+
+    /**
+     * Upload two spectra (A and B) as float textures. The ratio is computed per fragment
+     * in the shader from bilinearly interpolated A and B, so the heatmap is smooth when zoomed in.
+     * Displayed value is log2(|A|/|B|) clamped to [-log2_range, +log2_range] and
+     * normalized to [0, 1]. Only points where both A and B reach their current lowest displayed
+     * contour level are drawn and used.
+     * Points where neither A nor B reaches its current lowest displayed contour level are not drawn.
+     * Red: A > B, Blue: A < B.
+     *
+     * @param {Float32Array} dataA - raw data of spectrum A (n_indirect rows of n_direct)
+     * @param {Float32Array} dataB - raw data of spectrum B
+     * @param {number} n_direct
+     * @param {number} n_indirect
+     * @param {number} index_a - spectrum index whose ppm axes are used to position the heatmap
+     * @param {number} index_b - spectrum index of B (used to look up its current lowest contour levels)
+     * @param {number} threshold - fallback noise threshold, used only if a spectrum has no contour levels
+     * @param {number} log2_range - color scale saturates at +/- this log2 ratio
+     * @returns {boolean} true on success
+     */
+    set_ratio_heatmap(dataA, dataB, n_direct, n_indirect, index_a, index_b, threshold, log2_range = 2.0) {
+        const gl = this.gl;
+        const max_size = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (n_direct > max_size || n_indirect > max_size) {
+            return false;
+        }
+        // Float textures (sampled with NEAREST, interpolation is done in the shader)
+        if (!gl.getExtension("OES_texture_float")) {
+            return false;
+        }
+        // Float fragment precision is needed for raw intensities
+        const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        if (!hp || hp.precision === 0) {
+            return false;
+        }
+        this._init_heatmap_program();
+
+        const upload = (tex, data) => {
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, n_direct, n_indirect, 0, gl.LUMINANCE, gl.FLOAT, data);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        };
+        if (!this.heatmap_texture_a) {
+            this.heatmap_texture_a = gl.createTexture();
+            this.heatmap_texture_b = gl.createTexture();
+        }
+        upload(this.heatmap_texture_a, dataA);
+        upload(this.heatmap_texture_b, dataB);
+
+        this.ratio_heatmap = {
+            n_direct: n_direct, n_indirect: n_indirect, index: index_a, index_b: index_b,
+            threshold: threshold, log2_range: log2_range
+        };
+        return true;
+    }
+
+    clear_ratio_heatmap() {
+        this.ratio_heatmap = null;
+    }
+
+    /**
+     * Current lowest displayed contour level (as magnitude) of a spectrum.
+     * Uses contour_lbs (the first drawn level), so it follows contour level changes.
+     * @returns {number[]} [positive level, negative level]. A missing negative contour gives a huge
+     * value, so negative data never passes. A missing positive contour falls back to fallback.
+     */
+    _lowest_contour_levels(n, fallback) {
+        const NONE = 1e30;
+        const spec = (typeof hsqc_spectra !== 'undefined') ? hsqc_spectra[n] : null;
+        const pick = (levels, lbs, default_value) => {
+            if (!levels || levels.length === 0 || !lbs || lbs[n] === undefined) {
+                return default_value;
+            }
+            const level = levels[Math.min(Math.max(lbs[n], 0), levels.length - 1)];
+            return Number.isFinite(level) && level !== 0 ? Math.abs(level) : default_value;
+        };
+        return [
+            pick(spec ? spec.levels : null, this.contour_lbs, fallback),
+            pick(spec ? spec.negative_levels : null, this.contour_lbs_negative, NONE)
+        ];
+    }
+
+    /**
+     * Select heatmap colormap. 0: red-white-blue (default), 1: coolwarm, 2: viridis,
+     * 3: plasma, 4: jet, 5: grayscale. Takes effect at the next drawScene().
+     */
+    set_ratio_colormap(id) {
+        this.ratio_colormap = id;
+    }
+
+    /**
+     * Draw the ratio heatmap (if any). Must be called after clear and before the contours.
+     * Restores the contour program state afterwards.
+     * IMPORTANT: not meant to be called directly. Use drawScene() instead.
+     */
+    _draw_ratio_heatmap(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        const hm = this.ratio_heatmap;
+        if (!hm || !this.heatmap_texture_a || !this.heatmap_texture_b) {
+            return;
+        }
+        const info = this.spectral_information[hm.index];
+        if (!info) {
+            return;
+        }
+        const gl = this.gl;
+
+        // Camera for the spectrum that defines the heatmap geometry
+        let x = (x_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let x2 = (x2_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let y = (y_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        let y2 = (y2_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        this.setCamera(x, x2, y, y2);
+        const projectionMat = m3.projection(gl.canvas.width, gl.canvas.height);
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+        cameraMat = m3.scale(cameraMat, 1 / this.camera.zoom_x, 1 / this.camera.zoom_y);
+        const mat = m3.multiply(projectionMat, m3.inverse(cameraMat));
+
+        // Quad covering all data points. d3.contours() places grid value i at coordinate i + 0.5,
+        // so pixel i spans [i, i + 1] and the quad spans [0, n].
+        const x0 = 0, x1 = hm.n_direct, y0 = 0, y1 = hm.n_indirect;
+        const quad = new Float32Array([x0, y0, x1, y0, x0, y1, x0, y1, x1, y0, x1, y1]);
+
+        gl.useProgram(this.heatmap_program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmap_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(this.heatmap_loc.position);
+        gl.vertexAttribPointer(this.heatmap_loc.position, 2, gl.FLOAT, false, 0, 0);
+        gl.uniformMatrix3fv(this.heatmap_loc.matrix, false, mat);
+        gl.uniform2f(this.heatmap_loc.size, hm.n_direct, hm.n_indirect);
+        const [a_pos, a_neg] = this._lowest_contour_levels(hm.index, hm.threshold);
+        const [b_pos, b_neg] = this._lowest_contour_levels(hm.index_b, hm.threshold);
+        gl.uniform4f(this.heatmap_loc.threshold, a_pos, a_neg, b_pos, b_neg);
+        gl.uniform1f(this.heatmap_loc.range, hm.log2_range);
+        gl.uniform1i(this.heatmap_loc.cmap, this.ratio_colormap || 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_a);
+        gl.uniform1i(this.heatmap_loc.tex_a, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_b);
+        gl.uniform1i(this.heatmap_loc.tex_b, 1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Restore contour program state
+        if (this.heatmap_loc.position !== this.positionLocation) {
+            gl.disableVertexAttribArray(this.heatmap_loc.position);
+        }
+        gl.useProgram(this.program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.enableVertexAttribArray(this.positionLocation);
+        gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
     }
 
     /**
