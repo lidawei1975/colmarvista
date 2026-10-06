@@ -4753,6 +4753,61 @@ const loadImage = async url => {
 const serializeAsXML = $e => (new XMLSerializer()).serializeToString($e);
 const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
+/**
+ * Calculate the ratio of two spectra (numbers from the input fields, starting from 1)
+ * and show it as a red-blue heatmap below the contours (webgl).
+ */
+function calculate_spectrum_ratio() {
+    if (!main_plot || !main_plot.contour_plot) {
+        alert("Please load spectra first.");
+        return;
+    }
+    const a = parseInt(document.getElementById("ratio_spectrum_a").value) - 1;
+    const b = parseInt(document.getElementById("ratio_spectrum_b").value) - 1;
+    const sa = hsqc_spectra[a];
+    const sb = hsqc_spectra[b];
+    if (!sa || !sb || !sa.raw_data || !sb.raw_data || sa.raw_data.length === 0 || sb.raw_data.length === 0) {
+        alert("Invalid spectrum number(s), or spectrum data not available.");
+        return;
+    }
+    if (sa.n_direct !== sb.n_direct || sa.n_indirect !== sb.n_indirect) {
+        alert("The two spectra must have the same dimensions.");
+        return;
+    }
+    if (!main_plot.spectral_information[a]) {
+        alert("Spectrum " + (a + 1) + " has no contour information yet.");
+        return;
+    }
+
+    /**
+     * Noise threshold: lowest contour level of either spectrum, otherwise 1% of the maximum.
+     */
+    const lowest_level = (s) => (Array.isArray(s.levels) && s.levels.length > 0) ? Math.min(...s.levels) : NaN;
+    let threshold = Math.min(lowest_level(sa), lowest_level(sb));
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+        let max_abs = 0;
+        for (let i = 0; i < sa.raw_data.length; i++) {
+            max_abs = Math.max(max_abs, Math.abs(sa.raw_data[i]), Math.abs(sb.raw_data[i]));
+        }
+        threshold = 0.01 * max_abs;
+    }
+
+    if (!main_plot.contour_plot.set_ratio_heatmap(sa.raw_data, sb.raw_data, sa.n_direct, sa.n_indirect, a, threshold, 2.0)) {
+        alert("Spectrum is too large for a WebGL texture on this device.");
+        return;
+    }
+    main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
+    main_plot.contour_plot.drawScene();
+}
+
+function clear_spectrum_ratio() {
+    if (!main_plot || !main_plot.contour_plot) {
+        return;
+    }
+    main_plot.contour_plot.clear_ratio_heatmap();
+    main_plot.contour_plot.drawScene();
+}
+
 async function download_plot() {
     async function generate_and_download() {
         const format = 'png';

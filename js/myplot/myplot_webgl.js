@@ -147,6 +147,9 @@ class webgl_contour_plot {
         this.gl.clearColor(1, 1, 1, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
+        // Ratio heatmap goes below the contours
+        this._draw_ratio_heatmap(this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm);
+
         let number_of_spectra = this.levels_length.length;
         /**
          * Draw the contour plot
@@ -314,6 +317,11 @@ class webgl_contour_plot {
         this.gl.scissor(x_scissor, y_scissor, x_width_scissor, y_height_scissor);
         this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to Gray
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        this._draw_ratio_heatmap(
+            cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor);
 
         // console.log("x_scissor: " + x_scissor + " y_scissor: " + y_scissor + " x_width_scissor: " + x_width_scissor + " y_height_scissor: " + y_height_scissor);
         // console.log("x_ppm_center: " + x_ppm_center + " y_ppm_center: " + y_ppm_center);
@@ -426,6 +434,162 @@ class webgl_contour_plot {
          * Disable the scissor test.
          */
         this.gl.disable(this.gl.SCISSOR_TEST);
+    }
+
+    /**
+     * Create (lazily) the program used to draw the ratio heatmap.
+     * The heatmap is a single textured quad. The texture is LUMINANCE_ALPHA 8 bit:
+     * luminance = normalized log2 ratio (0.5 = ratio of 1), alpha = valid-data mask.
+     * A diverging blue-white-red colormap is applied in the fragment shader.
+     */
+    _init_heatmap_program() {
+        if (this.heatmap_program) {
+            return;
+        }
+        const gl = this.gl;
+        const vs = `
+            attribute vec2 a_position;
+            uniform mat3 u_matrix;
+            uniform vec2 u_size;
+            varying vec2 v_uv;
+            void main() {
+                v_uv = (a_position + 0.5) / u_size;
+                gl_Position = vec4((u_matrix * vec3(a_position, 1)).xy, 0, 1);
+            }`;
+        const fs = `
+            precision mediump float;
+            uniform sampler2D u_tex;
+            varying vec2 v_uv;
+            void main() {
+                vec4 s = texture2D(u_tex, v_uv);
+                if (s.a < 0.5) discard;
+                float t = s.r * 2.0 - 1.0;   // -1 (blue) .. 0 (white) .. +1 (red)
+                vec3 red = vec3(0.70, 0.09, 0.17);
+                vec3 blue = vec3(0.13, 0.40, 0.67);
+                vec3 c = t >= 0.0 ? mix(vec3(1.0), red, t) : mix(vec3(1.0), blue, -t);
+                gl_FragColor = vec4(c, 1.0);
+            }`;
+        this.heatmap_program = webglUtils.createProgramFromSources(gl, [vs, fs]);
+        this.heatmap_loc = {
+            position: gl.getAttribLocation(this.heatmap_program, "a_position"),
+            matrix: gl.getUniformLocation(this.heatmap_program, "u_matrix"),
+            size: gl.getUniformLocation(this.heatmap_program, "u_size"),
+            tex: gl.getUniformLocation(this.heatmap_program, "u_tex"),
+        };
+        this.heatmap_buffer = gl.createBuffer();
+    }
+
+    /**
+     * Calculate the ratio of two spectra (A / B) and upload it as a heatmap texture.
+     * Displayed value is log2((|A|+eps)/(|B|+eps)), clamped to [-log2_range, +log2_range].
+     * Points where both |A| and |B| are below the threshold are not drawn (noise).
+     * Red: A > B, Blue: A < B.
+     *
+     * @param {Float32Array} dataA - raw data of spectrum A (n_indirect rows of n_direct)
+     * @param {Float32Array} dataB - raw data of spectrum B
+     * @param {number} n_direct
+     * @param {number} n_indirect
+     * @param {number} index_a - spectrum index whose ppm axes are used to position the heatmap
+     * @param {number} threshold - noise threshold (absolute intensity)
+     * @param {number} log2_range - color scale saturates at +/- this log2 ratio
+     * @returns {boolean} true on success
+     */
+    set_ratio_heatmap(dataA, dataB, n_direct, n_indirect, index_a, threshold, log2_range = 2.0) {
+        const gl = this.gl;
+        const max_size = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (n_direct > max_size || n_indirect > max_size) {
+            return false;
+        }
+        this._init_heatmap_program();
+
+        const n = n_direct * n_indirect;
+        const eps = Math.max(threshold, 1e-30) * 0.5;
+        const bytes = new Uint8Array(n * 2);
+        for (let i = 0; i < n; i++) {
+            const a = Math.abs(dataA[i]);
+            const b = Math.abs(dataB[i]);
+            if (!(Math.max(a, b) >= threshold)) {
+                bytes[2 * i] = 128;
+                bytes[2 * i + 1] = 0; // masked
+                continue;
+            }
+            let t = Math.log2((a + eps) / (b + eps)) / log2_range;
+            t = Math.max(-1, Math.min(1, t));
+            bytes[2 * i] = Math.round((t * 0.5 + 0.5) * 255);
+            bytes[2 * i + 1] = 255;
+        }
+
+        if (!this.heatmap_texture) {
+            this.heatmap_texture = gl.createTexture();
+        }
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, n_direct, n_indirect, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, bytes);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        this.ratio_heatmap = { n_direct: n_direct, n_indirect: n_indirect, index: index_a };
+        return true;
+    }
+
+    clear_ratio_heatmap() {
+        this.ratio_heatmap = null;
+    }
+
+    /**
+     * Draw the ratio heatmap (if any). Must be called after clear and before the contours.
+     * Restores the contour program state afterwards.
+     * IMPORTANT: not meant to be called directly. Use drawScene() instead.
+     */
+    _draw_ratio_heatmap(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        const hm = this.ratio_heatmap;
+        if (!hm || !this.heatmap_texture) {
+            return;
+        }
+        const info = this.spectral_information[hm.index];
+        if (!info) {
+            return;
+        }
+        const gl = this.gl;
+
+        // Camera for the spectrum that defines the heatmap geometry
+        let x = (x_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let x2 = (x2_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let y = (y_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        let y2 = (y2_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        this.setCamera(x, x2, y, y2);
+        const projectionMat = m3.projection(gl.canvas.width, gl.canvas.height);
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+        cameraMat = m3.scale(cameraMat, 1 / this.camera.zoom_x, 1 / this.camera.zoom_y);
+        const mat = m3.multiply(projectionMat, m3.inverse(cameraMat));
+
+        // Quad covering all data points (pixel i is centered at index i)
+        const x0 = -0.5, x1 = hm.n_direct - 0.5, y0 = -0.5, y1 = hm.n_indirect - 0.5;
+        const quad = new Float32Array([x0, y0, x1, y0, x0, y1, x0, y1, x1, y0, x1, y1]);
+
+        gl.useProgram(this.heatmap_program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmap_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(this.heatmap_loc.position);
+        gl.vertexAttribPointer(this.heatmap_loc.position, 2, gl.FLOAT, false, 0, 0);
+        gl.uniformMatrix3fv(this.heatmap_loc.matrix, false, mat);
+        gl.uniform2f(this.heatmap_loc.size, hm.n_direct, hm.n_indirect);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture);
+        gl.uniform1i(this.heatmap_loc.tex, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Restore contour program state
+        if (this.heatmap_loc.position !== this.positionLocation) {
+            gl.disableVertexAttribArray(this.heatmap_loc.position);
+        }
+        gl.useProgram(this.program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.enableVertexAttribArray(this.positionLocation);
+        gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
     }
 
     /**
