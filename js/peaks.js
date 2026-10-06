@@ -114,6 +114,30 @@ class cpeaks {
     }
 
     /**
+     * Flip peak positions along indirect dimension
+     * @param {number} n_indirect - number of points along indirect dimension
+     * @param {number} y_ppm_start - start ppm of indirect dimension
+     * @param {number} y_ppm_step - step ppm of indirect dimension
+     */
+    flip_indirect(n_indirect, y_ppm_start, y_ppm_step) {
+        if (!this.column_headers || !this.columns) {
+            return false;
+        }
+        let y_ppm_index = this.column_headers.indexOf('Y_PPM');
+        if (y_ppm_index !== -1 && this.columns[y_ppm_index]) {
+            const y_ppm_end = y_ppm_start + (n_indirect - 1) * y_ppm_step;
+            const y_sum = y_ppm_start + y_ppm_end;
+            this.columns[y_ppm_index] = this.columns[y_ppm_index].map(y => y_sum - y);
+        }
+        let y_axis_index = this.column_headers.indexOf('Y_AXIS');
+        if (y_axis_index !== -1 && this.columns[y_axis_index]) {
+            // Y_AXIS is 1-based in NMRPipe/Sparky (1 to n_indirect)
+            this.columns[y_axis_index] = this.columns[y_axis_index].map(y => (n_indirect + 1) - y);
+        }
+        return true;
+    }
+
+    /**
      * A class method to process a peaks.tab file (nmrPipe format)
      * @param {string} peaks_tab - the peaks.tab file content as one big string, separated by newlines
      */

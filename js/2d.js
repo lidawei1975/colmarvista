@@ -1390,6 +1390,8 @@ function handle_webassembly_worker_message(e) {
         result_spectrum.fitted_peaks_object = source.fitted_peaks_object;
         result_spectrum.scale = source.scale;
         result_spectrum.scale2 = source.scale2;
+        result_spectrum.nucleus_direct = result_spectrum.nucleus_direct || source.nucleus_direct;
+        result_spectrum.nucleus_indirect = result_spectrum.nucleus_indirect || source.nucleus_indirect;
 
         draw_spectrum([result_spectrum], false, false);
 
@@ -1609,6 +1611,10 @@ function handle_webassembly_worker_message(e) {
          */
         result_spectrum.scale = e.data.scale;
         result_spectrum.scale2 = e.data.scale2;
+        if (hsqc_spectra[e.data.spectrum_origin]) {
+            result_spectrum.nucleus_direct = result_spectrum.nucleus_direct || hsqc_spectra[e.data.spectrum_origin].nucleus_direct;
+            result_spectrum.nucleus_indirect = result_spectrum.nucleus_indirect || hsqc_spectra[e.data.spectrum_origin].nucleus_indirect;
+        }
         draw_spectrum([result_spectrum], false/**from fid */, false/**re-process of fid or ft2 */);
 
         /**
@@ -2642,6 +2648,8 @@ function add_to_list(index) {
             main_plot.current_spectral_index = index;
             update_automatic_pc_button_status(index);
             update_baseline_button_status(index);
+            update_flip_indirect_button_status(index);
+            update_plot_axis_labels(index);
             /**
              * Highlight the current spectrum in the list
              */
@@ -2710,6 +2718,12 @@ function add_to_list(index) {
     download_button.innerText = "Download ft2";
     download_button.onclick = function () { download_spectrum(index, 'original'); };
     new_spectrum_div.appendChild(download_button);
+
+    let flip_indirect_btn = document.createElement("button");
+    flip_indirect_btn.innerText = "Flip indirect";
+    flip_indirect_btn.title = "Flip indirect dimension data for this spectrum without re-processing";
+    flip_indirect_btn.onclick = function () { flip_indirect_dimension_for_spectrum(index); };
+    new_spectrum_div.appendChild(flip_indirect_btn);
     /**
      * Add a different spectrum download button for reconstructed spectrum only
      */
@@ -3707,9 +3721,12 @@ function init_plot(input) {
     }
     input.inter_window_channel = inter_window_channel;
 
+    input.xlabel = typeof input.get_x_axis_label === "function" ? input.get_x_axis_label() : (input.nucleus_direct ? `${input.nucleus_direct} (ppm)` : (input.xlabel || "Chemical Shift (ppm)"));
+    input.ylabel = typeof input.get_y_axis_label === "function" ? input.get_y_axis_label() : (input.nucleus_indirect ? `${input.nucleus_indirect} (ppm)` : (input.ylabel || "Chemical Shift (ppm)"));
 
     main_plot = new plotit(input);
     main_plot.draw();
+    update_plot_axis_labels(0);
 
 
 
@@ -4497,6 +4514,11 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
      * initialize the plot with the first spectrum. This function only run once
      */
     init_plot(hsqc_spectra[0]);
+    if (main_plot) {
+        let cur_idx = (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length)
+            ? main_plot.current_spectral_index : 0;
+        update_plot_axis_labels(cur_idx);
+    }
 
     let is_pseudo3d = (result_spectra.length > 1) || (pseudo3d_children && pseudo3d_children.length > 0);
     pending_pseudo3d_uncalculated_spectra = [];
@@ -4592,7 +4614,20 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
  * Similar to draw_spectrum() but no need to update hsqc_spectra array (we loaded it)
  */
 function draw_spectrum_from_loading() {
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        let s = hsqc_spectra[i];
+        if (!s.nucleus_direct && typeof s.read_nmrpipe_label === "function" && s.direct_ndx) {
+            let raw_d = s.read_nmrpipe_label(s.direct_ndx);
+            s.nucleus_direct = s.normalize_nucleus_name(raw_d, s.frq1, s.frq1);
+        }
+        if (!s.nucleus_indirect && typeof s.read_nmrpipe_label === "function" && s.indirect_ndx) {
+            let raw_ind = s.read_nmrpipe_label(s.indirect_ndx);
+            s.nucleus_indirect = s.normalize_nucleus_name(raw_ind, s.frq2, s.frq1);
+        }
+    }
     init_plot(hsqc_spectra[0]);
+    let initial_idx = (main_plot && main_plot.current_spectral_index >= 0) ? main_plot.current_spectral_index : 0;
+    update_plot_axis_labels(initial_idx);
 
     pending_pseudo3d_uncalculated_spectra = [];
     last_calculated_spectrum_index = -1;
@@ -6031,6 +6066,125 @@ async function apply_current_pc_or_auto_pc(flag) {
             clear_webassembly_message_after_delay(5000);
         }
     }
+}
+
+/**
+ * Flip indirect dimension for a given spectrum index (and all its pseudo-3D planes if applicable)
+ * in frequency domain without re-processing from time domain FID.
+ * @param {number} spec_index - Index of the spectrum to flip
+ */
+function flip_indirect_dimension_for_spectrum(spec_index) {
+    if (typeof hsqc_spectra === "undefined" || !hsqc_spectra || hsqc_spectra.length === 0) {
+        console.warn("flip_indirect_dimension_for_spectrum: No spectra available.");
+        return;
+    }
+    const index = (typeof get_pseudo3d_first_spectrum_index === "function") 
+        ? get_pseudo3d_first_spectrum_index(spec_index) 
+        : spec_index;
+    if (index === -1 || !hsqc_spectra[index] || !hsqc_spectra[index].raw_data || hsqc_spectra[index].raw_data.length === 0) {
+        console.warn("flip_indirect_dimension_for_spectrum: No valid spectrum at index", spec_index);
+        return;
+    }
+
+    const s = hsqc_spectra[index];
+    const target_indices = [index];
+    if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
+        for (let i = 0; i < s.pseudo3d_children.length; i++) {
+            const child_idx = s.pseudo3d_children[i];
+            if (hsqc_spectra[child_idx]) {
+                target_indices.push(child_idx);
+            }
+        }
+    }
+
+    for (let i = 0; i < target_indices.length; i++) {
+        const t_idx = target_indices[i];
+        const spec = hsqc_spectra[t_idx];
+        if (!spec || !spec.raw_data || spec.raw_data.length === 0) continue;
+
+        if (typeof spec.flip_indirect === "function") {
+            spec.flip_indirect();
+        }
+
+        // Toggle fid_process_parameters.neg_imaginary if present
+        if (spec.fid_process_parameters) {
+            const currentVal = spec.fid_process_parameters.neg_imaginary;
+            spec.fid_process_parameters.neg_imaginary = (currentVal === "yes") ? "no" : "yes";
+        }
+
+        // Refresh contours
+        if (spec.contour_calculated === true) {
+            refresh_contours_for_spectrum(t_idx);
+        } else if (spec.contour_calculated === false && spec.visible !== false) {
+            if (typeof calculate_contour_for_spectrum === "function") {
+                calculate_contour_for_spectrum(t_idx);
+            }
+        }
+    }
+
+    // Synchronize HTML checkbox if current spectrum has fid parameters
+    if (index === current_reprocess_spectrum_index || hsqc_spectra.length === 1) {
+        const negCheckbox = document.getElementById("neg_imaginary");
+        if (negCheckbox) {
+            negCheckbox.checked = !negCheckbox.checked;
+        }
+    }
+
+    // Refresh cross sections and projections
+    if (typeof refresh_cross_sections_after_phase === "function") {
+        refresh_cross_sections_after_phase(index);
+    }
+    if (typeof main_plot !== "undefined" && main_plot) {
+        if (main_plot.b_show_projection && typeof main_plot.show_projection === "function") {
+            main_plot.show_projection();
+        }
+
+        // Redraw peak annotations if any are displayed
+        const checkbox_picked = document.getElementById("show_picked_peaks-" + index);
+        if (checkbox_picked && checkbox_picked.checked) {
+            if (typeof main_plot.remove_picked_peaks === "function") main_plot.remove_picked_peaks();
+            if (typeof main_plot.add_peaks === "function") {
+                main_plot.add_peaks(hsqc_spectra[index], 'picked', ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
+            }
+        }
+        const checkbox_fitted = document.getElementById("show_fitted_peaks-" + index);
+        if (checkbox_fitted && checkbox_fitted.checked) {
+            if (typeof main_plot.remove_picked_peaks === "function") main_plot.remove_picked_peaks();
+            if (typeof main_plot.add_peaks === "function") {
+                main_plot.add_peaks(hsqc_spectra[index], 'fitted', ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
+            }
+        }
+    }
+
+    const msgDiv = document.getElementById("webassembly_message") || document.getElementById("contour_message");
+    const count = target_indices.length;
+    const specName = s.filename ? ` (${s.filename})` : "";
+    const msg = count > 1
+        ? `Indirect dimension flipped for ${count} planes of pseudo-3D spectrum ${index + 1}${specName}.`
+        : `Indirect dimension flipped for spectrum ${index + 1}${specName}.`;
+    console.log(msg);
+    if (msgDiv) {
+        msgDiv.innerText = msg;
+        if (typeof clear_webassembly_message_after_delay === "function") {
+            clear_webassembly_message_after_delay(4000);
+        }
+    }
+}
+
+/**
+ * Handle "Flip Indirect" button click on the frequency domain spectrum plot.
+ */
+function flip_indirect_dimension() {
+    if (typeof main_plot === "undefined" || !main_plot) return;
+    let current_idx = main_plot.current_spectral_index;
+    if ((current_idx < 0 || current_idx >= hsqc_spectra.length) && hsqc_spectra && hsqc_spectra.length > 0) {
+        current_idx = 0;
+    }
+    if (current_idx < 0 || !hsqc_spectra || current_idx >= hsqc_spectra.length) {
+        console.warn("flip_indirect_dimension: No spectrum currently selected.");
+        return;
+    }
+    flip_indirect_dimension_for_spectrum(current_idx);
 }
 
 /**
@@ -9637,6 +9791,8 @@ function set_current_spectrum(spectrum_index) {
     }
     update_baseline_button_status(target_index);
     update_automatic_pc_button_status(target_index);
+    update_flip_indirect_button_status(target_index);
+    update_plot_axis_labels(target_index);
     if (main_plot && main_plot.b_show_cross_section) {
         if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
             main_plot.show_cross_section();
@@ -9853,14 +10009,46 @@ function toggle_baseline_order_visibility() {
     }
 }
 
+function update_flip_indirect_button_status(index) {
+    const btn = document.getElementById("button_flip_indirect");
+    if (!btn) return;
+    btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index]
+        && hsqc_spectra[index].spectrum_origin !== -3
+        && hsqc_spectra[index].raw_data && hsqc_spectra[index].raw_data.length > 0);
+}
+
+/**
+ * Updates plot axis labels with nuclear names (e.g. "1H (ppm)", "13C (ppm)", "15N (ppm)")
+ * from the active spectrum.
+ * @param {number} index - Spectrum index in hsqc_spectra
+ */
+function update_plot_axis_labels(index) {
+    if (index === null || index === undefined || !hsqc_spectra || hsqc_spectra.length === 0) return;
+    let target_index = get_pseudo3d_first_spectrum_index(index);
+    if (target_index === undefined || target_index === null || target_index < 0 || target_index >= hsqc_spectra.length) {
+        target_index = index;
+    }
+    const spec = hsqc_spectra[target_index];
+    if (!spec) return;
+
+    let xlabel = typeof spec.get_x_axis_label === "function" ? spec.get_x_axis_label() : (spec.nucleus_direct ? `${spec.nucleus_direct} (ppm)` : "Chemical Shift (ppm)");
+    let ylabel = typeof spec.get_y_axis_label === "function" ? spec.get_y_axis_label() : (spec.nucleus_indirect ? `${spec.nucleus_indirect} (ppm)` : "Chemical Shift (ppm)");
+
+    if (main_plot && typeof main_plot.set_labels === "function") {
+        main_plot.set_labels(xlabel, ylabel);
+    }
+}
+
 function update_baseline_button_status(index) {
     const btn = document.getElementById("button_apply_baseline");
-    if (!btn) return;
-    if (baseline_correction_batch_total > 0 && baseline_correction_batch_completed < baseline_correction_batch_total) {
-        btn.disabled = true;
-        return;
+    if (btn) {
+        if (baseline_correction_batch_total > 0 && baseline_correction_batch_completed < baseline_correction_batch_total) {
+            btn.disabled = true;
+        } else {
+            btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
+        }
     }
-    btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index] && hsqc_spectra[index].spectrum_origin !== -3);
+    update_flip_indirect_button_status(index);
 }
 
 async function apply_baseline_correction() {
