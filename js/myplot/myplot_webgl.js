@@ -460,8 +460,8 @@ class webgl_contour_plot {
             uniform sampler2D u_tex_a;
             uniform sampler2D u_tex_b;
             uniform vec2 u_size;
-            uniform vec4 u_threshold;
-            uniform float u_range;
+            uniform vec2 u_threshold; // x: lowest pos level A, y: lowest pos level B
+            uniform vec2 u_ratio_min_max; // x: min_ratio, y: max_ratio
             uniform int u_cmap;
             varying vec2 v_uv;
 
@@ -529,15 +529,11 @@ class webgl_contour_plot {
                 vec2 p = v_uv * u_size;
                 float va = bilerp(u_tex_a, p);
                 float vb = bilerp(u_tex_b, p);
-                // Lowest displayed contour level for the sign of each value (x: A pos, y: A neg, z: B pos, w: B neg)
-                float ta = va >= 0.0 ? u_threshold.x : u_threshold.y;
-                float tb = vb >= 0.0 ? u_threshold.z : u_threshold.w;
-                float a = abs(va);
-                float b = abs(vb);
-                // Drawn (and used) only where BOTH spectra reach their lowest displayed contour level
-                if (a < ta || b < tb) discard;
-                // log2 ratio normalized to [0, 1]: 0 = A << B, 0.5 = A == B, 1 = A >> B
-                float s = clamp(log2(a / b) / u_range, -1.0, 1.0) * 0.5 + 0.5;
+                // Only consider positive data points above the lowest positive contour level
+                if (va < u_threshold.x || vb < u_threshold.y) discard;
+                float r = va / vb;
+                float span = u_ratio_min_max.y - u_ratio_min_max.x;
+                float s = span > 0.0 ? clamp((r - u_ratio_min_max.x) / span, 0.0, 1.0) : 0.5;
                 gl_FragColor = vec4(colormap(s), 1.0);
             }`;
         this.heatmap_program = webglUtils.createProgramFromSources(gl, [vs, fs]);
@@ -548,7 +544,7 @@ class webgl_contour_plot {
             tex_a: gl.getUniformLocation(this.heatmap_program, "u_tex_a"),
             tex_b: gl.getUniformLocation(this.heatmap_program, "u_tex_b"),
             threshold: gl.getUniformLocation(this.heatmap_program, "u_threshold"),
-            range: gl.getUniformLocation(this.heatmap_program, "u_range"),
+            ratio_min_max: gl.getUniformLocation(this.heatmap_program, "u_ratio_min_max"),
             cmap: gl.getUniformLocation(this.heatmap_program, "u_cmap"),
         };
         this.heatmap_buffer = gl.createBuffer();
@@ -557,10 +553,8 @@ class webgl_contour_plot {
     /**
      * Upload two spectra (A and B) as float textures. The ratio is computed per fragment
      * in the shader from bilinearly interpolated A and B, so the heatmap is smooth when zoomed in.
-     * Displayed value is log2(|A|/|B|) clamped to [-log2_range, +log2_range] and
-     * normalized to [0, 1]. Only points where both A and B reach their current lowest displayed
-     * contour level are drawn and used.
-     * Points where neither A nor B reaches its current lowest displayed contour level are not drawn.
+     * Displayed value is the ratio |A| / |B|, clamped to [0, 1].
+     * Only points where both A and B reach their current lowest displayed contour level are drawn and used.
      * Red: A > B, Blue: A < B.
      *
      * @param {Float32Array} dataA - raw data of spectrum A (n_indirect rows of n_direct)
@@ -570,10 +564,9 @@ class webgl_contour_plot {
      * @param {number} index_a - spectrum index whose ppm axes are used to position the heatmap
      * @param {number} index_b - spectrum index of B (used to look up its current lowest contour levels)
      * @param {number} threshold - fallback noise threshold, used only if a spectrum has no contour levels
-     * @param {number} log2_range - color scale saturates at +/- this log2 ratio
      * @returns {boolean} true on success
      */
-    set_ratio_heatmap(dataA, dataB, n_direct, n_indirect, index_a, index_b, threshold, log2_range = 2.0) {
+    set_ratio_heatmap(dataA, dataB, n_direct, n_indirect, index_a, index_b, threshold) {
         const gl = this.gl;
         const max_size = gl.getParameter(gl.MAX_TEXTURE_SIZE);
         if (n_direct > max_size || n_indirect > max_size) {
@@ -606,9 +599,31 @@ class webgl_contour_plot {
         upload(this.heatmap_texture_a, dataA);
         upload(this.heatmap_texture_b, dataB);
 
+        // Compute true min and max ratio (A/B) for positive data points above respective lowest positive contour levels
+        const [a_pos] = this._lowest_contour_levels(index_a, threshold);
+        const [b_pos] = this._lowest_contour_levels(index_b, threshold);
+        let min_r = Infinity;
+        let max_r = -Infinity;
+        const total = n_direct * n_indirect;
+        for (let i = 0; i < total; i++) {
+            const va = dataA[i];
+            const vb = dataB[i];
+            if (va >= a_pos && vb >= b_pos && vb > 0) {
+                const r = va / vb;
+                if (r < min_r) min_r = r;
+                if (r > max_r) max_r = r;
+            }
+        }
+        if (!Number.isFinite(min_r) || !Number.isFinite(max_r)) {
+            min_r = 0.0;
+            max_r = 1.0;
+        } else if (min_r === max_r) {
+            max_r = min_r + 1.0;
+        }
+
         this.ratio_heatmap = {
             n_direct: n_direct, n_indirect: n_indirect, index: index_a, index_b: index_b,
-            threshold: threshold, log2_range: log2_range
+            threshold: threshold, min_ratio: min_r, max_ratio: max_r
         };
         return true;
     }
@@ -687,10 +702,10 @@ class webgl_contour_plot {
         gl.vertexAttribPointer(this.heatmap_loc.position, 2, gl.FLOAT, false, 0, 0);
         gl.uniformMatrix3fv(this.heatmap_loc.matrix, false, mat);
         gl.uniform2f(this.heatmap_loc.size, hm.n_direct, hm.n_indirect);
-        const [a_pos, a_neg] = this._lowest_contour_levels(hm.index, hm.threshold);
-        const [b_pos, b_neg] = this._lowest_contour_levels(hm.index_b, hm.threshold);
-        gl.uniform4f(this.heatmap_loc.threshold, a_pos, a_neg, b_pos, b_neg);
-        gl.uniform1f(this.heatmap_loc.range, hm.log2_range);
+        const [a_pos] = this._lowest_contour_levels(hm.index, hm.threshold);
+        const [b_pos] = this._lowest_contour_levels(hm.index_b, hm.threshold);
+        gl.uniform2f(this.heatmap_loc.threshold, a_pos, b_pos);
+        gl.uniform2f(this.heatmap_loc.ratio_min_max, hm.min_ratio, hm.max_ratio);
         gl.uniform1i(this.heatmap_loc.cmap, this.ratio_colormap || 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_a);
