@@ -1390,6 +1390,8 @@ function handle_webassembly_worker_message(e) {
         result_spectrum.fitted_peaks_object = source.fitted_peaks_object;
         result_spectrum.scale = source.scale;
         result_spectrum.scale2 = source.scale2;
+        result_spectrum.nucleus_direct = result_spectrum.nucleus_direct || source.nucleus_direct;
+        result_spectrum.nucleus_indirect = result_spectrum.nucleus_indirect || source.nucleus_indirect;
 
         draw_spectrum([result_spectrum], false, false);
 
@@ -1609,6 +1611,10 @@ function handle_webassembly_worker_message(e) {
          */
         result_spectrum.scale = e.data.scale;
         result_spectrum.scale2 = e.data.scale2;
+        if (hsqc_spectra[e.data.spectrum_origin]) {
+            result_spectrum.nucleus_direct = result_spectrum.nucleus_direct || hsqc_spectra[e.data.spectrum_origin].nucleus_direct;
+            result_spectrum.nucleus_indirect = result_spectrum.nucleus_indirect || hsqc_spectra[e.data.spectrum_origin].nucleus_indirect;
+        }
         draw_spectrum([result_spectrum], false/**from fid */, false/**re-process of fid or ft2 */);
 
         /**
@@ -2643,6 +2649,7 @@ function add_to_list(index) {
             update_automatic_pc_button_status(index);
             update_baseline_button_status(index);
             update_flip_indirect_button_status(index);
+            update_plot_axis_labels(index);
             /**
              * Highlight the current spectrum in the list
              */
@@ -3714,9 +3721,12 @@ function init_plot(input) {
     }
     input.inter_window_channel = inter_window_channel;
 
+    input.xlabel = typeof input.get_x_axis_label === "function" ? input.get_x_axis_label() : (input.nucleus_direct ? `${input.nucleus_direct} (ppm)` : (input.xlabel || "Chemical Shift (ppm)"));
+    input.ylabel = typeof input.get_y_axis_label === "function" ? input.get_y_axis_label() : (input.nucleus_indirect ? `${input.nucleus_indirect} (ppm)` : (input.ylabel || "Chemical Shift (ppm)"));
 
     main_plot = new plotit(input);
     main_plot.draw();
+    update_plot_axis_labels(0);
 
 
 
@@ -4504,6 +4514,11 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
      * initialize the plot with the first spectrum. This function only run once
      */
     init_plot(hsqc_spectra[0]);
+    if (main_plot) {
+        let cur_idx = (main_plot.current_spectral_index >= 0 && main_plot.current_spectral_index < hsqc_spectra.length)
+            ? main_plot.current_spectral_index : 0;
+        update_plot_axis_labels(cur_idx);
+    }
 
     let is_pseudo3d = (result_spectra.length > 1) || (pseudo3d_children && pseudo3d_children.length > 0);
     pending_pseudo3d_uncalculated_spectra = [];
@@ -4599,7 +4614,20 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
  * Similar to draw_spectrum() but no need to update hsqc_spectra array (we loaded it)
  */
 function draw_spectrum_from_loading() {
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        let s = hsqc_spectra[i];
+        if (!s.nucleus_direct && typeof s.read_nmrpipe_label === "function" && s.direct_ndx) {
+            let raw_d = s.read_nmrpipe_label(s.direct_ndx);
+            s.nucleus_direct = s.normalize_nucleus_name(raw_d, s.frq1, s.frq1);
+        }
+        if (!s.nucleus_indirect && typeof s.read_nmrpipe_label === "function" && s.indirect_ndx) {
+            let raw_ind = s.read_nmrpipe_label(s.indirect_ndx);
+            s.nucleus_indirect = s.normalize_nucleus_name(raw_ind, s.frq2, s.frq1);
+        }
+    }
     init_plot(hsqc_spectra[0]);
+    let initial_idx = (main_plot && main_plot.current_spectral_index >= 0) ? main_plot.current_spectral_index : 0;
+    update_plot_axis_labels(initial_idx);
 
     pending_pseudo3d_uncalculated_spectra = [];
     last_calculated_spectrum_index = -1;
@@ -9764,6 +9792,7 @@ function set_current_spectrum(spectrum_index) {
     update_baseline_button_status(target_index);
     update_automatic_pc_button_status(target_index);
     update_flip_indirect_button_status(target_index);
+    update_plot_axis_labels(target_index);
     if (main_plot && main_plot.b_show_cross_section) {
         if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
             main_plot.show_cross_section();
@@ -9986,6 +10015,28 @@ function update_flip_indirect_button_status(index) {
     btn.disabled = !(index >= 0 && index < hsqc_spectra.length && hsqc_spectra[index]
         && hsqc_spectra[index].spectrum_origin !== -3
         && hsqc_spectra[index].raw_data && hsqc_spectra[index].raw_data.length > 0);
+}
+
+/**
+ * Updates plot axis labels with nuclear names (e.g. "1H (ppm)", "13C (ppm)", "15N (ppm)")
+ * from the active spectrum.
+ * @param {number} index - Spectrum index in hsqc_spectra
+ */
+function update_plot_axis_labels(index) {
+    if (index === null || index === undefined || !hsqc_spectra || hsqc_spectra.length === 0) return;
+    let target_index = get_pseudo3d_first_spectrum_index(index);
+    if (target_index === undefined || target_index === null || target_index < 0 || target_index >= hsqc_spectra.length) {
+        target_index = index;
+    }
+    const spec = hsqc_spectra[target_index];
+    if (!spec) return;
+
+    let xlabel = typeof spec.get_x_axis_label === "function" ? spec.get_x_axis_label() : (spec.nucleus_direct ? `${spec.nucleus_direct} (ppm)` : "Chemical Shift (ppm)");
+    let ylabel = typeof spec.get_y_axis_label === "function" ? spec.get_y_axis_label() : (spec.nucleus_indirect ? `${spec.nucleus_indirect} (ppm)` : "Chemical Shift (ppm)");
+
+    if (main_plot && typeof main_plot.set_labels === "function") {
+        main_plot.set_labels(xlabel, ylabel);
+    }
 }
 
 function update_baseline_button_status(index) {

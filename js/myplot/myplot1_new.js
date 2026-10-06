@@ -2925,12 +2925,16 @@ plotit.prototype.handleLabelClick = function (event, target, isRotated) {
 
     let isClosed = false;
 
-    // Save on Enter or Blur
     const saveAndClose = () => {
         if (isClosed) return;
         isClosed = true;
         const newText = inputNode.value;
         textNode.text(newText);
+        if (isRotated) {
+            self.ylabel_text = newText;
+        } else {
+            self.xlabel_text = newText;
+        }
         textNode.style("display", null);
         foreignObject.remove();
     };
