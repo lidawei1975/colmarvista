@@ -169,10 +169,9 @@
             <br>
             where <i>r</i><sub>min</sub> and <i>r</i><sub>max</sub> are the actual minimum and maximum ratios among all valid points.
           </li>
-          <li><b>Selectable Colormaps & Interactive Colorbar:</b> Choose from multiple built-in color schemes via the dropdown menu (<b>Red/Blue</b>, <b>Coolwarm</b>, <b>Viridis</b>, <b>Plasma</b>, <b>Jet</b>, <b>Grayscale</b>). An interactive horizontal colorbar displays the gradient, and its two ends are automatically labeled with the <b>true minimum ratio</b> (<i>r</i><sub>min</sub>) on the left and <b>true maximum ratio</b> (<i>r</i><sub>max</sub>) on the right.</li>
-          <li><b>Layering & Interactivity:</b> The heatmap is rendered beneath the contour lines, stays fully synchronized across pan and zoom operations, displays within the magnifying glass tool, and is preserved when using <b>Download plot</b>. Click <b>Clear ratio</b> to remove the overlay and reset the colorbar labels.</li>
+          <li><b>Selectable Colormaps & Interactive Colorbar:</b> Choose from multiple built-in color schemes via the dropdown menu (<b>Red/Blue</b>, <b>Coolwarm</b>, <b>Viridis</b>, <b>Plasma</b>, <b>Jet</b>, <b>Grayscale</b>). An interactive horizontal colorbar displays the gradient, with its two ends dynamically labeled with the active minimum and maximum ratio bounds.</li>
+          <li><b>Interactive Double Range Slider &amp; Direct Input Fields:</b> A wide dual-thumb <b>Range</b> slider next to the colorbar is bounded by the true calculated ratio limits <code>[r<sub>min</sub>, r<sub>max</sub>]</code>, flanked by two numeric input fields for the lower and upper limits. Dragging either slider thumb or typing a value into the input fields (which triggers on <code>blur</code> or pressing <code>Enter</code>) narrows the colormap display window to any sub-range within <code>[r<sub>min</sub>, r<sub>max</sub>]</code>, keeping the slider thumbs, input boxes, colorbar endpoint labels, and WebGL heatmap synchronized in real time.</li>
         </ul>
-        
           </div>
         </section>
         

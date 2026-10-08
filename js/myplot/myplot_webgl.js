@@ -623,9 +623,30 @@ class webgl_contour_plot {
 
         this.ratio_heatmap = {
             n_direct: n_direct, n_indirect: n_indirect, index: index_a, index_b: index_b,
-            threshold: threshold, min_ratio: min_r, max_ratio: max_r
+            threshold: threshold, min_ratio: min_r, max_ratio: max_r,
+            display_min: min_r, display_max: max_r
         };
         return true;
+    }
+
+    /**
+     * Set custom user-selected colormap range [display_min, display_max], clamped within [min_ratio, max_ratio].
+     */
+    set_ratio_range(display_min, display_max) {
+        if (!this.ratio_heatmap) {
+            return;
+        }
+        const min_r = this.ratio_heatmap.min_ratio;
+        const max_r = this.ratio_heatmap.max_ratio;
+        let dmin = Math.max(min_r, Math.min(max_r, display_min));
+        let dmax = Math.max(min_r, Math.min(max_r, display_max));
+        if (dmin > dmax) {
+            const tmp = dmin;
+            dmin = dmax;
+            dmax = tmp;
+        }
+        this.ratio_heatmap.display_min = dmin;
+        this.ratio_heatmap.display_max = dmax;
     }
 
     clear_ratio_heatmap() {
@@ -705,7 +726,9 @@ class webgl_contour_plot {
         const [a_pos] = this._lowest_contour_levels(hm.index, hm.threshold);
         const [b_pos] = this._lowest_contour_levels(hm.index_b, hm.threshold);
         gl.uniform2f(this.heatmap_loc.threshold, a_pos, b_pos);
-        gl.uniform2f(this.heatmap_loc.ratio_min_max, hm.min_ratio, hm.max_ratio);
+        const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
+        const dmax = Number.isFinite(hm.display_max) ? hm.display_max : hm.max_ratio;
+        gl.uniform2f(this.heatmap_loc.ratio_min_max, dmin, dmax);
         gl.uniform1i(this.heatmap_loc.cmap, this.ratio_colormap || 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_a);

@@ -4800,8 +4800,168 @@ function calculate_spectrum_ratio() {
     main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
     main_plot.contour_plot.drawScene();
 
-    // Update colorbar min and max labels with true min and max ratio
+    // Initialize double slider limits and update colorbar min/max labels
+    init_ratio_range_slider();
     update_ratio_colorbar_labels();
+}
+
+function format_ratio_val(v) {
+    return (v >= 100 || (v < 0.01 && v > 0)) ? v.toExponential(2) : v.toFixed(3);
+}
+
+function init_ratio_range_slider() {
+    const min_input = document.getElementById("ratio_range_min");
+    const max_input = document.getElementById("ratio_range_max");
+    const num_min_el = document.getElementById("ratio_input_min");
+    const num_max_el = document.getElementById("ratio_input_max");
+    const fill_el = document.getElementById("ratio_slider_fill");
+    if (!min_input || !max_input) return;
+
+    if (main_plot && main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
+        const hm = main_plot.contour_plot.ratio_heatmap;
+        min_input.disabled = false;
+        max_input.disabled = false;
+        min_input.min = hm.min_ratio;
+        min_input.max = hm.max_ratio;
+        min_input.value = hm.display_min;
+        max_input.min = hm.min_ratio;
+        max_input.max = hm.max_ratio;
+        max_input.value = hm.display_max;
+        if (num_min_el) {
+            num_min_el.disabled = false;
+            num_min_el.min = hm.min_ratio;
+            num_min_el.max = hm.max_ratio;
+            num_min_el.value = format_ratio_val(hm.display_min);
+        }
+        if (num_max_el) {
+            num_max_el.disabled = false;
+            num_max_el.min = hm.min_ratio;
+            num_max_el.max = hm.max_ratio;
+            num_max_el.value = format_ratio_val(hm.display_max);
+        }
+        if (fill_el) {
+            fill_el.style.left = "0%";
+            fill_el.style.width = "100%";
+        }
+    } else {
+        min_input.disabled = true;
+        max_input.disabled = true;
+        min_input.min = 0;
+        min_input.max = 1;
+        min_input.value = 0;
+        max_input.min = 0;
+        max_input.max = 1;
+        max_input.value = 1;
+        if (num_min_el) {
+            num_min_el.disabled = true;
+            num_min_el.min = 0;
+            num_min_el.max = 1;
+            num_min_el.value = "0";
+        }
+        if (num_max_el) {
+            num_max_el.disabled = true;
+            num_max_el.min = 0;
+            num_max_el.max = 1;
+            num_max_el.value = "1";
+        }
+        if (fill_el) {
+            fill_el.style.left = "0%";
+            fill_el.style.width = "100%";
+        }
+    }
+}
+
+function update_ratio_slider_fill(val_min, val_max, min_limit, max_limit) {
+    const fill_el = document.getElementById("ratio_slider_fill");
+    if (!fill_el) return;
+    const span = max_limit - min_limit;
+    const left_pct = span > 0 ? ((val_min - min_limit) / span) * 100 : 0;
+    const right_pct = span > 0 ? ((val_max - min_limit) / span) * 100 : 100;
+    fill_el.style.left = left_pct + "%";
+    fill_el.style.width = Math.max(0, right_pct - left_pct) + "%";
+}
+
+function update_ratio_range_slider(which) {
+    const min_input = document.getElementById("ratio_range_min");
+    const max_input = document.getElementById("ratio_range_max");
+    const num_min_el = document.getElementById("ratio_input_min");
+    const num_max_el = document.getElementById("ratio_input_max");
+    if (!min_input || !max_input) return;
+
+    const min_limit = parseFloat(min_input.min);
+    const max_limit = parseFloat(min_input.max);
+    let val_min = parseFloat(min_input.value);
+    let val_max = parseFloat(max_input.value);
+
+    if (which === "min") {
+        if (val_min > val_max) {
+            val_min = val_max;
+            min_input.value = val_min;
+        }
+        min_input.style.zIndex = "5";
+        max_input.style.zIndex = "4";
+    } else {
+        if (val_max < val_min) {
+            val_max = val_min;
+            max_input.value = val_max;
+        }
+        max_input.style.zIndex = "5";
+        min_input.style.zIndex = "4";
+    }
+    if (val_min >= max_limit) {
+        min_input.style.zIndex = "6";
+    } else if (val_max <= min_limit) {
+        max_input.style.zIndex = "6";
+    }
+
+    if (num_min_el) num_min_el.value = format_ratio_val(val_min);
+    if (num_max_el) num_max_el.value = format_ratio_val(val_max);
+
+    update_ratio_slider_fill(val_min, val_max, min_limit, max_limit);
+
+    if (main_plot && main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
+        main_plot.contour_plot.set_ratio_range(val_min, val_max);
+        update_ratio_colorbar_labels();
+        main_plot.contour_plot.drawScene();
+    }
+}
+
+function update_ratio_range_from_inputs(which) {
+    const min_input = document.getElementById("ratio_range_min");
+    const max_input = document.getElementById("ratio_range_max");
+    const num_min_el = document.getElementById("ratio_input_min");
+    const num_max_el = document.getElementById("ratio_input_max");
+    if (!min_input || !max_input || !num_min_el || !num_max_el) return;
+
+    const min_limit = parseFloat(min_input.min);
+    const max_limit = parseFloat(min_input.max);
+    let val_min = parseFloat(num_min_el.value);
+    let val_max = parseFloat(num_max_el.value);
+
+    if (!Number.isFinite(val_min)) val_min = parseFloat(min_input.value);
+    if (!Number.isFinite(val_max)) val_max = parseFloat(max_input.value);
+
+    val_min = Math.max(min_limit, Math.min(max_limit, val_min));
+    val_max = Math.max(min_limit, Math.min(max_limit, val_max));
+
+    if (which === "min" && val_min > val_max) {
+        val_min = val_max;
+    } else if (which === "max" && val_max < val_min) {
+        val_max = val_min;
+    }
+
+    min_input.value = val_min;
+    max_input.value = val_max;
+    num_min_el.value = format_ratio_val(val_min);
+    num_max_el.value = format_ratio_val(val_max);
+
+    update_ratio_slider_fill(val_min, val_max, min_limit, max_limit);
+
+    if (main_plot && main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
+        main_plot.contour_plot.set_ratio_range(val_min, val_max);
+        update_ratio_colorbar_labels();
+        main_plot.contour_plot.drawScene();
+    }
 }
 
 function update_ratio_colorbar_labels() {
@@ -4810,9 +4970,10 @@ function update_ratio_colorbar_labels() {
     if (!min_el || !max_el) return;
     if (main_plot && main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
         const hm = main_plot.contour_plot.ratio_heatmap;
-        const fmt = (v) => (v >= 100 || (v < 0.01 && v > 0)) ? v.toExponential(2) : v.toFixed(3);
-        min_el.innerText = fmt(hm.min_ratio);
-        max_el.innerText = fmt(hm.max_ratio);
+        const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
+        const dmax = Number.isFinite(hm.display_max) ? hm.display_max : hm.max_ratio;
+        min_el.innerText = format_ratio_val(dmin);
+        max_el.innerText = format_ratio_val(dmax);
     } else {
         min_el.innerText = "0";
         max_el.innerText = "1";
@@ -4904,6 +5065,7 @@ function clear_spectrum_ratio() {
     }
     main_plot.contour_plot.clear_ratio_heatmap();
     main_plot.contour_plot.drawScene();
+    init_ratio_range_slider();
     update_ratio_colorbar_labels();
 }
 

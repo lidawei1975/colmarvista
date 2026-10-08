@@ -73,6 +73,106 @@
         tr.multi_peak_row.selected_peak_row td:first-child:hover {
             background-color: #9eccf0 !important;
         }
+
+        /* Double range slider for spectrum ratio colormap */
+        .ratio-double-slider {
+            position: relative;
+            display: inline-block;
+            width: 300px;
+            height: 20px;
+            vertical-align: middle;
+        }
+
+        .ratio-double-slider .ratio-slider-track {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 5px;
+            transform: translateY(-50%);
+            background-color: #d1d5db;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .ratio-double-slider .ratio-slider-fill {
+            position: absolute;
+            top: 50%;
+            left: 0%;
+            width: 100%;
+            height: 5px;
+            transform: translateY(-50%);
+            background-color: #2563eb;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .ratio-double-slider input[type="range"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            pointer-events: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .ratio-double-slider input[type="range"]:focus {
+            outline: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 5px;
+            background: transparent;
+            border: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-moz-range-track {
+            width: 100%;
+            height: 5px;
+            background: transparent;
+            border: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-webkit-slider-thumb {
+            pointer-events: auto;
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            margin-top: -4.5px;
+        }
+
+        .ratio-double-slider input[type="range"]::-moz-range-thumb {
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        .ratio-double-slider input[type="range"]:disabled::-webkit-slider-thumb {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .ratio-double-slider input[type="range"]:disabled::-moz-range-thumb {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 
@@ -453,6 +553,26 @@
                              <canvas id="ratio_colorbar" width="200" height="16"
                                  style="border: 1px solid #888;"></canvas>
                              <span id="ratio_colorbar_max">1</span>
+                         </span>
+                         <span style="display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; margin-left: 8px;"
+                             title="Select colormap range within the calculated [min, max] ratio limits">
+                             <span>Range:</span>
+                             <input type="number" id="ratio_input_min" step="any" value="0" style="width: 75px;"
+                                 onblur="update_ratio_range_from_inputs('min')"
+                                 onkeydown="if(event.key==='Enter') this.blur();" disabled
+                                 title="Lower colormap limit (fires on blur)">
+                             <span id="ratio_double_slider" class="ratio-double-slider">
+                                 <span class="ratio-slider-track"></span>
+                                 <span id="ratio_slider_fill" class="ratio-slider-fill"></span>
+                                 <input type="range" id="ratio_range_min" min="0" max="1" step="any" value="0"
+                                     oninput="update_ratio_range_slider('min')" disabled>
+                                 <input type="range" id="ratio_range_max" min="0" max="1" step="any" value="1"
+                                     oninput="update_ratio_range_slider('max')" disabled>
+                             </span>
+                             <input type="number" id="ratio_input_max" step="any" value="1" style="width: 75px;"
+                                 onblur="update_ratio_range_from_inputs('max')"
+                                 onkeydown="if(event.key==='Enter') this.blur();" disabled
+                                 title="Upper colormap limit (fires on blur)">
                          </span>
                         <br>
                         <label for="baseline_method">Baseline: </label>
