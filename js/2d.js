@@ -1186,6 +1186,7 @@ function handle_webassembly_worker2_message(e) {
             zf_indirect: zfIndirectValue,
             processing_flag: e.data.processing_flag,
             pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
+            pseudo3d_children: e.data.pseudo3d_children || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_children : undefined),
         });
     }
 }
@@ -4431,13 +4432,16 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
          */
         spectrum_index = result_spectra[0].spectrum_index;
         result_spectra[0].parent = spectrum_index;
-        if (!result_spectra[0].pseudo3d_children) {
-            result_spectra[0].pseudo3d_children = pseudo3d_children || [];
+        if (!result_spectra[0].pseudo3d_children || result_spectra[0].pseudo3d_children.length === 0) {
+            result_spectra[0].pseudo3d_children = Array.isArray(pseudo3d_children) ? pseudo3d_children.slice() : [];
         }
         result_spectra[0].fid_process_parameters = fid_process_parameters;
         result_spectra[0].spectrum_color = rgbToHex(color_list[(spectrum_index * 2) % color_list.length]);
         result_spectra[0].spectrum_color_negative = rgbToHex(color_list[(spectrum_index * 2 + 1) % color_list.length]);
         if (hsqc_spectra[spectrum_index]) {
+            if (Array.isArray(hsqc_spectra[spectrum_index].reconstructed_indices) && hsqc_spectra[spectrum_index].reconstructed_indices.length > 0) {
+                result_spectra[0].reconstructed_indices = hsqc_spectra[spectrum_index].reconstructed_indices.slice();
+            }
             hsqc_spectra[spectrum_index].raw_data = null;
             hsqc_spectra[spectrum_index].raw_data_ri = null;
             hsqc_spectra[spectrum_index].raw_data_ir = null;
@@ -4475,6 +4479,9 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, pseudo3d_childre
                 result_spectra[i].spectrum_color = hsqc_spectra[new_spectrum_index].spectrum_color;
                 result_spectra[i].spectrum_color_negative = hsqc_spectra[new_spectrum_index].spectrum_color_negative;
                 if (hsqc_spectra[new_spectrum_index]) {
+                    if (Array.isArray(hsqc_spectra[new_spectrum_index].reconstructed_indices) && hsqc_spectra[new_spectrum_index].reconstructed_indices.length > 0) {
+                        result_spectra[i].reconstructed_indices = hsqc_spectra[new_spectrum_index].reconstructed_indices.slice();
+                    }
                     hsqc_spectra[new_spectrum_index].raw_data = null;
                     hsqc_spectra[new_spectrum_index].raw_data_ri = null;
                     hsqc_spectra[new_spectrum_index].raw_data_ir = null;
@@ -6385,8 +6392,9 @@ async function apply_current_pc_or_auto_pc(flag) {
 }
 
 /**
- * Flip indirect dimension for a given spectrum index (and all its pseudo-3D planes if applicable)
- * in frequency domain without re-processing from time domain FID.
+ * Flip indirect dimension for a given spectrum index, all spectra belonging to the same
+ * pseudo-3D experiment, and any associated reconstructed spectra, in frequency domain
+ * without re-processing from time domain FID.
  * @param {number} spec_index - Index of the spectrum to flip
  */
 function flip_indirect_dimension_for_spectrum(spec_index) {
@@ -6394,38 +6402,121 @@ function flip_indirect_dimension_for_spectrum(spec_index) {
         console.warn("flip_indirect_dimension_for_spectrum: No spectra available.");
         return;
     }
-    const index = (typeof get_pseudo3d_first_spectrum_index === "function") 
-        ? get_pseudo3d_first_spectrum_index(spec_index) 
-        : spec_index;
+    if (spec_index < 0 || spec_index >= hsqc_spectra.length || !hsqc_spectra[spec_index] || hsqc_spectra[spec_index].spectrum_origin === -3) {
+        console.warn("flip_indirect_dimension_for_spectrum: No valid spectrum at index", spec_index);
+        return;
+    }
+
+    // 1. If spec_index is a reconstructed spectrum (0 <= spectrum_origin < 10000),
+    //    resolve to its source experimental spectrum first.
+    let exp_index = spec_index;
+    const init_spec = hsqc_spectra[spec_index];
+    if (init_spec.spectrum_origin >= 0 && init_spec.spectrum_origin < 10000) {
+        const orig = init_spec.spectrum_origin;
+        if (hsqc_spectra[orig] && hsqc_spectra[orig].spectrum_origin !== -3) {
+            exp_index = orig;
+        }
+    }
+
+    // 2. Resolve the first plane of the pseudo-3D experiment (if part of pseudo-3D).
+    const index = (typeof get_pseudo3d_first_spectrum_index === "function")
+        ? get_pseudo3d_first_spectrum_index(exp_index)
+        : exp_index;
     if (index === -1 || !hsqc_spectra[index] || !hsqc_spectra[index].raw_data || hsqc_spectra[index].raw_data.length === 0) {
         console.warn("flip_indirect_dimension_for_spectrum: No valid spectrum at index", spec_index);
         return;
     }
 
+    // 3. Collect all experimental planes that belong to the same pseudo-3D experiment.
     const s = hsqc_spectra[index];
-    const target_indices = [index];
-    if (s && s.pseudo3d_children && s.pseudo3d_children.length > 0) {
-        for (let i = 0; i < s.pseudo3d_children.length; i++) {
-            const child_idx = s.pseudo3d_children[i];
-            if (hsqc_spectra[child_idx]) {
-                target_indices.push(child_idx);
+    const exp_indices = [index];
+    const add_exp_index = (idx) => {
+        if (typeof idx === "number" && idx >= 0 && idx < hsqc_spectra.length && hsqc_spectra[idx] && hsqc_spectra[idx].spectrum_origin !== -3) {
+            if (exp_indices.indexOf(idx) === -1) {
+                exp_indices.push(idx);
             }
+        }
+    };
+
+    if (s && Array.isArray(s.pseudo3d_children)) {
+        for (let i = 0; i < s.pseudo3d_children.length; i++) {
+            add_exp_index(s.pseudo3d_children[i]);
+        }
+    }
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        const cand = hsqc_spectra[i];
+        if (!cand || cand.spectrum_origin === -3) continue;
+        // Skip reconstructed spectra when gathering experimental pseudo-3D planes
+        if (cand.spectrum_origin >= 0 && cand.spectrum_origin < 10000) continue;
+        if (cand.spectrum_origin === 10000 + index || cand.parent === index ||
+            (typeof get_pseudo3d_first_spectrum_index === "function" && get_pseudo3d_first_spectrum_index(i) === index)) {
+            add_exp_index(i);
         }
     }
 
+    // 4. Collect all reconstructed spectra associated with any of the experimental planes.
+    const recon_indices = [];
+    const add_recon_index = (r_idx) => {
+        if (typeof r_idx === "number" && r_idx >= 0 && r_idx < hsqc_spectra.length && hsqc_spectra[r_idx] && hsqc_spectra[r_idx].spectrum_origin !== -3) {
+            if (exp_indices.indexOf(r_idx) === -1 && recon_indices.indexOf(r_idx) === -1) {
+                recon_indices.push(r_idx);
+            }
+        }
+    };
+
+    for (let e = 0; e < exp_indices.length; e++) {
+        const e_idx = exp_indices[e];
+        const e_spec = hsqc_spectra[e_idx];
+        if (e_spec && Array.isArray(e_spec.reconstructed_indices)) {
+            for (let r = 0; r < e_spec.reconstructed_indices.length; r++) {
+                add_recon_index(e_spec.reconstructed_indices[r]);
+            }
+        }
+        for (let i = 0; i < hsqc_spectra.length; i++) {
+            const cand = hsqc_spectra[i];
+            if (!cand || cand.spectrum_origin === -3) continue;
+            if (cand.spectrum_origin === e_idx ||
+                (cand.spectrum_origin >= 0 && cand.spectrum_origin < 10000 && cand.parent === e_idx)) {
+                add_recon_index(i);
+            }
+        }
+    }
+    if (init_spec.spectrum_origin >= 0 && init_spec.spectrum_origin < 10000) {
+        add_recon_index(spec_index);
+    }
+
+    const target_indices = exp_indices.concat(recon_indices);
+    const flipped_peak_objects = new Set();
+    const toggled_fid_params = new Set();
+
+    // 5. Flip each target spectrum and its unique peak objects
     for (let i = 0; i < target_indices.length; i++) {
         const t_idx = target_indices[i];
         const spec = hsqc_spectra[t_idx];
         if (!spec || !spec.raw_data || spec.raw_data.length === 0) continue;
 
         if (typeof spec.flip_indirect === "function") {
-            spec.flip_indirect();
+            spec.flip_indirect(false);
         }
 
-        // Toggle fid_process_parameters.neg_imaginary if present
-        if (spec.fid_process_parameters) {
+        if (spec.picked_peaks_object && !flipped_peak_objects.has(spec.picked_peaks_object)) {
+            if (typeof spec.picked_peaks_object.flip_indirect === "function") {
+                spec.picked_peaks_object.flip_indirect(spec.n_indirect, spec.y_ppm_start, spec.y_ppm_step);
+            }
+            flipped_peak_objects.add(spec.picked_peaks_object);
+        }
+        if (spec.fitted_peaks_object && !flipped_peak_objects.has(spec.fitted_peaks_object)) {
+            if (typeof spec.fitted_peaks_object.flip_indirect === "function") {
+                spec.fitted_peaks_object.flip_indirect(spec.n_indirect, spec.y_ppm_start, spec.y_ppm_step);
+            }
+            flipped_peak_objects.add(spec.fitted_peaks_object);
+        }
+
+        // Toggle fid_process_parameters.neg_imaginary once per unique parameter object
+        if (spec.fid_process_parameters && !toggled_fid_params.has(spec.fid_process_parameters)) {
             const currentVal = spec.fid_process_parameters.neg_imaginary;
             spec.fid_process_parameters.neg_imaginary = (currentVal === "yes") ? "no" : "yes";
+            toggled_fid_params.add(spec.fid_process_parameters);
         }
 
         // Refresh contours
@@ -6438,7 +6529,25 @@ function flip_indirect_dimension_for_spectrum(spec_index) {
         }
     }
 
-    // Synchronize HTML checkbox if current spectrum has fid parameters
+    // 6. If this is a pseudo-3D experiment, also flip pseudo3d_fitted_peaks_object (and error objects) if present
+    const is_p3d = exp_indices.length > 1 || (typeof is_pseudo3d_spectrum === "function" && is_pseudo3d_spectrum(index));
+    if (is_p3d && typeof pseudo3d_fitted_peaks_object !== "undefined" && pseudo3d_fitted_peaks_object && !flipped_peak_objects.has(pseudo3d_fitted_peaks_object)) {
+        if (typeof pseudo3d_fitted_peaks_object.flip_indirect === "function") {
+            pseudo3d_fitted_peaks_object.flip_indirect(s.n_indirect, s.y_ppm_start, s.y_ppm_step);
+        }
+        flipped_peak_objects.add(pseudo3d_fitted_peaks_object);
+        if (typeof pseudo3d_fitted_peaks_error !== "undefined" && Array.isArray(pseudo3d_fitted_peaks_error)) {
+            for (let i = 0; i < pseudo3d_fitted_peaks_error.length; i++) {
+                const errObj = pseudo3d_fitted_peaks_error[i];
+                if (errObj && !flipped_peak_objects.has(errObj) && typeof errObj.flip_indirect === "function") {
+                    errObj.flip_indirect(s.n_indirect, s.y_ppm_start, s.y_ppm_step);
+                    flipped_peak_objects.add(errObj);
+                }
+            }
+        }
+    }
+
+    // 7. Synchronize HTML checkbox if current spectrum has fid parameters
     if (index === current_reprocess_spectrum_index || hsqc_spectra.length === 1) {
         const negCheckbox = document.getElementById("neg_imaginary");
         if (negCheckbox) {
@@ -6446,7 +6555,7 @@ function flip_indirect_dimension_for_spectrum(spec_index) {
         }
     }
 
-    // Refresh cross sections and projections
+    // 8. Refresh cross sections, projections, displayed peaks, and ratio heatmap
     if (typeof refresh_cross_sections_after_phase === "function") {
         refresh_cross_sections_after_phase(index);
     }
@@ -6455,29 +6564,34 @@ function flip_indirect_dimension_for_spectrum(spec_index) {
             main_plot.show_projection();
         }
 
-        // Redraw peak annotations if any are displayed
-        const checkbox_picked = document.getElementById("show_picked_peaks-" + index);
-        if (checkbox_picked && checkbox_picked.checked) {
-            if (typeof main_plot.remove_picked_peaks === "function") main_plot.remove_picked_peaks();
-            if (typeof main_plot.add_peaks === "function") {
-                main_plot.add_peaks(hsqc_spectra[index], 'picked', ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
+        if (typeof current_spectrum_index_of_peaks !== "undefined") {
+            if (current_spectrum_index_of_peaks >= 0 && target_indices.indexOf(current_spectrum_index_of_peaks) !== -1) {
+                show_hide_peaks(current_spectrum_index_of_peaks, current_flag_of_peaks, true);
+            } else if (current_spectrum_index_of_peaks === -2 && is_p3d && pseudo3d_fitted_peaks_object) {
+                show_hide_peaks(-2, 'fitted', true);
             }
         }
-        const checkbox_fitted = document.getElementById("show_fitted_peaks-" + index);
-        if (checkbox_fitted && checkbox_fitted.checked) {
-            if (typeof main_plot.remove_picked_peaks === "function") main_plot.remove_picked_peaks();
-            if (typeof main_plot.add_peaks === "function") {
-                main_plot.add_peaks(hsqc_spectra[index], 'fitted', ['INDEX', 'X_PPM', 'Y_PPM', 'HEIGHT', 'INDEX', 'ASS'], 'SOLID');
+
+        if (main_plot.contour_plot && main_plot.contour_plot._heatmap_active) {
+            if (target_indices.indexOf(main_plot.contour_plot._heatmap_idx_a) !== -1 ||
+                target_indices.indexOf(main_plot.contour_plot._heatmap_idx_b) !== -1) {
+                if (typeof calculate_spectrum_ratio === "function") {
+                    calculate_spectrum_ratio();
+                }
             }
         }
     }
 
     const msgDiv = document.getElementById("webassembly_message") || document.getElementById("contour_message");
-    const count = target_indices.length;
+    const expCount = exp_indices.length;
+    const reconCount = recon_indices.length;
     const specName = s.filename ? ` (${s.filename})` : "";
-    const msg = count > 1
-        ? `Indirect dimension flipped for ${count} planes of pseudo-3D spectrum ${index + 1}${specName}.`
-        : `Indirect dimension flipped for spectrum ${index + 1}${specName}.`;
+    const reconSuffix = reconCount > 0
+        ? ` and ${reconCount} reconstructed spectrum${reconCount > 1 ? "s" : ""}`
+        : "";
+    const msg = expCount > 1
+        ? `Indirect dimension flipped for ${expCount} planes of pseudo-3D spectrum ${index + 1}${specName}${reconSuffix}.`
+        : `Indirect dimension flipped for spectrum ${index + 1}${specName}${reconSuffix}.`;
     console.log(msg);
     if (msgDiv) {
         msgDiv.innerText = msg;

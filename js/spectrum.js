@@ -380,7 +380,7 @@ class spectrum {
      * Flip spectrum data along the indirect dimension (swap rows)
      * without re-processing from time domain FID.
      */
-    flip_indirect() {
+    flip_indirect(flip_peaks = true) {
         if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
             return false;
         }
@@ -431,11 +431,13 @@ class spectrum {
         this.calculate_projections();
 
         // 6. Flip peaks if any exist
-        if (this.picked_peaks_object && typeof this.picked_peaks_object.flip_indirect === "function") {
-            this.picked_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
-        }
-        if (this.fitted_peaks_object && typeof this.fitted_peaks_object.flip_indirect === "function") {
-            this.fitted_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+        if (flip_peaks) {
+            if (this.picked_peaks_object && typeof this.picked_peaks_object.flip_indirect === "function") {
+                this.picked_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+            }
+            if (this.fitted_peaks_object && typeof this.fitted_peaks_object.flip_indirect === "function") {
+                this.fitted_peaks_object.flip_indirect(n_ind, this.y_ppm_start, this.y_ppm_step);
+            }
         }
 
         return true;
