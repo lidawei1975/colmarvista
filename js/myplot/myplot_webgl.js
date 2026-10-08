@@ -198,11 +198,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length[n][m - 1];
                     }
                     let i_stop = this.levels_length[n][m];
+                    let level_color = this._contour_level_color(n, m);
+                    this.gl.uniform4fv(this.colorLocation, level_color);
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
                     for (var i = i_start; i < i_stop; i++) {
-                        this.gl.uniform4fv(this.colorLocation, this.colors[n]);
                         var primitiveType = this.gl.LINE_STRIP;
                         let point_start = 0;
                         if (i > 0) {
@@ -383,11 +384,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length[n][m - 1];
                     }
                     let i_stop = this.levels_length[n][m];
+                    let level_color = this._contour_level_color(n, m);
+                    this.gl.uniform4fv(this.colorLocation, level_color);
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
                     for (var i = i_start; i < i_stop; i++) {
-                        this.gl.uniform4fv(this.colorLocation, this.colors[n]);
                         var primitiveType = this.gl.LINE_STRIP;
                         let point_start = 0;
                         if (i > 0) {
@@ -622,11 +624,113 @@ class webgl_contour_plot {
         }
 
         this.ratio_heatmap = {
+            mode: "ratio",
             n_direct: n_direct, n_indirect: n_indirect, index: index_a, index_b: index_b,
             threshold: threshold, min_ratio: min_r, max_ratio: max_r,
             display_min: min_r, display_max: max_r
         };
         return true;
+    }
+
+    /**
+     * Activate contour colormap mode on the specified spectrum index or array of indices using log(contour level) in [min_log, max_log].
+     */
+    set_contour_colormap(indices, min_log, max_log) {
+        const idx_list = Array.isArray(indices) ? indices : [indices];
+        if (idx_list.length === 0) {
+            this.ratio_heatmap = null;
+            return false;
+        }
+        let min_r = min_log;
+        let max_r = max_log;
+        if (!Number.isFinite(min_r) || !Number.isFinite(max_r)) {
+            min_r = 0.0;
+            max_r = 1.0;
+        } else if (min_r === max_r) {
+            max_r = min_r + 1.0;
+        }
+        this.ratio_heatmap = {
+            mode: "contour",
+            index: idx_list[0],
+            indices: idx_list,
+            min_ratio: min_r, max_ratio: max_r,
+            display_min: min_r, display_max: max_r
+        };
+        return true;
+    }
+
+    /**
+     * Evaluate colormap id at s in [0, 1] and return [r, g, b, 1.0] in 0..1.
+     */
+    _colormap_rgb01(id, s) {
+        const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+        const poly = (c, t) => c[0].map((_, k) => {
+            let v = c[6][k];
+            for (let j = 5; j >= 0; j--) v = c[j][k] + t * v;
+            return v;
+        });
+        let rgb;
+        switch (id) {
+            case 1: {
+                const cold = [0.23, 0.30, 0.75], mid = [0.87, 0.87, 0.87], hot = [0.71, 0.02, 0.15];
+                rgb = s >= 0.5 ? mix(mid, hot, (s - 0.5) * 2) : mix(cold, mid, s * 2);
+                break;
+            }
+            case 2:
+                rgb = poly([[0.2777273272234177, 0.005407344544966578, 0.3340998053353061],
+                [0.1050930431085774, 1.404613529898575, 1.384590162594685],
+                [-0.3308618287255563, 0.214847559468213, 0.09509516302823659],
+                [-4.634230498983486, -5.799100973351585, -19.33244095627987],
+                [6.228269936347081, 14.17993336680509, 56.69055260068105],
+                [4.776384997670288, -13.74514537774601, -65.35303263337234],
+                [-5.435455855934631, 4.645852612178535, 26.3124352495832]], s);
+                break;
+            case 3:
+                rgb = poly([[0.05873234392399702, 0.02333670892565664, 0.5433401826748754],
+                [2.176514634195958, 0.2383834171260182, 0.7539604599784036],
+                [-2.689460476458034, -7.455851135738909, 3.110799939717086],
+                [6.130348345893603, 42.3461881477227, -28.51885465332158],
+                [-11.10743619062271, -82.66631109428045, 60.13984767418263],
+                [10.02306557647065, 71.41361770095349, -54.07218655560067],
+                [-3.658713842777788, -22.93153465461149, 18.19190778539828]], s);
+                break;
+            case 4:
+                rgb = [1.5 - Math.abs(4 * s - 3), 1.5 - Math.abs(4 * s - 2), 1.5 - Math.abs(4 * s - 1)];
+                break;
+            case 5:
+                rgb = [s, s, s];
+                break;
+            default: {
+                const red = [0.70, 0.09, 0.17], blue = [0.13, 0.40, 0.67], white = [1, 1, 1];
+                rgb = s >= 0.5 ? mix(white, red, (s - 0.5) * 2) : mix(white, blue, (0.5 - s) * 2);
+            }
+        }
+        return [
+            Math.max(0, Math.min(1, rgb[0])),
+            Math.max(0, Math.min(1, rgb[1])),
+            Math.max(0, Math.min(1, rgb[2])),
+            1.0
+        ];
+    }
+
+    /**
+     * Get RGBA color for positive contour level m of spectrum n.
+     * In contour colormap mode, maps log(contour level) into [display_min, display_max].
+     */
+    _contour_level_color(n, m) {
+        const hm = this.ratio_heatmap;
+        if (hm && hm.mode === "contour" && ((Array.isArray(hm.indices) && hm.indices.indexOf(n) !== -1) || hm.index === n)) {
+            const spec = (typeof hsqc_spectra !== 'undefined') ? hsqc_spectra[n] : null;
+            if (spec && Array.isArray(spec.levels) && m >= 0 && m < spec.levels.length && spec.levels[m] > 0) {
+                const log_val = Math.log(spec.levels[m]);
+                const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
+                const dmax = Number.isFinite(hm.display_max) ? hm.display_max : hm.max_ratio;
+                const span = dmax - dmin;
+                const s = span > 0 ? Math.max(0, Math.min(1, (log_val - dmin) / span)) : 0.5;
+                return this._colormap_rgb01(this.ratio_colormap || 0, s);
+            }
+        }
+        return this.colors[n];
     }
 
     /**
@@ -690,7 +794,7 @@ class webgl_contour_plot {
      */
     _draw_ratio_heatmap(x_ppm, x2_ppm, y_ppm, y2_ppm) {
         const hm = this.ratio_heatmap;
-        if (!hm || !this.heatmap_texture_a || !this.heatmap_texture_b) {
+        if (!hm || hm.mode === "contour" || !this.heatmap_texture_a || !this.heatmap_texture_b) {
             return;
         }
         const info = this.spectral_information[hm.index];

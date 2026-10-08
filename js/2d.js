@@ -3104,6 +3104,19 @@ function add_to_list(index) {
     new_spectrum_div.appendChild(contour_color_label);
     new_spectrum_div.appendChild(contour_color_input);
 
+    let contour_colormap_checkbox = document.createElement("input");
+    contour_colormap_checkbox.setAttribute("type", "checkbox");
+    contour_colormap_checkbox.setAttribute("id", "contour_colormap-".concat(index));
+    contour_colormap_checkbox.style.marginLeft = "0.5em";
+    contour_colormap_checkbox.checked = Boolean(new_spectrum.use_contour_colormap);
+    contour_colormap_checkbox.addEventListener("change", (e) => { toggle_spectrum_contour_colormap(index, e.target.checked); });
+    let contour_colormap_label = document.createElement("label");
+    contour_colormap_label.setAttribute("for", "contour_colormap-".concat(index));
+    contour_colormap_label.innerText = " Colormap";
+    contour_colormap_label.title = "Show positive contours of this spectrum in colormap (using log of contour level) instead of solid color";
+    new_spectrum_div.appendChild(contour_colormap_checkbox);
+    new_spectrum_div.appendChild(contour_colormap_label);
+
     /**
      * Add a line break
      */
@@ -3967,6 +3980,8 @@ function reduce_contour(index, flag) {
         document.getElementById("contour-slider-".concat(index)).max = hsqc_spectra[index].levels.length;
         document.getElementById("contour-slider-".concat(index)).value = 1;
         document.getElementById("contour_level-".concat(index)).innerText = hsqc_spectra[index].levels[0].toExponential(4);
+        if (main_plot && main_plot.contour_lbs) main_plot.contour_lbs[index] = 0;
+        refresh_contour_colormap_bounds_if_active(index);
     }
     else if (flag == 1) {
         /**
@@ -4050,6 +4065,8 @@ function update_contour0_or_logarithmic_scale(index, flag) {
         document.getElementById("contour-slider-".concat(index)).max = hsqc_spectrum.levels.length;
         document.getElementById("contour-slider-".concat(index)).value = 1;
         document.getElementById("contour_level-".concat(index)).innerText = hsqc_spectrum.levels[0].toExponential(4);
+        if (main_plot && main_plot.contour_lbs) main_plot.contour_lbs[index] = 0;
+        refresh_contour_colormap_bounds_if_active(index);
     }
     else if (flag == 1) {
         let current_level = parseFloat(document.getElementById('contour0_negative-' + index.toFixed(0)).value);
@@ -4134,6 +4151,8 @@ function update_linear_scale(index, flag) {
         document.getElementById("contour-slider-".concat(index)).max = hsqc_spectrum.levels.length;
         document.getElementById("contour-slider-".concat(index)).value = 1;
         document.getElementById("contour_level-".concat(index)).innerText = hsqc_spectrum.levels[0].toExponential(4);
+        if (main_plot && main_plot.contour_lbs) main_plot.contour_lbs[index] = 0;
+        refresh_contour_colormap_bounds_if_active(index);
     }
     else if (flag == 1) {
         let number_of_contours = parseInt(document.getElementById('number_of_negative_contours-'.concat(index)).value);
@@ -4182,6 +4201,7 @@ function update_contour_slider(e, index, flag) {
          * Update the current lowest shown level in main_plot
          */
         main_plot.contour_lbs[index] = level - 1;
+        refresh_contour_colormap_bounds_if_active(index);
 
         /**
          * Update peaks only if current index is the same as current spectrum index of peaks
@@ -4764,6 +4784,131 @@ const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
  * Calculate the ratio of two spectra (numbers from the input fields, starting from 1)
  * and show it as a red-blue heatmap below the contours (webgl).
  */
+function compute_contour_log_bounds(b) {
+    const sb = hsqc_spectra ? hsqc_spectra[b] : null;
+    if (!sb || !Array.isArray(sb.levels) || sb.levels.length === 0) {
+        return null;
+    }
+    const start_m = (main_plot && main_plot.contour_lbs && main_plot.contour_lbs[b] !== undefined)
+        ? Math.max(0, Math.min(main_plot.contour_lbs[b], sb.levels.length - 1))
+        : 0;
+    let min_log = Infinity;
+    let max_log = -Infinity;
+    for (let m = start_m; m < sb.levels.length; m++) {
+        const lv = sb.levels[m];
+        if (Number.isFinite(lv) && lv > 0) {
+            const lg = Math.log(lv);
+            if (lg < min_log) min_log = lg;
+            if (lg > max_log) max_log = lg;
+        }
+    }
+    if (!Number.isFinite(min_log) || !Number.isFinite(max_log)) {
+        return null;
+    }
+    if (min_log === max_log) {
+        max_log = min_log + 1.0;
+    }
+    return [min_log, max_log];
+}
+
+function update_active_contour_colormaps(reset_display_range) {
+    if (!main_plot || !main_plot.contour_plot || !hsqc_spectra) {
+        return;
+    }
+    const active_indices = [];
+    let min_log = Infinity;
+    let max_log = -Infinity;
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        const s = hsqc_spectra[i];
+        if (s && s.spectrum_origin !== -3 && s.use_contour_colormap) {
+            const bounds = compute_contour_log_bounds(i);
+            if (bounds) {
+                active_indices.push(i);
+                if (bounds[0] < min_log) min_log = bounds[0];
+                if (bounds[1] > max_log) max_log = bounds[1];
+            }
+        }
+    }
+
+    if (active_indices.length === 0) {
+        if (main_plot.contour_plot.ratio_heatmap && main_plot.contour_plot.ratio_heatmap.mode === "contour") {
+            main_plot.contour_plot.clear_ratio_heatmap();
+            main_plot.contour_plot.drawScene();
+            init_ratio_range_slider();
+            update_ratio_colorbar_labels();
+        }
+        return;
+    }
+
+    if (min_log === max_log) {
+        max_log = min_log + 1.0;
+    }
+
+    const prev_hm = main_plot.contour_plot.ratio_heatmap;
+    if (!reset_display_range && prev_hm && prev_hm.mode === "contour") {
+        const was_full_min = Math.abs(prev_hm.display_min - prev_hm.min_ratio) <= 1e-6;
+        const was_full_max = Math.abs(prev_hm.display_max - prev_hm.max_ratio) <= 1e-6;
+        prev_hm.index = active_indices[0];
+        prev_hm.indices = active_indices;
+        prev_hm.min_ratio = min_log;
+        prev_hm.max_ratio = max_log;
+        prev_hm.display_min = was_full_min ? min_log : Math.max(min_log, Math.min(max_log, prev_hm.display_min));
+        prev_hm.display_max = was_full_max ? max_log : Math.max(min_log, Math.min(max_log, prev_hm.display_max));
+        if (prev_hm.display_min > prev_hm.display_max) {
+            prev_hm.display_min = min_log;
+            prev_hm.display_max = max_log;
+        }
+    } else {
+        main_plot.contour_plot.set_contour_colormap(active_indices, min_log, max_log);
+    }
+
+    main_plot.contour_plot.set_ratio_colormap(parseInt(document.getElementById("ratio_colormap").value));
+    main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
+    main_plot.contour_plot.drawScene();
+    init_ratio_range_slider();
+    const hm = main_plot.contour_plot.ratio_heatmap;
+    const min_input = document.getElementById("ratio_range_min");
+    const max_input = document.getElementById("ratio_range_max");
+    if (hm && min_input && max_input) {
+        update_ratio_slider_fill(hm.display_min, hm.display_max, hm.min_ratio, hm.max_ratio);
+    }
+    update_ratio_colorbar_labels();
+}
+
+function toggle_spectrum_contour_colormap(index, checked) {
+    if (!hsqc_spectra || !hsqc_spectra[index]) {
+        return;
+    }
+    hsqc_spectra[index].use_contour_colormap = Boolean(checked);
+    update_active_contour_colormaps(true);
+}
+
+function refresh_contour_colormap_bounds_if_active(index) {
+    if (!main_plot || !main_plot.contour_plot || !main_plot.contour_plot.ratio_heatmap) {
+        return;
+    }
+    const hm = main_plot.contour_plot.ratio_heatmap;
+    if (hm.mode !== "contour") {
+        return;
+    }
+    if ((Array.isArray(hm.indices) && hm.indices.indexOf(index) !== -1) || hm.index === index) {
+        update_active_contour_colormaps(false);
+    }
+}
+
+function uncheck_all_contour_colormaps() {
+    if (!hsqc_spectra) return;
+    for (let i = 0; i < hsqc_spectra.length; i++) {
+        if (hsqc_spectra[i]) {
+            hsqc_spectra[i].use_contour_colormap = false;
+        }
+        const cb = document.getElementById("contour_colormap-" + i);
+        if (cb) {
+            cb.checked = false;
+        }
+    }
+}
+
 function calculate_spectrum_ratio() {
     if (!main_plot || !main_plot.contour_plot) {
         alert("Please load spectra first.");
@@ -4803,6 +4948,7 @@ function calculate_spectrum_ratio() {
         alert("Cannot create the ratio heatmap: the spectrum is too large for a WebGL texture, or this device lacks float texture / highp shader support.");
         return;
     }
+    uncheck_all_contour_colormaps();
     main_plot.contour_plot.set_ratio_colormap(parseInt(document.getElementById("ratio_colormap").value));
     main_plot.contour_plot.setCamera_ppm(main_plot.xscale[0], main_plot.xscale[1], main_plot.yscale[0], main_plot.yscale[1]);
     main_plot.contour_plot.drawScene();
@@ -4813,7 +4959,7 @@ function calculate_spectrum_ratio() {
 }
 
 function format_ratio_val(v) {
-    return (v >= 100 || (v < 0.01 && v > 0)) ? v.toExponential(2) : v.toFixed(3);
+    return (Math.abs(v) >= 100 || (Math.abs(v) < 0.01 && v !== 0)) ? v.toExponential(2) : v.toFixed(3);
 }
 
 function init_ratio_range_slider() {
@@ -5070,6 +5216,7 @@ function clear_spectrum_ratio() {
     if (!main_plot || !main_plot.contour_plot) {
         return;
     }
+    uncheck_all_contour_colormaps();
     main_plot.contour_plot.clear_ratio_heatmap();
     main_plot.contour_plot.drawScene();
     init_ratio_range_slider();
@@ -6572,9 +6719,10 @@ function flip_indirect_dimension_for_spectrum(spec_index) {
             }
         }
 
-        if (main_plot.contour_plot && main_plot.contour_plot._heatmap_active) {
-            if (target_indices.indexOf(main_plot.contour_plot._heatmap_idx_a) !== -1 ||
-                target_indices.indexOf(main_plot.contour_plot._heatmap_idx_b) !== -1) {
+        if (main_plot.contour_plot && main_plot.contour_plot.ratio_heatmap) {
+            const hm = main_plot.contour_plot.ratio_heatmap;
+            if (target_indices.indexOf(hm.index) !== -1 ||
+                (hm.index_b !== undefined && target_indices.indexOf(hm.index_b) !== -1)) {
                 if (typeof calculate_spectrum_ratio === "function") {
                     calculate_spectrum_ratio();
                 }
