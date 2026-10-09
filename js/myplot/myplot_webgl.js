@@ -106,6 +106,7 @@ class webgl_contour_plot {
         this.contour_lbs_negative = [];
         this.levels_length_negative = [];
         this.colors = [];
+        this.contour_shadow_enabled = false;
         this.spectral_information = {};
     };
 
@@ -198,6 +199,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length[n][m - 1];
                     }
                     let i_stop = this.levels_length[n][m];
+
+                    // Draw drop shadow under 1st visible contour if enabled
+                    if (this._should_draw_contour_shadow(n, m, false)) {
+                        this._draw_contour_level_shadow(n, i_start, i_stop, false);
+                    }
+
                     let level_color = this._contour_level_color(n, m);
                     this.gl.uniform4fv(this.colorLocation, level_color);
                     /**
@@ -229,6 +236,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length_negative[n][m - 1];
                     }
                     let i_stop = this.levels_length_negative[n][m];
+
+                    // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
+                    if (this._should_draw_contour_shadow(n, m, true)) {
+                        this._draw_contour_level_shadow(n, i_start, i_stop, true);
+                    }
+
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
@@ -384,6 +397,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length[n][m - 1];
                     }
                     let i_stop = this.levels_length[n][m];
+
+                    // Draw drop shadow under 1st visible contour if enabled
+                    if (this._should_draw_contour_shadow(n, m, false)) {
+                        this._draw_contour_level_shadow(n, i_start, i_stop, false);
+                    }
+
                     let level_color = this._contour_level_color(n, m);
                     this.gl.uniform4fv(this.colorLocation, level_color);
                     /**
@@ -415,6 +434,12 @@ class webgl_contour_plot {
                         i_start = this.levels_length_negative[n][m - 1];
                     }
                     let i_stop = this.levels_length_negative[n][m];
+
+                    // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
+                    if (this._should_draw_contour_shadow(n, m, true)) {
+                        this._draw_contour_level_shadow(n, i_start, i_stop, true);
+                    }
+
                     /**
                      * Draw the contour plot, one polygon at a time
                      */
@@ -748,6 +773,127 @@ class webgl_contour_plot {
             }
         }
         return this.colors[n];
+    }
+
+    /**
+     * Get the index of the 1st visible spectrum according to spectral_order.
+     * If spectra are reordered or some are hidden, this finds the top visible spectrum.
+     */
+    _get_first_visible_spectrum() {
+        if (Array.isArray(this.spectral_order) && this.spectral_order.length > 0) {
+            for (let i = 0; i < this.spectral_order.length; i++) {
+                let n = this.spectral_order[i];
+                let is_vis = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+                if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
+                    return n;
+                }
+            }
+        }
+        if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) {
+            for (let n = 0; n < hsqc_spectra.length; n++) {
+                let is_vis = (!hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+                if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
+                    return n;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Determines whether to draw drop shadow for level m of spectrum n.
+     * Per design: only drawn for the 1st visible spectrum (e.g. if 5 spectra are visible, only 1st spectrum).
+     * When drawn, it applies to ALL visible contour levels of that 1st spectrum.
+     */
+    _should_draw_contour_shadow(n, m, is_negative = false) {
+        if (!this.contour_shadow_enabled) {
+            return false;
+        }
+        const first_visible_n = this._get_first_visible_spectrum();
+        if (first_visible_n === -1 || n !== first_visible_n) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Draw vector line drop-shadow passes underneath contour lines for level m.
+     * Shifts vertex positions by screen-pixel offsets (down-right) and uses alpha blending
+     * to project a rich, feathered, embossed 3D relief drop shadow.
+     */
+    _draw_contour_level_shadow(n, i_start, i_stop, is_negative = false) {
+        const gl = this.gl;
+        if (!gl || i_start >= i_stop) {
+            return;
+        }
+
+        const mode = this.contour_shadow_mode || 'bold';
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        // Multi-sample Gaussian drop shadow kernel (light from top-left, casting down-right).
+        // Uses subpixel offset passes to turn a 1-pixel vector line into a thick, continuous,
+        // feathered shadow band with high core opacity (~85%-90%) and zero gaps.
+        const passes = (mode === 'subtle') ? [
+            { dx_px: 1.8, dy_px: -1.8, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 2.5, dy_px: -2.5, color: [0.0, 0.0, 0.0, 0.25] },
+            { dx_px: 1.8, dy_px: -2.5, color: [0.0, 0.0, 0.0, 0.18] },
+            { dx_px: 2.5, dy_px: -1.8, color: [0.0, 0.0, 0.0, 0.18] },
+            { dx_px: 3.2, dy_px: -3.2, color: [0.0, 0.0, 0.0, 0.12] }
+        ] : [
+            // Bold mode (default):
+            // 1. Embossed highlight rim on illuminated edge (top-left) - enhances 3D pop over heatmaps & between rings
+            { dx_px: -1.0, dy_px: 1.0, color: [1.0, 1.0, 1.0, 0.65] },
+            { dx_px: -1.6, dy_px: 1.6, color: [1.0, 1.0, 1.0, 0.35] },
+
+            // 2. Core shadow (distance 2.2 - 3.5 px)
+            { dx_px: 2.2, dy_px: -2.2, color: [0.0, 0.0, 0.0, 0.50] },
+            { dx_px: 2.8, dy_px: -2.8, color: [0.0, 0.0, 0.0, 0.55] },
+            { dx_px: 3.5, dy_px: -3.5, color: [0.0, 0.0, 0.0, 0.45] },
+
+            // 3. Lateral spread to bridge diagonal/curved segments and avoid gaps
+            { dx_px: 2.2, dy_px: -3.2, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 3.2, dy_px: -2.2, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 2.8, dy_px: -3.5, color: [0.0, 0.0, 0.0, 0.30] },
+            { dx_px: 3.5, dy_px: -2.8, color: [0.0, 0.0, 0.0, 0.30] },
+
+            // 4. Outer soft feathering (distance 4.2 - 5.0 px)
+            { dx_px: 4.2, dy_px: -4.2, color: [0.0, 0.0, 0.0, 0.22] },
+            { dx_px: 5.0, dy_px: -5.0, color: [0.0, 0.0, 0.0, 0.12] }
+        ];
+
+        const w = gl.canvas.width;
+        const h = gl.canvas.height;
+        const poly_len = is_negative ? this.polygon_length_negative[n] : this.polygon_length[n];
+        const pts_start = is_negative ? this.points_start_negative[n] : this.points_start[n];
+        const overlay_offset = pts_start / 2;
+
+        for (let p = 0; p < passes.length; p++) {
+            const pass = passes[p];
+            const dx_clip = (pass.dx_px * 2.0) / w;
+            const dy_clip = (pass.dy_px * 2.0) / h;
+
+            let shadowMat = new Float32Array(this.viewProjectionMat);
+            shadowMat[6] += dx_clip;
+            shadowMat[7] += dy_clip;
+
+            gl.uniformMatrix3fv(this.matrixLocation, false, shadowMat);
+            gl.uniform4fv(this.colorLocation, pass.color);
+
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = 0;
+                if (i > 0) {
+                    point_start = poly_len[i - 1];
+                }
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+        }
+
+        // Restore original matrix and disable blending
+        gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+        gl.disable(gl.BLEND);
     }
 
     /**

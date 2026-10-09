@@ -5274,6 +5274,46 @@ function clear_spectrum_ratio() {
     update_ratio_colorbar_labels();
 }
 
+function toggle_contour_shadow() {
+    if (!main_plot || !main_plot.contour_plot) {
+        return;
+    }
+    const cp = main_plot.contour_plot;
+    // Cycle: OFF -> Bold -> Subtle -> OFF
+    if (!cp.contour_shadow_enabled) {
+        cp.contour_shadow_enabled = true;
+        cp.contour_shadow_mode = 'bold';
+    } else if (cp.contour_shadow_mode === 'bold') {
+        cp.contour_shadow_enabled = true;
+        cp.contour_shadow_mode = 'subtle';
+    } else {
+        cp.contour_shadow_enabled = false;
+        cp.contour_shadow_mode = false;
+    }
+
+    const btn = document.getElementById("button_contour_shadow");
+    if (btn) {
+        if (!cp.contour_shadow_enabled) {
+            btn.innerText = "Relief shadow: OFF";
+            btn.style.fontWeight = "normal";
+            btn.style.backgroundColor = "";
+            btn.title = "Toggle relief drop shadow for the 1st contour (Click to turn ON)";
+        } else if (cp.contour_shadow_mode === 'bold') {
+            btn.innerText = "Relief shadow: Bold";
+            btn.style.fontWeight = "bold";
+            btn.style.backgroundColor = "#bae6fd";
+            btn.title = "Relief shadow: Bold (Click to switch to Subtle)";
+        } else {
+            btn.innerText = "Relief shadow: Subtle";
+            btn.style.fontWeight = "bold";
+            btn.style.backgroundColor = "#e0f2fe";
+            btn.title = "Relief shadow: Subtle (Click to turn OFF)";
+        }
+    }
+
+    cp.drawScene();
+}
+
 async function download_plot() {
     async function generate_and_download() {
         const format = 'png';
@@ -10426,6 +10466,9 @@ function set_current_spectrum(spectrum_index) {
         if (current_reprocess_spectrum_index !== -1 || (hsqc_spectra.length === 1 && hsqc_spectra[0].raw_data_ri && hsqc_spectra[0].raw_data_ri.length > 0)) {
             main_plot.show_cross_section();
         }
+    }
+    if (main_plot && main_plot.contour_plot && main_plot.contour_plot.contour_shadow_enabled) {
+        main_plot.contour_plot.drawScene();
     }
 }
 

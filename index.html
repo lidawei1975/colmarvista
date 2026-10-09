@@ -529,6 +529,8 @@
                         <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
                         <input type="number" id="plot_scale_up_factor" value="1.0" size="5" min="1" max="10" step="1">
                         <button onclick="download_plot()">Download plot</button>
+                        <button id="button_contour_shadow" onclick="toggle_contour_shadow()"
+                            title="Toggle relief drop shadow for the 1st contour (Click to toggle Bold / Subtle / OFF)">Relief shadow: OFF</button>
                          <br>
                          <strong>Ratio heatmap:</strong>
                          <input type="number" id="ratio_spectrum_a" value="1" min="0" step="1" style="width: 60px;"
