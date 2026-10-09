@@ -4965,12 +4965,12 @@ function calculate_spectrum_ratio() {
         alert("Please load spectra first.");
         return;
     }
-    const a = parseInt(document.getElementById("ratio_spectrum_a").value) - 1;
-    const b = parseInt(document.getElementById("ratio_spectrum_b").value) - 1;
+    const a = parseInt(document.getElementById("ratio_spectrum_a").value);
+    const b = parseInt(document.getElementById("ratio_spectrum_b").value);
     const sa = hsqc_spectra[a];
     const sb = hsqc_spectra[b];
     if (!sa || !sb || !sa.raw_data || !sb.raw_data || sa.raw_data.length === 0 || sb.raw_data.length === 0) {
-        alert("Invalid spectrum number(s), or spectrum data not available.");
+        alert("Invalid spectrum index/indices, or spectrum data not available.");
         return;
     }
     if (sa.n_direct !== sb.n_direct || sa.n_indirect !== sb.n_indirect) {
@@ -4978,7 +4978,7 @@ function calculate_spectrum_ratio() {
         return;
     }
     if (!main_plot.spectral_information[a]) {
-        alert("Spectrum " + (a + 1) + " has no contour information yet.");
+        alert("Spectrum " + a + " has no contour information yet.");
         return;
     }
 

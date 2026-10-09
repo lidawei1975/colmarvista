@@ -531,11 +531,11 @@
                         <button onclick="download_plot()">Download plot</button>
                          <br>
                          <strong>Ratio heatmap:</strong>
-                         <input type="number" id="ratio_spectrum_a" value="2" min="1" step="1" style="width: 60px;"
-                             title="Numerator spectrum (spectrum number, starting from 1)">
+                         <input type="number" id="ratio_spectrum_a" value="1" min="0" step="1" style="width: 60px;"
+                             title="Numerator spectrum (original spectrum index, starting from 0)">
                          <span>/</span>
-                         <input type="number" id="ratio_spectrum_b" value="1" min="1" step="1" style="width: 60px;"
-                             title="Denominator spectrum (spectrum number, starting from 1)">
+                         <input type="number" id="ratio_spectrum_b" value="0" min="0" step="1" style="width: 60px;"
+                             title="Denominator spectrum (original spectrum index, starting from 0)">
                          <button id="button_ratio_heatmap" onclick="calculate_spectrum_ratio()"
                              title="Heatmap of ratio (A/B), drawn below the contours. Red: A &gt; B, blue: A &lt; B">Spectrum ratio</button>
                          <button id="button_clear_ratio_heatmap" onclick="clear_spectrum_ratio()">Clear ratio</button>

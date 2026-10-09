@@ -531,8 +531,15 @@ class webgl_contour_plot {
                 vec2 p = v_uv * u_size;
                 float va = bilerp(u_tex_a, p);
                 float vb = bilerp(u_tex_b, p);
-                // Only consider positive data points above the lowest positive contour level
-                if (va < u_threshold.x || vb < u_threshold.y) discard;
+
+                // --- Heatmap visibility condition ---
+                // Previous intersection rule (both spectra must reach their lowest positive contour level):
+                // if (va < u_threshold.x || vb < u_threshold.y) discard;
+                //
+                // Current rule: Denominator spectrum (B) lowest positive contour level defines the visible part of the heatmap,
+                // considering positive data points from both spectra (vb >= u_threshold.y and va >= 0):
+                if (vb < u_threshold.y || va < 0.0) discard;
+
                 float r = va / vb;
                 float span = u_ratio_min_max.y - u_ratio_min_max.x;
                 float s = span > 0.0 ? clamp((r - u_ratio_min_max.x) / span, 0.0, 1.0) : 0.5;
@@ -601,7 +608,7 @@ class webgl_contour_plot {
         upload(this.heatmap_texture_a, dataA);
         upload(this.heatmap_texture_b, dataB);
 
-        // Compute true min and max ratio (A/B) for positive data points above respective lowest positive contour levels
+        // Compute true min and max ratio (A/B) for positive data points
         const [a_pos] = this._lowest_contour_levels(index_a, threshold);
         const [b_pos] = this._lowest_contour_levels(index_b, threshold);
         let min_r = Infinity;
@@ -610,7 +617,16 @@ class webgl_contour_plot {
         for (let i = 0; i < total; i++) {
             const va = dataA[i];
             const vb = dataB[i];
-            if (va >= a_pos && vb >= b_pos && vb > 0) {
+
+            // --- Heatmap visibility condition ---
+            // Previous intersection rule (both spectra must reach their lowest displayed positive contour level):
+            // const is_visible = (va >= a_pos && vb >= b_pos && vb > 0);
+            //
+            // Current rule: Denominator spectrum (B) lowest positive contour level defines visibility,
+            // considering positive data points from both spectra (vb >= b_pos && vb > 0 && va >= 0):
+            const is_visible = (vb >= b_pos && vb > 0 && va >= 0);
+
+            if (is_visible) {
                 const r = va / vb;
                 if (r < min_r) min_r = r;
                 if (r > max_r) max_r = r;
