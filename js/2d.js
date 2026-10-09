@@ -2018,13 +2018,27 @@ const sortableList = document.getElementById("spectra_list_ol");
 sortableList.addEventListener(
     "dragstart",
     (e) => {
+        if (!e.target || !e.target.classList || !e.target.classList.contains("draggable")) {
+            return;
+        }
         /**
          * We will move the parent element (div)'s parent (li) of the dragged item
          */
-        draggedItem = e.target.parentElement.parentElement
+        draggedItem = e.target.closest("#spectra_list_ol > li") || e.target.parentElement.parentElement;
+        if (!draggedItem) return;
+
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", "");
+        }
+
+        draggedItem.classList.add("dragging");
         setTimeout(() => {
-            e.target.parentElement.style.display =
-                "none";
+            if (draggedItem && draggedItem.querySelector("div")) {
+                draggedItem.querySelector("div").style.display = "none";
+            } else if (e.target && e.target.parentElement) {
+                e.target.parentElement.style.display = "none";
+            }
         }, 0);
     });
 
@@ -2032,7 +2046,15 @@ sortableList.addEventListener(
     "dragend",
     (e) => {
         setTimeout(() => {
-            e.target.parentElement.style.display = "";
+            if (draggedItem) {
+                draggedItem.classList.remove("dragging");
+                if (draggedItem.querySelector("div")) {
+                    draggedItem.querySelector("div").style.display = "";
+                }
+            }
+            if (e.target && e.target.parentElement) {
+                e.target.parentElement.style.display = "";
+            }
             draggedItem = null;
         }, 0);
 
@@ -2042,21 +2064,42 @@ sortableList.addEventListener(
         let new_order = [];
         let list_items = spectra_list_ol.querySelectorAll("li");
         for (let i = 0; i < list_items.length; i++) {
+            if (!list_items[i].id || !list_items[i].id.startsWith("spectrum-")) continue;
             let index = parseInt(list_items[i].id.split("-")[1]); //ID is spectrum-index
-            new_order.push(index);
+            if (!isNaN(index) && !new_order.includes(index)) {
+                new_order.push(index);
+            }
         }
+
+        // Include any remaining indices from main_plot.spectral_order that weren't in DOM
+        if (main_plot && Array.isArray(main_plot.spectral_order)) {
+            for (let idx of main_plot.spectral_order) {
+                if (!new_order.includes(idx)) {
+                    new_order.push(idx);
+                }
+            }
+        }
+
         update_all_minimized_spectra_display();
-        /**
-         * In case new_order.length !== main_plot.spectral_order.length,
-         * we need to wait for the worker to finish the calculation then update the order
-         */
-        let interval_id = setInterval(() => {
+
+        if (main_plot && Array.isArray(main_plot.spectral_order)) {
             if (new_order.length === main_plot.spectral_order.length) {
-                clearInterval(interval_id);
                 main_plot.spectral_order = new_order;
                 main_plot.redraw_contour_order();
+            } else {
+                let attempts = 0;
+                let interval_id = setInterval(() => {
+                    attempts++;
+                    if (new_order.length === main_plot.spectral_order.length) {
+                        clearInterval(interval_id);
+                        main_plot.spectral_order = new_order;
+                        main_plot.redraw_contour_order();
+                    } else if (attempts > 10) {
+                        clearInterval(interval_id);
+                    }
+                }, 500);
             }
-        }, 1000);
+        }
     });
 
 sortableList.addEventListener(
@@ -2092,7 +2135,8 @@ const getDragAfterElement = (container, y) => {
     const draggableElements = [
         ...container.querySelectorAll(
             ":scope > li:not(.dragging)"
-        ),];
+        ),
+    ].filter(el => el.style.display !== "none");
 
     return draggableElements.reduce(
         (closest, child) => {
@@ -2541,10 +2585,15 @@ function add_to_list(index) {
     new_spectrum_div_list.id = "spectrum-".concat(index);
 
     /**
-     * If this is a removed spectrum, do not add it to the list
-     * this is required when user loads previously saved data, some spectra may be removed
+     * If this is a removed spectrum, keep an empty hidden placeholder in the list
+     * just like remove_spectrum() does, so indexing and main_plot.spectral_order stay in sync.
      */
     if (new_spectrum.spectrum_origin === -3) {
+        new_spectrum_div_list.style.display = "none";
+        let list_ol = document.getElementById("spectra_list_ol");
+        if (list_ol) {
+            list_ol.appendChild(new_spectrum_div_list);
+        }
         return;
     }
 
@@ -2564,6 +2613,8 @@ function add_to_list(index) {
         new_spectrum_div.appendChild(minimize_button);
 
         let draggable_span = document.createElement("span");
+        draggable_span.draggable = true;
+        draggable_span.setAttribute("draggable", "true");
         draggable_span.classList.add("draggable");
         draggable_span.appendChild(document.createTextNode("\u2195 Drag me. "));
         draggable_span.style.cursor = "move";
