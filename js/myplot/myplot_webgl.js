@@ -215,20 +215,7 @@ class webgl_contour_plot {
                     }
 
                     let level_color = this._contour_level_color(n, m);
-                    this.gl.uniform4fv(this.colorLocation, level_color);
-                    /**
-                     * Draw the contour plot, one polygon at a time
-                     */
-                    for (var i = i_start; i < i_stop; i++) {
-                        var primitiveType = this.gl.LINE_STRIP;
-                        let point_start = 0;
-                        if (i > 0) {
-                            point_start = this.polygon_length[n][i - 1];
-                        }
-                        let count = this.polygon_length[n][i] - point_start;
-                        let overlay_offset = this.points_start[n] / 2;
-                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
-                    }
+                    this._draw_contour_segments(n, i_start, i_stop, level_color, false);
                 }
             }
 
@@ -251,20 +238,7 @@ class webgl_contour_plot {
                         this._draw_contour_level_shadow(n, i_start, i_stop, true);
                     }
 
-                    /**
-                     * Draw the contour plot, one polygon at a time
-                     */
-                    for (var i = i_start; i < i_stop; i++) {
-                        this.gl.uniform4fv(this.colorLocation, this.colors_negative[n]);
-                        var primitiveType = this.gl.LINE_STRIP;
-                        let point_start = 0;
-                        if (i > 0) {
-                            point_start = this.polygon_length_negative[n][i - 1];
-                        }
-                        let count = this.polygon_length_negative[n][i] - point_start;
-                        let overlay_offset = this.points_start_negative[n] / 2;
-                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
-                    }
+                    this._draw_contour_segments(n, i_start, i_stop, this.colors_negative[n], true);
                 }
             }
         }
@@ -419,20 +393,7 @@ class webgl_contour_plot {
                     }
 
                     let level_color = this._contour_level_color(n, m);
-                    this.gl.uniform4fv(this.colorLocation, level_color);
-                    /**
-                     * Draw the contour plot, one polygon at a time
-                     */
-                    for (var i = i_start; i < i_stop; i++) {
-                        var primitiveType = this.gl.LINE_STRIP;
-                        let point_start = 0;
-                        if (i > 0) {
-                            point_start = this.polygon_length[n][i - 1];
-                        }
-                        let count = this.polygon_length[n][i] - point_start;
-                        let overlay_offset = this.points_start[n] / 2;
-                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
-                    }
+                    this._draw_contour_segments(n, i_start, i_stop, level_color, false);
                 }
             }
 
@@ -455,20 +416,7 @@ class webgl_contour_plot {
                         this._draw_contour_level_shadow(n, i_start, i_stop, true);
                     }
 
-                    /**
-                     * Draw the contour plot, one polygon at a time
-                     */
-                    for (var i = i_start; i < i_stop; i++) {
-                        this.gl.uniform4fv(this.colorLocation, this.colors_negative[n]);
-                        var primitiveType = this.gl.LINE_STRIP;
-                        let point_start = 0;
-                        if (i > 0) {
-                            point_start = this.polygon_length_negative[n][i - 1];
-                        }
-                        let count = this.polygon_length_negative[n][i] - point_start;
-                        let overlay_offset = this.points_start_negative[n] / 2;
-                        this.gl.drawArrays(primitiveType, point_start + overlay_offset, count);
-                    }
+                    this._draw_contour_segments(n, i_start, i_stop, this.colors_negative[n], true);
                 }
             }
         }
@@ -909,6 +857,76 @@ class webgl_contour_plot {
         // Restore original matrix and disable blending
         gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
         gl.disable(gl.BLEND);
+    }
+
+    /**
+     * Draw contour line segments for range [i_start, i_stop).
+     * If Line Drop-Shadow is enabled for this spectrum, draws thick contour lines
+     * via multi-pass subpixel dilation. When drop shadow is OFF, reverses to normal 1px lines.
+     */
+    _draw_contour_segments(n, i_start, i_stop, color, is_negative = false) {
+        const gl = this.gl;
+        if (!gl || i_start >= i_stop) {
+            return;
+        }
+
+        const poly_len = is_negative ? this.polygon_length_negative[n] : this.polygon_length[n];
+        const pts_start = is_negative ? this.points_start_negative[n] : this.points_start[n];
+        const overlay_offset = pts_start / 2;
+
+        gl.uniform4fv(this.colorLocation, color);
+
+        // Check if Line Drop-Shadow is active for this spectrum
+        const is_thick = this._should_draw_contour_shadow(n, 0, is_negative);
+
+        if (!is_thick) {
+            // Normal 1px contour line (single pass)
+            gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = (i > 0) ? poly_len[i - 1] : 0;
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+            return;
+        }
+
+        // Thick contour lines: multi-pass subpixel dilation to overcome WebGL 1.0px lineWidth limitation
+        const w = gl.canvas.width;
+        const h = gl.canvas.height;
+        const mode = this.contour_shadow_mode || 'bold';
+
+        // Subpixel offsets in screen pixels (denser kernel for solid stroke coverage)
+        const offsets = (mode === 'subtle') ? [
+            [0.0, 0.0],
+            [-0.6, 0.0], [0.6, 0.0],
+            [0.0, -0.6], [0.0, 0.6]
+        ] : [
+            [0.0, 0.0],
+            [-0.75, 0.0], [0.75, 0.0],
+            [0.0, -0.75], [0.0, 0.75],
+            [-0.55, -0.55], [0.55, -0.55],
+            [-0.55, 0.55], [0.55, 0.55]
+        ];
+
+        for (let p = 0; p < offsets.length; p++) {
+            const dx_clip = (offsets[p][0] * 2.0) / w;
+            const dy_clip = (offsets[p][1] * 2.0) / h;
+
+            let lineMat = new Float32Array(this.viewProjectionMat);
+            lineMat[6] += dx_clip;
+            lineMat[7] += dy_clip;
+
+            gl.uniformMatrix3fv(this.matrixLocation, false, lineMat);
+
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = (i > 0) ? poly_len[i - 1] : 0;
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+        }
+
+        // Restore original matrix
+        gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
     }
 
     /**
