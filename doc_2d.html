@@ -155,31 +155,22 @@
           <li><b>Resolution Scale Factor:</b> Increase the <i>Downloaded plot resolution factor</i> from <code>1.0</code> up to <code>10.0</code> to download ultra-high-definition PNG contour plots matching publication standards.</li>
           <li><b>Custom Font Size:</b> Adjust plot label font size (12–72 pt) for optimal legibility.</li>
           <li><b>Download Plot:</b> Click <b>Download plot</b> to save PNG or vector SVG files.</li>
+          <li><b>Relief Shadow:</b> Click <b>Relief shadow</b> to cycle between <i>Bold</i> (dense multi-pass 3D drop shadow with embossed rim highlight), <i>Subtle</i> (soft drop shadow), and <i>OFF</i> underneath the 1st visible contour level of the active spectrum (and denominator spectrum in ratio heatmap mode).</li>
+          <li><b>Hillshading:</b> Click <b>Hillshading</b> to toggle continuous 3D Lambertian topographical illumination underneath the peaks of the 1st visible spectrum. Using real-time WebGL central differences and directional lighting from the northwest (315&deg;), peaks are shaded as smooth continuous 3D surfaces tinted with the spectrum color, with contour lines overlaying them.</li>
         </ul>
 
-        <h3>Spectrum Ratio Heatmap (WebGL Overlay)</h3>
-        <p>The <b>Spectrum Ratio Heatmap</b> tool allows real-time comparative visualization between two 2D spectra (<i>A</i> and <i>B</i>) directly under the contour plot via WebGL acceleration.</p>
-        <ul>
-          <li><b>Input & Selection:</b> Designate the 1-based spectrum indices for numerator spectrum <i>A</i> and denominator spectrum <i>B</i> in the input fields located on the plot control bar (default is <b>2 over 1</b>, i.e., <code>2 / 1</code>).</li>
-          <li><b>Positive Data & Contour Threshold Filtering:</b> Only positive data points from both spectra are considered. The ratio is evaluated and rendered <b>only where both spectra exceed their respective lowest displayed positive contour levels</b> (<i>A</i> &ge; contour<sub><i>A</i></sub> and <i>B</i> &ge; contour<sub><i>B</i></sub>). Negative data points or points below the positive contour threshold are discarded.</li>
-          <li><b>Per-Fragment Smooth Interpolation:</b> Raw intensity values of both spectra are uploaded to WebGL as 32-bit floating-point textures and bilinearly interpolated in the fragment shader prior to ratio evaluation, ensuring smooth color transitions without block artifacts when zooming in.</li>
-          <li><b>True Min/Max Normalized Ratio Scale:</b> The ratio is computed directly as <i>r</i> = <i>A</i> / <i>B</i> and dynamically normalized across the true data range:
-            <br>
-            <code style="display: inline-block; margin: 6px 0; padding: 4px 10px;">s = (r &minus; r<sub>min</sub>) / (r<sub>max</sub> &minus; r<sub>min</sub>) &isin; [0, 1]</code>
-            <br>
-            where <i>r</i><sub>min</sub> and <i>r</i><sub>max</sub> are the actual minimum and maximum ratios among all valid points.
-          </li>
-          <li><b>Selectable Colormaps & Interactive Colorbar:</b> Choose from multiple built-in color schemes via the dropdown menu (<b>Red/Blue</b>, <b>Coolwarm</b>, <b>Viridis</b>, <b>Plasma</b>, <b>Jet</b>, <b>Grayscale</b>). An interactive horizontal colorbar displays the gradient, and its two ends are automatically labeled with the <b>true minimum ratio</b> (<i>r</i><sub>min</sub>) on the left and <b>true maximum ratio</b> (<i>r</i><sub>max</sub>) on the right.</li>
-          <li><b>Layering & Interactivity:</b> The heatmap is rendered beneath the contour lines, stays fully synchronized across pan and zoom operations, displays within the magnifying glass tool, and is preserved when using <b>Download plot</b>. Click <b>Clear ratio</b> to remove the overlay and reset the colorbar labels.</li>
+        <h3>Spectrum Ratio Heatmap &amp; Contour Colormap (WebGL Overlay)</h3>
+        <p>The <b>Spectrum Ratio Heatmap</b> tool allows real-time comparative visualization between two 2D spectra (<i>A</i> and <i>B</i>) directly under the contour plot via WebGL acceleration, and can also be dual-used to apply a colormap directly to the contour lines of a single spectrum.</p>
+          <li><b>Contour Colormap Checkbox:</b> Check the <b>Colormap</b> checkbox located immediately after the positive contour color picker in the spectrum list to draw that spectrum's positive contour lines using the shared colormap selector and range slider instead of a solid color. Each positive contour level is indexed into the colormap by <code>log(contour level)</code> normalized across the active range <code>[log(level<sub>min</sub>), log(level<sub>max</sub>)]</code>.</li>
+          <li><b>Positive Data &amp; Denominator Contour Threshold Filtering:</b> In ratio heatmap mode (<i>A</i> / <i>B</i>), spectra are selected by their 0-based <i>Original index</i> as shown in the spectrum list (e.g., <code>1 / 0</code>). The ratio is evaluated and rendered <b>wherever the denominator spectrum reaches its lowest displayed positive contour level</b> (<i>B</i> &ge; contour<sub><i>B</i></sub>) using positive data points from both spectra (<i>A</i> &ge; 0 and <i>B</i> &gt; 0). Negative data points or points where the denominator falls below its contour threshold are discarded.</li>
+            where <i>r</i><sub>min</sub> and <i>r</i><sub>max</sub> are the actual minimum and maximum values.
+          <li><b>Selectable Colormaps &amp; Interactive Colorbar:</b> Choose from multiple built-in color schemes via the dropdown menu (<b>Red/Blue</b>, <b>Coolwarm</b>, <b>Viridis</b>, <b>Plasma</b>, <b>Jet</b>, <b>Grayscale</b>). An interactive horizontal colorbar displays the gradient, with its two ends dynamically labeled with the active minimum and maximum bounds.</li>
+          <li><b>Interactive Double Range Slider &amp; Direct Input Fields:</b> A wide dual-thumb <b>Range</b> slider next to the colorbar is bounded by the calculated limits <code>[r<sub>min</sub>, r<sub>max</sub>]</code>, flanked by two numeric input fields for the lower and upper limits. Dragging either slider thumb or typing a value into the input fields (which triggers on <code>blur</code> or pressing <code>Enter</code>) narrows the colormap display window to any custom sub-range within <code>[r<sub>min</sub>, r<sub>max</sub>]</code> for both ratio heatmaps and colored contour plots, keeping the slider thumbs, input boxes, colorbar endpoint labels, and WebGL plot synchronized in real time.</li>
         </ul>
-        
           </div>
-        </section>
         
         <section class="doc-card" id="2d-3d-view">
           <div class="card-header">
-            <span class="badge badge-2d">2D</span>
-            <h2 class="card-title">3D Surface & Terrace Visualization for 2D Spectra</h2>
           </div>
           <div class="card-body">
             
