@@ -536,11 +536,12 @@ class webgl_contour_plot {
                 // Previous intersection rule (both spectra must reach their lowest positive contour level):
                 // if (va < u_threshold.x || vb < u_threshold.y) discard;
                 //
-                // Current rule: Denominator spectrum (B) lowest positive contour level defines the visible part of the heatmap,
-                // considering positive data points from both spectra (vb >= u_threshold.y and va >= 0):
-                if (vb < u_threshold.y || va < 0.0) discard;
+                // Current rule: Denominator spectrum (B) lowest positive contour level defines visibility.
+                // A small margin (0.95) allows the heatmap to fill completely across D3 straight chords
+                // and saddle necks, and negative noise in A is clamped to 0.0 to prevent blank holes.
+                if (vb < u_threshold.y * 0.95) discard;
 
-                float r = va / vb;
+                float r = max(va, 0.0) / vb;
                 float span = u_ratio_min_max.y - u_ratio_min_max.x;
                 float s = span > 0.0 ? clamp((r - u_ratio_min_max.x) / span, 0.0, 1.0) : 0.5;
                 gl_FragColor = vec4(colormap(s), 1.0);
@@ -622,12 +623,12 @@ class webgl_contour_plot {
             // Previous intersection rule (both spectra must reach their lowest displayed positive contour level):
             // const is_visible = (va >= a_pos && vb >= b_pos && vb > 0);
             //
-            // Current rule: Denominator spectrum (B) lowest positive contour level defines visibility,
-            // considering positive data points from both spectra (vb >= b_pos && vb > 0 && va >= 0):
-            const is_visible = (vb >= b_pos && vb > 0 && va >= 0);
+            // Current rule: Denominator spectrum (B) lowest positive contour level (with 0.95 margin) defines visibility.
+            // Negative noise in A is clamped to 0.0 to prevent holes.
+            const is_visible = (vb >= b_pos * 0.95 && vb > 0);
 
             if (is_visible) {
-                const r = va / vb;
+                const r = Math.max(va, 0.0) / vb;
                 if (r < min_r) min_r = r;
                 if (r > max_r) max_r = r;
             }
