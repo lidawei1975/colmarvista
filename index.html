@@ -515,15 +515,6 @@
                         <button onclick="resetzoom()">Reset all Zoom</button>,
                         <button onclick="popzoom()">Zoom Back</button>,
                         <button onclick="zoomout()">Zoom out 120%</button>
-                        <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
-                            PC</button>
-                        <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
-                            PC</button>
-                        <button id="button_flip_indirect" disabled onclick="flip_indirect_dimension()"
-                            title="Flip indirect dimension data on the frequency domain spectrum without re-processing">Flip
-                            Indirect</button>
-                        <!-- Information for user: phase correction applied -->
-                        <span id="pc_info"></span>
                         <label for="plot_font_size">Plot font size: </label>
                         <input type="number" id="plot_font_size" value="24" min="12" max="72">
                         <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
@@ -531,6 +522,8 @@
                         <button onclick="download_plot()">Download plot</button>
                         <button id="button_contour_shadow" onclick="toggle_contour_shadow()"
                             title="Toggle relief drop shadow for the 1st contour (Click to toggle Bold / Subtle / OFF)">Relief shadow: OFF</button>
+                        <button id="button_hillshading" onclick="toggle_hillshading()"
+                            title="Toggle continuous 3D topographical hillshading for the 1st visible spectrum">Hillshading: OFF</button>
                          <br>
                          <strong>Ratio heatmap:</strong>
                          <input type="number" id="ratio_spectrum_a" value="1" min="0" step="1" style="width: 60px;"
@@ -595,6 +588,15 @@
                         </span>
                         <button id="button_apply_baseline" disabled onclick="apply_baseline_correction()">Apply
                             Baseline</button>
+                        <button id="automatic_pc" disabled onclick="apply_current_pc_or_auto_pc(1)">Automatic
+                            PC</button>
+                        <button id="button_apply_ps" disabled onclick="apply_current_pc_or_auto_pc(0)">Apply
+                            PC</button>
+                        <button id="button_flip_indirect" disabled onclick="flip_indirect_dimension()"
+                            title="Flip indirect dimension data on the frequency domain spectrum without re-processing">Flip
+                            Indirect</button>
+                        <!-- Information for user: phase correction applied -->
+                        <span id="pc_info"></span>
                         <br>
 
 

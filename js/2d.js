@@ -5314,6 +5314,31 @@ function toggle_contour_shadow() {
     cp.drawScene();
 }
 
+function toggle_hillshading() {
+    if (!main_plot || !main_plot.contour_plot) {
+        return;
+    }
+    const cp = main_plot.contour_plot;
+    cp.hillshading_enabled = !cp.hillshading_enabled;
+
+    const btn = document.getElementById("button_hillshading");
+    if (btn) {
+        if (cp.hillshading_enabled) {
+            btn.innerText = "Hillshading: ON";
+            btn.style.fontWeight = "bold";
+            btn.style.backgroundColor = "#dcfce7";
+            btn.title = "Hillshading: ON (Click to turn OFF)";
+        } else {
+            btn.innerText = "Hillshading: OFF";
+            btn.style.fontWeight = "normal";
+            btn.style.backgroundColor = "";
+            btn.title = "Toggle continuous 3D topographical hillshading for the 1st visible spectrum (Click to turn ON)";
+        }
+    }
+
+    cp.drawScene();
+}
+
 async function download_plot() {
     async function generate_and_download() {
         const format = 'png';
