@@ -1297,6 +1297,7 @@ function add_to_list(index) {
     line_width_label.classList.add("header-control");
     let line_width_input = document.createElement("input");
     line_width_input.setAttribute("type", "number");
+    line_width_input.setAttribute("id", "line_width-".concat(index));
     line_width_input.setAttribute("min", "1");
     line_width_input.setAttribute("value", "2");
     line_width_input.style.width = '48px';
