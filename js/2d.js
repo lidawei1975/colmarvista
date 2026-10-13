@@ -225,8 +225,8 @@ $(document).ready(function () {
     */
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
-        .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
+        .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist", "acqus2"])  /** file names to be searched from upload */
+        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file", "acquisition_file2"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
@@ -247,9 +247,31 @@ $(document).ready(function () {
     }
 
     // Tutorial Implementation
-    if (typeof SimpleTutorial !== 'undefined') {
-        const steps = [
+    var tutorial = null;
 
+    function startTutorial() {
+        if (typeof SimpleTutorial === 'undefined') {
+            alert("Tutorial script not loaded.");
+            console.error("SimpleTutorial class is missing.");
+            return;
+        }
+
+        // Restore fid area if minimized
+        const btn = document.getElementById('button_minimize_fid_area');
+        if (btn && btn.innerText === '+') {
+            minimize_fid_area(btn);
+        }
+        const annElem = document.getElementById('ann_auto_direct');
+        if (annElem) {
+            annElem.checked = false;
+        }
+
+        if (tutorial) {
+            tutorial.cancel();
+            tutorial = null;
+        }
+
+        const steps = [
             {
                 elementId: 'input_options',
                 message: "<strong>Welcome!</strong><br>For this tutorial, please <strong>do not change</strong> any of these processing parameters. Keep them at their default values.",
@@ -257,7 +279,7 @@ $(document).ready(function () {
             },
             {
                 elementId: 'input_files',
-                message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code>, <code>acqus</code> and <code>acqus2</code>) into this area. <br>Or select files manually.",
+                message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code> or <code>ser</code>, <code>acqus</code>, and <code>acqu2s</code>) into this area. <br>Or select files manually.",
                 triggerEvent: ['drop', 'change'],
                 hideNext: true,
                 validate: (e) => {
@@ -276,8 +298,9 @@ $(document).ready(function () {
             {
                 elementId: 'vis_parent',
                 message: "<strong>Processing...</strong> Please wait for the 2D spectrum to appear.",
-                triggerEvent: 'colmar:processing_finished', // Dispatched in resize_main_plot or separate handler
-                hideNext: true
+                triggerEvent: 'colmar:processing_finished',
+                hideNext: true,
+                validate: () => (typeof hsqc_spectra !== 'undefined' && hsqc_spectra.length > 0)
             },
             {
                 elementId: 'vis_parent',
@@ -287,45 +310,43 @@ $(document).ready(function () {
             {
                 elementId: 'cross_section_x',
                 message: "<strong>Step 4:</strong> Use the mouse wheel or click/drag on these <strong>1D cross-section plots</strong> to Pan and Zoom the main 2D view.<br><br>Click <strong>Next</strong> to continue.",
-                triggerEvent: null // User must click Next explicitly
+                triggerEvent: null
             },
             {
-                innerText: 'Download ft2', // Target button by text
+                innerText: 'Download ft2',
                 message: "<strong>Step 5:</strong> Click here to <strong>Download</strong> the processed data (.ft2).",
                 triggerEvent: 'click'
             },
             {
-                elementId: null, // No target highlight
-                message: "<strong>Tutorial Complete!</strong>",
+                elementId: null,
+                message: "<strong>Tutorial Complete!</strong><br>You have completed the 2D tutorial.",
                 triggerEvent: null
             }
         ];
 
-        const tutorial = new SimpleTutorial(steps, () => {
-            document.getElementById('start_tutorial').style.display = 'none';
-            const annElem = document.getElementById('ann_auto_direct');
-            if (annElem) {
-                annElem.checked = true;
+        tutorial = new SimpleTutorial(steps, () => {
+            const startBtn = document.getElementById('start_tutorial');
+            if (startBtn) startBtn.style.display = 'none';
+            const ann = document.getElementById('ann_auto_direct');
+            if (ann) {
+                ann.checked = true;
                 const autoDirectEl = document.getElementById("auto_direct");
                 const deleteImaginaryEl = document.getElementById("delete_imaginary");
                 if (autoDirectEl) autoDirectEl.checked = true;
                 if (deleteImaginaryEl) deleteImaginaryEl.checked = false;
             }
+            tutorial = null;
         });
 
-        document.getElementById('start_tutorial').addEventListener('click', () => {
-            // Restore fid area if minimized
-            const btn = document.getElementById('button_minimize_fid_area');
-            if (btn && btn.innerText === '+') {
-                minimize_fid_area(btn);
-            }
-            const annElem = document.getElementById('ann_auto_direct');
-            if (annElem) {
-                annElem.checked = false;
-            }
-            tutorial.start();
-        });
+        tutorial.start();
     }
+    window.startTutorial = startTutorial;
+
+    const startTutBtn = document.getElementById('start_tutorial');
+    if (startTutBtn) {
+        startTutBtn.addEventListener('click', startTutorial);
+    }
+
 
     /**
      * Upload pseudo 3D fitting result file 
@@ -1829,7 +1850,14 @@ function handle_webassembly_worker_message(e) {
         else {
             draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
         }
-        document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        const visParentEl = document.getElementById('vis_parent');
+        if (visParentEl) {
+            visParentEl.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
+        const fidBtn = document.getElementById('button_fid_process');
+        if (fidBtn) {
+            fidBtn.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
 
         /**
          * Clear the processing message
@@ -1997,7 +2025,14 @@ function resize_main_plot(wid, height) {
     if (main_plot !== null) {
         main_plot.update(input);
         // Dispatch event for tutorial step
-        document.getElementById('button_fid_process').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        const fidBtn = document.getElementById('button_fid_process');
+        if (fidBtn) {
+            fidBtn.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
+        const visParentEl = document.getElementById('vis_parent');
+        if (visParentEl) {
+            visParentEl.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
     }
 
     /**
