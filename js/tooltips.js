@@ -95,6 +95,9 @@
 
     /** 2D page only */
     const TIPS_2D = {
+        button_save: "Save the current session (spectra, peaks and settings) to a local file that can be loaded again later. Check 'Include raw FID data' to also save raw FID data for reprocessing.",
+        save_fid_data: "Include raw time-domain (FID) data and processing parameters in the saved file. This enables reloading the session later and reprocessing the spectrum from raw FID. Note: saved file size will be larger.",
+        save_fid_data_label: "Include raw time-domain (FID) data and processing parameters in the saved file. This enables reloading the session later and reprocessing the spectrum from raw FID. Note: saved file size will be larger.",
         fid_file: "Bruker time-domain data file to process: fid or ser (required). You can also drag and drop the whole Bruker experiment folder onto the box.",
         acquisition_file: "Direct dimension acquisition parameter file, usually acqus (required).",
         acquisition_file2: "Indirect dimension acquisition parameter file, usually acqu2s (required).",

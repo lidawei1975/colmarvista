@@ -20,7 +20,7 @@ describe('Tooltips on all user input controls', () => {
         cy.window().then((win) => {
             const missing = collect_missing(win);
             cy.task('log', 'Missing tooltips 1D: ' + JSON.stringify(missing, null, 1));
-            expect(missing, 'controls without tooltip').to.have.length(0);
+            expect(missing, '1D controls without tooltip: ' + JSON.stringify(missing)).to.have.length(0);
         });
     });
 
@@ -30,7 +30,7 @@ describe('Tooltips on all user input controls', () => {
         cy.window().then((win) => {
             const missing = collect_missing(win);
             cy.task('log', 'Missing tooltips 2D static: ' + JSON.stringify(missing, null, 1));
-            expect(missing, 'controls without tooltip').to.have.length(0);
+            expect(missing, '2D controls without tooltip: ' + JSON.stringify(missing)).to.have.length(0);
         });
 
         cy.get('#fid_file').selectFile('cypress/fixtures/test_data_2d/ser', { force: true });

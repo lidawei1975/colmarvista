@@ -252,7 +252,7 @@ class spectrum {
      * which are the length of the corresponding Float32Array.
      * Exclude large raw FID file buffers and TypedArrays from JSON serialization.
      */
-    create_shallow_copy_wo_float32() {
+    create_shallow_copy_wo_float32(include_fid_data = false) {
         let new_spectrum = new Object();
         for (var key in this) {
             if (this.hasOwnProperty(key)) {
@@ -268,8 +268,12 @@ class spectrum {
                 }
                 else if (key === "fid_process_parameters") {
                     if (this.fid_process_parameters) {
-                        // Keep processing parameters metadata but strip large raw FID byte buffers
+                        // Keep processing parameters metadata
                         let fp_copy = Object.assign({}, this.fid_process_parameters);
+                        if (include_fid_data && Array.isArray(this.fid_process_parameters.file_data) && this.fid_process_parameters.file_data.length > 0) {
+                            fp_copy.fid_file_lengths = this.fid_process_parameters.file_data.map(f => (f ? (f.byteLength !== undefined ? f.byteLength : (f.length || 0)) : 0));
+                            new_spectrum.fid_file_lengths = fp_copy.fid_file_lengths;
+                        }
                         delete fp_copy.file_data;
                         new_spectrum.fid_process_parameters = fp_copy;
                     } else {
@@ -287,9 +291,9 @@ class spectrum {
 
         /**
          * If spectrum_origin is -2 (from fid), change it to -1 (user uploaded frequency file)
-         * because raw FID time-domain data is not saved in the session file.
+         * only if raw FID time-domain data is NOT saved in the session file.
          */
-        if (new_spectrum.spectrum_origin === -2) {
+        if (new_spectrum.spectrum_origin === -2 && (!include_fid_data || !new_spectrum.fid_file_lengths)) {
             new_spectrum.spectrum_origin = -1;
         }
 

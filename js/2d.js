@@ -7002,26 +7002,27 @@ function get_peak_limit(peak_object, header) {
  */
 function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
-        document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
+        if (!fid_process_parameters) return;
+        if (fid_process_parameters.water_suppression !== undefined) document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
         // baseline form controls removed, bypass restoring polynomial order to form
-        document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
-        document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
-        document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
-        document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
-        document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
+        if (fid_process_parameters.apodization_direct !== undefined) document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
+        if (fid_process_parameters.zf_direct !== undefined) document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
+        if (fid_process_parameters.phase_correction_direct_p0 !== undefined) document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
+        if (fid_process_parameters.phase_correction_direct_p1 !== undefined) document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
+        if (fid_process_parameters.auto_direct !== undefined) document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         if (document.getElementById("ann_auto_direct")) {
             document.getElementById("ann_auto_direct").checked = fid_process_parameters.ann_auto_direct || false;
         }
-        document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
-        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
-        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
-        document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
-        document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
-        document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
-        document.getElementById("phase_correction_indirect_p1").value = fid_process_parameters.phase_correction_indirect_p1;
-        document.getElementById("auto_indirect").checked = fid_process_parameters.auto_indirect;
-        document.getElementById("delete_imaginary_indirect").checked = fid_process_parameters.delete_indirect;
-        document.getElementById("neg_imaginary").checked = fid_process_parameters.neg_imaginary === "yes" ? true : false;
+        if (fid_process_parameters.delete_direct !== undefined) document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
+        if (fid_process_parameters.extract_direct_from !== undefined) document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
+        if (fid_process_parameters.extract_direct_to !== undefined) document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
+        if (fid_process_parameters.apodization_indirect !== undefined) document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
+        if (fid_process_parameters.zf_indirect !== undefined) document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
+        if (fid_process_parameters.phase_correction_indirect_p0 !== undefined) document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
+        if (fid_process_parameters.phase_correction_indirect_p1 !== undefined) document.getElementById("phase_correction_indirect_p1").value = fid_process_parameters.phase_correction_indirect_p1;
+        if (fid_process_parameters.auto_indirect !== undefined) document.getElementById("auto_indirect").checked = fid_process_parameters.auto_indirect;
+        if (fid_process_parameters.delete_indirect !== undefined) document.getElementById("delete_imaginary_indirect").checked = fid_process_parameters.delete_indirect;
+        if (fid_process_parameters.neg_imaginary !== undefined) document.getElementById("neg_imaginary").checked = fid_process_parameters.neg_imaginary === "yes" ? true : false;
     }
 
     function set_default_fid_parameters() {
@@ -7054,6 +7055,14 @@ function reprocess_spectrum(self, spectrum_index) {
      * If the button text is "Edit FID processing", we need to prepare for reprocess the spectrum
      */
     if (button_text === "Edit FID processing") {
+        /**
+         * Expand fid_file_area if minimized so the user can see parameters and Reprocess button
+         */
+        let btn_min = document.getElementById("button_minimize_fid_area");
+        if (btn_min && btn_min.innerText.trim() === "+") {
+            minimize_fid_area(btn_min);
+        }
+
         /**
          * hide input fid files
          */
@@ -7135,13 +7144,15 @@ function reprocess_spectrum(self, spectrum_index) {
 */
 function save_to_file() {
     try {
+        const include_fid_data = document.getElementById("save_fid_data") ? document.getElementById("save_fid_data").checked : false;
+
         /**
          * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
          * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
          */
         let hsqc_spectra_copy = [];
         for (let i = 0; i < hsqc_spectra.length; i++) {
-            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
+            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32(include_fid_data);
             hsqc_spectra_copy.push(spectrum_copy);
         }
 
@@ -7176,16 +7187,26 @@ function save_to_file() {
 
         /**
          * Step 2, prepare the binaryData, which is a concatenation of all 
-         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
+         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements,
+         *  and raw FID time-domain file buffers if include_fid_data is true
          */
-        let totalLength = 0;
+        let totalFloat32Length = 0;
+        let totalFidBytes = 0;
         for (let i = 0; i < hsqc_spectra.length; i++) {
             const s = hsqc_spectra[i];
-            totalLength += (s.header ? s.header.length : 0) +
+            totalFloat32Length += (s.header ? s.header.length : 0) +
                 (s.raw_data ? s.raw_data.length : 0) +
                 (s.raw_data_ri ? s.raw_data_ri.length : 0) +
                 (s.raw_data_ir ? s.raw_data_ir.length : 0) +
                 (s.raw_data_ii ? s.raw_data_ii.length : 0);
+            if (include_fid_data && s.fid_process_parameters && Array.isArray(s.fid_process_parameters.file_data)) {
+                for (let f = 0; f < s.fid_process_parameters.file_data.length; f++) {
+                    const fb = s.fid_process_parameters.file_data[f];
+                    if (fb) {
+                        totalFidBytes += (fb.byteLength !== undefined ? fb.byteLength : (fb.length || 0));
+                    }
+                }
+            }
         }
 
         const jsonString = JSON.stringify(to_save);
@@ -7198,7 +7219,8 @@ function save_to_file() {
         lengthView.setInt32(0, jsonLength, true); // true for little-endian
 
         // Combine length, JSON, and binary data:
-        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
+        const totalBinaryBytes = totalFloat32Length * Float32Array.BYTES_PER_ELEMENT + totalFidBytes;
+        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalBinaryBytes);
         const combinedView = new Uint8Array(combinedBuffer);
 
         combinedView.set(new Uint8Array(lengthBuffer), 0);
@@ -7229,6 +7251,20 @@ function save_to_file() {
             if (s.raw_data_ii && s.raw_data_ii.length > 0) {
                 combinedView.set(new Uint8Array(s.raw_data_ii.buffer, s.raw_data_ii.byteOffset, s.raw_data_ii.byteLength), offset);
                 offset += s.raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (include_fid_data && s.fid_process_parameters && Array.isArray(s.fid_process_parameters.file_data)) {
+                for (let f = 0; f < s.fid_process_parameters.file_data.length; f++) {
+                    const fb = s.fid_process_parameters.file_data[f];
+                    if (fb) {
+                        let u8 = (fb instanceof Uint8Array) ? fb :
+                            (fb instanceof ArrayBuffer) ? new Uint8Array(fb) :
+                            (ArrayBuffer.isView(fb)) ? new Uint8Array(fb.buffer, fb.byteOffset, fb.byteLength) : null;
+                        if (u8 && u8.byteLength > 0) {
+                            combinedView.set(u8, offset);
+                            offset += u8.byteLength;
+                        }
+                    }
+                }
             }
         }
 
@@ -7498,6 +7534,25 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             offset += ii_len * Float32Array.BYTES_PER_ELEMENT;
         } else {
             hsqc_spectra[i].raw_data_ii = new Float32Array(0);
+        }
+
+        let fid_lengths = hsqc_spectra[i].fid_file_lengths || (hsqc_spectra[i].fid_process_parameters && hsqc_spectra[i].fid_process_parameters.fid_file_lengths);
+        if (Array.isArray(fid_lengths) && fid_lengths.length > 0) {
+            let restored_files = [];
+            for (let f = 0; f < fid_lengths.length; f++) {
+                let f_len = fid_lengths[f];
+                if (f_len > 0) {
+                    restored_files.push(new Uint8Array(arrayBuffer.slice(offset, offset + f_len)));
+                    offset += f_len;
+                } else {
+                    restored_files.push(new Uint8Array(0));
+                }
+            }
+            if (!hsqc_spectra[i].fid_process_parameters) {
+                hsqc_spectra[i].fid_process_parameters = {};
+            }
+            hsqc_spectra[i].fid_process_parameters.file_data = restored_files;
+            hsqc_spectra[i].spectrum_origin = -2;
         }
 
         if (typeof hsqc_spectra[i].calculate_projections === "function") {
@@ -10593,6 +10648,7 @@ function set_background_processing(is_running) {
     const exceptions = [
         "start_tutorial",
         "button_save",
+        "save_fid_data",
         "button_minimize_fid_area",
         "button_minimize_file_area",
         "button_minimize_preudo3d_area"
