@@ -187,8 +187,6 @@
         allow_click_to_add_peak: "Click on the plot to add a peak at that position.",
         "select_plot_1d=projection": "Show the 1D projections along both dimensions next to the 2D plot.",
         "select_plot_1d=cross_section": "Show 1D cross sections (slices) through a selected point of the 2D plot.",
-        pause_cursor: "Select the cross section at the cursor position when the cursor stays still on the plot for 3 seconds.",
-        right_click: "Right-click on the plot to select the cross section at that position.",
         enable_magnifying_glass: "Show a magnifying glass lens that follows the cursor over the plot.",
         magnifying_glass_size: "Diameter of the magnifying glass, as a percentage (10-40) of the plot size.",
         magnifying_glass_ratio: "Magnification factor of the magnifying glass (2-30).",

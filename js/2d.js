@@ -1035,30 +1035,6 @@ $(document).ready(function () {
     });
 
     /**
-     * Event listener for the checkbox "pause_cursor"
-     */
-    document.getElementById("pause_cursor").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.cross_line_pause_flag = true;
-        }
-        else {
-            main_plot.cross_line_pause_flag = false;
-        }
-    });
-
-    /**
-     * Event listener for the checkbox "right_click"
-     */
-    document.getElementById("right_click").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.allow_right_click(true);
-        }
-        else {
-            main_plot.allow_right_click(false);
-        }
-    });
-
-    /**
      * Event listener function for enable_magnifying_glass, magnifying_glass_size, magnifying_glass_ratio
      */
     function enable_magnifying_glass() {
@@ -3543,11 +3519,11 @@ function add_to_list(index) {
         }
 
         /**
-         * For experimental spectrum, switch default to show projection
+         * For experimental spectrum, switch default to show cross section
          * Only call for uncollapsed spectra to prevent UI freezing on large pseudo3D datasets
          */
         if (!b_collapsed) {
-            show_projection();
+            show_cross_section();
         }
     }
     if (!pending_pseudo3d_uncalculated_spectra || pending_pseudo3d_uncalculated_spectra.length === 0) {
@@ -6520,8 +6496,17 @@ function refresh_cross_sections_after_phase(index) {
         return;
     }
 
-    const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
-    const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+    let x_ppm = main_plot.vline_ppm;
+    let y_ppm = main_plot.hline_ppm;
+    if (x_ppm === null || y_ppm === null) {
+        let max_pt = (typeof main_plot.get_maximal_spectrum_point === "function") ? main_plot.get_maximal_spectrum_point() : null;
+        if (x_ppm === null) {
+            x_ppm = (max_pt && max_pt.x_ppm !== undefined) ? max_pt.x_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
+        }
+        if (y_ppm === null) {
+            y_ppm = (max_pt && max_pt.y_ppm !== undefined) ? max_pt.y_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+        }
+    }
 
     const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
         && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
@@ -7449,6 +7434,8 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         main_plot.points_start_negative = [];
         main_plot.points = new Float32Array();
         main_plot.current_spectral_index = 0;
+        main_plot.vline_ppm = null;
+        main_plot.hline_ppm = null;
         if (hsqc_spectra[0]) {
             let x_range = [hsqc_spectra[0].x_ppm_start, hsqc_spectra[0].x_ppm_start + hsqc_spectra[0].x_ppm_step * hsqc_spectra[0].n_direct];
             let y_range = [hsqc_spectra[0].y_ppm_start, hsqc_spectra[0].y_ppm_start + hsqc_spectra[0].y_ppm_step * hsqc_spectra[0].n_indirect];

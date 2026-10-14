@@ -176,6 +176,7 @@ class spectrum {
         this.noise_level = 0.001; //noise level of the input spectrum
         this.levels = [0.001, 0.002, 0.003]; //levels of the contour plot
         this.spectral_max = Number.MAX_VALUE; //maximum value of the spectrum
+        this.maximal_point = null; //maximal point { x_ppm, y_ppm, value, row, col } of the spectrum
         this.n_direct = 4096; //size of direct dimension of the input spectrum. integer
         this.n_indirect = 1204; //size of indirect dimension of the input spectrum. integer
         this.x_ppm_start = 12.0; //start ppm of direct dimension
@@ -345,10 +346,42 @@ class spectrum {
         this.projection_indirect_min = ind_min;
     };
 
+    /**
+     * Get or calculate the maximal spectrum point { x_ppm, y_ppm, value, row, col }
+     */
+    get_maximal_point() {
+        if (this.maximal_point && Number.isFinite(this.maximal_point.x_ppm) && Number.isFinite(this.maximal_point.y_ppm)) {
+            return this.maximal_point;
+        }
+        if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
+            return null;
+        }
+        let max_val = -Infinity;
+        let max_idx = -1;
+        const len = this.raw_data.length;
+        const raw = this.raw_data;
+        for (let i = 0; i < len; i++) {
+            if (raw[i] > max_val) {
+                max_val = raw[i];
+                max_idx = i;
+            }
+        }
+        if (max_idx === -1) {
+            return null;
+        }
+        let row = Math.floor(max_idx / this.n_direct);
+        let col = max_idx % this.n_direct;
+        let x_ppm = (this.x_ppm_start || 0) + (this.x_ppm_ref || 0) + col * (this.x_ppm_step || 0);
+        let y_ppm = (this.y_ppm_start || 0) + (this.y_ppm_ref || 0) + row * (this.y_ppm_step || 0);
+        this.maximal_point = { x_ppm: x_ppm, y_ppm: y_ppm, value: max_val, row: row, col: col };
+        return this.maximal_point;
+    };
+
 
     update_x_ppm_ref(x_ppm_ref) {
         let delta_ppm = x_ppm_ref - this.x_ppm_ref;
         this.x_ppm_ref = x_ppm_ref;
+        this.maximal_point = null;
         this.header[101] += delta_ppm * this.frq1;
         this.ref1 = this.header[101];
 
@@ -366,6 +399,7 @@ class spectrum {
     update_y_ppm_ref(y_ppm_ref) {
         let delta_ppm = y_ppm_ref - this.y_ppm_ref;
         this.y_ppm_ref = y_ppm_ref;
+        this.maximal_point = null;
         this.header[249] += delta_ppm * this.frq2;
         this.ref2 = this.header[249];
 
@@ -1158,6 +1192,8 @@ class spectrum {
          * Get max and min of z (z is sorted)
          */
         [this.spectral_max, this.spectral_min] = mathTool.find_max_min(this.raw_data);
+        this.maximal_point = null;
+        this.get_maximal_point();
 
         /**
          * If noise_level < spectral_max/1.4^30, set noise_level to spectral_max/1.4^30
