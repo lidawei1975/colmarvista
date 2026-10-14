@@ -203,7 +203,7 @@
                 <h2>For autonomous processing, peak picking, peak fitting, and pseudo-3D fitting</h2>
                 <h3><a target="_blank" rel="noopener noreferrer"
                         href="https://github.com/lidawei1975/colmarviewer/wiki">Instructions</a>
-                    <button id="start_tutorial"
+                    <button id="start_tutorial" onclick="startTutorial()" title="Start the interactive step-by-step tutorial."
                         style="margin-left: 20px; font-size: 0.8em; cursor: pointer; background-color: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 3px;">Tutorial</button>
                 </h3>
             </div>
@@ -212,9 +212,13 @@
         <div id="section2">
 
 
-            <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; height: 3rem;">
+            <div id="load_and_save" class="drop-area-neighbor" style="width: 1200px; overflow: clip; min-height: 3rem; height: auto;">
                 <label for="button_save" id="button_save_label">Save current session to a local file </label>
                 <button id="button_save" onclick="save_to_file()">save</button>
+                <span style="margin-left: 20px;">
+                    <input type="checkbox" id="save_fid_data">
+                    <label for="save_fid_data" id="save_fid_data_label">Include raw FID data (allows reprocessing)</label>
+                </span>
                 <br>
                 <label id="load_file_label" for="load_file">Load previous session: </label>
                 <input type="file" id="load_file">
@@ -635,10 +639,10 @@
                             <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
                             <input type="checkbox" id="allow_click_to_add_peak" disabled>
                             <label for="allow_click_to_add_peak"> Click to add peaks.</label>
-                            <input type="radio" id="select_plot_1d" name="select_plot_1d" value="projection" checked>
-                            <label for="select_plot_1d">Projection</label>
-                            <input type="radio" id="select_plot_1d" name="select_plot_1d" value="cross_section">
-                            <label for="select_plot_1d">Cross section</label>
+                            <input type="radio" id="select_plot_1d_proj" name="select_plot_1d" value="projection">
+                            <label for="select_plot_1d_proj">Projection</label>
+                            <input type="radio" id="select_plot_1d_cs" name="select_plot_1d" value="cross_section" checked>
+                            <label for="select_plot_1d_cs">Cross section</label>
                             <br><br>
                     </div>
 
@@ -648,14 +652,6 @@
                             <div id="cross_section_empty" class="resizable_stack_invisible"
                                 style="width: 200px; height: 200px;">
 
-                                <fieldset>
-                                    <legend>Select cross section</legend>
-                                    <input type="checkbox" id="pause_cursor">
-                                    <label for="pause_cursor"> Pause the cursor</label>
-                                    <input type="checkbox" id="right_click" checked>
-                                    <label for="right_click"> Right click</label>
-                                </fieldset>
-                                <br>
                                 <fieldset>
                                     <legend>Magnifying glass</legend>
                                     <input type="checkbox" id="enable_magnifying_glass">
@@ -843,7 +839,9 @@
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
         <script type="text/javascript" src="js/2d_tfjs_infer_full_pipeline.js"></script>
         <script type="text/javascript" src="js/tools/HuangarianInt32.js"></script>
-        <script type="text/javascript" src="js/2d.js?v=20261001_2"></script>
+        <script type="text/javascript" src="js/tutorial.js"></script>
+        <script type="text/javascript" src="js/tooltips.js?v=20261014_1"></script>
+        <script type="text/javascript" src="js/2d.js?v=20261013_2"></script>
     </div>
 </body>
 </html>

@@ -21,7 +21,7 @@ describe('Pseudo3D Process First Only then Reprocess All Planes', () => {
         cy.get('#spectrum-1').should('not.exist');
 
         // 4. Click Reprocess on spectrum 0
-        cy.get('#spectrum-0').contains('button', 'Reprocess').click();
+        cy.get('#spectrum-0').contains('button', 'Edit FID processing').click();
 
         // 5. Select Process All Planes
         cy.get('input[name="Pseudo-3D-process"][value="all_planes"]').check({ force: true });

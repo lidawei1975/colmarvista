@@ -16,6 +16,7 @@ class cross_section_plot {
         this.parent_plot = parent_plot; //parent plot object
         this.data_reconstructed_array = []; //reconstructed spectrum, with phase correction applied.
         this.data_reconstructed_spectra_indices = []; //reconstructed spectrum's index in the hsqc_spectra array
+        this.cross_section_ppm = null; //ppm location of the cross section line
     }
 
     /**
@@ -155,6 +156,22 @@ class cross_section_plot {
             .style("stroke", "blue")
             .style("stroke-width", 1.5)
             .style("stroke-dasharray", "4,4")
+            .style("display", "none");
+
+        /**
+         * Add a line to show the cross section location
+         */
+        this.cross_section_ppm = null;
+        this.cross_section_line_g = this.vis.append("g")
+            .attr("class", "cross_section_line_g");
+        this.cross_section_line = this.cross_section_line_g
+            .append("line")
+            .attr("class", "cross_section_line")
+            .attr("clip-path", "url(#clip" + this.orientation + ")")
+            .attr("stroke", "green")
+            .attr("stroke-width", 1)
+            .style("stroke", "green")
+            .style("stroke-width", 1)
             .style("display", "none");
 
         /**
@@ -530,6 +547,9 @@ class cross_section_plot {
         this.vis.selectAll("[class*='line_reconstructed_']").remove();
         this.data_reconstructed_array = [];
         this.data_reconstructed_spectra_indices = [];
+        if (this.cross_section_line) {
+            this.cross_section_line.style("display", "none");
+        }
     }
 
     /**
@@ -708,6 +728,10 @@ class cross_section_plot {
         else {
             document.getElementById('cross_section_y_info').style.display = "none";
         }
+        this.cross_section_ppm = null;
+        if (this.cross_section_line) {
+            this.cross_section_line.style("display", "none");
+        }
         this.redraw();
     }
 
@@ -850,6 +874,74 @@ class cross_section_plot {
             } else {
                 this.pivot_line.style("display", "none");
             }
+        }
+
+        /**
+         * Update the cross section indicator line
+         */
+        this.update_cross_section_line();
+    }
+
+    /**
+     * Sets the cross section location in ppm and updates the indicator line.
+     * @param {number|null} ppm - Chemical shift in ppm
+     */
+    set_cross_section_ppm(ppm) {
+        this.cross_section_ppm = (ppm !== null && ppm !== undefined && Number.isFinite(ppm)) ? ppm : null;
+        this.update_cross_section_line();
+    }
+
+    /**
+     * Updates the position and visibility of the cross section indicator line.
+     * - Top horizontal plot: vertical green line at x_ppm
+     * - Left vertical plot: horizontal green line at y_ppm
+     */
+    update_cross_section_line() {
+        if (!this.cross_section_line || !this.x || !this.y) return;
+
+        let ppm = this.cross_section_ppm;
+        if (ppm === null || ppm === undefined || !Number.isFinite(ppm)) {
+            if (this.parent_plot && this.parent_plot.b_show_cross_section) {
+                ppm = (this.orientation === "horizontal") ? this.parent_plot.vline_ppm : this.parent_plot.hline_ppm;
+            }
+        }
+
+        let has_data = (this.data && this.data.length > 0) || (this.data_reconstructed_array && this.data_reconstructed_array.length > 0);
+        let show_line = has_data && (ppm !== null && ppm !== undefined && Number.isFinite(ppm));
+
+        if (this.parent_plot && this.parent_plot.b_show_cross_section === false) {
+            show_line = false;
+        }
+
+        if (!show_line) {
+            this.cross_section_line.style("display", "none");
+            return;
+        }
+
+        if (this.orientation === "horizontal") {
+            let x_pos = this.x(ppm);
+            let y_top = this.y.range()[1];
+            let y_bottom = this.y.range()[0];
+            this.cross_section_line
+                .attr("x1", x_pos)
+                .attr("y1", y_top)
+                .attr("x2", x_pos)
+                .attr("y2", y_bottom)
+                .style("display", "block");
+        } else {
+            let y_pos = this.y(ppm);
+            let x_left = this.x.range()[1];
+            let x_right = this.x.range()[0];
+            this.cross_section_line
+                .attr("x1", x_left)
+                .attr("y1", y_pos)
+                .attr("x2", x_right)
+                .attr("y2", y_pos)
+                .style("display", "block");
+        }
+
+        if (this.cross_section_line_g) {
+            this.cross_section_line_g.raise();
         }
     }
 

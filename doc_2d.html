@@ -126,7 +126,7 @@
         <ul>
           <li><b>Zooming:</b> Click and brush a rectangular area on the main 2D plot to zoom in. Use <b>Reset all Zoom</b>, <b>Zoom Back</b> (step back zoom stack), or <b>Zoom out 120%</b> buttons.</li>
           <li><b>Reordering Spectra:</b> Drag and drop loaded spectra in <i>Your spectra list</i> to reorder display depth layer rendering.</li>
-          <li><b>1D Projections vs. Cross Section Slices:</b> Toggle between <i>Projection</i> mode and <i>Cross section</i> mode. Hover the cursor over a peak location for 3 seconds (with <i>Pause the cursor</i> checked) or right-click to view synchronized 1D cross section slices along direct ($X$) and indirect ($Y$) dimensions.</li>
+          <li><b>1D Projections vs. Cross Section Slices:</b> Toggle between <i>Projection</i> mode and <i>Cross section</i> mode (Cross section is default). Right-click on the 2D plot to view synchronized 1D cross section slices along direct ($X$) and indirect ($Y$) dimensions at that position. The cross section automatically initializes to the maximal spectrum point.</li>
           <li><b>Phase & Anchor Overlay:</b> The 1D cross-section slice headers display real-time $P_0$, $P_1$, and anchor point phase parameters.</li>
         </ul>
 
@@ -298,7 +298,7 @@
         <h3>Process & Reprocess Workflow</h3>
         <ul>
           <li>Click <b>Upload experimental files and process</b> to start Fourier Transformation.</li>
-          <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Reprocess</b> to reload parameters into the form, adjust phase/apodization settings, re-run processing, and click <b>Quit reprocessing</b> when done.</li>
+          <li><b>Reprocessing:</b> Select a spectrum from the list and click <b>Edit FID processing</b> to reload its FID data and previous parameters into the form (nothing is processed yet). Adjust phase/apodization settings, click <b>Reprocess</b> in the form to re-run processing, and click <b>Quit editing</b> when done.</li>
         </ul>
         
           </div>
@@ -320,7 +320,7 @@
         <p>Manual phase correction requires imaginary data to be retained during initial 2D FID processing.</p>
         <ol>
           <li><b>Select Spectrum:</b> Select the target spectrum in <i>Your spectra list</i> and click <b>Reprocess</b>.</li>
-          <li><b>Display 1D Cross Section:</b> Switch to <i>Cross section</i> mode. Hover the cursor over a strong peak for 3 seconds or right-click to display horizontal ($X$) and vertical ($Y$) 1D cross section slices.</li>
+          <li><b>Display 1D Cross Section:</b> Cross section mode is enabled by default at the spectrum's maximal point. Right-click on any peak or position to display horizontal ($X$) and vertical ($Y$) 1D cross section slices through that point.</li>
           <li><b>Adjust Zero-Order Phase (P0):</b> Move the cursor onto either the direct ($X$) or indirect ($Y$) 1D cross-section plot. Hold <kbd>Shift</kbd> (1.0&deg; coarse adjustment) or <kbd>Ctrl</kbd> (0.2&deg; fine adjustment) and scroll the mouse wheel.</li>
           <li><b>Set Anchor Point & Adjust P1:</b> Click on a peak in the cross-section plot to set an anchor point (indicated by an anchor line). Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> and scroll the mouse wheel to adjust first-order phase ($P_1$). Right-click to unset the anchor point.</li>
           <li><b>Apply Phase Correction:</b> Click <b>Apply PC</b> to apply phase correction to the full 2D spectrum. The exact $P_0$ and $P_1$ values are updated in the processing form and displayed for export into nmrPipe scripts.</li>

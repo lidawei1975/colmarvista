@@ -76,9 +76,73 @@ var cest_filter_multi_peaks_only = false;
  * For FID re-processing. Saved file data
  */
 var fid_process_parameters;
+var has_processed_fid = false;
 var current_reprocess_spectrum_index = -1;
 var nuslist_as_string = "";
 var current_process_fid_files_fn;
+
+function restore_fid_parameters_to_default() {
+    const wsEl = document.getElementById("water_suppression");
+    if (wsEl) wsEl.checked = false;
+
+    const p0DirectEl = document.getElementById("phase_correction_direct_p0");
+    if (p0DirectEl) p0DirectEl.value = 0;
+
+    const p1DirectEl = document.getElementById("phase_correction_direct_p1");
+    if (p1DirectEl) p1DirectEl.value = 0;
+
+    const autoDirectEl = document.getElementById("auto_direct");
+    if (autoDirectEl) {
+        autoDirectEl.checked = true;
+        autoDirectEl.disabled = false;
+    }
+
+    const annAutoDirectEl = document.getElementById("ann_auto_direct");
+    if (annAutoDirectEl) {
+        annAutoDirectEl.checked = true;
+        annAutoDirectEl.disabled = false;
+    }
+
+    const delImagDirectEl = document.getElementById("delete_imaginary");
+    if (delImagDirectEl) delImagDirectEl.checked = false;
+
+    const flattBaselineEl = document.getElementById("nus_flatt_baseline");
+    if (flattBaselineEl) flattBaselineEl.checked = false;
+
+    const nusProcessNormalEl = document.getElementById("nus_process_as_normal");
+    if (nusProcessNormalEl) nusProcessNormalEl.checked = false;
+
+    const extractFromEl = document.getElementById("extract_direct_from");
+    if (extractFromEl) extractFromEl.value = 1000.0;
+
+    const extractToEl = document.getElementById("extract_direct_to");
+    if (extractToEl) extractToEl.value = -1000.0;
+
+    const p0IndirectEl = document.getElementById("phase_correction_indirect_p0");
+    if (p0IndirectEl) p0IndirectEl.value = 0;
+
+    const p1IndirectEl = document.getElementById("phase_correction_indirect_p1");
+    if (p1IndirectEl) p1IndirectEl.value = 0;
+
+    const autoIndirectEl = document.getElementById("auto_indirect");
+    if (autoIndirectEl) {
+        autoIndirectEl.checked = true;
+        autoIndirectEl.disabled = false;
+    }
+
+    const delImagIndirectEl = document.getElementById("delete_imaginary_indirect");
+    if (delImagIndirectEl) delImagIndirectEl.checked = false;
+
+    const firstOnlyRadio = document.getElementById("first_only");
+    if (firstOnlyRadio) firstOnlyRadio.checked = true;
+
+    const allPlanesRadio = document.getElementById("all_planes");
+    if (allPlanesRadio) allPlanesRadio.checked = false;
+
+    // Note: apodization_direct, apodization_indirect, zf_direct, zf_indirect,
+    // and neg_imaginary are intentionally preserved and NOT restored to defaults.
+}
+window.restore_fid_parameters_to_default = restore_fid_parameters_to_default;
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -225,8 +289,8 @@ $(document).ready(function () {
     */
     fid_drop_process = new file_drop_processor()
         .drop_area('input_files') /** id of dropzone */
-        .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist"])  /** file names to be searched from upload */
-        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file"]) /** Corresponding file element IDs */
+        .files_name(["acqu2s", "acqu3s", "acqus", "ser", "fid", "nuslist", "acqus2"])  /** file names to be searched from upload */
+        .files_id(["acquisition_file2", "acquisition_file3", "acquisition_file", "fid_file", "fid_file", "nuslist_file", "acquisition_file2"]) /** Corresponding file element IDs */
         .file_extension([])  /** file extensions to be searched from upload */
         .required_files([0, 2, 3])
         .click_to_select_folder() /** Enable click on drop zone background to open a folder picker (for ChromeOS) */
@@ -247,9 +311,31 @@ $(document).ready(function () {
     }
 
     // Tutorial Implementation
-    if (typeof SimpleTutorial !== 'undefined') {
-        const steps = [
+    var tutorial = null;
 
+    function startTutorial() {
+        if (typeof SimpleTutorial === 'undefined') {
+            alert("Tutorial script not loaded.");
+            console.error("SimpleTutorial class is missing.");
+            return;
+        }
+
+        // Restore fid area if minimized
+        const btn = document.getElementById('button_minimize_fid_area');
+        if (btn && btn.innerText === '+') {
+            minimize_fid_area(btn);
+        }
+        const annElem = document.getElementById('ann_auto_direct');
+        if (annElem) {
+            annElem.checked = false;
+        }
+
+        if (tutorial) {
+            tutorial.cancel();
+            tutorial = null;
+        }
+
+        const steps = [
             {
                 elementId: 'input_options',
                 message: "<strong>Welcome!</strong><br>For this tutorial, please <strong>do not change</strong> any of these processing parameters. Keep them at their default values.",
@@ -257,7 +343,7 @@ $(document).ready(function () {
             },
             {
                 elementId: 'input_files',
-                message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code>, <code>acqus</code> and <code>acqus2</code>) into this area. <br>Or select files manually.",
+                message: "<strong>Step 1:</strong> Drag and drop your Bruker data folder (containing <code>fid</code> or <code>ser</code>, <code>acqus</code>, and <code>acqu2s</code>) into this area. <br>Or select files manually.",
                 triggerEvent: ['drop', 'change'],
                 hideNext: true,
                 validate: (e) => {
@@ -276,8 +362,9 @@ $(document).ready(function () {
             {
                 elementId: 'vis_parent',
                 message: "<strong>Processing...</strong> Please wait for the 2D spectrum to appear.",
-                triggerEvent: 'colmar:processing_finished', // Dispatched in resize_main_plot or separate handler
-                hideNext: true
+                triggerEvent: 'colmar:processing_finished',
+                hideNext: true,
+                validate: () => (typeof hsqc_spectra !== 'undefined' && hsqc_spectra.length > 0)
             },
             {
                 elementId: 'vis_parent',
@@ -287,45 +374,43 @@ $(document).ready(function () {
             {
                 elementId: 'cross_section_x',
                 message: "<strong>Step 4:</strong> Use the mouse wheel or click/drag on these <strong>1D cross-section plots</strong> to Pan and Zoom the main 2D view.<br><br>Click <strong>Next</strong> to continue.",
-                triggerEvent: null // User must click Next explicitly
+                triggerEvent: null
             },
             {
-                innerText: 'Download ft2', // Target button by text
+                innerText: 'Download ft2',
                 message: "<strong>Step 5:</strong> Click here to <strong>Download</strong> the processed data (.ft2).",
                 triggerEvent: 'click'
             },
             {
-                elementId: null, // No target highlight
-                message: "<strong>Tutorial Complete!</strong>",
+                elementId: null,
+                message: "<strong>Tutorial Complete!</strong><br>You have completed the 2D tutorial.",
                 triggerEvent: null
             }
         ];
 
-        const tutorial = new SimpleTutorial(steps, () => {
-            document.getElementById('start_tutorial').style.display = 'none';
-            const annElem = document.getElementById('ann_auto_direct');
-            if (annElem) {
-                annElem.checked = true;
+        tutorial = new SimpleTutorial(steps, () => {
+            const startBtn = document.getElementById('start_tutorial');
+            if (startBtn) startBtn.style.display = 'none';
+            const ann = document.getElementById('ann_auto_direct');
+            if (ann) {
+                ann.checked = true;
                 const autoDirectEl = document.getElementById("auto_direct");
                 const deleteImaginaryEl = document.getElementById("delete_imaginary");
                 if (autoDirectEl) autoDirectEl.checked = true;
                 if (deleteImaginaryEl) deleteImaginaryEl.checked = false;
             }
+            tutorial = null;
         });
 
-        document.getElementById('start_tutorial').addEventListener('click', () => {
-            // Restore fid area if minimized
-            const btn = document.getElementById('button_minimize_fid_area');
-            if (btn && btn.innerText === '+') {
-                minimize_fid_area(btn);
-            }
-            const annElem = document.getElementById('ann_auto_direct');
-            if (annElem) {
-                annElem.checked = false;
-            }
-            tutorial.start();
-        });
+        tutorial.start();
     }
+    window.startTutorial = startTutorial;
+
+    const startTutBtn = document.getElementById('start_tutorial');
+    if (startTutBtn) {
+        startTutBtn.addEventListener('click', startTutorial);
+    }
+
 
     /**
      * Upload pseudo 3D fitting result file 
@@ -407,6 +492,60 @@ $(document).ready(function () {
             el.addEventListener('input', function () { chemex_generated_manifest = null; });
         }
     });
+
+    // When preparing for a new FID processing after a previous one, restore FID processing parameters
+    // to default, except for apodization, zero filling, and negative imaginary data.
+    ['fid_file', 'acquisition_file', 'acquisition_file2', 'acquisition_file3', 'nuslist_file'].forEach(function (id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', function () {
+                if (has_processed_fid) {
+                    restore_fid_parameters_to_default();
+                    has_processed_fid = false;
+                }
+                if (current_reprocess_spectrum_index !== -1) {
+                    current_reprocess_spectrum_index = -1;
+                    let fidBtn = document.getElementById("button_fid_process");
+                    if (fidBtn) fidBtn.value = "Upload experimental files and process";
+                    let fileArea = document.getElementById("file_area");
+                    if (fileArea) fileArea.style.display = "block";
+                    let inputFiles = document.getElementById("input_files");
+                    if (inputFiles) inputFiles.style.display = "flex";
+                    let editBtns = document.querySelectorAll(".button_edit_fid");
+                    editBtns.forEach(function (b) {
+                        if (b.innerText.toLowerCase().includes("quit")) {
+                            b.innerText = "Edit FID processing";
+                        }
+                    });
+                }
+            });
+        }
+    });
+
+    let fidDropArea = document.getElementById("input_files");
+    if (fidDropArea) {
+        fidDropArea.addEventListener('drop', function () {
+            if (has_processed_fid) {
+                restore_fid_parameters_to_default();
+                has_processed_fid = false;
+            }
+            if (current_reprocess_spectrum_index !== -1) {
+                current_reprocess_spectrum_index = -1;
+                let fidBtn = document.getElementById("button_fid_process");
+                if (fidBtn) fidBtn.value = "Upload experimental files and process";
+                let fileArea = document.getElementById("file_area");
+                if (fileArea) fileArea.style.display = "block";
+                let inputFiles = document.getElementById("input_files");
+                if (inputFiles) inputFiles.style.display = "flex";
+                let editBtns = document.querySelectorAll(".button_edit_fid");
+                editBtns.forEach(function (b) {
+                    if (b.innerText.toLowerCase().includes("quit")) {
+                        b.innerText = "Edit FID processing";
+                    }
+                });
+            }
+        });
+    }
 
 
     /**
@@ -689,6 +828,10 @@ $(document).ready(function () {
         }
 
         else {
+            if (has_processed_fid) {
+                restore_fid_parameters_to_default();
+                has_processed_fid = false;
+            }
             /**
              * UN-highlight the input_options div
              */
@@ -888,30 +1031,6 @@ $(document).ready(function () {
              */
             document.getElementById("magnifying_glass_size").removeEventListener('change', enable_magnifying_glass);
             document.getElementById("magnifying_glass_ratio").removeEventListener('change', enable_magnifying_glass);
-        }
-    });
-
-    /**
-     * Event listener for the checkbox "pause_cursor"
-     */
-    document.getElementById("pause_cursor").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.cross_line_pause_flag = true;
-        }
-        else {
-            main_plot.cross_line_pause_flag = false;
-        }
-    });
-
-    /**
-     * Event listener for the checkbox "right_click"
-     */
-    document.getElementById("right_click").addEventListener('change', function () {
-        if (this.checked) {
-            main_plot.allow_right_click(true);
-        }
-        else {
-            main_plot.allow_right_click(false);
         }
     });
 
@@ -1829,7 +1948,14 @@ function handle_webassembly_worker_message(e) {
         else {
             draw_spectrum(result_spectra, true/**from fid */, b_reprocess);
         }
-        document.getElementById('vis_parent').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        const visParentEl = document.getElementById('vis_parent');
+        if (visParentEl) {
+            visParentEl.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
+        const fidBtn = document.getElementById('button_fid_process');
+        if (fidBtn) {
+            fidBtn.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
 
         /**
          * Clear the processing message
@@ -1843,6 +1969,7 @@ function handle_webassembly_worker_message(e) {
         if (document.getElementById("ann_auto_direct")) {
             document.getElementById("ann_auto_direct").checked = false;
         }
+        has_processed_fid = true;
     }
 
     /**
@@ -1997,7 +2124,14 @@ function resize_main_plot(wid, height) {
     if (main_plot !== null) {
         main_plot.update(input);
         // Dispatch event for tutorial step
-        document.getElementById('button_fid_process').dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        const fidBtn = document.getElementById('button_fid_process');
+        if (fidBtn) {
+            fidBtn.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
+        const visParentEl = document.getElementById('vis_parent');
+        if (visParentEl) {
+            visParentEl.dispatchEvent(new CustomEvent('colmar:processing_finished', { bubbles: true }));
+        }
     }
 
     /**
@@ -2635,7 +2769,9 @@ function add_to_list(index) {
      */
     if (new_spectrum.spectrum_origin === -2) {
         let reprocess_button = document.createElement("button");
-        reprocess_button.innerText = "Reprocess";
+        reprocess_button.className = "button_edit_fid";
+        reprocess_button.innerText = "Edit FID processing";
+        reprocess_button.title = "Load this spectrum's FID data and its previous processing parameters back into the FID processing section above, so you can adjust them. This does NOT reprocess anything yet; click the \"Reprocess\" button in that section to run the processing again.";
         reprocess_button.onclick = function () { reprocess_spectrum(this, index); };
         new_spectrum_div.appendChild(reprocess_button);
     }
@@ -3383,11 +3519,11 @@ function add_to_list(index) {
         }
 
         /**
-         * For experimental spectrum, switch default to show projection
+         * For experimental spectrum, switch default to show cross section
          * Only call for uncollapsed spectra to prevent UI freezing on large pseudo3D datasets
          */
         if (!b_collapsed) {
-            show_projection();
+            show_cross_section();
         }
     }
     if (!pending_pseudo3d_uncalculated_spectra || pending_pseudo3d_uncalculated_spectra.length === 0) {
@@ -6360,8 +6496,17 @@ function refresh_cross_sections_after_phase(index) {
         return;
     }
 
-    const x_ppm = main_plot.vline_ppm !== null ? main_plot.vline_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
-    const y_ppm = main_plot.hline_ppm !== null ? main_plot.hline_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+    let x_ppm = main_plot.vline_ppm;
+    let y_ppm = main_plot.hline_ppm;
+    if (x_ppm === null || y_ppm === null) {
+        let max_pt = (typeof main_plot.get_maximal_spectrum_point === "function") ? main_plot.get_maximal_spectrum_point() : null;
+        if (x_ppm === null) {
+            x_ppm = (max_pt && max_pt.x_ppm !== undefined) ? max_pt.x_ppm : (main_plot.xscale[0] + main_plot.xscale[1]) / 2.0;
+        }
+        if (y_ppm === null) {
+            y_ppm = (max_pt && max_pt.y_ppm !== undefined) ? max_pt.y_ppm : (main_plot.yscale[0] + main_plot.yscale[1]) / 2.0;
+        }
+    }
 
     const single_manual_mode = (hsqc_spectra[index].spectrum_origin == -2 || hsqc_spectra[index].spectrum_origin == -1)
         && (current_reprocess_spectrum_index == index || hsqc_spectra.length == 1);
@@ -6966,58 +7111,49 @@ function get_peak_limit(peak_object, header) {
  */
 function reprocess_spectrum(self, spectrum_index) {
     function set_fid_parameters(fid_process_parameters) {
-        document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
+        if (!fid_process_parameters) return;
+        if (fid_process_parameters.water_suppression !== undefined) document.getElementById("water_suppression").checked = fid_process_parameters.water_suppression;
         // baseline form controls removed, bypass restoring polynomial order to form
-        document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
-        document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
-        document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
-        document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
-        document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
+        if (fid_process_parameters.apodization_direct !== undefined) document.getElementById("apodization_direct").value = fid_process_parameters.apodization_direct;
+        if (fid_process_parameters.zf_direct !== undefined) document.getElementById("zf_direct").value = fid_process_parameters.zf_direct;
+        if (fid_process_parameters.phase_correction_direct_p0 !== undefined) document.getElementById("phase_correction_direct_p0").value = fid_process_parameters.phase_correction_direct_p0;
+        if (fid_process_parameters.phase_correction_direct_p1 !== undefined) document.getElementById("phase_correction_direct_p1").value = fid_process_parameters.phase_correction_direct_p1;
+        if (fid_process_parameters.auto_direct !== undefined) document.getElementById("auto_direct").checked = fid_process_parameters.auto_direct;
         if (document.getElementById("ann_auto_direct")) {
             document.getElementById("ann_auto_direct").checked = fid_process_parameters.ann_auto_direct || false;
         }
-        document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
-        document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
-        document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
-        document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
-        document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
-        document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
-        document.getElementById("phase_correction_indirect_p1").value = fid_process_parameters.phase_correction_indirect_p1;
-        document.getElementById("auto_indirect").checked = fid_process_parameters.auto_indirect;
-        document.getElementById("delete_imaginary_indirect").checked = fid_process_parameters.delete_indirect;
-        document.getElementById("neg_imaginary").checked = fid_process_parameters.neg_imaginary === "yes" ? true : false;
+        if (fid_process_parameters.delete_direct !== undefined) document.getElementById("delete_imaginary").checked = fid_process_parameters.delete_direct;
+        if (fid_process_parameters.extract_direct_from !== undefined) document.getElementById("extract_direct_from").value = fid_process_parameters.extract_direct_from;
+        if (fid_process_parameters.extract_direct_to !== undefined) document.getElementById("extract_direct_to").value = fid_process_parameters.extract_direct_to;
+        if (fid_process_parameters.apodization_indirect !== undefined) document.getElementById("apodization_indirect").value = fid_process_parameters.apodization_indirect;
+        if (fid_process_parameters.zf_indirect !== undefined) document.getElementById("zf_indirect").value = fid_process_parameters.zf_indirect;
+        if (fid_process_parameters.phase_correction_indirect_p0 !== undefined) document.getElementById("phase_correction_indirect_p0").value = fid_process_parameters.phase_correction_indirect_p0;
+        if (fid_process_parameters.phase_correction_indirect_p1 !== undefined) document.getElementById("phase_correction_indirect_p1").value = fid_process_parameters.phase_correction_indirect_p1;
+        if (fid_process_parameters.auto_indirect !== undefined) document.getElementById("auto_indirect").checked = fid_process_parameters.auto_indirect;
+        if (fid_process_parameters.delete_indirect !== undefined) document.getElementById("delete_imaginary_indirect").checked = fid_process_parameters.delete_indirect;
+        if (fid_process_parameters.neg_imaginary !== undefined) document.getElementById("neg_imaginary").checked = fid_process_parameters.neg_imaginary === "yes" ? true : false;
     }
 
     function set_default_fid_parameters() {
-        document.getElementById("water_suppression").checked = false;
-        // baseline form controls removed, bypass resetting polynomial
-        document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_direct").value = "2";
-        document.getElementById("phase_correction_direct_p0").value = 0;
-        document.getElementById("phase_correction_direct_p1").value = 0;
-        document.getElementById("auto_direct").checked = true;
-        if (document.getElementById("ann_auto_direct")) {
-            document.getElementById("ann_auto_direct").checked = false;
-        }
-        document.getElementById("delete_imaginary").checked = false
-        document.getElementById("extract_direct_from").value = 8.8;
-        document.getElementById("extract_direct_to").value = 7.0;
-        document.getElementById("apodization_indirect").value = " SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_indirect").value = "2";
-        document.getElementById("phase_correction_indirect_p0").value = 0;
-        document.getElementById("phase_correction_indirect_p1").value = 0;
-        document.getElementById("auto_indirect").checked = true;
-        document.getElementById("delete_imaginary_indirect").checked = false;
-        document.getElementById("neg_imaginary").checked = false
+        restore_fid_parameters_to_default();
+        has_processed_fid = false;
     }
     /**
      * Get button text
      */
     let button_text = self.innerText;
     /**
-     * If the button text is "Reprocess", we need to prepare for reprocess the spectrum
+     * If the button text is "Edit FID processing", we need to prepare for reprocess the spectrum
      */
-    if (button_text === "Reprocess") {
+    if (button_text === "Edit FID processing") {
+        /**
+         * Expand fid_file_area if minimized so the user can see parameters and Reprocess button
+         */
+        let btn_min = document.getElementById("button_minimize_fid_area");
+        if (btn_min && btn_min.innerText.trim() === "+") {
+            minimize_fid_area(btn_min);
+        }
+
         /**
          * hide input fid files
          */
@@ -7029,9 +7165,10 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
         document.getElementById("input_options").style.backgroundColor = "lightblue";
         /**
-         * Change button text to "Quit reprocessing"
+         * Change button text to "Quit editing"
          */
-        self.innerText = "Quit reprocessing";
+        self.innerText = "Quit editing";
+        self.title = "Leave FID parameter editing mode and restore the default FID processing section. The spectrum is left unchanged.";
         /**
          * Hide div "file_area" and "input_files" (of fid_file_area). 
          * Change the button "button_fid_process" text to "Reprocess"
@@ -7069,9 +7206,10 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("spectrum-" + spectrum_index).style.backgroundColor = "white";
         document.getElementById("input_options").style.backgroundColor = "white";
         /**
-         * Change button text back to "Reprocess"
+         * Change button text back to "Edit FID processing"
          */
-        self.innerText = "Reprocess";
+        self.innerText = "Edit FID processing";
+        self.title = "Load this spectrum's FID data and its previous processing parameters back into the FID processing section above, so you can adjust them. This does NOT reprocess anything yet; click the \"Reprocess\" button in that section to run the processing again.";
         /**
          * Show div "file_area" and "input_files" (of fid_file_area).
          * Change the button "button_fid_process"text back to "Upload experimental files and process"
@@ -7097,13 +7235,15 @@ function reprocess_spectrum(self, spectrum_index) {
 */
 function save_to_file() {
     try {
+        const include_fid_data = document.getElementById("save_fid_data") ? document.getElementById("save_fid_data").checked : false;
+
         /**
          * Step 1, prepare the json data. Convert hsqc_spectra to a hsqc_spectra_copy
          * where in each spectrum object, we call create_shallow_copy_wo_float32 to have a shallow (modified) copy of the spectrum
          */
         let hsqc_spectra_copy = [];
         for (let i = 0; i < hsqc_spectra.length; i++) {
-            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32();
+            let spectrum_copy = hsqc_spectra[i].create_shallow_copy_wo_float32(include_fid_data);
             hsqc_spectra_copy.push(spectrum_copy);
         }
 
@@ -7138,16 +7278,26 @@ function save_to_file() {
 
         /**
          * Step 2, prepare the binaryData, which is a concatenation of all 
-         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements
+         *  header, raw_data, raw_data_ri, raw_data_ir, raw_data_ii in all hsqc_spectra elements,
+         *  and raw FID time-domain file buffers if include_fid_data is true
          */
-        let totalLength = 0;
+        let totalFloat32Length = 0;
+        let totalFidBytes = 0;
         for (let i = 0; i < hsqc_spectra.length; i++) {
             const s = hsqc_spectra[i];
-            totalLength += (s.header ? s.header.length : 0) +
+            totalFloat32Length += (s.header ? s.header.length : 0) +
                 (s.raw_data ? s.raw_data.length : 0) +
                 (s.raw_data_ri ? s.raw_data_ri.length : 0) +
                 (s.raw_data_ir ? s.raw_data_ir.length : 0) +
                 (s.raw_data_ii ? s.raw_data_ii.length : 0);
+            if (include_fid_data && s.fid_process_parameters && Array.isArray(s.fid_process_parameters.file_data)) {
+                for (let f = 0; f < s.fid_process_parameters.file_data.length; f++) {
+                    const fb = s.fid_process_parameters.file_data[f];
+                    if (fb) {
+                        totalFidBytes += (fb.byteLength !== undefined ? fb.byteLength : (fb.length || 0));
+                    }
+                }
+            }
         }
 
         const jsonString = JSON.stringify(to_save);
@@ -7160,7 +7310,8 @@ function save_to_file() {
         lengthView.setInt32(0, jsonLength, true); // true for little-endian
 
         // Combine length, JSON, and binary data:
-        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalLength * Float32Array.BYTES_PER_ELEMENT);
+        const totalBinaryBytes = totalFloat32Length * Float32Array.BYTES_PER_ELEMENT + totalFidBytes;
+        const combinedBuffer = new ArrayBuffer(4 + jsonLength + totalBinaryBytes);
         const combinedView = new Uint8Array(combinedBuffer);
 
         combinedView.set(new Uint8Array(lengthBuffer), 0);
@@ -7191,6 +7342,20 @@ function save_to_file() {
             if (s.raw_data_ii && s.raw_data_ii.length > 0) {
                 combinedView.set(new Uint8Array(s.raw_data_ii.buffer, s.raw_data_ii.byteOffset, s.raw_data_ii.byteLength), offset);
                 offset += s.raw_data_ii.length * Float32Array.BYTES_PER_ELEMENT;
+            }
+            if (include_fid_data && s.fid_process_parameters && Array.isArray(s.fid_process_parameters.file_data)) {
+                for (let f = 0; f < s.fid_process_parameters.file_data.length; f++) {
+                    const fb = s.fid_process_parameters.file_data[f];
+                    if (fb) {
+                        let u8 = (fb instanceof Uint8Array) ? fb :
+                            (fb instanceof ArrayBuffer) ? new Uint8Array(fb) :
+                            (ArrayBuffer.isView(fb)) ? new Uint8Array(fb.buffer, fb.byteOffset, fb.byteLength) : null;
+                        if (u8 && u8.byteLength > 0) {
+                            combinedView.set(u8, offset);
+                            offset += u8.byteLength;
+                        }
+                    }
+                }
             }
         }
 
@@ -7269,6 +7434,8 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         main_plot.points_start_negative = [];
         main_plot.points = new Float32Array();
         main_plot.current_spectral_index = 0;
+        main_plot.vline_ppm = null;
+        main_plot.hline_ppm = null;
         if (hsqc_spectra[0]) {
             let x_range = [hsqc_spectra[0].x_ppm_start, hsqc_spectra[0].x_ppm_start + hsqc_spectra[0].x_ppm_step * hsqc_spectra[0].n_direct];
             let y_range = [hsqc_spectra[0].y_ppm_start, hsqc_spectra[0].y_ppm_start + hsqc_spectra[0].y_ppm_step * hsqc_spectra[0].n_indirect];
@@ -7462,11 +7629,33 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
             hsqc_spectra[i].raw_data_ii = new Float32Array(0);
         }
 
+        let fid_lengths = hsqc_spectra[i].fid_file_lengths || (hsqc_spectra[i].fid_process_parameters && hsqc_spectra[i].fid_process_parameters.fid_file_lengths);
+        if (Array.isArray(fid_lengths) && fid_lengths.length > 0) {
+            let restored_files = [];
+            for (let f = 0; f < fid_lengths.length; f++) {
+                let f_len = fid_lengths[f];
+                if (f_len > 0) {
+                    restored_files.push(new Uint8Array(arrayBuffer.slice(offset, offset + f_len)));
+                    offset += f_len;
+                } else {
+                    restored_files.push(new Uint8Array(0));
+                }
+            }
+            if (!hsqc_spectra[i].fid_process_parameters) {
+                hsqc_spectra[i].fid_process_parameters = {};
+            }
+            hsqc_spectra[i].fid_process_parameters.file_data = restored_files;
+            hsqc_spectra[i].spectrum_origin = -2;
+        }
+
         if (typeof hsqc_spectra[i].calculate_projections === "function") {
             hsqc_spectra[i].calculate_projections();
         }
     }
     draw_spectrum_from_loading();
+    if (hsqc_spectra.some(s => s && s.fid_process_parameters)) {
+        has_processed_fid = true;
+    }
     /**
      * process pseudo-3D buttons and dosy information
      */
@@ -10555,6 +10744,7 @@ function set_background_processing(is_running) {
     const exceptions = [
         "start_tutorial",
         "button_save",
+        "save_fid_data",
         "button_minimize_fid_area",
         "button_minimize_file_area",
         "button_minimize_preudo3d_area"

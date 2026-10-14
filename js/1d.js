@@ -1186,7 +1186,8 @@ function add_to_list(index) {
     if (new_spectrum.spectrum_origin === -2) {
         let reprocess_button = document.createElement("button");
         reprocess_button.id = "reprocess-".concat(index);
-        reprocess_button.innerText = "Reprocess";
+        reprocess_button.innerText = "Edit FID processing";
+        reprocess_button.title = "Load this spectrum's FID data and its previous processing parameters back into the FID processing section above, so you can adjust them. This does NOT reprocess anything yet; click the \"Reprocess\" button in that section to run the processing again.";
         reprocess_button.onclick = function () { reprocess_spectrum(this, index); };
         new_spectrum_div.appendChild(reprocess_button);
     }
@@ -1296,6 +1297,7 @@ function add_to_list(index) {
     line_width_label.classList.add("header-control");
     let line_width_input = document.createElement("input");
     line_width_input.setAttribute("type", "number");
+    line_width_input.setAttribute("id", "line_width-".concat(index));
     line_width_input.setAttribute("min", "1");
     line_width_input.setAttribute("value", "2");
     line_width_input.style.width = '48px';
@@ -1730,10 +1732,8 @@ function reprocess_spectrum(button, spectrum_index) {
 
     function set_default_fid_parameters() {
         /**
-         * Set fid_process_parameters to the default values
+         * Set fid_process_parameters to default values, preserving apodization and zero filling
          */
-        document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";
         document.getElementById("phase_correction_direct_p1").value = "0.0";
         document.getElementById("auto_direct").checked = false;
@@ -1747,9 +1747,9 @@ function reprocess_spectrum(button, spectrum_index) {
      */
     let button_text = button.innerText;
     /**
-     * If the button text is "Reprocess", we need to prepare for reprocess the spectrum
+     * If the button text is "Edit FID processing", we need to prepare for reprocess the spectrum
      */
-    if (button_text === "Reprocess") {
+    if (button_text === "Edit FID processing") {
         /**
          * hide input fid files
          */
@@ -1760,9 +1760,10 @@ function reprocess_spectrum(button, spectrum_index) {
         document.getElementById("spectrum-" + spectrum_index).querySelector("div").style.backgroundColor = "lightblue";
         document.getElementById("input_options").style.backgroundColor = "lightgreen";
         /**
-         * Change button text to "Quit reprocessing"
+         * Change button text to "Quit editing"
          */
-        button.innerText = "Quit reprocessing";
+        button.innerText = "Quit editing";
+        button.title = "Leave FID parameter editing mode and restore the default FID processing section. The spectrum is left unchanged.";
         /**
          * Hide div "file_area" and "input_files" (of fid_file_area). 
          * Change the button "button_fid_process" text to "Reprocess"
@@ -4522,9 +4523,10 @@ function exit_reprocessing_ui(index) {
      */
     document.getElementById("input_files").style.display = "flex";
     /**
-     * Change button text back to "Reprocess"
+     * Change button text back to "Edit FID processing"
      */
-    button.innerText = "Reprocess";
+    button.innerText = "Edit FID processing";
+    button.title = "Load this spectrum's FID data and its previous processing parameters back into the FID processing section above, so you can adjust them. This does NOT reprocess anything yet; click the \"Reprocess\" button in that section to run the processing again.";
     /**
      * Un-highlight the user option div
      */

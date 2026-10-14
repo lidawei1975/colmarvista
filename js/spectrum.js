@@ -176,6 +176,7 @@ class spectrum {
         this.noise_level = 0.001; //noise level of the input spectrum
         this.levels = [0.001, 0.002, 0.003]; //levels of the contour plot
         this.spectral_max = Number.MAX_VALUE; //maximum value of the spectrum
+        this.maximal_point = null; //maximal point { x_ppm, y_ppm, value, row, col } of the spectrum
         this.n_direct = 4096; //size of direct dimension of the input spectrum. integer
         this.n_indirect = 1204; //size of indirect dimension of the input spectrum. integer
         this.x_ppm_start = 12.0; //start ppm of direct dimension
@@ -252,7 +253,7 @@ class spectrum {
      * which are the length of the corresponding Float32Array.
      * Exclude large raw FID file buffers and TypedArrays from JSON serialization.
      */
-    create_shallow_copy_wo_float32() {
+    create_shallow_copy_wo_float32(include_fid_data = false) {
         let new_spectrum = new Object();
         for (var key in this) {
             if (this.hasOwnProperty(key)) {
@@ -268,8 +269,12 @@ class spectrum {
                 }
                 else if (key === "fid_process_parameters") {
                     if (this.fid_process_parameters) {
-                        // Keep processing parameters metadata but strip large raw FID byte buffers
+                        // Keep processing parameters metadata
                         let fp_copy = Object.assign({}, this.fid_process_parameters);
+                        if (include_fid_data && Array.isArray(this.fid_process_parameters.file_data) && this.fid_process_parameters.file_data.length > 0) {
+                            fp_copy.fid_file_lengths = this.fid_process_parameters.file_data.map(f => (f ? (f.byteLength !== undefined ? f.byteLength : (f.length || 0)) : 0));
+                            new_spectrum.fid_file_lengths = fp_copy.fid_file_lengths;
+                        }
                         delete fp_copy.file_data;
                         new_spectrum.fid_process_parameters = fp_copy;
                     } else {
@@ -287,9 +292,9 @@ class spectrum {
 
         /**
          * If spectrum_origin is -2 (from fid), change it to -1 (user uploaded frequency file)
-         * because raw FID time-domain data is not saved in the session file.
+         * only if raw FID time-domain data is NOT saved in the session file.
          */
-        if (new_spectrum.spectrum_origin === -2) {
+        if (new_spectrum.spectrum_origin === -2 && (!include_fid_data || !new_spectrum.fid_file_lengths)) {
             new_spectrum.spectrum_origin = -1;
         }
 
@@ -341,10 +346,42 @@ class spectrum {
         this.projection_indirect_min = ind_min;
     };
 
+    /**
+     * Get or calculate the maximal spectrum point { x_ppm, y_ppm, value, row, col }
+     */
+    get_maximal_point() {
+        if (this.maximal_point && Number.isFinite(this.maximal_point.x_ppm) && Number.isFinite(this.maximal_point.y_ppm)) {
+            return this.maximal_point;
+        }
+        if (!this.raw_data || this.raw_data.length === 0 || !this.n_direct || !this.n_indirect) {
+            return null;
+        }
+        let max_val = -Infinity;
+        let max_idx = -1;
+        const len = this.raw_data.length;
+        const raw = this.raw_data;
+        for (let i = 0; i < len; i++) {
+            if (raw[i] > max_val) {
+                max_val = raw[i];
+                max_idx = i;
+            }
+        }
+        if (max_idx === -1) {
+            return null;
+        }
+        let row = Math.floor(max_idx / this.n_direct);
+        let col = max_idx % this.n_direct;
+        let x_ppm = (this.x_ppm_start || 0) + (this.x_ppm_ref || 0) + col * (this.x_ppm_step || 0);
+        let y_ppm = (this.y_ppm_start || 0) + (this.y_ppm_ref || 0) + row * (this.y_ppm_step || 0);
+        this.maximal_point = { x_ppm: x_ppm, y_ppm: y_ppm, value: max_val, row: row, col: col };
+        return this.maximal_point;
+    };
+
 
     update_x_ppm_ref(x_ppm_ref) {
         let delta_ppm = x_ppm_ref - this.x_ppm_ref;
         this.x_ppm_ref = x_ppm_ref;
+        this.maximal_point = null;
         this.header[101] += delta_ppm * this.frq1;
         this.ref1 = this.header[101];
 
@@ -362,6 +399,7 @@ class spectrum {
     update_y_ppm_ref(y_ppm_ref) {
         let delta_ppm = y_ppm_ref - this.y_ppm_ref;
         this.y_ppm_ref = y_ppm_ref;
+        this.maximal_point = null;
         this.header[249] += delta_ppm * this.frq2;
         this.ref2 = this.header[249];
 
@@ -1154,6 +1192,8 @@ class spectrum {
          * Get max and min of z (z is sorted)
          */
         [this.spectral_max, this.spectral_min] = mathTool.find_max_min(this.raw_data);
+        this.maximal_point = null;
+        this.get_maximal_point();
 
         /**
          * If noise_level < spectral_max/1.4^30, set noise_level to spectral_max/1.4^30
