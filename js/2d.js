@@ -76,9 +76,73 @@ var cest_filter_multi_peaks_only = false;
  * For FID re-processing. Saved file data
  */
 var fid_process_parameters;
+var has_processed_fid = false;
 var current_reprocess_spectrum_index = -1;
 var nuslist_as_string = "";
 var current_process_fid_files_fn;
+
+function restore_fid_parameters_to_default() {
+    const wsEl = document.getElementById("water_suppression");
+    if (wsEl) wsEl.checked = false;
+
+    const p0DirectEl = document.getElementById("phase_correction_direct_p0");
+    if (p0DirectEl) p0DirectEl.value = 0;
+
+    const p1DirectEl = document.getElementById("phase_correction_direct_p1");
+    if (p1DirectEl) p1DirectEl.value = 0;
+
+    const autoDirectEl = document.getElementById("auto_direct");
+    if (autoDirectEl) {
+        autoDirectEl.checked = true;
+        autoDirectEl.disabled = false;
+    }
+
+    const annAutoDirectEl = document.getElementById("ann_auto_direct");
+    if (annAutoDirectEl) {
+        annAutoDirectEl.checked = true;
+        annAutoDirectEl.disabled = false;
+    }
+
+    const delImagDirectEl = document.getElementById("delete_imaginary");
+    if (delImagDirectEl) delImagDirectEl.checked = false;
+
+    const flattBaselineEl = document.getElementById("nus_flatt_baseline");
+    if (flattBaselineEl) flattBaselineEl.checked = false;
+
+    const nusProcessNormalEl = document.getElementById("nus_process_as_normal");
+    if (nusProcessNormalEl) nusProcessNormalEl.checked = false;
+
+    const extractFromEl = document.getElementById("extract_direct_from");
+    if (extractFromEl) extractFromEl.value = 1000.0;
+
+    const extractToEl = document.getElementById("extract_direct_to");
+    if (extractToEl) extractToEl.value = -1000.0;
+
+    const p0IndirectEl = document.getElementById("phase_correction_indirect_p0");
+    if (p0IndirectEl) p0IndirectEl.value = 0;
+
+    const p1IndirectEl = document.getElementById("phase_correction_indirect_p1");
+    if (p1IndirectEl) p1IndirectEl.value = 0;
+
+    const autoIndirectEl = document.getElementById("auto_indirect");
+    if (autoIndirectEl) {
+        autoIndirectEl.checked = true;
+        autoIndirectEl.disabled = false;
+    }
+
+    const delImagIndirectEl = document.getElementById("delete_imaginary_indirect");
+    if (delImagIndirectEl) delImagIndirectEl.checked = false;
+
+    const firstOnlyRadio = document.getElementById("first_only");
+    if (firstOnlyRadio) firstOnlyRadio.checked = true;
+
+    const allPlanesRadio = document.getElementById("all_planes");
+    if (allPlanesRadio) allPlanesRadio.checked = false;
+
+    // Note: apodization_direct, apodization_indirect, zf_direct, zf_indirect,
+    // and neg_imaginary are intentionally preserved and NOT restored to defaults.
+}
+window.restore_fid_parameters_to_default = restore_fid_parameters_to_default;
 
 /**
  * Default var in peaks to color-map the peaks symbols
@@ -429,6 +493,60 @@ $(document).ready(function () {
         }
     });
 
+    // When preparing for a new FID processing after a previous one, restore FID processing parameters
+    // to default, except for apodization, zero filling, and negative imaginary data.
+    ['fid_file', 'acquisition_file', 'acquisition_file2', 'acquisition_file3', 'nuslist_file'].forEach(function (id) {
+        let el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', function () {
+                if (has_processed_fid) {
+                    restore_fid_parameters_to_default();
+                    has_processed_fid = false;
+                }
+                if (current_reprocess_spectrum_index !== -1) {
+                    current_reprocess_spectrum_index = -1;
+                    let fidBtn = document.getElementById("button_fid_process");
+                    if (fidBtn) fidBtn.value = "Upload experimental files and process";
+                    let fileArea = document.getElementById("file_area");
+                    if (fileArea) fileArea.style.display = "block";
+                    let inputFiles = document.getElementById("input_files");
+                    if (inputFiles) inputFiles.style.display = "flex";
+                    let editBtns = document.querySelectorAll(".button_edit_fid");
+                    editBtns.forEach(function (b) {
+                        if (b.innerText.toLowerCase().includes("quit")) {
+                            b.innerText = "Edit FID processing";
+                        }
+                    });
+                }
+            });
+        }
+    });
+
+    let fidDropArea = document.getElementById("input_files");
+    if (fidDropArea) {
+        fidDropArea.addEventListener('drop', function () {
+            if (has_processed_fid) {
+                restore_fid_parameters_to_default();
+                has_processed_fid = false;
+            }
+            if (current_reprocess_spectrum_index !== -1) {
+                current_reprocess_spectrum_index = -1;
+                let fidBtn = document.getElementById("button_fid_process");
+                if (fidBtn) fidBtn.value = "Upload experimental files and process";
+                let fileArea = document.getElementById("file_area");
+                if (fileArea) fileArea.style.display = "block";
+                let inputFiles = document.getElementById("input_files");
+                if (inputFiles) inputFiles.style.display = "flex";
+                let editBtns = document.querySelectorAll(".button_edit_fid");
+                editBtns.forEach(function (b) {
+                    if (b.innerText.toLowerCase().includes("quit")) {
+                        b.innerText = "Edit FID processing";
+                    }
+                });
+            }
+        });
+    }
+
 
     /**
      * When use selected a file, read the file and process it
@@ -710,6 +828,10 @@ $(document).ready(function () {
         }
 
         else {
+            if (has_processed_fid) {
+                restore_fid_parameters_to_default();
+                has_processed_fid = false;
+            }
             /**
              * UN-highlight the input_options div
              */
@@ -1871,6 +1993,7 @@ function handle_webassembly_worker_message(e) {
         if (document.getElementById("ann_auto_direct")) {
             document.getElementById("ann_auto_direct").checked = false;
         }
+        has_processed_fid = true;
     }
 
     /**
@@ -2670,6 +2793,7 @@ function add_to_list(index) {
      */
     if (new_spectrum.spectrum_origin === -2) {
         let reprocess_button = document.createElement("button");
+        reprocess_button.className = "button_edit_fid";
         reprocess_button.innerText = "Edit FID processing";
         reprocess_button.title = "Load this spectrum's FID data and its previous processing parameters back into the FID processing section above, so you can adjust them. This does NOT reprocess anything yet; click the \"Reprocess\" button in that section to run the processing again.";
         reprocess_button.onclick = function () { reprocess_spectrum(this, index); };
@@ -7026,26 +7150,8 @@ function reprocess_spectrum(self, spectrum_index) {
     }
 
     function set_default_fid_parameters() {
-        document.getElementById("water_suppression").checked = false;
-        // baseline form controls removed, bypass resetting polynomial
-        document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_direct").value = "2";
-        document.getElementById("phase_correction_direct_p0").value = 0;
-        document.getElementById("phase_correction_direct_p1").value = 0;
-        document.getElementById("auto_direct").checked = true;
-        if (document.getElementById("ann_auto_direct")) {
-            document.getElementById("ann_auto_direct").checked = false;
-        }
-        document.getElementById("delete_imaginary").checked = false
-        document.getElementById("extract_direct_from").value = 8.8;
-        document.getElementById("extract_direct_to").value = 7.0;
-        document.getElementById("apodization_indirect").value = " SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_indirect").value = "2";
-        document.getElementById("phase_correction_indirect_p0").value = 0;
-        document.getElementById("phase_correction_indirect_p1").value = 0;
-        document.getElementById("auto_indirect").checked = true;
-        document.getElementById("delete_imaginary_indirect").checked = false;
-        document.getElementById("neg_imaginary").checked = false
+        restore_fid_parameters_to_default();
+        has_processed_fid = false;
     }
     /**
      * Get button text
@@ -7560,6 +7666,9 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
         }
     }
     draw_spectrum_from_loading();
+    if (hsqc_spectra.some(s => s && s.fid_process_parameters)) {
+        has_processed_fid = true;
+    }
     /**
      * process pseudo-3D buttons and dosy information
      */

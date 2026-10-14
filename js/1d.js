@@ -1732,10 +1732,8 @@ function reprocess_spectrum(button, spectrum_index) {
 
     function set_default_fid_parameters() {
         /**
-         * Set fid_process_parameters to the default values
+         * Set fid_process_parameters to default values, preserving apodization and zero filling
          */
-        document.getElementById("apodization_direct").value = "SP off 0.5 end 0.98 pow 2 elb 0 c 0.5";
-        document.getElementById("zf_direct").value = "2";
         document.getElementById("phase_correction_direct_p0").value = "0.0";
         document.getElementById("phase_correction_direct_p1").value = "0.0";
         document.getElementById("auto_direct").checked = false;
