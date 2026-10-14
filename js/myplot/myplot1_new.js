@@ -1194,6 +1194,9 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     self.vline_ppm = x_ppm;
     self.hline_ppm = y_ppm;
 
+    if (self.x_cross_section_plot) self.x_cross_section_plot.set_cross_section_ppm(x_ppm);
+    if (self.y_cross_section_plot) self.y_cross_section_plot.set_cross_section_ppm(y_ppm);
+
     const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
     if (cs_radio) cs_radio.checked = true;
 
@@ -1321,6 +1324,15 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
     let spectrum = spectra_source[spectrum_index];
 
     if (!spectrum) return;
+
+    if (x_ppm !== undefined && x_ppm !== null) {
+        self.vline_ppm = x_ppm;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.set_cross_section_ppm(x_ppm);
+    }
+    if (y_ppm !== undefined && y_ppm !== null) {
+        self.hline_ppm = y_ppm;
+        if (self.y_cross_section_plot) self.y_cross_section_plot.set_cross_section_ppm(y_ppm);
+    }
 
     if (flag_manual_phase_correction || self.b_show_cross_section) {
         /**
@@ -1502,11 +1514,22 @@ plotit.prototype.show_projection = function () {
     const proj_radio = document.querySelector('input[name="select_plot_1d"][value="projection"]');
     if (proj_radio) proj_radio.checked = true;
 
+    if (self.$vis) {
+        self.$vis.selectAll(".hline").remove();
+        self.$vis.selectAll(".vline").remove();
+    }
+
     /**
      * Clear the cross section plot
      */
-    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
-    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
+    if (self.x_cross_section_plot) {
+        self.x_cross_section_plot.set_cross_section_ppm(null);
+        self.x_cross_section_plot.clear_data();
+    }
+    if (self.y_cross_section_plot) {
+        self.y_cross_section_plot.set_cross_section_ppm(null);
+        self.y_cross_section_plot.clear_data();
+    }
 
     let direct_min = Infinity;
     let direct_max = -Infinity;
