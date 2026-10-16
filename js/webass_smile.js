@@ -1,5 +1,24 @@
 importScripts('smile.js');
 
+function configureSmileThreads() {
+    if (typeof Module.cwrap !== 'function') {
+        throw new Error('SMILE Module.cwrap is not available yet');
+    }
+    // Query maximum available hardware threads (e.g. navigator.hardwareConcurrency)
+    const getMaxThreads = Module.cwrap('smile_get_max_threads', 'number', []);
+    const maxThreads = getMaxThreads();
+    console.log('Max hardware threads:', maxThreads);
+
+    // Set the desired thread count before running nuspipe (maxThreads // 2)
+    const numThreads = Math.max(1, Math.floor(maxThreads / 2));
+    const setThreads = Module.cwrap('smile_set_num_threads', null, ['number']);
+    setThreads(numThreads);
+    console.log('Set SMILE threads to:', numThreads);
+    postMessage({ stdout: '[smile] Max hardware threads: ' + maxThreads + ', configured threads: ' + numThreads });
+
+    return { maxThreads, numThreads };
+}
+
 function getNusPipe() {
     if (typeof Module.cwrap !== 'function') {
         throw new Error('SMILE Module.cwrap is not available yet');
@@ -24,6 +43,8 @@ function postRuntimeDiagnostics(contextLabel, spectrumData) {
             + ' bytes=' + byteLength
             + ', Module.cwrap=' + typeof Module.cwrap
             + ', Module._nuspipe=' + typeof Module._nuspipe
+            + ', Module._smile_get_max_threads=' + typeof Module._smile_get_max_threads
+            + ', Module._smile_set_num_threads=' + typeof Module._smile_set_num_threads
             + ', header55=' + (headerF32.length > 55 ? headerF32[55] : NaN)
             + ', header56=' + (headerF32.length > 56 ? headerF32[56] : NaN)
             + ', header99=' + (headerF32.length > 99 ? headerF32[99] : NaN)
@@ -54,10 +75,22 @@ onmessage = function (e) {
         Module['FS_createDataFile']('/', 'half.ft3', e.data.spectrum_data, true, true, true);
         e.data.spectrum_data = null;
 
-        const default3dCommand = "-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread 1  -maxMem 2.0 -xApod SP -xQ1 0.50 -xQ2 0.896 -xQ3 3.684 -xELB 0.0 -xGLB 0.0 -yApod SP -yQ1 0.50 -yQ2 0.896 -yQ3 3.684 -yELB 0.0 -yGLB 0.0 -xT 100 -xP0 90.0 -xP1 0. -yT 90 -yP0 0.0 -yP1 0.0 -yAlt -out smile.ft3 -ov";
-        const command = (typeof e.data.smile_command === 'string' && e.data.smile_command.trim().length > 0)
+        let configuredThreads = 1;
+        try {
+            const threadConfig = configureSmileThreads();
+            configuredThreads = threadConfig.numThreads;
+        } catch (threadErr) {
+            console.warn('Failed to configure SMILE threads:', threadErr);
+        }
+
+        const default3dCommand = "-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread " + configuredThreads + "  -maxMem 2.0 -xApod SP -xQ1 0.50 -xQ2 0.896 -xQ3 3.684 -xELB 0.0 -xGLB 0.0 -yApod SP -yQ1 0.50 -yQ2 0.896 -yQ3 3.684 -yELB 0.0 -yGLB 0.0 -xT 100 -xP0 90.0 -xP1 0. -yT 90 -yP0 0.0 -yP1 0.0 -yAlt -out smile.ft3 -ov";
+        let command = (typeof e.data.smile_command === 'string' && e.data.smile_command.trim().length > 0)
             ? e.data.smile_command
             : default3dCommand;
+
+        if (command.includes('-nThread')) {
+            command = command.replace(/-nThread\s+\d+/g, '-nThread ' + configuredThreads);
+        }
 
         Module['FS_createDataFile']('/', 'arguments_nus_pipe.txt', command, true, true, true);
         console.log(command);
@@ -65,9 +98,18 @@ onmessage = function (e) {
 
         postMessage({ stdout: 'Calling nusPipe function for 3D NUS reconstruction' });
         try {
-            const nusPipeFn = getNusPipe();
-            postMessage({ stdout: '[smile-diag] 3d nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            // Query maximum available hardware threads (e.g. navigator.hardwareConcurrency)
+            const getMaxThreads = Module.cwrap('smile_get_max_threads', 'number', []);
+            console.log('Max hardware threads:', getMaxThreads());
+
+            // Set the desired thread count before running nuspipe
+            const setThreads = Module.cwrap('smile_set_num_threads', null, ['number']);
+            setThreads(configuredThreads);
+
+            // Run pipeline
+            const nuspipe = Module.cwrap('nuspipe', 'number', []);
+            postMessage({ stdout: '[smile-diag] 3d nuspipe typeof=' + typeof nuspipe });
+            nuspipe();
         } catch (err) {
             postMessage({
                 error: '3D nusPipe failed: ' + (err && err.message ? err.message : String(err))
@@ -198,9 +240,22 @@ onmessage = function (e) {
          */
         postMessage({ stdout: 'Calling nusPipe function' });
         try {
-            const nusPipeFn = getNusPipe();
-            postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            // Query maximum available hardware threads (e.g. navigator.hardwareConcurrency)
+            const getMaxThreads = Module.cwrap('smile_get_max_threads', 'number', []);
+            const maxThreads = getMaxThreads();
+            console.log('Max hardware threads:', maxThreads);
+
+            // Set the desired thread count before running nuspipe
+            const numThreads = Math.max(1, Math.floor(maxThreads / 2));
+            const setThreads = Module.cwrap('smile_set_num_threads', null, ['number']);
+            setThreads(numThreads);
+            console.log('Set SMILE threads to:', numThreads);
+            postMessage({ stdout: '[smile] Max hardware threads: ' + maxThreads + ', configured threads: ' + numThreads });
+
+            // Run pipeline
+            const nuspipe = Module.cwrap('nuspipe', 'number', []);
+            postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nuspipe });
+            nuspipe();
         } catch (err) {
             postMessage({
                 error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe failed: ' + (err && err.message ? err.message : String(err))

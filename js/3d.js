@@ -7771,7 +7771,7 @@ function build_nus_3d_smile_command(cfg, options) {
     }
 
     return [
-        '-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread 1 -maxMem 2.0',
+        '-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -maxMem 2.0',
         xApodArgs,
         yApodArgs,
         '-xT ' + xT,
