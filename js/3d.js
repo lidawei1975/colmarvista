@@ -7748,6 +7748,23 @@ function read_ft3_fnmodes_from_header(ft3Bytes) {
 }
 
 /**
+ * Helper to compute the nearest power of 2 (32, 64, 128, 256, 512, etc.).
+ *
+ * @param {number} val
+ * @returns {number}
+ */
+function to_nearest_power_of_2(val) {
+    const num = Number(val);
+    if (!Number.isFinite(num) || num <= 0) {
+        return 32;
+    }
+    const lower = Math.pow(2, Math.floor(Math.log2(num)));
+    const upper = Math.pow(2, Math.ceil(Math.log2(num)));
+    const nearest = (num - lower < upper - num) ? lower : upper;
+    return Math.max(32, nearest);
+}
+
+/**
  * Builds NUS 3D smile command.
  *
  * @param {any} cfg - Configuration
@@ -8413,13 +8430,11 @@ function handle_webass_smile_3d_message(e) {
     }
 
     if (e.data && e.data.spectrum_data && e.data.file_type === 'smile_3d') {
-        const smileBytes = e.data.spectrum_data instanceof Uint8Array
+        let smileBytes = e.data.spectrum_data instanceof Uint8Array
             ? e.data.spectrum_data
             : new Uint8Array(e.data.spectrum_data);
         append_3d_log('[main] Received smile.ft3 from SMILE worker, bytes=' + smileBytes.length);
 
-        // Debug 2 disabled in UI (kept for future use).
-        // if (debug2_smile_only_3d) {
         //     debug2_smile_only_3d = false;
         //     download_binary_file(smileBytes, 'smile_debug.ft3');
         //     document.getElementById("webassembly_message").innerText = 'Debug 2 finished. SMILE output saved as smile_debug.ft3.';

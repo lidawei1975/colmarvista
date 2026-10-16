@@ -4,7 +4,7 @@ function getNusPipe() {
     if (typeof Module.cwrap !== 'function') {
         throw new Error('SMILE Module.cwrap is not available yet');
     }
-    return Module.cwrap("nuspipe", "number", [], {});
+    return Module.cwrap("nuspipe", "number", [], { async: true });
 }
 
 function postRuntimeDiagnostics(contextLabel, spectrumData) {
@@ -42,8 +42,9 @@ Module['print'] = function (text) {
 };
 out = Module['print'];
 err = Module['print'];
+Module['printErr'] = Module['print'];
 
-onmessage = function (e) {
+onmessage = async function (e) {
     console.log('Message received from main script to nuspipe worker');
 
     if (e.data.spectrum_data && e.data.smile_mode === 'nus_3d') {
@@ -55,7 +56,7 @@ onmessage = function (e) {
         e.data.spectrum_data = null;
 
         const default3dCommand = "-in half.ft3 -fn SMILE -nDim 3 -sample nuslist -report 2 -nThread 1  -maxMem 2.0 -xApod SP -xQ1 0.50 -xQ2 0.896 -xQ3 3.684 -xELB 0.0 -xGLB 0.0 -yApod SP -yQ1 0.50 -yQ2 0.896 -yQ3 3.684 -yELB 0.0 -yGLB 0.0 -xT 100 -xP0 90.0 -xP1 0. -yT 90 -yP0 0.0 -yP1 0.0 -yAlt -out smile.ft3 -ov";
-        const command = (typeof e.data.smile_command === 'string' && e.data.smile_command.trim().length > 0)
+        let command = (typeof e.data.smile_command === 'string' && e.data.smile_command.trim().length > 0)
             ? e.data.smile_command
             : default3dCommand;
 
@@ -67,7 +68,7 @@ onmessage = function (e) {
         try {
             const nusPipeFn = getNusPipe();
             postMessage({ stdout: '[smile-diag] 3d nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            await nusPipeFn();
         } catch (err) {
             postMessage({
                 error: '3D nusPipe failed: ' + (err && err.message ? err.message : String(err))
@@ -200,7 +201,7 @@ onmessage = function (e) {
         try {
             const nusPipeFn = getNusPipe();
             postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            await nusPipeFn();
         } catch (err) {
             postMessage({
                 error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe failed: ' + (err && err.message ? err.message : String(err))

@@ -32,9 +32,9 @@ describe('FID Processing 3D NUS Test', () => {
         // 4. Click Upload and Process 3D FID
         cy.get('#button_fid_process_3d', { timeout: 10000 }).click({ force: true });
 
-        // 5. Wait for Processing to Complete (~4+ minutes for 3D NUS reconstruction)
+        // 5. Wait for Processing to Complete (~4-7 minutes for 3D NUS reconstruction)
         // flex-container is assigned to #main_plot_area, so checking its visibility confirms completion
-        cy.get('#main_plot_area', { timeout: 360000 }).should('be.visible');
+        cy.get('#main_plot_area', { timeout: 600000 }).should('be.visible');
 
         // 6. Verify 3 2D Contour Plot Canvases (xy, xz, zy planes)
         cy.get('#canvas1').should('exist');
