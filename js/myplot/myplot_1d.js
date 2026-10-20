@@ -95,8 +95,17 @@ class myplot_1d {
          * Default lineGenerator width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
          */
         this.exp_line_width = 1.0;
+        this.peak_profile_line_width = 1.0;
 
         this.$peaks_symbol = null; //this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+        this.$peaks_group = null;
+        this.peak_color = "#808080";
+        this.peak_size = 3;
+        this.peak_thickness = 1.0;
+        this.filled_peaks = true;
+
+        this.fontsize = 24;
+        this.fontfamily = "Arial, sans-serif";
 
         this.spectral_order = [];
 
@@ -130,29 +139,30 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params, zoom_pan_on_call_function, fontsize) {
+    init(width, height, peak_params, zoom_pan_on_call_function, fontsize, fontfamily) {
 
         let self = this; // to use this inside some functions
 
         this.width = width;
         this.height = height;
-        this.fontsize = fontsize || 24;
+        this.fontsize = (fontsize !== undefined && fontsize !== null && !isNaN(fontsize)) ? parseFloat(fontsize) : 24;
+        this.fontfamily = fontfamily || "Arial, sans-serif";
         /**
          * ON call function we need to call when user zoom out the plot using mouse wheel
          */
         this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
 
         if (peak_params) {
-            this.peak_color = peak_params.color || "#0000ff"; // Default peak color is blue
-            this.peak_size = peak_params.size || 3; // Default peak size is 3 pixels (radius of the circle)
-            this.peak_thickness = peak_params.peak_thickness || 1.0; // Default peak line width is 1.0
-            this.filled_peaks = peak_params.filled_peaks || false; //default filled peaks is false, so peaks are not filled with color
+            this.peak_color = peak_params.peak_color || peak_params.color || "#808080"; // Default peak color is gray
+            this.peak_size = peak_params.size !== undefined ? peak_params.size : 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = peak_params.peak_thickness !== undefined ? peak_params.peak_thickness : 1.0; // Default peak line width is 1.0
+            this.filled_peaks = peak_params.filled_peaks !== undefined ? peak_params.filled_peaks : true; // Default filled peaks is true
         }
         else {
-            this.peak_color = "#0000ff"; // Default peak color is blue
+            this.peak_color = "#808080"; // Default peak color is gray
             this.peak_size = 3; // Default peak size is 3 pixels (radius of the circle)
             this.peak_thickness = 1.0; // Default peak line width is 1.0
-            this.filled_peaks = false; // Default filled peaks is false, so peaks are not filled with color
+            this.filled_peaks = true; // Default filled peaks is true
         }
 
         this.$vis = d3.select("#plot_1d").insert("svg", ":first-child")
@@ -216,7 +226,10 @@ class myplot_1d {
         this.$xLabel = this.$xLabelGroup.append("text")
             .attr("class", "x-label")
             .attr("text-anchor", "middle")
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px")
             .text("Proton Chemical Shift (ppm)")
             .on("click", function (event) {
                 let e = event;
@@ -257,7 +270,10 @@ class myplot_1d {
         this.$yLabel = this.$yLabelGroup.append("text")
             .attr("class", "y-label")
             .attr("text-anchor", "middle")
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px")
             .text("Intensity")
             .on("click", function (event) {
                 let e = event;
@@ -266,17 +282,27 @@ class myplot_1d {
             });
 
         /**
-         * Because d3 des not support axis font size. We have to use css to change the font size of the axis
+         * Because d3 does not support axis font size directly, set font-family and font-size on axis tick text
          */
-        d3.selectAll(".yaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
 
-        d3.selectAll(".xaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
 
         /**
@@ -284,6 +310,7 @@ class myplot_1d {
          * this.lineGenerator is a function that will convert data (ppm,amp) to path (screen coordinates)
         */
         this.lineGenerator = d3.line()
+            .defined((d) => d !== null && d !== undefined)
             .x((d) => this.xscale(d[0]))
             .y((d) => this.yscale(d[1]))
             ;
@@ -353,12 +380,14 @@ class myplot_1d {
                     if (this.anchor[this.current_spectrum_index]) {
                         this.anchor[this.current_spectrum_index] = false;
                         this.anchor_ppm[this.current_spectrum_index] = 0.0;
-                        document.getElementById("pivot").innerHTML = "not set";
+                        let pivot_el = document.getElementById("pivot");
+                        if (pivot_el) pivot_el.innerHTML = "not set";
                         console.log('Unset pivot');
                     } else {
                         this.anchor[this.current_spectrum_index] = true;
                         this.anchor_ppm[this.current_spectrum_index] = ppm;
-                        document.getElementById("pivot").innerHTML = ppm.toFixed(4);
+                        let pivot_el = document.getElementById("pivot");
+                        if (pivot_el) pivot_el.innerHTML = ppm.toFixed(4);
                         console.log('Set pivot at ppm: ', ppm);
                     }
                     this.redraw();
@@ -400,7 +429,8 @@ class myplot_1d {
                 /**
                  * Update the scale of the spectrum to user (span element with id 'spectrum-scale-<index>')
                  */
-                document.getElementById('spectrum-scale-'.concat(index)).textContent = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
+                let scale_el = document.getElementById('spectrum-scale-'.concat(index));
+                if (scale_el) scale_el.textContent = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
 
                 let lineId = `line${index}`;
                 let data = this.allLines[lineId];
@@ -527,12 +557,7 @@ class myplot_1d {
                     this.phase_correction_at_max_ppm[index] = phase_at_anchor + new_slop * (this.right_end_ppm[index] - this.anchor_ppm[index]);
                 }
 
-                const p0 = this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI;
-                const p1 = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) * 180.0 / Math.PI;
-                document.getElementById("pc_left_end").innerHTML = p0.toFixed(2);
-                document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
-                const p1_el = document.getElementById("pc_p1");
-                if (p1_el) p1_el.innerHTML = p1.toFixed(2);
+                this.update_phase_info(index);
 
                 this.apply_phase_correction();
             }
@@ -809,13 +834,39 @@ class myplot_1d {
     }
 
 
-    update_margins_and_font(new_margins, new_fontsize) {
-        this.margin = new_margins;
-        this.fontsize = new_fontsize;
+    update_margins_and_font(new_margins, new_fontsize, new_fontfamily) {
+        if (new_fontsize !== undefined && new_fontsize !== null && !isNaN(new_fontsize)) {
+            this.fontsize = parseFloat(new_fontsize);
+        }
+        if (new_fontfamily) {
+            this.fontfamily = new_fontfamily;
+        }
+        if (new_margins) {
+            this.margin = new_margins;
+        } else if (this.fontsize) {
+            this.margin = {
+                left: Math.max(80, 15 + this.fontsize * 5),
+                right: 10,
+                top: 10,
+                bottom: Math.max(60, 15 + this.fontsize * 3)
+            };
+        }
         /**
          * Need to re-calculate the true width and true height, move axis, etc. 
          */
         this.recalculate_true_size_and_redraw();
+    }
+
+    set_axis_font(new_fontsize, new_fontfamily) {
+        let size = (new_fontsize !== undefined && new_fontsize !== null && !isNaN(new_fontsize)) ? parseFloat(new_fontsize) : this.fontsize;
+        let family = new_fontfamily || this.fontfamily;
+        let new_margin = {
+            left: Math.max(80, 15 + size * 5),
+            right: 10,
+            top: 10,
+            bottom: Math.max(60, 15 + size * 3)
+        };
+        this.update_margins_and_font(new_margin, size, family);
     }
 
 
@@ -868,7 +919,10 @@ class myplot_1d {
         this.$xLabelGroup.attr("transform", `translate(${this.margin.left + this.true_width / 2}, ${this.height - 10})`);
 
         this.$xLabel
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px");
 
         this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
         this.$yAxis_element
@@ -878,7 +932,31 @@ class myplot_1d {
         this.$yLabelGroup.attr("transform", `translate(${this.fontsize * 1.0}, ${this.height / 2}) rotate(-90)`);
 
         this.$yLabel
-            .attr("font-size", this.fontsize + "px");
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
+            .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px");
+
+        let self = this;
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
         /**
          * Redraw the plot
@@ -930,7 +1008,8 @@ class myplot_1d {
                 /**
                  * Update the scale of the spectrum to user (span element with id 'spectrum-reference-<index>')
                  */
-                document.getElementById('spectrum-reference-'.concat(index)).textContent = this.spectrum_reference[index].toFixed(4); // Update the scale of the spectrum to user input
+                let ref_el = document.getElementById('spectrum-reference-'.concat(index));
+                if (ref_el) ref_el.textContent = this.spectrum_reference[index].toFixed(4); // Update the scale of the spectrum to user input
 
                 /**
                  * Redraw the current spectral index only
@@ -1118,13 +1197,27 @@ class myplot_1d {
     /**
      * Set new lineGenerator width 
      */
-    reset_line_width(exp_line_width, recon_line_width,) {
-        this.exp_line_width = parseFloat(exp_line_width);
-        this.recon_line_width = parseFloat(recon_line_width);
+    reset_line_width(exp_line_width, recon_line_width, peak_profile_line_width) {
+        if (exp_line_width !== undefined) this.exp_line_width = parseFloat(exp_line_width);
+        if (recon_line_width !== undefined) this.recon_line_width = parseFloat(recon_line_width);
+        if (peak_profile_line_width !== undefined) this.set_peak_profile_line_width(peak_profile_line_width);
         /** 
         * Redraw compound peaks will be done in redraw function
         */
         this.redraw();
+    }
+
+    /**
+     * Set line width of reconstructed peak profiles
+     * @param {number|string} width 
+     */
+    set_peak_profile_line_width(width) {
+        this.peak_profile_line_width = parseFloat(width) || 1.0;
+        if (this.$vis) {
+            this.$vis.selectAll('path.reconstructed_peaks')
+                .attr('stroke-width', this.peak_profile_line_width)
+                .style('stroke-width', this.peak_profile_line_width + 'px');
+        }
     }
 
     redraw_order() {
@@ -1142,6 +1235,40 @@ class myplot_1d {
     /**
      * This function will redraw the plot. It will be called when the user zooms or pans the plot
     */
+
+    update_phase_info(index) {
+        if (index === undefined || index === null) index = this.current_spectrum_index;
+        if (index !== -1 && typeof this.phase_correction_at_min_ppm[index] === "number") {
+            let leftDeg = this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI;
+            let rightDeg = this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI;
+            let p1Deg = rightDeg - leftDeg;
+            let elLeft = document.getElementById("pc_left_end");
+            if (elLeft) elLeft.innerHTML = leftDeg.toFixed(2);
+            let elRight = document.getElementById("pc_right_end");
+            if (elRight) elRight.innerHTML = rightDeg.toFixed(2);
+            let elP1 = document.getElementById("pc_p1");
+            if (elP1) elP1.innerHTML = p1Deg.toFixed(2);
+        }
+    }
+
+    update_pivot_line() {
+        if (this.pivot_line) {
+            const index = this.current_spectrum_index;
+            if (index !== -1 && this.anchor[index] === true && typeof this.anchor_ppm[index] === "number") {
+                const ppm = this.anchor_ppm[index];
+                const x_pixel = this.xscale(ppm);
+                this.pivot_line
+                    .attr("x1", x_pixel)
+                    .attr("y1", this.margin.top)
+                    .attr("x2", x_pixel)
+                    .attr("y2", this.height - this.margin.bottom)
+                    .style("display", "block");
+            } else {
+                this.pivot_line.style("display", "none");
+            }
+        }
+    }
+
     redraw() {
 
         var self = this;
@@ -1161,18 +1288,43 @@ class myplot_1d {
         this.$xAxis_element.call(this.xAxis);
         this.$yAxis_element.call(this.yAxis);
 
-        /**
-         * Because d3 des not support axis font size. We have to use css to change the font size of the axis
-         */
-        d3.selectAll(".yaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        if (this.$xLabel) {
+            this.$xLabel
+                .attr("font-family", this.fontfamily)
+                .style("font-family", this.fontfamily)
+                .attr("font-size", this.fontsize + "px")
+                .style("font-size", this.fontsize + "px");
+        }
+        if (this.$yLabel) {
+            this.$yLabel
+                .attr("font-family", this.fontfamily)
+                .style("font-family", this.fontfamily)
+                .attr("font-size", this.fontsize + "px")
+                .style("font-size", this.fontsize + "px");
+        }
 
-        d3.selectAll(".xaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        /**
+         * Because d3 does not support axis font size directly, set font-family and font-size on axis tick text
+         */
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
         /**
          * Redraw experimental spectrum
@@ -1199,21 +1351,7 @@ class myplot_1d {
         /**
          * Update the line that shows the pivot point
          */
-        if (this.pivot_line) {
-            const index = this.current_spectrum_index;
-            if (index !== -1 && this.anchor[index] === true && this.anchor_ppm[index] !== undefined) {
-                const ppm = this.anchor_ppm[index];
-                const x_pixel = this.xscale(ppm);
-                this.pivot_line
-                    .attr("x1", x_pixel)
-                    .attr("y1", this.margin.top)
-                    .attr("x2", x_pixel)
-                    .attr("y2", this.height - this.margin.bottom)
-                    .style("display", "block");
-            } else {
-                this.pivot_line.style("display", "none");
-            }
-        }
+        this.update_pivot_line();
 
         /**
          * If baseline exists, redraw the baseline
@@ -1232,17 +1370,21 @@ class myplot_1d {
          * Update peaks location if it is not null
          */
         if (this.$peaks_symbol) {
+            const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+            const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+            const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
             this.$peaks_symbol
-                .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
-                .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
+                .attr('cx', (d) => this.xscale(d[0] + reference)) // Scale the ppm of the peak according to the spectrum index
+                .attr('cy', (d) => this.yscale(d[1] * scale_factor)) // Scale the intensity of the peak according to the spectrum index
                 ;
         }
 
 
         // Redraw all peak profiles
         if (this.$reconstructed_peaks) {
-            const scale_factor = this.spectral_scale[this.current_spectrum_index];
-            const reference = this.spectrum_reference[this.current_spectrum_index];
+            const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+            const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+            const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
             this.$reconstructed_peaks
                 .attr('d', d => this.lineGenerator(
                     d.map(p => [p[0] + reference, p[1] * scale_factor])
@@ -1415,8 +1557,10 @@ class myplot_1d {
         /**
          * Step 2, add new peak profile. One peak profile is a path with multiple points
          */
-        const scale_factor = this.spectral_scale[this.current_spectrum_index] || 1.0; // Get the scale factor for the current spectrum index, default to 1.0 if not defined
-        const reference = this.spectrum_reference[this.current_spectrum_index] || 0.0; // Get the reference correction for the current spectrum index, default to 0.0 if not defined
+        const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+        const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
+        const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+        const stroke_w = this.peak_profile_line_width || 1.0;
         this.$reconstructed_peaks = this.$vis.selectAll('path.reconstructed_peaks')
             .data(filtered_peaks_recon)
             .enter()
@@ -1427,44 +1571,84 @@ class myplot_1d {
                 d.map(p => [p[0] + reference, p[1] * scale_factor])
             ))
             .attr('stroke', 'grey')
-            .attr('stroke-width', 1)
+            .attr('stroke-width', stroke_w)
+            .style('stroke-width', stroke_w + 'px')
             .attr('fill', 'none');
     }
 
     /**
-     * Show peaks on the plot, as red circles
-     * @param {Object} peak_obj: cpeaks class object
+     * Show peaks on the plot, as gray circles
+     * @param {Object|Array} peak_obj: cpeaks class object or array of peak params
      */
     add_peaks(peak_obj, peak_type = 'picked') {
         let self = this;
         self.peak_type = peak_type; // save peak type for later use
+        if (!peak_obj) return;
+
         /**
          * Construct peak data, array of [x,y,z] 
-         * x is ppm: peak_obj.column['X_PPM']
-         * z is index: peak_obj.column['INDEX'] (not for plotting, but for tracking the peak)
+         * x is ppm: peak_obj.column['X_PPM'] or p.position or p.x
+         * y is intensity: peak_obj.column['HEIGHT'] or p.intensity or p.y
+         * z is index: peak_obj.column['INDEX'] or idx (for tracking the peak)
          */
-        let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT', 'INDEX']);
+        let peak_data = [];
+        if (typeof peak_obj.get_selected_columns_as_array === 'function') {
+            peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT', 'INDEX']);
+        } else if (Array.isArray(peak_obj)) {
+            peak_data = peak_obj.map((p, idx) => {
+                if (Array.isArray(p)) {
+                    return [p[0], p[1], p[2] !== undefined ? p[2] : idx];
+                } else if (typeof p === 'object' && p !== null) {
+                    let x = (p.position !== undefined) ? p.position : ((p.X_PPM !== undefined) ? p.X_PPM : p.x);
+                    let y = (p.intensity !== undefined) ? p.intensity : ((p.HEIGHT !== undefined) ? p.HEIGHT : p.y);
+                    let id = (p.index !== undefined) ? p.index : idx;
+                    return [x, y, id];
+                }
+                return [0, 0, idx];
+            });
+        } else if (peak_obj && typeof peak_obj === 'object' && Array.isArray(peak_obj.peak_params)) {
+            peak_data = peak_obj.peak_params.map((p, idx) => {
+                let x = (p.position !== undefined) ? p.position : ((p.X_PPM !== undefined) ? p.X_PPM : p.x);
+                let y = (p.intensity !== undefined) ? p.intensity : ((p.HEIGHT !== undefined) ? p.HEIGHT : p.y);
+                let id = (p.index !== undefined) ? p.index : idx;
+                return [x, y, id];
+            });
+        }
 
-        this.$peaks_symbol = this.$vis.append('g')
+        if (this.$peaks_group) {
+            this.$peaks_group.remove();
+            this.$peaks_group = null;
+        }
+
+        if (!self.peak_color || self.peak_color === "#0000ff" || self.peak_color === "blue") {
+            self.peak_color = "#808080";
+        }
+
+        const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+        const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+        const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
+
+        this.$peaks_group = this.$vis.append('g').attr('class', 'peaks_group');
+        this.$peaks_symbol = this.$peaks_group
             .selectAll("circle")
             .data(peak_data)
             .enter()
             .append('circle')
+            .attr("class", "peak_symbol")
             .attr("clip-path", "url(#clip)")
-            .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
-            .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
-            .attr('r', self.peak_size) // radius of the circle
+            .attr('cx', (d) => this.xscale(d[0] + reference))
+            .attr('cy', (d) => this.yscale(d[1] * scale_factor))
+            .attr('r', self.peak_size)
             .style("fill", function (d) {
                 if (self.filled_peaks) {
-                    return self.peak_color; // filled peaks
+                    return self.peak_color;
                 } else {
-                    return "none"; // not filled peaks
+                    return "none";
                 }
             })
-            .style("stroke-width", self.peak_thickness) // thickness of the circle
-            .style("stroke", self.peak_color) // color of the circle
-            ;
-    };
+            .style("stroke-width", self.peak_thickness)
+            .style("stroke", self.peak_color);
+    }
 
     /**
      * Redraw peaks on the plot, only need to update one style, depending on the flag
@@ -1476,36 +1660,61 @@ class myplot_1d {
      * 4: color changed
      */
     redraw_peaks(flag) {
-        if (this.$peaks_symbol) {
-            switch (flag) {
-                case 1:
-                    this.$peaks_symbol.attr('r', this.peak_size); // update radius of the circle
-                    break;
-                case 2:
-                    this.$peaks_symbol.style("stroke-width", this.peak_thickness); // update thickness of the circle
-                    break;
-                case 3:
-                    if (this.filled_peaks) {
-                        this.$peaks_symbol.style("fill", this.peak_color); // filled peaks
-                    } else {
-                        this.$peaks_symbol.style("fill", "none"); // not filled peaks
-                    }
-                    break;
-                case 4:
-                    this.$peaks_symbol.style("stroke", this.peak_color); // update color of the circle
-                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none"); // update fill color of the circle
-                    break;
-                default:
-                    console.warn("myplot_1d: redraw_peaks called with unknown flag: " + flag);
-                    break;
-            }
+        switch (flag) {
+            case 1:
+                this.peak_size = parseFloat(this.peak_size) || 3;
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").attr('r', this.peak_size);
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.attr('r', this.peak_size);
+                }
+                break;
+            case 2:
+                this.peak_thickness = parseFloat(this.peak_thickness) || 1.0;
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").style("stroke-width", this.peak_thickness);
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("stroke-width", this.peak_thickness);
+                }
+                break;
+            case 3:
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                break;
+            case 4:
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol")
+                        .style("stroke", this.peak_color)
+                        .style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("stroke", this.peak_color);
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                break;
+            default:
+                console.warn("myplot_1d: redraw_peaks called with unknown flag: " + flag);
+                break;
         }
     }
 
     remove_peaks() {
+        if (this.$peaks_group) {
+            this.$peaks_group.remove();
+            this.$peaks_group = null;
+        }
         if (this.$peaks_symbol) {
-            this.$vis.selectAll("circle").remove();
+            this.$peaks_symbol.remove();
             this.$peaks_symbol = null;
+        }
+        if (this.$vis) {
+            this.$vis.selectAll(".peaks_group, circle.peak_symbol, circle").remove();
         }
         this.peak_type = null; // reset peak type
         /**
@@ -1563,6 +1772,7 @@ class myplot_1d {
         const input = foreignObject.append("xhtml:input")
             .attr("type", "text")
             .attr("value", currentText)
+            .style("font-family", self.fontfamily || "Arial, sans-serif")
             .style("font-size", fontSize + "px")
             .style("width", "100%")
             .style("height", "100%")

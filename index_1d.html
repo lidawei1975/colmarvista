@@ -157,13 +157,25 @@
                         <strong>Control:</strong>
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
-                        <button onclick="download_plot()">Download plot</button>
+                        <button onclick="download_plot(1)">Download plot</button>
+                        <button onclick="download_plot(2)">Download without Y axis</button>
                         <button onclick="write_current_size()">Fill plot size and zoom</button>
                         <input type="text" id="size_and_zoom_string" placeholder="size and zoom level of plot"
                             style="width: 300px;">
                         <button onclick="apply_size_and_zoom()">Apply plot size and zoom</button>
-                        <label for="fontsize"> Font size: </label>
-                        <input type="number" id="fontsize" value="24" min="8" max="72">
+                        <label for="fontsize"> Axis font size: </label>
+                        <input type="number" id="fontsize" value="24" min="8" max="72" oninput="apply_font_size()" onchange="apply_font_size()">
+                        <label for="fontfamily"> Axis font: </label>
+                        <select id="fontfamily" onchange="apply_font_size()">
+                            <option value="Arial, sans-serif" selected>Arial</option>
+                            <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+                            <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                            <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+                            <option value="'Courier New', Courier, monospace">Courier New</option>
+                            <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                        </select>
                         <button onclick="apply_font_size()">Apply</button>
                         <br>
 

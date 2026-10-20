@@ -104,6 +104,9 @@ class myplot_1d {
         this.peak_thickness = 1.0;
         this.filled_peaks = true;
 
+        this.fontsize = 24;
+        this.fontfamily = "Arial, sans-serif";
+
         this.spectral_order = [];
 
         this.spectral_scale = []; // This is the scale of the spectrum, used to adjust the height of the spectrum in the plot
@@ -136,13 +139,14 @@ class myplot_1d {
      * @param {int} height height of the plot SVG element
      * This function will init the plot and add the experimental spectrum only
      */
-    init(width, height, peak_params, zoom_pan_on_call_function, fontsize) {
+    init(width, height, peak_params, zoom_pan_on_call_function, fontsize, fontfamily) {
 
         let self = this; // to use this inside some functions
 
         this.width = width;
         this.height = height;
-        this.fontsize = fontsize || 24;
+        this.fontsize = (fontsize !== undefined && fontsize !== null && !isNaN(fontsize)) ? parseFloat(fontsize) : 24;
+        this.fontfamily = fontfamily || "Arial, sans-serif";
         /**
          * ON call function we need to call when user zoom out the plot using mouse wheel
          */
@@ -222,7 +226,10 @@ class myplot_1d {
         this.$xLabel = this.$xLabelGroup.append("text")
             .attr("class", "x-label")
             .attr("text-anchor", "middle")
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px")
             .text("Proton Chemical Shift (ppm)")
             .on("click", function (event) {
                 let e = event;
@@ -263,7 +270,10 @@ class myplot_1d {
         this.$yLabel = this.$yLabelGroup.append("text")
             .attr("class", "y-label")
             .attr("text-anchor", "middle")
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px")
             .text("Intensity")
             .on("click", function (event) {
                 let e = event;
@@ -272,17 +282,27 @@ class myplot_1d {
             });
 
         /**
-         * Because d3 des not support axis font size. We have to use css to change the font size of the axis
+         * Because d3 does not support axis font size directly, set font-family and font-size on axis tick text
          */
-        d3.selectAll(".yaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
 
-        d3.selectAll(".xaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
 
         /**
@@ -814,13 +834,39 @@ class myplot_1d {
     }
 
 
-    update_margins_and_font(new_margins, new_fontsize) {
-        this.margin = new_margins;
-        this.fontsize = new_fontsize;
+    update_margins_and_font(new_margins, new_fontsize, new_fontfamily) {
+        if (new_fontsize !== undefined && new_fontsize !== null && !isNaN(new_fontsize)) {
+            this.fontsize = parseFloat(new_fontsize);
+        }
+        if (new_fontfamily) {
+            this.fontfamily = new_fontfamily;
+        }
+        if (new_margins) {
+            this.margin = new_margins;
+        } else if (this.fontsize) {
+            this.margin = {
+                left: Math.max(80, 15 + this.fontsize * 5),
+                right: 10,
+                top: 10,
+                bottom: Math.max(60, 15 + this.fontsize * 3)
+            };
+        }
         /**
          * Need to re-calculate the true width and true height, move axis, etc. 
          */
         this.recalculate_true_size_and_redraw();
+    }
+
+    set_axis_font(new_fontsize, new_fontfamily) {
+        let size = (new_fontsize !== undefined && new_fontsize !== null && !isNaN(new_fontsize)) ? parseFloat(new_fontsize) : this.fontsize;
+        let family = new_fontfamily || this.fontfamily;
+        let new_margin = {
+            left: Math.max(80, 15 + size * 5),
+            right: 10,
+            top: 10,
+            bottom: Math.max(60, 15 + size * 3)
+        };
+        this.update_margins_and_font(new_margin, size, family);
     }
 
 
@@ -873,7 +919,10 @@ class myplot_1d {
         this.$xLabelGroup.attr("transform", `translate(${this.margin.left + this.true_width / 2}, ${this.height - 10})`);
 
         this.$xLabel
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
             .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px");
 
         this.yAxis = d3.axisLeft(this.yscale).ticks(this.true_height / (this.fontsize * 4.0)).tickFormat(d3.format(".1e"));
         this.$yAxis_element
@@ -883,7 +932,31 @@ class myplot_1d {
         this.$yLabelGroup.attr("transform", `translate(${this.fontsize * 1.0}, ${this.height / 2}) rotate(-90)`);
 
         this.$yLabel
-            .attr("font-size", this.fontsize + "px");
+            .attr("font-family", this.fontfamily)
+            .style("font-family", this.fontfamily)
+            .attr("font-size", this.fontsize + "px")
+            .style("font-size", this.fontsize + "px");
+
+        let self = this;
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
         /**
          * Redraw the plot
@@ -1215,18 +1288,43 @@ class myplot_1d {
         this.$xAxis_element.call(this.xAxis);
         this.$yAxis_element.call(this.yAxis);
 
-        /**
-         * Because d3 des not support axis font size. We have to use css to change the font size of the axis
-         */
-        d3.selectAll(".yaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        if (this.$xLabel) {
+            this.$xLabel
+                .attr("font-family", this.fontfamily)
+                .style("font-family", this.fontfamily)
+                .attr("font-size", this.fontsize + "px")
+                .style("font-size", this.fontsize + "px");
+        }
+        if (this.$yLabel) {
+            this.$yLabel
+                .attr("font-family", this.fontfamily)
+                .style("font-family", this.fontfamily)
+                .attr("font-size", this.fontsize + "px")
+                .style("font-size", this.fontsize + "px");
+        }
 
-        d3.selectAll(".xaxis>.tick>text")
-            .each(function () {
-                d3.select(this).style("font", " sans-serif").style("font-size", self.fontsize + "px");
-            });
+        /**
+         * Because d3 does not support axis font size directly, set font-family and font-size on axis tick text
+         */
+        if (this.$vis) {
+            this.$vis.selectAll(".yaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+
+            this.$vis.selectAll(".xaxis>.tick>text")
+                .each(function () {
+                    d3.select(this)
+                        .attr("font-family", self.fontfamily)
+                        .style("font-family", self.fontfamily)
+                        .attr("font-size", self.fontsize + "px")
+                        .style("font-size", self.fontsize + "px");
+                });
+        }
 
         /**
          * Redraw experimental spectrum
@@ -1674,6 +1772,7 @@ class myplot_1d {
         const input = foreignObject.append("xhtml:input")
             .attr("type", "text")
             .attr("value", currentText)
+            .style("font-family", self.fontfamily || "Arial, sans-serif")
             .style("font-size", fontSize + "px")
             .style("width", "100%")
             .style("height", "100%")

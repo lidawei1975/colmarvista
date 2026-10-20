@@ -828,22 +828,28 @@ function apply_size_and_zoom() {
 }
 
 /**
- * Change font size of the plot
+ * Change font size and font family of the plot
  */
 function apply_font_size() {
-    let new_size = parseFloat(document.getElementById("fontsize").value);
+    let font_size_input = document.getElementById("fontsize");
+    let font_family_input = document.getElementById("fontfamily");
+    let new_size = font_size_input ? parseFloat(font_size_input.value) : plot_font_size;
+    let new_family = font_family_input ? font_family_input.value : "Arial, sans-serif";
+
     if (!isNaN(new_size)) {
         plot_font_size = new_size;
         /**
          * Calculate new margins based on the new font size
          */
         let new_margin = {
-            left: 15 + plot_font_size * 5,
+            left: Math.max(80, 15 + plot_font_size * 5),
             right: 10,
             top: 10,
-            bottom: 15 + plot_font_size * 3
+            bottom: Math.max(60, 15 + plot_font_size * 3)
         };
-        main_plot.update_margins_and_font(new_margin, plot_font_size);
+        if (main_plot && typeof main_plot.update_margins_and_font === "function") {
+            main_plot.update_margins_and_font(new_margin, plot_font_size, new_family);
+        }
     }
 }
 
@@ -1926,7 +1932,11 @@ function draw_spectrum(result_spectra, b_from_fid, b_reprocess, b_ann_phase_corr
             filled_peaks: document.getElementById("filled_peaks").checked,
 
         };
-        main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced);
+        let fs_el = document.getElementById("fontsize");
+        let ff_el = document.getElementById("fontfamily");
+        let initial_fs = fs_el ? parseFloat(fs_el.value) : (plot_font_size || 24);
+        let initial_ff = ff_el ? ff_el.value : "Arial, sans-serif";
+        main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced, initial_fs, initial_ff);
 
         /**
          * When initializing the plot, we also initialize the BroadcastChannel
@@ -2066,17 +2076,34 @@ const loadImage = async url => {
 const serializeAsXML = $e => (new XMLSerializer()).serializeToString($e);
 const encodeAsUTF8 = s => `${dataHeader},${encodeURIComponent(s)}`;
 
-async function download_plot() {
+async function download_plot(flag) {
     /**
      * Generate a link to download main_plot as a SVG file
      * The top SVG element has id = "main_plot"
+     * flag == 2: download without Y axis
      */
     var svgElement = document.getElementById("main_plot");
     if (!svgElement) {
         console.error("SVG element 'main_plot' not found.");
         return;
     }
-    var svgData = serializeAsXML(svgElement);
+    var main_plot_copy = svgElement.cloneNode(true);
+    if (flag == 2) {
+        var y_axes = main_plot_copy.querySelectorAll(".yaxis");
+        y_axes.forEach(function (el) { el.remove(); });
+        var y_labels = main_plot_copy.querySelectorAll(".y-label, .y-label-group, .axis_label_y");
+        y_labels.forEach(function (el) { el.remove(); });
+    }
+
+    // Ensure valid XML namespace attributes for standalone SVG
+    if (!main_plot_copy.getAttribute("xmlns")) {
+        main_plot_copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
+    if (!main_plot_copy.getAttribute("xmlns:xlink")) {
+        main_plot_copy.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+    }
+
+    var svgData = serializeAsXML(main_plot_copy);
     if (!svgData.startsWith('<?xml')) {
         svgData = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgData;
     }
@@ -2084,7 +2111,7 @@ async function download_plot() {
     var svgUrl = URL.createObjectURL(svgBlob);
     var downloadLink = document.createElement("a");
     downloadLink.href = svgUrl;
-    downloadLink.download = "colmar-vista.svg";
+    downloadLink.download = (flag == 2) ? "colmar-vista_no_y_axis.svg" : "colmar-vista.svg";
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
@@ -2646,7 +2673,11 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
                 filled_peaks: document.getElementById("filled_peaks").checked,
 
             };
-            main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced);
+            let fs_el = document.getElementById("fontsize");
+        let ff_el = document.getElementById("fontfamily");
+        let initial_fs = fs_el ? parseFloat(fs_el.value) : (plot_font_size || 24);
+        let initial_ff = ff_el ? ff_el.value : "Arial, sans-serif";
+        main_plot.init(cr.width, cr.height, peak_params, update_reconstructed_peaks_debounced, initial_fs, initial_ff);
             /**
              * When initializing the plot, we also initialize the BroadcastChannel
              */
