@@ -95,8 +95,14 @@ class myplot_1d {
          * Default lineGenerator width of the experimental spectrum, reconstructed spectrum, and simulated spectrum
          */
         this.exp_line_width = 1.0;
+        this.peak_profile_line_width = 1.0;
 
         this.$peaks_symbol = null; //this.$peaks_symbol is an array of [x,y] pairs. X is ppm, Y is intensity
+        this.$peaks_group = null;
+        this.peak_color = "#808080";
+        this.peak_size = 3;
+        this.peak_thickness = 1.0;
+        this.filled_peaks = true;
 
         this.spectral_order = [];
 
@@ -143,16 +149,16 @@ class myplot_1d {
         this.zoom_pan_on_call_function = zoom_pan_on_call_function || null;
 
         if (peak_params) {
-            this.peak_color = peak_params.color || "#0000ff"; // Default peak color is blue
-            this.peak_size = peak_params.size || 3; // Default peak size is 3 pixels (radius of the circle)
-            this.peak_thickness = peak_params.peak_thickness || 1.0; // Default peak line width is 1.0
-            this.filled_peaks = peak_params.filled_peaks || false; //default filled peaks is false, so peaks are not filled with color
+            this.peak_color = peak_params.peak_color || peak_params.color || "#808080"; // Default peak color is gray
+            this.peak_size = peak_params.size !== undefined ? peak_params.size : 3; // Default peak size is 3 pixels (radius of the circle)
+            this.peak_thickness = peak_params.peak_thickness !== undefined ? peak_params.peak_thickness : 1.0; // Default peak line width is 1.0
+            this.filled_peaks = peak_params.filled_peaks !== undefined ? peak_params.filled_peaks : true; // Default filled peaks is true
         }
         else {
-            this.peak_color = "#0000ff"; // Default peak color is blue
+            this.peak_color = "#808080"; // Default peak color is gray
             this.peak_size = 3; // Default peak size is 3 pixels (radius of the circle)
             this.peak_thickness = 1.0; // Default peak line width is 1.0
-            this.filled_peaks = false; // Default filled peaks is false, so peaks are not filled with color
+            this.filled_peaks = true; // Default filled peaks is true
         }
 
         this.$vis = d3.select("#plot_1d").insert("svg", ":first-child")
@@ -1118,13 +1124,27 @@ class myplot_1d {
     /**
      * Set new lineGenerator width 
      */
-    reset_line_width(exp_line_width, recon_line_width,) {
-        this.exp_line_width = parseFloat(exp_line_width);
-        this.recon_line_width = parseFloat(recon_line_width);
+    reset_line_width(exp_line_width, recon_line_width, peak_profile_line_width) {
+        if (exp_line_width !== undefined) this.exp_line_width = parseFloat(exp_line_width);
+        if (recon_line_width !== undefined) this.recon_line_width = parseFloat(recon_line_width);
+        if (peak_profile_line_width !== undefined) this.set_peak_profile_line_width(peak_profile_line_width);
         /** 
         * Redraw compound peaks will be done in redraw function
         */
         this.redraw();
+    }
+
+    /**
+     * Set line width of reconstructed peak profiles
+     * @param {number|string} width 
+     */
+    set_peak_profile_line_width(width) {
+        this.peak_profile_line_width = parseFloat(width) || 1.0;
+        if (this.$vis) {
+            this.$vis.selectAll('path.reconstructed_peaks')
+                .attr('stroke-width', this.peak_profile_line_width)
+                .style('stroke-width', this.peak_profile_line_width + 'px');
+        }
     }
 
     redraw_order() {
@@ -1252,17 +1272,21 @@ class myplot_1d {
          * Update peaks location if it is not null
          */
         if (this.$peaks_symbol) {
+            const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+            const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+            const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
             this.$peaks_symbol
-                .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
-                .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
+                .attr('cx', (d) => this.xscale(d[0] + reference)) // Scale the ppm of the peak according to the spectrum index
+                .attr('cy', (d) => this.yscale(d[1] * scale_factor)) // Scale the intensity of the peak according to the spectrum index
                 ;
         }
 
 
         // Redraw all peak profiles
         if (this.$reconstructed_peaks) {
-            const scale_factor = this.spectral_scale[this.current_spectrum_index];
-            const reference = this.spectrum_reference[this.current_spectrum_index];
+            const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+            const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+            const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
             this.$reconstructed_peaks
                 .attr('d', d => this.lineGenerator(
                     d.map(p => [p[0] + reference, p[1] * scale_factor])
@@ -1435,8 +1459,10 @@ class myplot_1d {
         /**
          * Step 2, add new peak profile. One peak profile is a path with multiple points
          */
-        const scale_factor = this.spectral_scale[this.current_spectrum_index] || 1.0; // Get the scale factor for the current spectrum index, default to 1.0 if not defined
-        const reference = this.spectrum_reference[this.current_spectrum_index] || 0.0; // Get the reference correction for the current spectrum index, default to 0.0 if not defined
+        const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+        const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
+        const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+        const stroke_w = this.peak_profile_line_width || 1.0;
         this.$reconstructed_peaks = this.$vis.selectAll('path.reconstructed_peaks')
             .data(filtered_peaks_recon)
             .enter()
@@ -1447,44 +1473,84 @@ class myplot_1d {
                 d.map(p => [p[0] + reference, p[1] * scale_factor])
             ))
             .attr('stroke', 'grey')
-            .attr('stroke-width', 1)
+            .attr('stroke-width', stroke_w)
+            .style('stroke-width', stroke_w + 'px')
             .attr('fill', 'none');
     }
 
     /**
-     * Show peaks on the plot, as red circles
-     * @param {Object} peak_obj: cpeaks class object
+     * Show peaks on the plot, as gray circles
+     * @param {Object|Array} peak_obj: cpeaks class object or array of peak params
      */
     add_peaks(peak_obj, peak_type = 'picked') {
         let self = this;
         self.peak_type = peak_type; // save peak type for later use
+        if (!peak_obj) return;
+
         /**
          * Construct peak data, array of [x,y,z] 
-         * x is ppm: peak_obj.column['X_PPM']
-         * z is index: peak_obj.column['INDEX'] (not for plotting, but for tracking the peak)
+         * x is ppm: peak_obj.column['X_PPM'] or p.position or p.x
+         * y is intensity: peak_obj.column['HEIGHT'] or p.intensity or p.y
+         * z is index: peak_obj.column['INDEX'] or idx (for tracking the peak)
          */
-        let peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT', 'INDEX']);
+        let peak_data = [];
+        if (typeof peak_obj.get_selected_columns_as_array === 'function') {
+            peak_data = peak_obj.get_selected_columns_as_array(['X_PPM', 'HEIGHT', 'INDEX']);
+        } else if (Array.isArray(peak_obj)) {
+            peak_data = peak_obj.map((p, idx) => {
+                if (Array.isArray(p)) {
+                    return [p[0], p[1], p[2] !== undefined ? p[2] : idx];
+                } else if (typeof p === 'object' && p !== null) {
+                    let x = (p.position !== undefined) ? p.position : ((p.X_PPM !== undefined) ? p.X_PPM : p.x);
+                    let y = (p.intensity !== undefined) ? p.intensity : ((p.HEIGHT !== undefined) ? p.HEIGHT : p.y);
+                    let id = (p.index !== undefined) ? p.index : idx;
+                    return [x, y, id];
+                }
+                return [0, 0, idx];
+            });
+        } else if (peak_obj && typeof peak_obj === 'object' && Array.isArray(peak_obj.peak_params)) {
+            peak_data = peak_obj.peak_params.map((p, idx) => {
+                let x = (p.position !== undefined) ? p.position : ((p.X_PPM !== undefined) ? p.X_PPM : p.x);
+                let y = (p.intensity !== undefined) ? p.intensity : ((p.HEIGHT !== undefined) ? p.HEIGHT : p.y);
+                let id = (p.index !== undefined) ? p.index : idx;
+                return [x, y, id];
+            });
+        }
 
-        this.$peaks_symbol = this.$vis.append('g')
+        if (this.$peaks_group) {
+            this.$peaks_group.remove();
+            this.$peaks_group = null;
+        }
+
+        if (!self.peak_color || self.peak_color === "#0000ff" || self.peak_color === "blue") {
+            self.peak_color = "#808080";
+        }
+
+        const spec_idx = (this.current_spectrum_index >= 0) ? this.current_spectrum_index : 0;
+        const reference = (this.spectrum_reference && this.spectrum_reference[spec_idx] !== undefined) ? this.spectrum_reference[spec_idx] : 0.0;
+        const scale_factor = (this.spectral_scale && this.spectral_scale[spec_idx] !== undefined) ? this.spectral_scale[spec_idx] : 1.0;
+
+        this.$peaks_group = this.$vis.append('g').attr('class', 'peaks_group');
+        this.$peaks_symbol = this.$peaks_group
             .selectAll("circle")
             .data(peak_data)
             .enter()
             .append('circle')
+            .attr("class", "peak_symbol")
             .attr("clip-path", "url(#clip)")
-            .attr('cx', (d) => this.xscale(d[0] + this.spectrum_reference[this.current_spectrum_index])) // Scale the ppm of the peak according to the current spectrum index
-            .attr('cy', (d) => this.yscale(d[1] * this.spectral_scale[this.current_spectrum_index])) // Scale the intensity of the peak according to the current spectrum index
-            .attr('r', self.peak_size) // radius of the circle
+            .attr('cx', (d) => this.xscale(d[0] + reference))
+            .attr('cy', (d) => this.yscale(d[1] * scale_factor))
+            .attr('r', self.peak_size)
             .style("fill", function (d) {
                 if (self.filled_peaks) {
-                    return self.peak_color; // filled peaks
+                    return self.peak_color;
                 } else {
-                    return "none"; // not filled peaks
+                    return "none";
                 }
             })
-            .style("stroke-width", self.peak_thickness) // thickness of the circle
-            .style("stroke", self.peak_color) // color of the circle
-            ;
-    };
+            .style("stroke-width", self.peak_thickness)
+            .style("stroke", self.peak_color);
+    }
 
     /**
      * Redraw peaks on the plot, only need to update one style, depending on the flag
@@ -1496,36 +1562,61 @@ class myplot_1d {
      * 4: color changed
      */
     redraw_peaks(flag) {
-        if (this.$peaks_symbol) {
-            switch (flag) {
-                case 1:
-                    this.$peaks_symbol.attr('r', this.peak_size); // update radius of the circle
-                    break;
-                case 2:
-                    this.$peaks_symbol.style("stroke-width", this.peak_thickness); // update thickness of the circle
-                    break;
-                case 3:
-                    if (this.filled_peaks) {
-                        this.$peaks_symbol.style("fill", this.peak_color); // filled peaks
-                    } else {
-                        this.$peaks_symbol.style("fill", "none"); // not filled peaks
-                    }
-                    break;
-                case 4:
-                    this.$peaks_symbol.style("stroke", this.peak_color); // update color of the circle
-                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none"); // update fill color of the circle
-                    break;
-                default:
-                    console.warn("myplot_1d: redraw_peaks called with unknown flag: " + flag);
-                    break;
-            }
+        switch (flag) {
+            case 1:
+                this.peak_size = parseFloat(this.peak_size) || 3;
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").attr('r', this.peak_size);
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.attr('r', this.peak_size);
+                }
+                break;
+            case 2:
+                this.peak_thickness = parseFloat(this.peak_thickness) || 1.0;
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").style("stroke-width", this.peak_thickness);
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("stroke-width", this.peak_thickness);
+                }
+                break;
+            case 3:
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol").style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                break;
+            case 4:
+                if (this.$vis) {
+                    this.$vis.selectAll(".peaks_group circle, circle.peak_symbol")
+                        .style("stroke", this.peak_color)
+                        .style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                if (this.$peaks_symbol) {
+                    this.$peaks_symbol.style("stroke", this.peak_color);
+                    this.$peaks_symbol.style("fill", this.filled_peaks ? this.peak_color : "none");
+                }
+                break;
+            default:
+                console.warn("myplot_1d: redraw_peaks called with unknown flag: " + flag);
+                break;
         }
     }
 
     remove_peaks() {
+        if (this.$peaks_group) {
+            this.$peaks_group.remove();
+            this.$peaks_group = null;
+        }
         if (this.$peaks_symbol) {
-            this.$vis.selectAll("circle").remove();
+            this.$peaks_symbol.remove();
             this.$peaks_symbol = null;
+        }
+        if (this.$vis) {
+            this.$vis.selectAll(".peaks_group, circle.peak_symbol, circle").remove();
         }
         this.peak_type = null; // reset peak type
         /**

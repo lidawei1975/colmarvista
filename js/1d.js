@@ -530,22 +530,31 @@ $(document).ready(function () {
     /**
      * Event listener for peak_size, peak_thickness, filled_peaks and peak_color
      */
-    document.getElementById('peak_size').addEventListener('change', function (e) {
+    const peakSizeHandler = function (e) {
         main_plot.peak_size = parseFloat(this.value);
         main_plot.redraw_peaks(1);
-    });
-    document.getElementById('peak_thickness').addEventListener('change', function (e) {
+    };
+    document.getElementById('peak_size').addEventListener('input', peakSizeHandler);
+    document.getElementById('peak_size').addEventListener('change', peakSizeHandler);
+
+    const peakThicknessHandler = function (e) {
         main_plot.peak_thickness = parseFloat(this.value);
         main_plot.redraw_peaks(2);
-    });
+    };
+    document.getElementById('peak_thickness').addEventListener('input', peakThicknessHandler);
+    document.getElementById('peak_thickness').addEventListener('change', peakThicknessHandler);
+
     document.getElementById('filled_peaks').addEventListener('change', function (e) {
         main_plot.filled_peaks = this.checked;
         main_plot.redraw_peaks(3);
     });
-    document.getElementById('peak_color').addEventListener('change', function (e) {
+
+    const peakColorHandler = function (e) {
         main_plot.peak_color = this.value;
         main_plot.redraw_peaks(4);
-    });
+    };
+    document.getElementById('peak_color').addEventListener('input', peakColorHandler);
+    document.getElementById('peak_color').addEventListener('change', peakColorHandler);
 });
 
 webassembly_1d_worker_2.onmessage = function (e) {
@@ -1530,6 +1539,50 @@ function add_to_list(index) {
         show_fitted_peaks_label.setAttribute("for", "show_fitted_peaks-".concat(index));
         show_fitted_peaks_label.innerText = "Show fitted peaks";
         new_spectrum_div.appendChild(show_fitted_peaks_label);
+
+        let peak_profile_lw_label = document.createElement("label");
+        peak_profile_lw_label.setAttribute("for", "peak_profile_line_width-".concat(index));
+        peak_profile_lw_label.innerText = " Peak profile line width: ";
+        new_spectrum_div.appendChild(peak_profile_lw_label);
+
+        let peak_profile_lw_input = document.createElement("input");
+        peak_profile_lw_input.setAttribute("type", "number");
+        peak_profile_lw_input.setAttribute("id", "peak_profile_line_width-".concat(index));
+        peak_profile_lw_input.setAttribute("min", "0.5");
+        peak_profile_lw_input.setAttribute("max", "10");
+        peak_profile_lw_input.setAttribute("step", "0.5");
+        peak_profile_lw_input.setAttribute("value", main_plot.peak_profile_line_width || "1");
+        peak_profile_lw_input.style.width = "50px";
+        peak_profile_lw_input.oninput = function (e) {
+            main_plot.set_peak_profile_line_width(parseFloat(this.value));
+        };
+        peak_profile_lw_input.onchange = function (e) {
+            main_plot.set_peak_profile_line_width(parseFloat(this.value));
+        };
+        new_spectrum_div.appendChild(peak_profile_lw_input);
+
+        let peak_size_label = document.createElement("label");
+        peak_size_label.setAttribute("for", "peak_size_item-".concat(index));
+        peak_size_label.innerText = " Peak symbol size: ";
+        new_spectrum_div.appendChild(peak_size_label);
+
+        let peak_size_input = document.createElement("input");
+        peak_size_input.setAttribute("type", "number");
+        peak_size_input.setAttribute("id", "peak_size_item-".concat(index));
+        peak_size_input.setAttribute("min", "1");
+        peak_size_input.setAttribute("max", "20");
+        peak_size_input.setAttribute("step", "1");
+        peak_size_input.setAttribute("value", main_plot.peak_size || "3");
+        peak_size_input.style.width = "50px";
+        const update_peak_size = function () {
+            main_plot.peak_size = parseFloat(this.value) || 3;
+            main_plot.redraw_peaks(1);
+            let global_ps = document.getElementById("peak_size");
+            if (global_ps && global_ps !== this) global_ps.value = this.value;
+        };
+        peak_size_input.oninput = update_peak_size;
+        peak_size_input.onchange = update_peak_size;
+        new_spectrum_div.appendChild(peak_size_input);
     }
 
     /**
