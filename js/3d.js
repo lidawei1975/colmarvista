@@ -7506,8 +7506,12 @@ document.addEventListener('DOMContentLoaded', function () {
         web_worker_smile_3d.onmessage = handle_webass_smile_3d_message;
         web_worker_smile_3d.onerror = function (err) {
             console.error('[3D][smile-worker] error', err);
-            append_3d_log('[smile-worker-error] ' + (err && err.message ? err.message : String(err)));
-            document.getElementById("webassembly_message").innerText = 'SMILE worker error: ' + (err && err.message ? err.message : String(err));
+            const msg = (err && (err.message || (err.error && err.error.message))) || String(err);
+            append_3d_log('[smile-worker-error] ' + msg);
+            const msgEl = document.getElementById("webassembly_message");
+            if (msgEl) {
+                msgEl.innerText = 'SMILE worker error: ' + msg;
+            }
             set_loading_buttons_state(false);
         };
     }

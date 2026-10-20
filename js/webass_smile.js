@@ -1,10 +1,58 @@
+self.Module = self.Module || {};
+
+let smileReadyResolve;
+const smileReadyPromise = new Promise((resolve) => {
+    smileReadyResolve = resolve;
+    if (typeof Module !== 'undefined' && Module.calledRun && typeof Module._nuspipe === 'function') {
+        resolve();
+    }
+});
+
+const prevOnRuntimeInitialized = Module.onRuntimeInitialized;
+Module.onRuntimeInitialized = function () {
+    if (typeof prevOnRuntimeInitialized === 'function') {
+        prevOnRuntimeInitialized();
+    }
+    if (smileReadyResolve) {
+        smileReadyResolve();
+    }
+};
+
+/**
+ * Redirect the stdout and stderr to postMessage
+ */
+Module['print'] = function (text) {
+    postMessage({ stdout: text });
+};
+Module['printErr'] = function (text) {
+    postMessage({ stdout: text });
+};
+out = Module['print'];
+err = Module['printErr'];
+
 importScripts('smile.js');
 
-function getNusPipe() {
+function safeUnlink(filename) {
+    try {
+        if (typeof FS !== 'undefined' && typeof FS.unlink === 'function') {
+            FS.unlink(filename);
+        } else if (typeof Module !== 'undefined' && typeof Module['FS_unlink'] === 'function') {
+            Module['FS_unlink'](filename);
+        }
+    } catch (_) { }
+}
+
+async function getNusPipe() {
+    if (typeof Module === 'undefined' || !Module.calledRun || typeof Module._nuspipe !== 'function') {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timed out waiting for SMILE WebAssembly runtime initialization')), 15000)
+        );
+        await Promise.race([smileReadyPromise, timeoutPromise]);
+    }
     if (typeof Module.cwrap !== 'function') {
         throw new Error('SMILE Module.cwrap is not available yet');
     }
-    return Module.cwrap("nuspipe", "number", [], {});
+    return Module.cwrap("nuspipe", "number", [], { async: true });
 }
 
 function postRuntimeDiagnostics(contextLabel, spectrumData) {
@@ -34,21 +82,17 @@ function postRuntimeDiagnostics(contextLabel, spectrumData) {
     });
 }
 
-/**
- * Redirect the stdout and stderr to postMessage
- */
-Module['print'] = function (text) {
-    postMessage({ stdout: text });
-};
-out = Module['print'];
-err = Module['print'];
-
-onmessage = function (e) {
+onmessage = async function (e) {
     console.log('Message received from main script to nuspipe worker');
 
     if (e.data.spectrum_data && e.data.smile_mode === 'nus_3d') {
         console.log('3D spectrum data received by Smile worker');
         postRuntimeDiagnostics('3d-before-fs-write', e.data.spectrum_data);
+
+        safeUnlink('nuslist');
+        safeUnlink('half.ft3');
+        safeUnlink('arguments_nus_pipe.txt');
+        safeUnlink('smile.ft3');
 
         Module['FS_createDataFile']('/', 'nuslist', e.data.nuslist_as_string || '', true, true, true);
         Module['FS_createDataFile']('/', 'half.ft3', e.data.spectrum_data, true, true, true);
@@ -64,30 +108,44 @@ onmessage = function (e) {
         postMessage({ stdout: 'nusPipe command: ' + command });
 
         postMessage({ stdout: 'Calling nusPipe function for 3D NUS reconstruction' });
+        let retVal;
         try {
-            const nusPipeFn = getNusPipe();
+            const nusPipeFn = await getNusPipe();
             postMessage({ stdout: '[smile-diag] 3d nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            retVal = await nusPipeFn();
+            postMessage({ stdout: '[smile-diag] 3d nuspipe finished with return code ' + retVal });
         } catch (err) {
             postMessage({
                 error: '3D nusPipe failed: ' + (err && err.message ? err.message : String(err))
             });
-            try {
-                Module['FS_unlink']('half.ft3');
-                Module['FS_unlink']('arguments_nus_pipe.txt');
-                Module['FS_unlink']('nuslist');
-            } catch (_) { }
+            safeUnlink('half.ft3');
+            safeUnlink('arguments_nus_pipe.txt');
+            safeUnlink('nuslist');
+            safeUnlink('smile.ft3');
             return;
         }
 
-        let output = FS.readFile('smile.ft3', { encoding: 'binary' });
+        let output;
+        try {
+            output = FS.readFile('smile.ft3', { encoding: 'binary' });
+        } catch (readErr) {
+            postMessage({
+                error: '3D nusPipe finished (code ' + retVal + '), but failed to read smile.ft3: ' + (readErr && readErr.message ? readErr.message : String(readErr))
+            });
+            safeUnlink('half.ft3');
+            safeUnlink('arguments_nus_pipe.txt');
+            safeUnlink('nuslist');
+            safeUnlink('smile.ft3');
+            return;
+        }
+
         console.log('3D SMILE output file read from virtual file system');
         postRuntimeDiagnostics('3d-after-nuspipe-output', output);
 
-        Module['FS_unlink']('half.ft3');
-        Module['FS_unlink']('arguments_nus_pipe.txt');
-        Module['FS_unlink']('smile.ft3');
-        Module['FS_unlink']('nuslist');
+        safeUnlink('half.ft3');
+        safeUnlink('arguments_nus_pipe.txt');
+        safeUnlink('smile.ft3');
+        safeUnlink('nuslist');
 
         postMessage({
             spectrum_data: output,
@@ -139,6 +197,11 @@ onmessage = function (e) {
         let xT = maxX + 1;
 
         console.log('[webass_smile] Nuslist parsed: sampleCount=' + sampleCount + ', xT=' + xT + ', content:\n' + smileNuslistContent);
+
+        safeUnlink('nuslist');
+        safeUnlink('test_direct.ft2');
+        safeUnlink('arguments_nus_pipe.txt');
+        safeUnlink('test_nus.ft2');
 
         /**
          * Write clean single-column "nuslist" file for SMILE
@@ -197,36 +260,50 @@ onmessage = function (e) {
          * Call the nusPipe function
          */
         postMessage({ stdout: 'Calling nusPipe function' });
+        let retVal;
         try {
-            const nusPipeFn = getNusPipe();
+            const nusPipeFn = await getNusPipe();
             postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
-            nusPipeFn();
+            retVal = await nusPipeFn();
+            postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe finished with return code ' + retVal });
         } catch (err) {
             postMessage({
                 error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe failed: ' + (err && err.message ? err.message : String(err))
             });
-            try {
-                Module['FS_unlink']('test_direct.ft2');
-                Module['FS_unlink']('arguments_nus_pipe.txt');
-                Module['FS_unlink']('nuslist');
-            } catch (_) { }
+            safeUnlink('test_direct.ft2');
+            safeUnlink('arguments_nus_pipe.txt');
+            safeUnlink('nuslist');
+            safeUnlink('test_nus.ft2');
             return;
         }
 
         /**
          * Read the output file "test_nus.ft2" and send it back to the main thread
          */
-        let output = FS.readFile('test_nus.ft2', { encoding: 'binary' });
+        let output;
+        try {
+            output = FS.readFile('test_nus.ft2', { encoding: 'binary' });
+        } catch (readErr) {
+            postMessage({
+                error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' nusPipe finished (code ' + retVal + '), but failed to read test_nus.ft2: ' + (readErr && readErr.message ? readErr.message : String(readErr))
+            });
+            safeUnlink('test_direct.ft2');
+            safeUnlink('arguments_nus_pipe.txt');
+            safeUnlink('test_nus.ft2');
+            safeUnlink('nuslist');
+            return;
+        }
+
         console.log('Output file read from virtual file system');
         postRuntimeDiagnostics((isPseudo3D ? 'pseudo3d' : '2d') + '-after-nuspipe-output', output);
 
         /**
          * Remove the files from the virtual file system
          */
-        Module['FS_unlink']('test_direct.ft2');
-        Module['FS_unlink']('arguments_nus_pipe.txt');
-        Module['FS_unlink']('test_nus.ft2');
-        Module['FS_unlink']('nuslist');
+        safeUnlink('test_direct.ft2');
+        safeUnlink('arguments_nus_pipe.txt');
+        safeUnlink('test_nus.ft2');
+        safeUnlink('nuslist');
 
         postMessage({
             spectrum_data: output,
