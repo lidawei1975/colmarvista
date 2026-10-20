@@ -310,6 +310,20 @@ $(document).ready(function () {
         });
     }
 
+    const file_area = document.getElementById("file_area");
+    if (file_area) {
+        file_area.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("button_minimize_file_area");
+            if (btn && btn.innerText === "+") {
+                minimize_file_area(btn);
+            }
+        });
+        file_area.addEventListener("dragover", (e) => {
+            e.preventDefault();
+        });
+    }
+
     // Tutorial Implementation
     var tutorial = null;
 
@@ -561,12 +575,12 @@ $(document).ready(function () {
         ft2_file_drop_processor.container = new DataTransfer();
 
         /**
-         * Collect all file names
+         * Collect all files and file names
          */
-        let file_names = [];
-        for (let i = 0; i < this.querySelector('input[type="file"]').files.length; i++) {
-            file_names.push(this.querySelector('input[type="file"]').files[i].name);
-        }
+        let fileInput = this.querySelector('input[type="file"]');
+        let files_to_process = fileInput ? Array.from(fileInput.files) : [];
+        let file_names = files_to_process.map(f => f.name);
+
         /**
          * Sort the file names, keep the index
          */
@@ -581,21 +595,22 @@ $(document).ready(function () {
          * To keep order, we will read the files one by one using a chain of promises
          */
         let chain = Promise.resolve();
-        for (let i = 0; i < this.querySelector('input[type="file"]').files.length; i++) {
+        for (let i = 0; i < files_to_process.length; i++) {
             let ii = index_array[i];
+            let current_file = files_to_process[ii];
 
             chain = chain.then(() => {
-                console.log("read file", this.querySelector('input[type="file"]').files[ii].name);
+                console.log("read file", current_file.name);
                 /**
                  * If not a .ft2 file or .ft3 file, resolve the promise
                  */
-                if (this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft2")
-                    || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ft3")
-                    || this.querySelector('input[type="file"]').files[ii].name.endsWith(".ucsf")) {
-                    return read_file(this.querySelector('input[type="file"]').files[ii]);
+                if (current_file.name.endsWith(".ft2")
+                    || current_file.name.endsWith(".ft3")
+                    || current_file.name.endsWith(".ucsf")) {
+                    return read_file(current_file);
                 }
-                else if (this.querySelector('input[type="file"]').files[ii].name.endsWith(".txt")) {
-                    return read_file_text(this.querySelector('input[type="file"]').files[ii]);
+                else if (current_file.name.endsWith(".txt")) {
+                    return read_file_text(current_file);
                 }
                 else {
                     return Promise.resolve(null);
@@ -617,7 +632,7 @@ $(document).ready(function () {
                             field_strength = parseFloat(document.getElementById("field_strength").value);
                         }
                         let result_spectrum = new spectrum();
-                        result_spectrum.process_topspin_file(file_data, this.querySelector('input[type="file"]').files[ii].name, field_strength);
+                        result_spectrum.process_topspin_file(file_data, current_file.name, field_strength);
                         draw_spectrum([result_spectrum], false/**from fid */, false/** re-process of fid or ft2 */);
                     }
                     else {
@@ -629,11 +644,11 @@ $(document).ready(function () {
                         let result_spectrum;
                         if (first_float32 === 0.0) {
                             result_spectrum = new spectrum();
-                            result_spectrum.process_ft_file(file_data, this.querySelector('input[type="file"]').files[ii].name, -1);
+                            result_spectrum.process_ft_file(file_data, current_file.name, -1);
                         }
                         else {
                             result_spectrum = new spectrum();
-                            result_spectrum.process_sparky_file(file_data, this.querySelector('input[type="file"]').files[ii].name, -1);
+                            result_spectrum.process_sparky_file(file_data, current_file.name, -1);
                         }
                         draw_spectrum([result_spectrum], false/**from fid */, false/** re-process of fid or ft2 */);
                     }
@@ -641,7 +656,7 @@ $(document).ready(function () {
                 /**
                  * If it is the last file, clear the file input
                  */
-                if (i === this.querySelector('input[type="file"]').files.length - 1) {
+                if (i === files_to_process.length - 1) {
                     document.getElementById('userfile').value = "";
                 }
             }).catch((err) => {
