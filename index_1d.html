@@ -157,14 +157,27 @@
                         <strong>Control:</strong>
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
-                        <button onclick="download_plot()">Download plot</button>
+                        <button onclick="download_plot(1)">Download plot</button>
+                        <button onclick="download_plot(2)">Download without Y axis</button>
+                        <label for="fontsize"> Axis font size: </label>
+                        <input type="number" id="fontsize" value="24" min="8" max="72" oninput="apply_font_size()" onchange="apply_font_size()">
+                        <label for="fontfamily"> Axis font: </label>
+                        <select id="fontfamily" onchange="apply_font_size()">
+                            <option value="Arial, sans-serif" selected>Arial</option>
+                            <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+                            <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                            <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+                            <option value="'Courier New', Courier, monospace">Courier New</option>
+                            <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                        </select>
+                        <button onclick="apply_font_size()">Apply</button>
+                        <br>
                         <button onclick="write_current_size()">Fill plot size and zoom</button>
                         <input type="text" id="size_and_zoom_string" placeholder="size and zoom level of plot"
-                            style="width: 300px;">
+                            style="width: 300px;" onkeydown="if(event.key==='Enter')apply_size_and_zoom();">
                         <button onclick="apply_size_and_zoom()">Apply plot size and zoom</button>
-                        <label for="fontsize"> Font size: </label>
-                        <input type="number" id="fontsize" value="24" min="8" max="72">
-                        <button onclick="apply_font_size()">Apply</button>
                         <br>
 
                         <button id="button_auto_pc" onclick="run_auto_pc()">Run automatic phase correction</button>
@@ -192,7 +205,7 @@
                         <input type="checkbox" id="filled_peaks" checked>
                         <label for="filled_peaks"> Filled peak</label>
                         <label for="peak_color"> color </label>
-                        <input type="color" id="peak_color" value="#0000ff">&nbsp;&nbsp;
+                        <input type="color" id="peak_color" value="#808080">&nbsp;&nbsp;
                         <input type="checkbox" id="allow_drag_and_drop" disabled>
                         <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peak.</label>
                         <br>
@@ -262,12 +275,16 @@
     <script type="text/javascript" src="js/file_drop.js"></script>
     <script type="text/javascript" src="js/peaks.js"></script>
     <script type="text/javascript" src="js/spectrum_1d.js"></script>
-    <script type="text/javascript" src="js/myplot/myplot_1d.js"></script>
+    <script type="text/javascript" src="js/shared/myplot_1d.js"></script>
+    <script type="text/javascript" src="js/shared/nmr_phase_1d.js"></script>
+    <script type="text/javascript" src="js/shared/fid_tools_1d.js"></script>
+    <script type="text/javascript" src="js/shared/voigt_reconstruction.js"></script>
+    <script type="text/javascript" src="js/shared/nmr_pipeline_1d.js"></script>
     <script type="text/javascript" src="js/make_table.js"></script>
     <script type="text/javascript" src="js/tutorial.js"></script>
     <script type="text/javascript" src="js/webdp1d_cpp.js"></script>
     <script type="text/javascript" src="js/tooltips.js?v=20261014_1"></script>
-    <script type="text/javascript" src="js/1d.js?v=20261013_2"></script>
+    <script type="text/javascript" src="js/1d.js?v=20261020_1"></script>
     </div>
 </body>
 
