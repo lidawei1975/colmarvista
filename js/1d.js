@@ -792,35 +792,45 @@ var plot_div_resize_observer = new ResizeObserver(entries => {
  * Save current size and zoom level to the input field "size_and_zoom_string"
  */
 function write_current_size() {
-    let width = document.getElementById("plot_1d").style.width;
-    let height = document.getElementById("plot_1d").style.height;
-    /**
-     * Remove "px" from width and height
-     */
-    width = parseFloat(width.replace("px", ""));
-    height = parseFloat(height.replace("px", ""));
+    if (!main_plot) return;
+    let plot_el = document.getElementById("plot_1d");
+    if (!plot_el) return;
+
+    let width = plot_el.style.width ? parseFloat(plot_el.style.width.replace("px", "")) : plot_el.getBoundingClientRect().width;
+    let height = plot_el.style.height ? parseFloat(plot_el.style.height.replace("px", "")) : plot_el.getBoundingClientRect().height;
 
     let xscale = main_plot.xscale.domain();
     let yscale = main_plot.yscale.domain();
 
-    let size_info = width.toString().concat(" ", height.toString(), " ", xscale[0].toFixed(3), " ", xscale[1].toFixed(3), " ", yscale[0].toFixed(3), " ", yscale[1].toFixed(3));
+    let size_info = width.toFixed(0) + " " + height.toFixed(0) + " " + xscale[0].toFixed(3) + " " + xscale[1].toFixed(3) + " " + yscale[0].toFixed(3) + " " + yscale[1].toFixed(3);
 
-    document.getElementById("size_and_zoom_string").value = size_info;
+    let input_el = document.getElementById("size_and_zoom_string");
+    if (input_el) {
+        input_el.value = size_info;
+    }
 }
 
 /**
  * Apply size and zoom level from the input field "size_and_zoom_string"
  */
 function apply_size_and_zoom() {
-    let size_info = document.getElementById("size_and_zoom_string").value.split(" ");
+    let input_el = document.getElementById("size_and_zoom_string");
+    if (!input_el) return;
+    let size_info = input_el.value.trim().split(/\s+/);
     if (size_info.length === 6 && main_plot !== null) {
         let width = parseFloat(size_info[0]);
         let height = parseFloat(size_info[1]);
         let xscale = [parseFloat(size_info[2]), parseFloat(size_info[3])];
         let yscale = [parseFloat(size_info[4]), parseFloat(size_info[5])];
 
-        document.getElementById("plot_1d").style.width = width.toString().concat("px");
-        document.getElementById("plot_1d").style.height = height.toString().concat("px");
+        let plot_el = document.getElementById("plot_1d");
+        if (plot_el && !isNaN(width) && !isNaN(height)) {
+            plot_el.style.width = width.toString().concat("px");
+            plot_el.style.height = height.toString().concat("px");
+        }
+        if (main_plot.resize && !isNaN(width) && !isNaN(height)) {
+            main_plot.resize(width - 4, height - 4);
+        }
         main_plot.xscale.domain(xscale);
         main_plot.yscale.domain(yscale);
         main_plot.redraw();
