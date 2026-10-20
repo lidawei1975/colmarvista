@@ -354,12 +354,14 @@ class myplot_1d {
                     if (this.anchor[this.current_spectrum_index]) {
                         this.anchor[this.current_spectrum_index] = false;
                         this.anchor_ppm[this.current_spectrum_index] = 0.0;
-                        document.getElementById("pivot").innerHTML = "not set";
+                        let pivot_el = document.getElementById("pivot");
+                        if (pivot_el) pivot_el.innerHTML = "not set";
                         console.log('Unset pivot');
                     } else {
                         this.anchor[this.current_spectrum_index] = true;
                         this.anchor_ppm[this.current_spectrum_index] = ppm;
-                        document.getElementById("pivot").innerHTML = ppm.toFixed(4);
+                        let pivot_el = document.getElementById("pivot");
+                        if (pivot_el) pivot_el.innerHTML = ppm.toFixed(4);
                         console.log('Set pivot at ppm: ', ppm);
                     }
                     this.redraw();
@@ -401,7 +403,8 @@ class myplot_1d {
                 /**
                  * Update the scale of the spectrum to user (span element with id 'spectrum-scale-<index>')
                  */
-                document.getElementById('spectrum-scale-'.concat(index)).textContent = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
+                let scale_el = document.getElementById('spectrum-scale-'.concat(index));
+                if (scale_el) scale_el.textContent = (this.spectral_scale[index] * delta).toFixed(2); // Update the scale of the spectrum to user input
 
                 let lineId = `line${index}`;
                 let data = this.allLines[lineId];
@@ -528,12 +531,7 @@ class myplot_1d {
                     this.phase_correction_at_max_ppm[index] = phase_at_anchor + new_slop * (this.right_end_ppm[index] - this.anchor_ppm[index]);
                 }
 
-                const p0 = this.phase_correction_at_min_ppm[index] * 180.0 / Math.PI;
-                const p1 = (this.phase_correction_at_max_ppm[index] - this.phase_correction_at_min_ppm[index]) * 180.0 / Math.PI;
-                document.getElementById("pc_left_end").innerHTML = p0.toFixed(2);
-                document.getElementById("pc_right_end").innerHTML = (this.phase_correction_at_max_ppm[index] * 180.0 / Math.PI).toFixed(2);
-                const p1_el = document.getElementById("pc_p1");
-                if (p1_el) p1_el.innerHTML = p1.toFixed(2);
+                this.update_phase_info(index);
 
                 this.apply_phase_correction();
             }
@@ -931,7 +929,8 @@ class myplot_1d {
                 /**
                  * Update the scale of the spectrum to user (span element with id 'spectrum-reference-<index>')
                  */
-                document.getElementById('spectrum-reference-'.concat(index)).textContent = this.spectrum_reference[index].toFixed(4); // Update the scale of the spectrum to user input
+                let ref_el = document.getElementById('spectrum-reference-'.concat(index));
+                if (ref_el) ref_el.textContent = this.spectrum_reference[index].toFixed(4); // Update the scale of the spectrum to user input
 
                 /**
                  * Redraw the current spectral index only

@@ -2,6 +2,67 @@
  * NMR 1D Phase Correction Algorithms (Shared Module)
  * Supports ANN/CNN prediction models via TensorFlow.js and in-browser manual phase rotation.
  */
+/**
+ * Safe logger that writes to console and appends to #log textarea if present.
+ */
+function logToPage(message) {
+    console.log(message);
+    const logEl = document.getElementById("log");
+    if (logEl) {
+        logEl.value += message + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+}
+
+/**
+ * Apply phase correction to backend if running on server (COLMAR1D mode)
+ */
+function apply_phase_correction_to_backend(phase0, phase1) {
+    if (typeof baseUrl !== "undefined" && typeof user_job_id !== "undefined" && user_job_id) {
+        let oOutput = document.getElementById("infor");
+        if (oOutput) oOutput.innerHTML = "Done auto phase correction. Applying phase correction on the server, please wait...";
+
+        let csrfElem = document.getElementsByName("csrf_test_name")[0];
+        let csrfName = csrfElem ? csrfElem.name : "csrf_test_name";
+        let csrfHash = csrfElem ? csrfElem.value : "";
+
+        let serverPath = (typeof server_name !== "undefined") ? server_name : "colmar1d";
+
+        $.ajax({
+            url: baseUrl + "/index.php/" + serverPath + "/apply_phase_correction",
+            type: "post",
+            dataType: "text",
+            data: {
+                "phase_correction_at_min_ppm": phase0,
+                "phase_correction_at_max_ppm": phase1,
+                "user_job_id": user_job_id,
+                [csrfName]: csrfHash
+            },
+            error: function (res) {
+                if (oOutput && typeof process_error === "function") {
+                    oOutput.innerHTML = "";
+                    oOutput.appendChild(process_error(res.responseText, res.status));
+                }
+            },
+            success: function () {
+                if (typeof enable_disable_buttons === "function") {
+                    enable_disable_buttons('ENABLE_BASELINE');
+                    enable_disable_buttons('ENABLE_DECONVOLUTION');
+                }
+                if (oOutput) oOutput.innerHTML = "Phase correction applied successfully on the server";
+                if (main_plot) main_plot.current_spectrum_index = 0;
+                let pcLeft = document.getElementById("pc_left_end");
+                if (pcLeft) pcLeft.textContent = "0";
+                let pcRight = document.getElementById("pc_right_end");
+                if (pcRight) pcRight.textContent = "0";
+                let pivotEl = document.getElementById("pivot");
+                if (pivotEl) pivotEl.textContent = "not set";
+                disable_enable_phase_baseline_buttons(true);
+            }
+        });
+    }
+}
+
 function permanently_apply_phase_correction() {
     if (main_plot === null) return;
     return_data = main_plot.permanently_apply_phase_correction();
@@ -42,11 +103,14 @@ function permanently_apply_phase_correction() {
     /**
      * Clear shown phase correction in the main page.
      */
-    document.getElementById("pc_left_end").textContent = "0.0";
-    document.getElementById("pc_right_end").textContent = "0.0";
+    let pc_left = document.getElementById("pc_left_end");
+    if (pc_left) pc_left.textContent = "0.0";
+    let pc_right = document.getElementById("pc_right_end");
+    if (pc_right) pc_right.textContent = "0.0";
     const p1_el = document.getElementById("pc_p1");
     if (p1_el) p1_el.textContent = "0.0";
-    document.getElementById("pivot").textContent = "not set";
+    let pivot_el = document.getElementById("pivot");
+    if (pivot_el) pivot_el.textContent = "not set";
 
     /**
      * If this spectrum is from fid, we need to update fid_process_parameters.phase_correction_direct_p0 and p1
@@ -59,8 +123,10 @@ function permanently_apply_phase_correction() {
          * Update input field phase_correction_direct_p0 and p1 to the new values
          */
         if (current_reprocess_spectrum_index === ndx) {
-            document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
-            document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+            let p0_el = document.getElementById("phase_correction_direct_p0");
+            if (p0_el) p0_el.value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+            let p1_el = document.getElementById("phase_correction_direct_p1");
+            if (p1_el) p1_el.value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
         }
     }
 }
@@ -141,20 +207,13 @@ async function run_ann_phase_correction_p0_only(ndx) {
     disable_enable_phase_baseline_buttons(false);
 
     let oOutput = document.getElementById("infor");
-    oOutput.innerHTML = "Running automatic phase correction (P0 only for benchtop) using ANN model. Please wait...";
+    if (oOutput) oOutput.innerHTML = "Running automatic phase correction (P0 only for benchtop) using ANN model. Please wait...";
 
-    if (typeof document.getElementById("log") !== "undefined" && document.getElementById("log") !== null) {
-        document.getElementById("log").value += "Starting automatic P0 phase correction (benchtop)...\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
+    logToPage("Starting automatic P0 phase correction (benchtop)...");
 
     let result = await get_best_location_diagonal(ndx, 0, 0);
 
-    console.log("Final P0 phase correction (benchtop): left end = " + result[0] + ", right end = " + result[1]);
-    if (typeof document.getElementById("log") !== "undefined" && document.getElementById("log") !== null) {
-        document.getElementById("log").value += "Final P0 phase correction: left end = " + result[0] + ", right end = " + result[1] + "\n";
-        document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
-    }
+    logToPage("Final P0 phase correction (benchtop): left end = " + result[0] + ", right end = " + result[1]);
 
     let phase_array = new Float32Array(all_spectra[ndx].raw_data.length);
     for (var i = 0; i < all_spectra[ndx].raw_data.length; i++) {
@@ -171,33 +230,7 @@ async function run_ann_phase_correction_p0_only(ndx) {
         "phase1": result[1] * Math.PI / 180,
     };
 
-    oOutput.innerHTML = "Done auto phase correction. Applying phase correction on the server, please wait...";
-
-    let csrfName = document.getElementsByName("csrf_test_name")[0].name;
-    let csrfHash = document.getElementsByName("csrf_test_name")[0].value;
-
-    $.ajax({
-        url: baseUrl + "/index.php/" + server_name + "/apply_phase_correction",
-        type: "post",
-        dataType: "text",
-        data: { "phase_correction_at_min_ppm": return_data.phase0, "phase_correction_at_max_ppm": return_data.phase1, "user_job_id": user_job_id, [csrfName]: csrfHash },
-        error: function (res) {
-            oOutput.innerHTML = "";
-            oOutput.appendChild(process_error(res.responseText, res.status));
-        },
-        success: function () {
-            enable_disable_buttons('ENABLE_BASELINE');
-            enable_disable_buttons('ENABLE_DECONVOLUTION');
-            oOutput.innerHTML = "Phase correction applied successfully on the server";
-            main_plot.current_spectrum_index = 0;
-            document.getElementById("pc_left_end").textContent = "0";
-            document.getElementById("pc_right_end").textContent = "0";
-            let p1Elem2 = document.getElementById("pc_p1");
-            if (p1Elem2) p1Elem2.textContent = "0";
-            document.getElementById("pivot").textContent = "not set";
-            disable_enable_phase_baseline_buttons(true);
-        }
-    });
+    apply_phase_correction_to_backend(return_data.phase0, return_data.phase1);
 }
 
 function get_current_b0(ndx) {
@@ -353,8 +386,10 @@ async function run_ann_phase_correction(ndx) {
              * Update input field phase_correction_direct_p0 and p1 to the new valu
              */
             if (current_reprocess_spectrum_index === ndx) {
-                document.getElementById("phase_correction_direct_p0").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
-                document.getElementById("phase_correction_direct_p1").value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
+                let p0_el = document.getElementById("phase_correction_direct_p0");
+                if (p0_el) p0_el.value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p0.toFixed(2);
+                let p1_el = document.getElementById("phase_correction_direct_p1");
+                if (p1_el) p1_el.value = all_spectra[ndx].fid_process_parameters.phase_correction_direct_p1.toFixed(2);
             }
         }
 
@@ -378,6 +413,13 @@ async function run_ann_phase_correction(ndx) {
             }
             main_plot.add_data(data, ndx);
         }
+
+        let return_data = {
+            "phase0": result[0] * Math.PI / 180,
+            "phase1": result[1] * Math.PI / 180,
+        };
+        apply_phase_correction_to_backend(return_data.phase0, return_data.phase1);
+
         /**
          * Enable manual phase correction and myself button after auto phase correction
          */
@@ -425,11 +467,8 @@ async function get_cross_point_p1(ndx, current_phase_left, current_phase_right, 
     const new_prediction_all = await runPrediction(data, data.length, 1 /** flag=1 means p1 prediction */);
     let new_prediction = new_prediction_all[0];
 
-    console.log("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
-    console.log("in get_cross_point_p1: P1 prediction = " + new_prediction);
-    document.getElementById("log").value += "in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right + "\n";
-    document.getElementById("log").value += "in get_cross_point_p1: P1 prediction = " + new_prediction + "\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    logToPage("in get_cross_point_p1: phase left = " + mid_phase_left + ", phase right = " + mid_phase_right);
+    logToPage("in get_cross_point_p1: P1 prediction = " + new_prediction);
 
     if (new_prediction[1] > new_prediction[0] && new_prediction[1] > new_prediction[2]) {
         //switch to method solely searching for maximum of prediction[1]
@@ -579,9 +618,7 @@ async function get_best_location_diagonal(ndx, current_phase_left, current_phase
         }
     }
 
-    console.log("P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1]);
-    document.getElementById("log").value += "P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1] + "\n";
-    document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    logToPage("P0 predictor moved to: left end = " + result[0] + ", right end = " + result[1]);
 
     return result;
 }
