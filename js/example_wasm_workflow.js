@@ -238,7 +238,7 @@ async function workflowC_NMRPipeInMemory(fid2dInstance, nmrpipeBytes) {
  * Perform full 2D spectral processing
  * Includes FFT in both dimensions and data transformations
  */
-async function performSpectralProcessing(fid2dInstance) {
+function performSpectralProcessing(fid2dInstance) {
   console.log("\n========== Spectral Processing ==========");
 
   // PLACEHOLDER: Set digital filter removal flags
@@ -247,7 +247,7 @@ async function performSpectralProcessing(fid2dInstance) {
   const remove_di_indirect = false;    // PLACEHOLDER: Digital filter removal (indirect dim)
 
   console.log("\n1. Running full spectral processing...");
-  const success = await fid2dInstance.full_process(remove_di_direct, remove_di_indirect);
+  const success = fid2dInstance.full_process(remove_di_direct, remove_di_indirect);
 
   if (!success) {
     console.error("Full process failed");
@@ -495,7 +495,7 @@ async function completeWorkflowExample1_BrukerWithPhasing() {
   // STEP 5: Perform spectral processing
   // =======================================================================
   console.log("\nSTEP 5: Processing spectrum...");
-  const success_process = await performSpectralProcessing(fid2d);
+  const success_process = performSpectralProcessing(fid2d);
   if (!success_process) { console.error("Processing failed"); return; }
 
   // =======================================================================
