@@ -125,7 +125,7 @@ self.onmessage = async function (event) {
                     throw new Error('read_nmrpipe_file_from_buffer failed');
                 }
                 postMessage({ stdout: "Running indirect_only_process for NUS spectrum" });
-                if (!processor.indirect_only_process(true)) {
+                if (!await processor.indirect_only_process(true)) {
                     throw new Error('indirect_only_process failed');
                 }
 
@@ -281,7 +281,7 @@ self.onmessage = async function (event) {
                     if (!estimator.read_phase_correction_from_string(initialPhase)) {
                         throw new Error('read_phase_correction_from_string failed');
                     }
-                    if (!estimator.full_process(false, false)) {
+                    if (!await estimator.full_process(false, false)) {
                         throw new Error('full_process failed');
                     }
                     estimator.set_user_phase_correction_indirect(0, 0);
@@ -334,7 +334,7 @@ self.onmessage = async function (event) {
                     throw new Error('read_bruker_fid_data_bytes failed');
                 }
                 postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
-                if (!processor.direct_only_process(true)) {
+                if (!await processor.direct_only_process(true)) {
                     throw new Error('direct_only_process failed');
                 }
                 if (event.data.nus_flatt_baseline && typeof processor.set_flatt_direct_enabled !== 'function') {
@@ -453,7 +453,7 @@ self.onmessage = async function (event) {
                 }
             };
 
-            const configureCommon = function (processor, options) {
+            const configureCommon = async function (processor, options) {
                 if (options.applyExtraction === true) {
                     if (!processor.extract_region_ppm(options.extractFrom, options.extractTo)) {
                         throw new Error('extract_region_ppm failed');
@@ -470,7 +470,7 @@ self.onmessage = async function (event) {
                 if (options.waterSuppression === true) {
                     processor.water_suppression();
                 }
-                if (!processor.full_process(options.deleteDirect, options.deleteIndirect)) {
+                if (!await processor.full_process(options.deleteDirect, options.deleteIndirect)) {
                     throw new Error('full_process failed');
                 }
             };
@@ -516,7 +516,7 @@ self.onmessage = async function (event) {
                     }
                 }
                 initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
-                configureCommon(processor, {
+                await configureCommon(processor, {
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,
                     zfDirect: zfDirect,

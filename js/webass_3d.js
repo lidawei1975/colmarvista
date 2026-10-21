@@ -315,12 +315,12 @@ self.onmessage = async function (event) {
                 if (!useNusStepPipeline) {
                     console.log('[webass_3d] full_process');
                     postMessage({ stdout: isNus ? '[webass_3d] full_process() [NUS debug mode]' : '[webass_3d] full_process()' });
-                    fid.full_process();
+                    await fid.full_process();
                     finalizeAndPostResult(Module, fid, job);
                 } else {
                     console.log('[webass_3d] direct_only_process for NUS step1');
                     postMessage({ stdout: '[webass_3d] NUS step1: direct_only_process()' });
-                    fid.direct_only_process();
+                    await fid.direct_only_process();
                     if (cfg && cfg.nus_flatt_baseline) {
                         console.log('[webass_3d] Executing FLATT baseline correction along F2 (direct) traces');
                         postMessage({ stdout: '[webass_3d] NUS step1: flatt_baseline_direct()' });
@@ -454,7 +454,7 @@ self.onmessage = async function (event) {
 
                 console.log('[webass_3d] indirect_only_process for NUS step3');
                 postMessage({ stdout: '[webass_3d] NUS step3: indirect_only_process()' });
-                if (!fidIndirect.indirect_only_process()) {
+                if (!await fidIndirect.indirect_only_process()) {
                     throw new Error('indirect_only_process failed');
                 }
 
