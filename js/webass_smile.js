@@ -158,6 +158,16 @@ onmessage = async function (e) {
 
     if (e.data.spectrum_data) {
         console.log('Spectrum data received by Smile worker');
+        const isPseudo3D = (e.data.pseudo3d_process === 'all_planes') || (e.data.smile_mode === 'pseudo3d_nus');
+        let nusPipeFn;
+        try {
+            nusPipeFn = await getNusPipe();
+        } catch (err) {
+            postMessage({
+                error: (isPseudo3D ? 'Pseudo3D' : '2D') + ' SMILE init failed: ' + (err && err.message ? err.message : String(err))
+            });
+            return;
+        }
         postRuntimeDiagnostics('2d-before-fs-write', e.data.spectrum_data);
 
         /**
@@ -225,8 +235,6 @@ onmessage = async function (e) {
             elb = apodization_direct_values[8];
         }
 
-        const isPseudo3D = (e.data.pseudo3d_process === 'all_planes') || (e.data.smile_mode === 'pseudo3d_nus');
-
         /**
          * write the command file "arguments_nus_pipe.txt"
          */
@@ -262,7 +270,6 @@ onmessage = async function (e) {
         postMessage({ stdout: 'Calling nusPipe function' });
         let retVal;
         try {
-            const nusPipeFn = await getNusPipe();
             postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe typeof=' + typeof nusPipeFn });
             retVal = await nusPipeFn();
             postMessage({ stdout: '[smile-diag] ' + (isPseudo3D ? 'pseudo3d' : '2d') + ' nuspipe finished with return code ' + retVal });

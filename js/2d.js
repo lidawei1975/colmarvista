@@ -12,7 +12,7 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2;
+var my_contour_worker, webassembly_worker, webassembly_worker2 = null;
 const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
 function get_webassembly_job_flag(data) {
@@ -24,7 +24,6 @@ function get_webassembly_job_flag(data) {
 try {
     my_contour_worker = new Worker('./js/contour.js');
     webassembly_worker = new Worker('./js/webass_2d.js');
-    webassembly_worker2 = new Worker('./js/webass_smile.js');
 
     function clear_webassembly_message_after_delay(delay_ms = 5000) {
         window.setTimeout(function () {
@@ -38,8 +37,7 @@ try {
 catch (err) {
     console.log(err);
     if (typeof (my_contour_worker) === "undefined"
-        || typeof (webassembly_worker) === "undefined"
-        || typeof (webassembly_worker2) === "undefined") {
+        || typeof (webassembly_worker) === "undefined") {
         alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
@@ -1280,6 +1278,35 @@ function run_pseudo3d(flag) {
     }, all_files.map(f => f.buffer));
 }
 
+function release_webassembly_worker2() {
+    if (webassembly_worker2) {
+        webassembly_worker2.terminate();
+        webassembly_worker2 = null;
+        console.log("SMILE worker (webassembly_worker2) terminated and released.");
+    }
+}
+
+function get_or_create_webassembly_worker2() {
+    release_webassembly_worker2();
+    webassembly_worker2 = new Worker('./js/webass_smile.js');
+    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+    webassembly_worker2.onerror = function (err) {
+        console.error("SMILE worker error:", err);
+        const msg = (err && err.message) ? err.message : String(err);
+        const logEl = document.getElementById("log");
+        if (logEl) {
+            logEl.value += "SMILE worker error: " + msg + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        const msgEl = document.getElementById("webassembly_message");
+        if (msgEl) {
+            msgEl.innerText = "SMILE worker error: " + msg;
+        }
+        release_webassembly_worker2();
+    };
+    return webassembly_worker2;
+}
+
 function handle_webassembly_worker2_message(e) {
 
     /**
@@ -1300,6 +1327,11 @@ function handle_webassembly_worker2_message(e) {
     else if (e.data.spectrum_data) {
         console.log("Processed smile spectrum data received");
         let spectrum_data = new Uint8Array(e.data.spectrum_data);
+
+        /**
+         * Release SMILE worker and its WebAssembly memory immediately after reconstruction
+         */
+        release_webassembly_worker2();
 
         // Always pass primitive values to the worker to avoid cloning DOM objects.
         const phaseCorrectionIndirectP0 = parseFloat(document.getElementById("phase_correction_indirect_p0").value);
@@ -1323,16 +1355,23 @@ function handle_webassembly_worker2_message(e) {
             pseudo3d_children: e.data.pseudo3d_children || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_children : undefined),
         }, [spectrum_data.buffer]);
     }
+    else if (e.data.error) {
+        console.error("SMILE worker reported error:", e.data.error);
+        const logEl = document.getElementById("log");
+        if (logEl) {
+            logEl.value += "SMILE error: " + e.data.error + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        const msgEl = document.getElementById("webassembly_message");
+        if (msgEl) {
+            msgEl.innerText = "SMILE error: " + e.data.error;
+        }
+        release_webassembly_worker2();
+    }
 }
 
-webassembly_worker2.onmessage = handle_webassembly_worker2_message;
-
 function restart_webassembly_worker2() {
-    if (webassembly_worker2) {
-        webassembly_worker2.terminate();
-    }
-    webassembly_worker2 = new Worker('./js/webass_smile.js');
-    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+    release_webassembly_worker2();
 }
 
 function finalize_peak_fitter_v2_if_done(spectrum_index) {
@@ -1821,7 +1860,8 @@ function handle_webassembly_worker_message(e) {
         */
         let arrayBuffer = directBytes;
 
-        webassembly_worker2.postMessage({
+        const smileWorker = get_or_create_webassembly_worker2();
+        smileWorker.postMessage({
             spectrum_data: arrayBuffer,
             nuslist_as_string: nuslist_as_string, //saved as global variable
             apodization_direct: fid_process_parameters.apodization_direct,
@@ -1833,7 +1873,7 @@ function handle_webassembly_worker_message(e) {
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
             pseudo3d_process: e.data.pseudo3d_process || fid_process_parameters.pseudo3d_process,
-        });
+        }, [arrayBuffer.buffer]);
     }
 
     /**
