@@ -50,6 +50,42 @@ function getWebassemblyJob(data) {
 }
 
 /**
+ * EPHEMERAL WORKER NOTE
+ * ---------------------
+ * The main thread (js/wasm_runner.js, EphemeralWasmRunner) spawns a fresh worker for every
+ * task and terminates it as soon as the final result message is received, so the WebAssembly
+ * linear memory is released after each task.
+ *
+ * The WebAssembly.Module (compiled bytecode) is compiled once on the main thread with
+ * WebAssembly.compileStreaming() and delivered in the first message under EPHEMERAL_MODULE_KEY.
+ * The Emscripten `instantiateWasm` hook below instantiates it on demand with
+ * WebAssembly.instantiate(module, imports); this is where the linear memory is created.
+ * If no module is delivered (e.g. this worker is created directly), the .wasm is fetched
+ * and compiled here as a fallback.
+ */
+const EPHEMERAL_MODULE_KEY = '__wasm_module__';
+let resolveCachedModule;
+let cachedModuleDelivered = false;
+const cachedModulePromise = new Promise((resolve) => {
+    resolveCachedModule = resolve;
+});
+
+function instantiateFromCachedModule(imports, successCallback) {
+    cachedModulePromise.then(async (cachedModule) => {
+        let wasmModule = cachedModule;
+        if (!wasmModule) {
+            const response = await fetch('webdp1d_cpp.wasm');
+            wasmModule = await WebAssembly.compile(await response.arrayBuffer());
+        }
+        const instance = await WebAssembly.instantiate(wasmModule, imports);
+        successCallback(instance, wasmModule);
+    }).catch((err) => {
+        postMessage({ error: 'webdp1d_cpp instantiate failed: ' + (err && err.message ? err.message : String(err)) });
+    });
+    return {}; // asynchronous instantiation
+}
+
+/**
  * Redirect the stdout and stderr to postMessage
  */
 let ModulePromise = webdp1d_cpp({
@@ -61,7 +97,8 @@ let ModulePromise = webdp1d_cpp({
     printErr: (text) => {
         // This captures C++ stderr
         postMessage({ stdout: text });
-    }
+    },
+    instantiateWasm: instantiateFromCachedModule
 });
 
 /**
@@ -114,6 +151,34 @@ function readNmrpipeFileBuffer(Module, processor, inputBytes) {
 }
 
 self.onmessage = async function (event) {
+    /**
+     * Take the cached WebAssembly.Module out of the first message (null if not provided)
+     * so that the instantiateWasm hook above can proceed.
+     */
+    if (!cachedModuleDelivered) {
+        cachedModuleDelivered = true;
+        resolveCachedModule((event.data && event.data[EPHEMERAL_MODULE_KEY]) || null);
+    }
+    if (event.data && event.data[EPHEMERAL_MODULE_KEY] !== undefined) {
+        delete event.data[EPHEMERAL_MODULE_KEY];
+    }
+
+    /**
+     * An exception that escapes a job must still produce a final message,
+     * otherwise the main thread would wait for this ephemeral worker forever.
+     */
+    try {
+        await handleWebassemblyJob(event);
+    }
+    catch (err) {
+        postMessage({
+            error: 'webass_2d: ' + (err && err.message ? err.message : String(err)),
+            spectrum_index: event.data ? event.data.spectrum_index : undefined
+        });
+    }
+};
+
+async function handleWebassemblyJob(event) {
     const webassembly_job = getWebassemblyJob(event.data);
     // Wait for the module to be ready
     const Module = await ModulePromise;
@@ -1224,4 +1289,4 @@ self.onmessage = async function (event) {
         // Handle other jobs or errors
         self.postMessage({ error: 'Unknown webassembly job type' });
     }
-};
+}

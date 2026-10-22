@@ -13,6 +13,7 @@
 */
 
 var my_contour_worker, webassembly_worker, webassembly_worker2 = null;
+var wasm_2d_runner = null;
 const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
 function get_webassembly_job_flag(data) {
@@ -23,7 +24,32 @@ function get_webassembly_job_flag(data) {
 }
 try {
     my_contour_worker = new Worker('./js/contour.js');
-    webassembly_worker = new Worker('./js/webass_2d.js');
+
+    /**
+     * webdp1d_cpp.wasm is run in EPHEMERAL workers (see js/wasm_runner.js):
+     *  - the compiled WebAssembly.Module is cached here on the main thread
+     *    (WebAssembly.compileStreaming, compiled only once),
+     *  - a new js/webass_2d.js worker is spawned only when a job is submitted and the module is
+     *    posted to it together with the input data; the worker instantiates the module (and
+     *    therefore its linear memory) on demand,
+     *  - the worker is terminated as soon as the final result message is received (or on error),
+     *    so the memory is released after every job. Jobs run one at a time.
+     *
+     * `webassembly_worker` is a facade exposing postMessage/onmessage/terminate, so every
+     * webassembly_worker.postMessage(job, transferList) call below runs as an ephemeral job.
+     */
+    wasm_2d_runner = new EphemeralWasmRunner({
+        label: 'webdp1d_cpp',
+        workerUrl: './js/webass_2d.js',
+        wasmUrl: './js/webdp1d_cpp.wasm',
+        maxConcurrent: 1,
+        isIntermediate: function (data) {
+            return !!data && (typeof data.stdout !== 'undefined'
+                || get_webassembly_job_flag(data) === "pseudo3d_progress");
+        }
+    });
+    webassembly_worker = wasm_2d_runner.createWorkerFacade();
+    wasm_2d_runner.preload(); //compile now (no worker, no linear memory is created)
 
     function clear_webassembly_message_after_delay(delay_ms = 5000) {
         window.setTimeout(function () {
@@ -2098,11 +2124,13 @@ function handle_webassembly_worker_message(e) {
 webassembly_worker.onmessage = handle_webassembly_worker_message;
 
 function restart_webassembly_worker() {
+    /**
+     * Workers are ephemeral: terminate cancels the running and queued jobs, and
+     * the next job is run in a brand new worker.
+     */
     if (webassembly_worker) {
         webassembly_worker.terminate();
     }
-    webassembly_worker = new Worker('./js/webass_2d.js');
-    webassembly_worker.onmessage = handle_webassembly_worker_message;
 }
 
 var plot_div_resize_observer = new ResizeObserver(entries => {
