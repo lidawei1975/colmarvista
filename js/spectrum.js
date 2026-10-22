@@ -968,25 +968,34 @@ class spectrum {
         }
 
 
-        for (let i = 0; i < this.n_indirect; i++) {
+        if (this.datatype_direct !== 0 && this.datatype_indirect !== 0) {
             /**
-             * Copy from spectral_data (from current_position, for a length of  this.n_direct)
-             * to this.raw_data (from i*this.n_direct, for a length of this.n_direct)
+             * Fast path for real-only spectra (standard 2D and all pseudo-3D planes):
+             * Contiguous single bulk copy instead of n_indirect subarray slice allocations.
              */
-            this.raw_data.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
-            current_position += this.n_direct;
+            const totalPoints = this.n_indirect * this.n_direct;
+            this.raw_data.set(spectral_data.subarray(current_position, current_position + totalPoints));
+        } else {
+            for (let i = 0; i < this.n_indirect; i++) {
+                /**
+                 * Copy from spectral_data (from current_position, for a length of  this.n_direct)
+                 * to this.raw_data (from i*this.n_direct, for a length of this.n_direct)
+                 */
+                this.raw_data.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
+                current_position += this.n_direct;
 
-            if (this.datatype_direct === 0) {
-                this.raw_data_ri.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
-                current_position += this.n_direct;
-            }
-            if (this.datatype_indirect === 0) {
-                this.raw_data_ir.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
-                current_position += this.n_direct;
-            }
-            if (this.datatype_direct === 0 && this.datatype_indirect === 0) {
-                this.raw_data_ii.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
-                current_position += this.n_direct;
+                if (this.datatype_direct === 0) {
+                    this.raw_data_ri.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
+                    current_position += this.n_direct;
+                }
+                if (this.datatype_indirect === 0) {
+                    this.raw_data_ir.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
+                    current_position += this.n_direct;
+                }
+                if (this.datatype_direct === 0 && this.datatype_indirect === 0) {
+                    this.raw_data_ii.set(spectral_data.subarray(current_position, current_position + this.n_direct), i * this.n_direct);
+                    current_position += this.n_direct;
+                }
             }
         }
 

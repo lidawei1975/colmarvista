@@ -1277,7 +1277,7 @@ function run_pseudo3d(flag) {
         peak_comments: peak_comments,
         peak_xppm: peak_xppm,
         peak_yppm: peak_yppm,
-    });
+    }, all_files.map(f => f.buffer));
 }
 
 function handle_webassembly_worker2_message(e) {
@@ -1321,7 +1321,7 @@ function handle_webassembly_worker2_message(e) {
             processing_flag: e.data.processing_flag,
             pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
             pseudo3d_children: e.data.pseudo3d_children || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_children : undefined),
-        });
+        }, [spectrum_data.buffer]);
     }
 }
 
@@ -5832,7 +5832,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
             noise_level: noise_level,
             remove_t1_noise: remove_t1_noise,
             flag: flag
-        });
+        }, [data_uint8.buffer]);
         document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
     }
 
@@ -11018,7 +11018,7 @@ async function apply_baseline_correction() {
             file_data: inputFt2FileBytes,
             polynomial_order: polyOrder,
             spectrum_index: plane_idx
-        });
+        }, [inputFt2FileBytes.buffer]);
     }
 }
 
