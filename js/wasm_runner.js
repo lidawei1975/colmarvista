@@ -78,13 +78,57 @@
         }
 
         /**
-         * Compile (once) and return the cached WebAssembly.Module.
-         * Falls back to fetch + WebAssembly.compile when compileStreaming is unavailable
-         * or the server does not send the application/wasm MIME type.
+         * Fetch the wasm binary bytes via XMLHttpRequest as an ArrayBuffer.
+         * Used on file:// protocol or as a fallback when fetch() fails or returns status 0.
+         * Under Chrome's --allow-file-access-from-files, XHR from the main thread succeeds.
+         */
+        _loadBinaryViaXhr(url) {
+            return new Promise((resolve, reject) => {
+                try {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('GET', url, true);
+                    xhr.responseType = 'arraybuffer';
+                    xhr.onload = function () {
+                        // Under file://, xhr.status is 0 on success. Under http(s), xhr.status is 200.
+                        const ok = (xhr.status === 200 || (xhr.status === 0 && xhr.response && xhr.response.byteLength > 0));
+                        if (ok) {
+                            resolve(xhr.response);
+                        } else {
+                            reject(new Error('XHR failed with status ' + xhr.status + ' for ' + url));
+                        }
+                    };
+                    xhr.onerror = function () {
+                        reject(new Error('XHR network error loading ' + url));
+                    };
+                    xhr.send(null);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }
+
+        /**
+         * Compile (once) and return the cached WebAssembly.Module on the MAIN thread.
+         *  - On file:// protocol, uses XMLHttpRequest to load bytes directly from the local filesystem
+         *    (supported on the main thread via --allow-file-access-from-files).
+         *  - On http(s)://, attempts WebAssembly.compileStreaming first for fast streaming compilation,
+         *    falling back to fetch/ArrayBuffer, and finally XHR.
+         * Bytecode is compiled only once per page session; the worker never loads or fetches .wasm itself.
          */
         getModule() {
             if (!this._modulePromise) {
                 this._modulePromise = (async () => {
+                    const isFileProto = typeof location !== 'undefined' && location.protocol === 'file:';
+
+                    // 1. On file://, avoid compileStreaming/fetch because Chromium rejects
+                    // compileStreaming without HTTP Content-Type and fetch() on file:// fails or returns status 0.
+                    // Directly use main-thread XMLHttpRequest which works under --allow-file-access-from-files.
+                    if (isFileProto) {
+                        const buffer = await this._loadBinaryViaXhr(this.wasmUrl);
+                        return await WebAssembly.compile(buffer);
+                    }
+
+                    // 2. On http(s), try streaming compilation first (fastest, compiles while downloading).
                     if (typeof WebAssembly.compileStreaming === 'function') {
                         try {
                             return await WebAssembly.compileStreaming(fetch(this.wasmUrl));
@@ -93,11 +137,21 @@
                             console.warn('[' + this.label + '] compileStreaming failed, falling back to ArrayBuffer compile:', err);
                         }
                     }
-                    const response = await fetch(this.wasmUrl);
-                    if (!response.ok) {
-                        throw new Error('Failed to fetch ' + this.wasmUrl + ': HTTP ' + response.status);
+
+                    // 3. Fallback to fetch + WebAssembly.compile.
+                    try {
+                        const response = await fetch(this.wasmUrl);
+                        if (response.ok) {
+                            return await WebAssembly.compile(await response.arrayBuffer());
+                        }
                     }
-                    return await WebAssembly.compile(await response.arrayBuffer());
+                    catch (fetchErr) {
+                        console.warn('[' + this.label + '] fetch failed, falling back to XHR:', fetchErr);
+                    }
+
+                    // 4. Final fallback to XHR + compile.
+                    const buffer = await this._loadBinaryViaXhr(this.wasmUrl);
+                    return await WebAssembly.compile(buffer);
                 })();
                 this._modulePromise.catch(() => {
                     // Do not cache a failure, the next task retries.
@@ -221,8 +275,11 @@
                 module = await this.getModule();
             }
             catch (err) {
-                // The worker falls back to compiling the .wasm itself.
-                module = null;
+                console.error('[' + this.label + '] Failed to compile WebAssembly module on main thread:', err);
+                this._active.delete(task);
+                task.reject(new Error('Failed to load and compile WebAssembly module: ' + (err && err.message ? err.message : String(err))));
+                this._pump();
+                return;
             }
             if (task.cancelled) {
                 return;

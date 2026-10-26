@@ -56,12 +56,11 @@ function getWebassemblyJob(data) {
  * task and terminates it as soon as the final result message is received, so the WebAssembly
  * linear memory is released after each task.
  *
- * The WebAssembly.Module (compiled bytecode) is compiled once on the main thread with
- * WebAssembly.compileStreaming() and delivered in the first message under EPHEMERAL_MODULE_KEY.
- * The Emscripten `instantiateWasm` hook below instantiates it on demand with
+ * The WebAssembly.Module (compiled bytecode) is loaded and compiled on the MAIN thread,
+ * then delivered in the first message under EPHEMERAL_MODULE_KEY. The worker NEVER fetches
+ * or loads .wasm from the network/filesystem, eliminating CORS and opaque origin issues on file://.
+ * The Emscripten `instantiateWasm` hook below instantiates it on demand in memory with
  * WebAssembly.instantiate(module, imports); this is where the linear memory is created.
- * If no module is delivered (e.g. this worker is created directly), the .wasm is fetched
- * and compiled here as a fallback.
  */
 const EPHEMERAL_MODULE_KEY = '__wasm_module__';
 let resolveCachedModule;
@@ -74,8 +73,7 @@ function instantiateFromCachedModule(imports, successCallback) {
     cachedModulePromise.then(async (cachedModule) => {
         let wasmModule = cachedModule;
         if (!wasmModule) {
-            const response = await fetch('webdp1d_cpp.wasm');
-            wasmModule = await WebAssembly.compile(await response.arrayBuffer());
+            throw new Error('webass_2d: WebAssembly.Module was not provided by main thread');
         }
         const instance = await WebAssembly.instantiate(wasmModule, imports);
         successCallback(instance, wasmModule);
