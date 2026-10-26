@@ -23,7 +23,7 @@ function get_webassembly_job_flag(data) {
     return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
 }
 try {
-    my_contour_worker = new Worker('./js/contour.js');
+    my_contour_worker = new Worker('js/shared/contour_worker_2d.js');
 
     /**
      * webdp1d_cpp.wasm is run in EPHEMERAL workers (see js/wasm_runner.js):

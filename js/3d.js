@@ -2380,7 +2380,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize Worker
     if (window.Worker) {
-        my_contour_worker = new Worker('./js/contour.js');
+        my_contour_worker = new Worker('js/shared/contour_worker_2d.js');
 
         my_contour_worker.onmessage = function (e) {
             handle_worker_message(e);

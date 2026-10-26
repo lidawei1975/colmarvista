@@ -16,10 +16,8 @@
  * - zoom_on_call_function: global on-call function
  * 
  * Direct DOM References:
- * - document.getElementById("pause_cursor") 
  * - document.getElementById("plot_group") 
  * - document.getElementById("infor")
- * - document.getElementById("right_click") 
  * - document.getElementById("peak_information_div") 
  * - document.getElementById("pseudo3d_fitting_plot")
  * - document.activeElement
@@ -55,6 +53,18 @@ function plotit(input) {
     this.size = input.size;
     this.data1 = [];  //peaks that match compound
     this.data2 = [];  //remove it??
+    // Compatibility properties for SPIN metabolomics
+    this.show_peak = 1;
+    this.brushend_time = 0.0;
+    this.levels = input.levels || [];
+    this.colors = input.colors || [[0.7, 0.7, 0.7, 1.0]];
+    this.overlays = [];
+    this.polygon_length = [];
+    this.levels_length = [];
+    this.points = new Float32Array(0);
+    this.cutoff = (this.levels && this.levels.length > 0) ? this.levels[0] * 0.99 : 0;
+    this.realdata = [];
+
 
     this.inter_window_channel = input.inter_window_channel; //for inter-window coupling
 
@@ -109,12 +119,17 @@ function plotit(input) {
      * y_domain is [0,1]
      */
     this.current_spectral_index = 0;
-    this.b_show_cross_section = false;
+    this.b_show_cross_section = (typeof cross_section_plot !== 'undefined');
     this.b_show_projection = false;
-    this.x_cross_section_plot = new cross_section_plot(this);
-    this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
-    this.y_cross_section_plot = new cross_section_plot(this);
-    this.y_cross_section_plot.init(200, this.HEIGHT, [0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y", 'vertical');
+    if (typeof cross_section_plot !== 'undefined') {
+        this.x_cross_section_plot = new cross_section_plot(this);
+        this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
+        this.y_cross_section_plot = new cross_section_plot(this);
+        this.y_cross_section_plot.init(200, this.HEIGHT, [0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y", 'vertical');
+    } else {
+        this.x_cross_section_plot = null;
+        this.y_cross_section_plot = null;
+    }
 
     this.lastCallTime_zoom_x = Date.now();
     this.lastCallTime_zoom_y = Date.now();
@@ -127,8 +142,7 @@ function plotit(input) {
     this.hline_ppm = null;
     this.vline_ppm = null;
     this.cross_line_timeout = null;
-    const pause_el = document.getElementById("pause_cursor");
-    this.cross_line_pause_flag = pause_el ? pause_el.checked : false;
+    this.cross_line_pause_flag = false;
 
     this.magnifying_glass = false;
     this.magnifying_glass_ratio = 4.0; //default is 2.0
@@ -137,16 +151,35 @@ function plotit(input) {
     this.extra_peaks = []; // Array to store extra peaks (e.g., theoretical)
     this.$extra_peaks_group = null; // SVG group for extra peaks
 
+    this.assignment_overlay_data = []; // Array to store incoming assignment overlay items
+    this.$assignment_overlay_group = null; // SVG group for assignment overlay
+
+    this.selected_peak_cross_pos = null; // { x_ppm, y_ppm }
+    this.$selected_peak_cross_group = null; // SVG group for selected peak cross marker
+
     this.xlabel_text = input.xlabel || "Chemical Shift (ppm)";
     this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
 };
 
+/**
+ * Enables magnifying glass.
+ *
+ * @param {any} flag - Flag
+ * @param {any} ratio - Ratio
+ * @param {any} size - Size
+ */
 plotit.prototype.enable_magnifying_glass = function (flag, ratio, size) {
     this.magnifying_glass = flag ? flag : false; //default is false
     this.magnifying_glass_ratio = ratio ? ratio : 4.0; //default is 4.0
     this.magnifying_glass_size = size ? size : 10; //default is 10% of the plot size
 };
 
+/**
+ * Sets labels.
+ *
+ * @param {any} xlabel - Xlabel
+ * @param {any} ylabel - Ylabel
+ */
 plotit.prototype.set_labels = function (xlabel, ylabel) {
     if (xlabel !== undefined) this.xlabel_text = xlabel;
     if (ylabel !== undefined) this.ylabel_text = ylabel;
@@ -274,8 +307,8 @@ plotit.prototype.update = function (input) {
      */
     this.reset_axis();
 
-    this.x_cross_section_plot.resize_x(this.WIDTH, { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
-    this.y_cross_section_plot.resize_y(this.HEIGHT, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
+    if (this.x_cross_section_plot) this.x_cross_section_plot.resize_x(this.WIDTH, { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
+    if (this.y_cross_section_plot) this.y_cross_section_plot.resize_y(this.HEIGHT, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
 
 };
 
@@ -317,6 +350,13 @@ plotit.prototype.reset_axis = function () {
         .each(function () {
             d3.select(this).style("font-size", self.fontsize + "px");
         });
+
+    if (this.secondary_x_config && typeof this.update_secondary_x_axis === 'function') {
+        this.update_secondary_x_axis();
+    }
+    if (this.secondary_y_config && typeof this.update_secondary_y_axis === 'function') {
+        this.update_secondary_y_axis();
+    }
 
 
 
@@ -415,8 +455,16 @@ plotit.prototype.reset_axis = function () {
         this.draw_extra_peaks();
     }
 
+    if (this.assignment_overlay_data && this.assignment_overlay_data.length > 0) {
+        this.draw_assignment_overlay();
+    }
+
     if (this.bounding_box_data) {
         this.draw_bounding_box();
+    }
+
+    if (this.selected_peak_cross_pos) {
+        this.draw_selected_peak_cross();
     }
 
     if (this.zoom_on_call_function) {
@@ -440,6 +488,29 @@ plotit.prototype.brushend = function (e) {
     }
 
     let self = this;
+
+    // Check SPIN's radio1 mode if present
+    var radios = document.getElementsByName('radio1');
+    for (var i = 0, length = radios.length; i < length; i++) {
+        if (radios[i].checked) {
+            if (radios[i].value === "zoom" || (typeof stage !== 'undefined' && stage >= 2)) {
+                if (typeof this.brushend_zoom === 'function') {
+                    this.brushend_zoom(e.selection);
+                    if (this.brush_element) this.brush_element.call(this.brush.move, null);
+                    else if (this.$vis) this.$vis.select(".brush").call(this.brush.move, null);
+                    return;
+                }
+            } else if (radios[i].value === "remove") {
+                if (typeof this.brushend_remove === 'function') {
+                    this.brushend_remove(e.selection);
+                    if (this.brush_element) this.brush_element.call(this.brush.move, null);
+                    else if (this.$vis) this.$vis.select(".brush").call(this.brush.move, null);
+                    return;
+                }
+            }
+        }
+    }
+
 
     /**
      * IF allow_brush_to_remove is true, then do not zoom.
@@ -500,8 +571,8 @@ plotit.prototype.brushend = function (e) {
 
     this.reset_axis();
 
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
 
     this.$vis.select(".brush").call(this.brush.move, null);
 
@@ -538,9 +609,16 @@ plotit.prototype.sync_3d_views = function (is_end = true) {
         if (typeof sync_from_proj_y_plot === 'function') {
             sync_from_proj_y_plot(is_end);
         }
+    } else if (this.drawto === '#visualization_proj_x') {
+        if (typeof sync_from_proj_x_plot === 'function') {
+            sync_from_proj_x_plot(is_end);
+        }
     }
 };
 
+/**
+ * Sends scales to other window.
+ */
 plotit.prototype.send_scales_to_other_window = function () {
 
     /**
@@ -562,6 +640,12 @@ plotit.prototype.send_scales_to_other_window = function () {
     }
 }
 
+/**
+ * Zooms to.
+ *
+ * @param {any} x_scale - X scale
+ * @param {any} y_scale - Y scale
+ */
 plotit.prototype.zoom_to = function (x_scale, y_scale) {
     this.xscales.push(this.xscale);
     this.yscales.push(this.yscale);
@@ -572,13 +656,18 @@ plotit.prototype.zoom_to = function (x_scale, y_scale) {
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
     this.reset_axis();
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
     /**
      * No need to send scales to other window, because this function is only called when receive a message from other window
      */
 }
 
+/**
+ * Zooms X.
+ *
+ * @param {any} x_ppm - X PPM
+ */
 plotit.prototype.zoom_x = function (x_ppm) {
 
     let self = this;
@@ -598,6 +687,11 @@ plotit.prototype.zoom_x = function (x_ppm) {
     this.send_scales_to_other_window();
 };
 
+/**
+ * Zooms Y.
+ *
+ * @param {any} y_ppm - Y PPM
+ */
 plotit.prototype.zoom_y = function (y_ppm) {
     let self = this;
     this.yscale = y_ppm;
@@ -618,6 +712,9 @@ plotit.prototype.zoom_y = function (y_ppm) {
 
 
 
+/**
+ * Pops zoom.
+ */
 plotit.prototype.popzoom = function () {
 
     if (this.xscales.length > 0) {
@@ -632,8 +729,8 @@ plotit.prototype.popzoom = function () {
         this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
         this.contour_plot.drawScene();
         this.reset_axis();
-        this.x_cross_section_plot.zoom_x(this.xscale);
-        this.y_cross_section_plot.zoom_y(this.yscale);
+        if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+        if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
         this.send_scales_to_other_window();
 
         // Sync other plots
@@ -641,6 +738,12 @@ plotit.prototype.popzoom = function () {
     }
 };
 
+/**
+ * Resets zoom.
+ *
+ * @param {any} x - X
+ * @param {any} y - Y
+ */
 plotit.prototype.resetzoom = function (x, y) {
     /**
      * Clear the zoom stack
@@ -653,6 +756,9 @@ plotit.prototype.resetzoom = function (x, y) {
 };
 
 
+/**
+ * Zooms out.
+ */
 plotit.prototype.zoomout = function () {
     this.xscales.push(this.xscale);
     this.yscales.push(this.yscale);
@@ -687,8 +793,8 @@ plotit.prototype.zoomout = function () {
     this.contour_plot.drawScene();
     this.reset_axis();
 
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
     this.sync_3d_views();
 
@@ -731,6 +837,18 @@ plotit.prototype.draw = function () {
 
     this.$vis.selectAll('.xaxis').remove();
     this.$vis.selectAll('.yaxis').remove();
+    this.$vis.selectAll('.xaxis2').remove();
+    this.$vis.selectAll('.yaxis2').remove();
+    this.$vis.selectAll('.x2-label-group').remove();
+    this.$vis.selectAll('.y2-label-group').remove();
+    this.$xAxis2_svg = null;
+    this.$yAxis2_svg = null;
+    this.$xLabel2Group = null;
+    this.$yLabel2Group = null;
+    this.xRange2 = null;
+    this.yRange2 = null;
+    this.xAxis2 = null;
+    this.yAxis2 = null;
 
 
     this.$xAxis_svg = this.$vis.append('svg:g')
@@ -833,6 +951,14 @@ plotit.prototype.draw = function () {
         .attr("class", "brush")
         .call(this.brush);
 
+    // Backward compatibility aliases for SPIN
+    this.vis = this.$vis;
+    this.rect = this.$rect;
+    this.brush_element = this.$brush_element;
+    this.x2 = this.$xAxis_svg;
+    this.y2 = this.$yAxis_svg;
+
+
     /**
      * Tool tip for mouse move
      */
@@ -877,14 +1003,71 @@ plotit.prototype.draw = function () {
             }
         }
 
+        // Calculate secondary Y axis value if secondary Y axis exists
+        let y2_val = null;
+        let y2_unit = "ppm";
+        let y2_str = "";
+        if (self.secondary_y_config) {
+            y2_unit = self.secondary_y_config.unit || "ppm";
+            if (self.yRange2 && typeof self.yRange2.invert === 'function') {
+                y2_val = self.yRange2.invert(coordinates[1]);
+            } else if (self.secondary_y_config.primary_range && self.secondary_y_config.secondary_range) {
+                const pStart = self.secondary_y_config.primary_range[0];
+                const pEnd = self.secondary_y_config.primary_range[1];
+                const sStart = self.secondary_y_config.secondary_range[0];
+                const sEnd = self.secondary_y_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    y2_val = sStart + ((y_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (y2_val !== null && !isNaN(y2_val)) {
+                let tag = (y2_unit.toLowerCase() === 'hz') ? "y2_hz" : "y2_ppm";
+                let valStr = (y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2);
+                y2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
+        // Calculate secondary X axis value if secondary X axis exists
+        let x2_val = null;
+        let x2_unit = "ppm";
+        let x2_str = "";
+        if (self.secondary_x_config) {
+            x2_unit = self.secondary_x_config.unit || "ppm";
+            if (self.xRange2 && typeof self.xRange2.invert === 'function') {
+                x2_val = self.xRange2.invert(coordinates[0]);
+            } else if (self.secondary_x_config.primary_range && self.secondary_x_config.secondary_range) {
+                const pStart = self.secondary_x_config.primary_range[0];
+                const pEnd = self.secondary_x_config.primary_range[1];
+                const sStart = self.secondary_x_config.secondary_range[0];
+                const sEnd = self.secondary_x_config.secondary_range[1];
+                const denom = pEnd - pStart;
+                if (Math.abs(denom) > 1e-9) {
+                    x2_val = sStart + ((x_ppm - pStart) / denom) * (sEnd - sStart);
+                }
+            }
+            if (x2_val !== null && !isNaN(x2_val)) {
+                let tag = (x2_unit.toLowerCase() === 'hz') ? "x2_hz" : "x2_ppm";
+                let valStr = (x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2);
+                x2_str = ", " + tag + ": " + valStr;
+            }
+        }
+
         const infor_el = document.getElementById(self.drawto_infor);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
 
+            let x2_info = (x2_val !== null && !isNaN(x2_val))
+                ? (", x2: " + ((x2_unit.toLowerCase() === 'hz') ? x2_val.toFixed(1) : x2_val.toFixed(2)) + " " + x2_unit)
+                : "";
+            let y2_info = (y2_val !== null && !isNaN(y2_val))
+                ? (", y2: " + ((y2_unit.toLowerCase() === 'hz') ? y2_val.toFixed(1) : y2_val.toFixed(2)) + " " + y2_unit)
+                : "";
+
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x: " + x_ppm.toFixed(3) + " ppm, y: " + y_ppm.toFixed(2) + " ppm, Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
+                    = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                     + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
                     + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
             }
@@ -892,7 +1075,7 @@ plotit.prototype.draw = function () {
         else {
             if (infor_el) {
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2) + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 
@@ -903,16 +1086,6 @@ plotit.prototype.draw = function () {
             let y_ppm = self.yRange.invert(coordinates[1]);
             // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
             self.contour_plot.drawScene(0, true, [x_ppm, y_ppm], self.magnifying_glass_ratio, self.magnifying_glass_size / 100.0);
-        }
-
-        /**
-         * Show h and v line only when mouse stops moving for 2.5 seconds
-         * if pause on cursor is true
-         */
-        if (self.cross_line_pause_flag == true) {
-            self.cross_line_timeout = setTimeout(function () {
-                self.setup_cross_line(event);
-            }, 2500);
         }
     });
     this.$vis.on("mouseleave", function (d) {
@@ -928,10 +1101,9 @@ plotit.prototype.draw = function () {
     });
 
     /**
-     * Allow right click to set cross section by default
+     * Allow right click to set cross section (always enabled)
      */
-    const rc_el = document.getElementById("right_click");
-    this.allow_right_click(rc_el ? rc_el.checked : true);
+    this.allow_right_click(true);
 
     /**
      * Draw contour on the canvas, which is a background layer
@@ -941,20 +1113,24 @@ plotit.prototype.draw = function () {
     self.setup_axis_pan();
     self.setup_axis_wheel();
 
-    if (self.b_show_projection) {
+    if (self.b_show_cross_section && self.x_cross_section_plot) {
+        self.show_cross_section();
+    } else if (self.b_show_projection && self.x_cross_section_plot) {
         self.show_projection();
     }
 };
 
+/**
+ * Setups cross line from event.
+ *
+ * @param {any} event - Event
+ */
 plotit.prototype.setup_cross_line = function (event) {
     let self = this;
     let coordinates = [event.offsetX, event.offsetY];
     let x_ppm = self.xRange.invert(coordinates[0]);
     let y_ppm = self.yRange.invert(coordinates[1]);
 
-    /**
-     * Send the cross line to other window
-     */
     /**
      * Send the cross line to other window
      */
@@ -967,79 +1143,244 @@ plotit.prototype.setup_cross_line = function (event) {
         });
     }
 
+    const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
+    if (cs_radio) cs_radio.checked = true;
+
+    self.show_cross_section(x_ppm, y_ppm);
+    self.sync_3d_views(true);
+};
+
+
+/**
+ * Find the maximal spectrum point across current (or first valid) spectrum.
+ * Returns { x_ppm, y_ppm, value, row, col } or null.
+ */
+plotit.prototype.get_maximal_spectrum_point = function () {
+    let self = this;
+    let spectra_source = self.local_spectra || (typeof hsqc_spectra !== 'undefined' ? hsqc_spectra : []);
+    let spec = null;
+    if (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) {
+        spec = spectra_source[self.current_spectral_index];
+    }
+    if ((!spec || !spec.raw_data || spec.raw_data.length === 0) && spectra_source.length > 0) {
+        for (let i = 0; i < spectra_source.length; i++) {
+            if (spectra_source[i] && spectra_source[i].raw_data && spectra_source[i].raw_data.length > 0) {
+                spec = spectra_source[i];
+                break;
+            }
+        }
+    }
+    if (spec) {
+        if (typeof spec.get_maximal_point === 'function') {
+            let pt = spec.get_maximal_point();
+            if (pt) return pt;
+        }
+        if (spec.maximal_point) {
+            return spec.maximal_point;
+        }
+        if (spec.raw_data && spec.raw_data.length > 0 && spec.n_direct && spec.n_indirect) {
+            let raw = spec.raw_data;
+            let max_val = -Infinity;
+            let max_idx = -1;
+            for (let i = 0; i < raw.length; i++) {
+                if (raw[i] > max_val) {
+                    max_val = raw[i];
+                    max_idx = i;
+                }
+            }
+            if (max_idx !== -1) {
+                let row = Math.floor(max_idx / spec.n_direct);
+                let col = max_idx % spec.n_direct;
+                let x_ppm = (spec.x_ppm_start || 0) + (spec.x_ppm_ref || 0) + col * (spec.x_ppm_step || 0);
+                let y_ppm = (spec.y_ppm_start || 0) + (spec.y_ppm_ref || 0) + row * (spec.y_ppm_step || 0);
+                return { x_ppm: x_ppm, y_ppm: y_ppm, value: max_val, row: row, col: col };
+            }
+        }
+    }
+    return null;
+};
+
+/**
+ * Shows cross section for visible spectra (or single spectrum in manual phase correction / reprocessing mode).
+ *
+ * @param {number} [x_ppm] - X PPM (defaults to current vline_ppm or maximal spectrum point)
+ * @param {number} [y_ppm] - Y PPM (defaults to current hline_ppm or maximal spectrum point)
+ */
+plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
+    let self = this;
+
+    self.b_show_cross_section = true;
+    self.b_show_projection = false;
+
+    let need_auto_loc = false;
+    if (x_ppm === undefined || x_ppm === null) {
+        if (self.vline_ppm !== null && self.vline_ppm !== undefined) {
+            x_ppm = self.vline_ppm;
+        } else {
+            need_auto_loc = true;
+        }
+    }
+
+    if (y_ppm === undefined || y_ppm === null) {
+        if (self.hline_ppm !== null && self.hline_ppm !== undefined) {
+            y_ppm = self.hline_ppm;
+        } else {
+            need_auto_loc = true;
+        }
+    }
+
+    if (need_auto_loc) {
+        let max_pt = self.get_maximal_spectrum_point();
+        if (x_ppm === undefined || x_ppm === null) {
+            x_ppm = (max_pt && max_pt.x_ppm !== undefined) ? max_pt.x_ppm : (self.xscale[0] + self.xscale[1]) / 2.0;
+        }
+        if (y_ppm === undefined || y_ppm === null) {
+            y_ppm = (max_pt && max_pt.y_ppm !== undefined) ? max_pt.y_ppm : (self.yscale[0] + self.yscale[1]) / 2.0;
+        }
+    }
+
+    self.vline_ppm = x_ppm;
+    self.hline_ppm = y_ppm;
+
+    if (self.x_cross_section_plot) self.x_cross_section_plot.set_cross_section_ppm(x_ppm);
+    if (self.y_cross_section_plot) self.y_cross_section_plot.set_cross_section_ppm(y_ppm);
+
+    const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
+    if (cs_radio) cs_radio.checked = true;
+
     let spectra_source = self.local_spectra || hsqc_spectra;
     let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
     let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
     let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
     let y_ppm_end = y_ppm_start + self.y_ppm_step * self.n_indirect;
 
-    /**
-     * Add a horizontal line at the current y ppm, from x_ppm_start to x_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
     self.hline_data = [[x_ppm_start, y_ppm], [x_ppm_end, y_ppm]];
-    self.$vis.selectAll(".hline").remove();
-    self.$vis.append("path")
-        .attr("class", "hline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.hline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
+    if (self.$vis) {
+        self.$vis.selectAll(".hline").remove();
+        self.$vis.append("path")
+            .attr("class", "hline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.hline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
 
-    /**
-     * Add a vertical line at the current x ppm, from y_ppm_start to y_ppm_end
-     * This line is subject to zoom, pan, resize, etc
-     */
-    self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
-    self.$vis.selectAll(".vline").remove();
-    self.$vis.append("path")
-        .attr("class", "vline")
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr("d", self.lineFunc(self.vline_data))
-        .attr("stroke-width", 1)
-        .attr("stroke", "green");
-
-    /**
-     * Keep a copy of the current hline,vline ppm values
-     */
-    self.hline_ppm = y_ppm;
-    self.vline_ppm = x_ppm;
-
-    /**
-     * We are in reprocess mode, so we need to show the cross section of current reprocess spectrum only, for manual phase correction
-     */
-    // Note: Ortho plots likely don't support cross-section logic yet, 
-    // but we prevent crash by using spectra_source
-    if (self.b_show_cross_section && (spectra_source[self.current_spectral_index].spectrum_origin == -2 || spectra_source[self.current_spectral_index].spectrum_origin == -1) && (current_reprocess_spectrum_index == self.current_spectral_index || spectra_source.length == 1)) {
-        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1/**flag for phase correction */);
+        self.vline_data = [[x_ppm, y_ppm_start], [x_ppm, y_ppm_end]];
+        self.$vis.selectAll(".vline").remove();
+        self.$vis.append("path")
+            .attr("class", "vline")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .attr("d", self.lineFunc(self.vline_data))
+            .attr("stroke-width", 1)
+            .attr("stroke", "green");
     }
-    /**
-     * else, show cross section of all spectra (except removed spectra)
-     * Loop through all spectra and show cross section
-     */
-    else if (self.b_show_cross_section) {
-        // Cross section plots may not be initialized for ortho views
-        if (this.x_cross_section_plot) this.x_cross_section_plot.clear_data();
-        if (this.y_cross_section_plot) this.y_cross_section_plot.clear_data();
 
-        for (let i = 0; i < spectra_source.length; i++) {
-            if (spectra_source[i].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
-            {
-                self.setup_cross_line_from_ppm(x_ppm, y_ppm, i, 0);
+    let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
+    let is_reprocessing_active = (typeof current_reprocess_spectrum_index !== "undefined" && current_reprocess_spectrum_index !== -1 && current_reprocess_spectrum_index === self.current_spectral_index);
+    let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
+
+    if ((is_reprocessing_active || is_single_fid) && cur_spec && cur_spec.visible !== false) {
+        self.setup_cross_line_from_ppm(x_ppm, y_ppm, self.current_spectral_index, 1);
+        return;
+    }
+
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_data();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_data();
+
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
+    for (let i = 0; i < spectra_source.length; i++) {
+        let spectrum = spectra_source[i];
+        if (!spectrum) continue;
+        if (spectrum.spectrum_origin > -3 && spectrum.visible !== false) {
+            let added_any = false;
+
+            // Direct dimension (horizontal, along x-axis) at row y_pos
+            let y_pos = Math.floor((y_ppm - spectrum.y_ppm_ref - spectrum.y_ppm_start) / spectrum.y_ppm_step);
+            if (y_pos >= 0 && y_pos < spectrum.n_indirect && spectrum.raw_data) {
+                let data_ppm = new Array(spectrum.n_direct);
+                for (let j = 0; j < spectrum.n_direct; j++) {
+                    data_ppm[j] = spectrum.x_ppm_start + spectrum.x_ppm_ref + j * spectrum.x_ppm_step;
+                }
+                let data_height = spectrum.raw_data.slice(y_pos * spectrum.n_direct, (y_pos + 1) * spectrum.n_direct);
+                for (let j = 0; j < data_height.length; j++) {
+                    let v = data_height[j];
+                    if (v > direct_max) direct_max = v;
+                    if (v < direct_min) direct_min = v;
+                }
+                if (self.x_cross_section_plot) {
+                    self.x_cross_section_plot.add_data([data_ppm, data_height], i, true);
+                    added_any = true;
+                }
+            }
+
+            // Indirect dimension (vertical, along y-axis) at col x_pos
+            let x_pos = Math.floor((x_ppm - spectrum.x_ppm_ref - spectrum.x_ppm_start) / spectrum.x_ppm_step);
+            if (x_pos >= 0 && x_pos < spectrum.n_direct && spectrum.raw_data) {
+                let data_ppm2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    data_ppm2[j] = spectrum.y_ppm_start + spectrum.y_ppm_ref + j * spectrum.y_ppm_step;
+                }
+                let data_height2 = new Array(spectrum.n_indirect);
+                for (let j = 0; j < spectrum.n_indirect; j++) {
+                    let v = spectrum.raw_data[j * spectrum.n_direct + x_pos];
+                    data_height2[j] = v;
+                    if (v > indirect_max) indirect_max = v;
+                    if (v < indirect_min) indirect_min = v;
+                }
+                if (self.y_cross_section_plot) {
+                    self.y_cross_section_plot.add_data([data_ppm2, data_height2], i, true);
+                    added_any = true;
+                }
+            }
+
+            if (added_any) {
+                visible_count++;
             }
         }
     }
 
-    self.sync_3d_views(true);
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
+    }
 };
 
 
+/**
+ * Setups cross line from PPM.
+ *
+ * @param {any} x_ppm - X PPM
+ * @param {any} y_ppm - Y PPM
+ * @param {any} spectrum_index - Spectrum index
+ * @param {any} flag_manual_phase_correction - Flag manual phase correction
+ */
 plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_index, flag_manual_phase_correction) {
     let self = this;
+    if (spectrum_index === undefined || !flag_manual_phase_correction) {
+        return self.show_cross_section(x_ppm, y_ppm);
+    }
     let spectra_source = self.local_spectra || hsqc_spectra;
     let spectrum = spectra_source[spectrum_index];
 
     if (!spectrum) return;
+
+    if (x_ppm !== undefined && x_ppm !== null) {
+        self.vline_ppm = x_ppm;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.set_cross_section_ppm(x_ppm);
+    }
+    if (y_ppm !== undefined && y_ppm !== null) {
+        self.hline_ppm = y_ppm;
+        if (self.y_cross_section_plot) self.y_cross_section_plot.set_cross_section_ppm(y_ppm);
+    }
 
     if (flag_manual_phase_correction || self.b_show_cross_section) {
         /**
@@ -1064,7 +1405,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
         /**
          * if y_pos is out of range, do nothing and return
          */
-        if (y_pos > 0 && y_pos < spectrum.n_indirect) {
+        if (y_pos >= 0 && y_pos < spectrum.n_indirect) {
             /**
              * Get ppm values for the data
              */
@@ -1098,6 +1439,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_x
              */
@@ -1136,9 +1479,6 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
          * if x_pos is out of range, do nothing and return
          */
         if (x_pos >= 0 && x_pos < spectrum.n_direct) {
-            // ... (rest of logic handles indirect dim which assumes column extraction)
-            // I'll update the rest in the next block if needed, but for now this chunk covers Direct dim logic
-
             /**
              * Get ppm values for the data
              */
@@ -1177,6 +1517,8 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
                     data_min = data_height[i];
                 }
             }
+            if (data_min >= data_max) data_max = data_min + 1.0;
+
             /**
              * Draw cross section line plot on the cross_section_svg_y
              */
@@ -1193,60 +1535,107 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
             }
         }
     } //end of show cross section
-} //end of cross section
+}; //end of cross section
 
+/**
+ * Gets phase correction.
+ */
 plotit.prototype.get_phase_correction = function () {
     let self = this;
-    let phase_direct = self.x_cross_section_plot.get_phase_correction();
-    let phase_indirect = self.y_cross_section_plot.get_phase_correction();
-    self.x_cross_section_plot.clear_phase_correction();
-    self.y_cross_section_plot.clear_phase_correction();
+    let phase_direct = self.x_cross_section_plot ? self.x_cross_section_plot.get_phase_correction() : null;
+    let phase_indirect = self.y_cross_section_plot ? self.y_cross_section_plot.get_phase_correction() : null;
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_phase_correction();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_phase_correction();
     return [phase_direct, phase_indirect];
 }
 
+/**
+ * Shows projection.
+ */
 plotit.prototype.show_projection = function () {
 
     let self = this;
 
     self.b_show_projection = true;
+    self.b_show_cross_section = false;
+
+    const proj_radio = document.querySelector('input[name="select_plot_1d"][value="projection"]');
+    if (proj_radio) proj_radio.checked = true;
+
+    if (self.$vis) {
+        self.$vis.selectAll(".hline").remove();
+        self.$vis.selectAll(".vline").remove();
+    }
 
     /**
      * Clear the cross section plot
      */
-    self.x_cross_section_plot.clear_data();
-    self.y_cross_section_plot.clear_data();
+    if (self.x_cross_section_plot) {
+        self.x_cross_section_plot.set_cross_section_ppm(null);
+        self.x_cross_section_plot.clear_data();
+    }
+    if (self.y_cross_section_plot) {
+        self.y_cross_section_plot.set_cross_section_ppm(null);
+        self.y_cross_section_plot.clear_data();
+    }
+
+    let direct_min = Infinity;
+    let direct_max = -Infinity;
+    let indirect_min = Infinity;
+    let indirect_max = -Infinity;
+    let visible_count = 0;
+
+    let spectra_source = self.local_spectra || hsqc_spectra;
 
     /**
-     * Loop all spectrum, except unknown and removed
+     * Loop all spectrum, except unknown, removed and invisible
      */
-    for (let spe_index = 0; spe_index < hsqc_spectra.length; spe_index++) {
-        if (hsqc_spectra[spe_index].spectrum_origin > -3) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
+    for (let spe_index = 0; spe_index < spectra_source.length; spe_index++) {
+        let spec = spectra_source[spe_index];
+        if (!spec) continue;
+        if (spec.spectrum_origin > -3 && spec.visible !== false) //-4: unknown, -3: removed. -2: from fid, -1: from ft2
         {
+            visible_count++;
+            if (spec.projection_direct_min < direct_min) direct_min = spec.projection_direct_min;
+            if (spec.projection_direct_max > direct_max) direct_max = spec.projection_direct_max;
+            if (spec.projection_indirect_min < indirect_min) indirect_min = spec.projection_indirect_min;
+            if (spec.projection_indirect_max > indirect_max) indirect_max = spec.projection_indirect_max;
 
             /**
              * data is an array of 2 numbers, [x_ppm, x_height]
              */
-            let ppm = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
+            let ppm = new Array(spec.n_direct);
+            for (let i = 0; i < spec.n_direct; i++) {
+                ppm[i] = spec.x_ppm_start + spec.x_ppm_ref + i * spec.x_ppm_step;
             }
-            self.x_cross_section_plot.zoom(self.xscale, [hsqc_spectra[spe_index].projection_direct_min, hsqc_spectra[spe_index].projection_direct_max]);
-            self.x_cross_section_plot.add_data([ppm, hsqc_spectra[spe_index].projection_direct], spe_index);
+            if (self.x_cross_section_plot) self.x_cross_section_plot.add_data([ppm, spec.projection_direct], spe_index, true);
 
 
             /**
              * data2 is an array of 2 numbers, [y_height,y_ppm]
              */
-            let ppm2 = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
+            let ppm2 = new Array(spec.n_indirect);
+            for (let i = 0; i < spec.n_indirect; i++) {
+                ppm2[i] = spec.y_ppm_start + spec.y_ppm_ref + i * spec.y_ppm_step;
             }
-            self.y_cross_section_plot.zoom([hsqc_spectra[spe_index].projection_indirect_min, hsqc_spectra[spe_index].projection_indirect_max], self.yscale);
-            self.y_cross_section_plot.add_data([ppm2, hsqc_spectra[spe_index].projection_indirect], spe_index);
+            if (self.y_cross_section_plot) self.y_cross_section_plot.add_data([ppm2, spec.projection_indirect], spe_index, true);
         }
+    }
+
+    if (visible_count > 0 && Number.isFinite(direct_min) && Number.isFinite(direct_max) && Number.isFinite(indirect_min) && Number.isFinite(indirect_max)) {
+        if (direct_min >= direct_max) direct_max = direct_min + 1.0;
+        if (indirect_min >= indirect_max) indirect_max = indirect_min + 1.0;
+        if (self.x_cross_section_plot) self.x_cross_section_plot.zoom(self.xscale, [direct_min, direct_max]);
+        if (self.y_cross_section_plot) self.y_cross_section_plot.zoom([indirect_min, indirect_max], self.yscale);
+    } else {
+        if (self.x_cross_section_plot) self.x_cross_section_plot.redraw();
+        if (self.y_cross_section_plot) self.y_cross_section_plot.redraw();
     }
 }
 
+/**
+ * Redraws 1d.
+ */
 plotit.prototype.redraw_1d = function () {
     if (this.x_cross_section_plot !== null) {
         this.x_cross_section_plot.redraw();
@@ -1256,6 +1645,9 @@ plotit.prototype.redraw_1d = function () {
     }
 }
 
+/**
+ * Redraws contour.
+ */
 plotit.prototype.redraw_contour = function () {
     /**
      * Update webgl contour data.
@@ -1287,6 +1679,12 @@ plotit.prototype.redraw_contour = function () {
     this.contour_plot.drawScene();
 }
 
+/**
+ * Updates cross section.
+ *
+ * @param {any} spe_index - Spe index
+ * @param {any} flag - Flag
+ */
 plotit.prototype.update_cross_section = function (spe_index, flag) {
     /**
      * Only need to update when current cross section is the same as the spectral_index
@@ -1297,14 +1695,14 @@ plotit.prototype.update_cross_section = function (spe_index, flag) {
             for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
                 ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
             }
-            this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref, hsqc_spectra[spe_index].x_ppm_step, hsqc_spectra[spe_index].n_direct], ppm, spe_index);
+            if (this.x_cross_section_plot) this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref, hsqc_spectra[spe_index].x_ppm_step, hsqc_spectra[spe_index].n_direct], ppm, spe_index);
         }
         else if (flag === 1) {
             let ppm2 = [];
             for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
                 ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
             }
-            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref, hsqc_spectra[spe_index].y_ppm_step, hsqc_spectra[spe_index].n_indirect], ppm2, spe_index);
+            if (this.y_cross_section_plot) this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref, hsqc_spectra[spe_index].y_ppm_step, hsqc_spectra[spe_index].n_indirect], ppm2, spe_index);
         }
     }
 };
@@ -1324,6 +1722,11 @@ plotit.prototype.set_peak_level = function (level) {
     this.peak_level = level;
 }
 
+/**
+ * Sets peak level negative.
+ *
+ * @param {any} level - Level
+ */
 plotit.prototype.set_peak_level_negative = function (level) {
     this.peak_level_negative = level;
 }
@@ -1426,6 +1829,11 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
     function text_force() {
         var strength = 0.1;
 
+        /**
+         * Forces.
+         *
+         * @param {any} alpha - Alpha
+         */
         function force(alpha) {
             for (var i = 0; i < nodes.length; ++i) {
                 let node = nodes[i];
@@ -1455,6 +1863,9 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
     };
 
 
+    /**
+     * Avoids peaks.
+     */
     function avoid_peaks() {
         let nodes;
         var strength = repulsive_force;
@@ -1491,6 +1902,9 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
         return force;
     }
 
+    /**
+     * Boundarys force.
+     */
     function boundary_force() {
         let nodes;
         var strength = 10.0;
@@ -1522,12 +1936,22 @@ plotit.prototype.update_peak_labels = function (flag, min_dis, max_dis, repulsiv
             }
         }
 
+        /**
+         * Strengths.
+         *
+         * @param {any} _ - Parameter.
+         */
         function strength(_) {
             if (!arguments.length) return strength;
             strength = _;
             return force;
         }
 
+        /**
+         * Buffers.
+         *
+         * @param {any} _ - Parameter.
+         */
         function buffer(_) {
             if (!arguments.length) return buffer;
             buffer = _;
@@ -1818,68 +2242,88 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
  * Draw peaks on the plot
  */
 plotit.prototype.draw_peaks = function () {
-
     let self = this;
-    if (typeof self.peak_flag === 'undefined' || self.peak_flag === null) {
+
+    // COLMARvista mode (when spectrum has picked_peaks_object or fitted_peaks_object)
+    if (self.spectrum && (self.peak_flag === 'picked' || self.peak_flag === 'fitted')) {
+        let vis = self.$vis || self.vis;
+        if (vis) vis.selectAll('.peak').remove();
+
+        if (self.peak_flag === 'picked' && self.spectrum.picked_peaks_object) {
+            this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
+        } else if (self.spectrum.fitted_peaks_object) {
+            this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
+        } else {
+            this.new_peaks = [];
+        }
+
+        for (let i = 0; i < self.new_peaks.length; i++) {
+            self.new_peaks[i].radius = 10.0;
+        }
+
+        if (vis) {
+            this.$peaks_svg = vis.selectAll('.peak')
+                .data(self.new_peaks)
+                .enter()
+                .append('circle')
+                .attr('class', 'peak')
+                .attr('cx', function (d) { return self.xRange(d.X_PPM); })
+                .attr('cy', function (d) { return self.yRange(d.Y_PPM); })
+                .attr('visibility', function (d) {
+                    if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
+                        return "visible";
+                    } else {
+                        return "hidden";
+                    }
+                })
+                .attr("clip-path", "url(#" + (self.clipId || "clip") + ")")
+                .attr('r', self.peak_size)
+                .attr('stroke', function () { return self.peak_color; })
+                .attr('fill', function () { return (self.filled_peaks === true) ? self.peak_color : 'none'; })
+                .attr('stroke-width', self.peak_thickness);
+        }
         return;
     }
 
-    /**
-     * Remove all peaks if there is any
-     */
-    self.$vis.selectAll('.peak').remove();
-
-    /**
-     * Filter peaks based on peak level
-     */
-    if (self.peak_flag === 'picked') {
-        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
+    // SPIN mode (PointData peak list)
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff)
+                this.realdata.push(this.PointData[i]);
+        }
     }
-    else {
-        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
+    if (this.preparedata) this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").remove();
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", "blue")
+            .attr("stroke-width", "1")
+            .style("opacity", (typeof this.show_peak !== 'undefined') ? this.show_peak : 1)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".point_match").remove();
     }
 
-    for (let i = 0; i < self.new_peaks.length; i++) {
-        self.new_peaks[i].radius = 10.0;
+    if (this.text) this.text();
+
+    var bts = document.getElementsByClassName("compound_button");
+    for (var i = 0; i < bts.length; i++) {
+        bts[i].style.display = "none";
     }
 
-
-    /**
-     * Draw peaks, red circles without fill
-     */
-    this.$peaks_svg = self.$vis.selectAll('.peak')
-        .data(self.new_peaks)
-        .enter()
-        .append('circle')
-        .attr('class', 'peak')
-        .attr('cx', function (d) {
-            return self.xRange(d.X_PPM);
-        })
-        .attr('cy', function (d) {
-            return self.yRange(d.Y_PPM);
-        })
-        .attr('visibility', function (d) {
-            if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
-                return "visible";
-            }
-            else {
-                return "hidden";
-            }
-        })
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr('r', self.peak_size)
-        .attr('stroke', function () {
-            return self.peak_color;
-        })
-        .attr('fill', function () {
-            if (self.filled_peaks === true) {
-                return self.peak_color;
-            }
-            else {
-                return 'none';
-            }
-        })
-        .attr('stroke-width', self.peak_thickness);
+    this.data1 = [];
+    this.data2 = [];
 };
 
 /**
@@ -1944,6 +2388,148 @@ plotit.prototype.draw_extra_peaks = function () {
         });
 };
 
+/**
+ * Display assignment transfer preview overlay (diamonds for incoming assignments, arrows to matched peaks)
+ * @param {Array<{label: string, x: number, y: number, matched: boolean, peak_x?: number, peak_y?: number}>} items 
+ */
+plotit.prototype.show_assignment_overlay = function (items) {
+    this.assignment_overlay_data = items || [];
+    this.draw_assignment_overlay();
+};
+
+/**
+ * Remove assignment transfer preview overlay from 2D plot
+ */
+plotit.prototype.clear_assignment_overlay = function () {
+    this.assignment_overlay_data = [];
+    if (this.$assignment_overlay_group) {
+        this.$assignment_overlay_group.selectAll('*').remove();
+    }
+};
+
+/**
+ * Draw or update the assignment transfer preview overlay
+ */
+plotit.prototype.draw_assignment_overlay = function () {
+    let self = this;
+    if (!this.assignment_overlay_data || this.assignment_overlay_data.length === 0) {
+        if (this.$assignment_overlay_group) {
+            this.$assignment_overlay_group.selectAll('*').remove();
+        }
+        return;
+    }
+
+    if (!this.$assignment_overlay_group) {
+        this.$assignment_overlay_group = this.$vis.append('g').attr('class', 'assignment-overlay-group');
+    }
+
+    let defs = this.$vis.select("defs");
+    if (defs.empty()) {
+        defs = this.$vis.append("defs");
+    }
+    let markerId = "assign_arrow_" + (this.clipId || "main");
+    if (defs.select("#" + markerId).empty()) {
+        defs.append("marker")
+            .attr("id", markerId)
+            .attr("viewBox", "0 0 10 10")
+            .attr("refX", 7)
+            .attr("refY", 5)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M 0 1.5 L 8 5 L 0 8.5 z")
+            .attr("fill", "#1565c0");
+    }
+
+    // 1. Draw arrows connecting incoming assignment position (x, y) to matched peak position (peak_x, peak_y)
+    let matchedData = this.assignment_overlay_data.filter(d => d.matched && d.peak_x !== undefined && d.peak_y !== undefined);
+
+    let arrowSel = this.$assignment_overlay_group.selectAll('.assignment-arrow')
+        .data(matchedData, function (d) { return d.label; });
+
+    arrowSel.exit().remove();
+
+    let arrowEnter = arrowSel.enter().append('line')
+        .attr('class', 'assignment-arrow')
+        .attr("clip-path", "url(#" + self.clipId + ")")
+        .attr('stroke', '#1565c0')
+        .attr('stroke-width', 1.8)
+        .attr('marker-end', 'url(#' + markerId + ')');
+
+    arrowEnter.merge(arrowSel)
+        .attr('x1', function (d) { return self.xRange(d.x); })
+        .attr('y1', function (d) { return self.yRange(d.y); })
+        .attr('x2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let ux = (x2 - x1) / dist;
+                return x2 - ux * 2;
+            }
+            return x2;
+        })
+        .attr('y2', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            let dist = Math.hypot(x2 - x1, y2 - y1);
+            if (dist > 3) {
+                let uy = (y2 - y1) / dist;
+                return y2 - uy * 2;
+            }
+            return y2;
+        })
+        .attr('visibility', function (d) {
+            let x1 = self.xRange(d.x);
+            let y1 = self.yRange(d.y);
+            let x2 = self.xRange(d.peak_x);
+            let y2 = self.yRange(d.peak_y);
+            return (Math.hypot(x2 - x1, y2 - y1) < 2) ? "hidden" : "visible";
+        });
+
+    // 2. Draw incoming assignment symbols (Diamond: ◇)
+    let peakSel = this.$assignment_overlay_group.selectAll('.assignment-peak')
+        .data(this.assignment_overlay_data, function (d) { return d.label; });
+
+    peakSel.exit().remove();
+
+    let peakEnter = peakSel.enter().append('path')
+        .attr('class', 'assignment-peak')
+        .attr("clip-path", "url(#" + self.clipId + ")");
+
+    peakEnter.append('title');
+
+    peakEnter.merge(peakSel)
+        .attr('d', function (d) {
+            let cx = self.xRange(d.x);
+            let cy = self.yRange(d.y);
+            let r = 6.5; // Diamond radius
+            return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+        })
+        .attr('stroke', function (d) {
+            return d.matched ? '#1565c0' : '#f57c00'; // Blue for matched, amber for unmatched
+        })
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', function (d) {
+            return d.matched ? null : '2,2';
+        })
+        .attr('fill', function (d) {
+            return d.matched ? 'rgba(33, 150, 243, 0.3)' : 'rgba(255, 152, 0, 0.25)';
+        })
+        .select('title')
+        .text(function (d) {
+            let statusStr = d.matched
+                ? `→ Matched Peak: (${d.peak_x.toFixed(3)}, ${d.peak_y.toFixed(3)} ppm)`
+                : `(Unmatched - exceeds cutoff)`;
+            return `Assignment: ${d.label}\nIncoming Position: (${d.x.toFixed(3)}, ${d.y.toFixed(3)} ppm)\n${statusStr}`;
+        });
+};
+
 
 /**
  * Draw a bounding box on the 2D plot
@@ -1992,6 +2578,83 @@ plotit.prototype.draw_bounding_box = function (x0, x1, y0, y1, color = 'red') {
         .attr('width', function (d) { return Math.abs(self.xRange(d.x1) - self.xRange(d.x0)); })
         .attr('height', function (d) { return Math.abs(self.yRange(d.y1) - self.yRange(d.y0)); })
         .attr('stroke', function (d) { return d.color; });
+};
+
+/**
+ * Draw or update a cross marker to label a selected peak at (x_ppm, y_ppm)
+ * @param {number} [x_ppm]
+ * @param {number} [y_ppm]
+ */
+plotit.prototype.draw_selected_peak_cross = function (x_ppm, y_ppm) {
+    let self = this;
+    if (x_ppm !== undefined && y_ppm !== undefined && x_ppm !== null && y_ppm !== null) {
+        self.selected_peak_cross_pos = { x_ppm: x_ppm, y_ppm: y_ppm };
+    }
+    if (!self.selected_peak_cross_pos) {
+        self.remove_selected_peak_cross();
+        return;
+    }
+
+    if (!self.$vis) return;
+
+    let cx = self.xRange(self.selected_peak_cross_pos.x_ppm);
+    let cy = self.yRange(self.selected_peak_cross_pos.y_ppm);
+
+    if (isNaN(cx) || isNaN(cy)) return;
+
+    let arm = Math.max(16, (self.peak_size || 4) + 10);
+
+    if (!self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group = self.$vis.append("g")
+            .attr("class", "selected-peak-cross-group")
+            .attr("clip-path", "url(#" + self.clipId + ")")
+            .style("pointer-events", "none");
+    }
+
+    self.$selected_peak_cross_group.selectAll("*").remove();
+
+    let lines = [
+        { x1: cx - arm, y1: cy, x2: cx + arm, y2: cy },
+        { x1: cx, y1: cy - arm, x2: cx, y2: cy + arm }
+    ];
+
+    // High contrast white halo lines underneath
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-halo")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", "white")
+            .attr("stroke-width", 4)
+            .attr("stroke-linecap", "square");
+    });
+
+    // Foreground lines
+    let cross_color = self.peak_color || "#ff0000";
+    lines.forEach(l => {
+        self.$selected_peak_cross_group.append("line")
+            .attr("class", "selected-peak-cross-line")
+            .attr("x1", l.x1)
+            .attr("y1", l.y1)
+            .attr("x2", l.x2)
+            .attr("y2", l.y2)
+            .attr("stroke", cross_color)
+            .attr("stroke-width", 2)
+            .attr("stroke-linecap", "square");
+    });
+};
+
+/**
+ * Remove the selected peak cross from the plot
+ */
+plotit.prototype.remove_selected_peak_cross = function () {
+    let self = this;
+    self.selected_peak_cross_pos = null;
+    if (self.$selected_peak_cross_group) {
+        self.$selected_peak_cross_group.selectAll("*").remove();
+    }
 };
 
 
@@ -2301,6 +2964,7 @@ plotit.prototype.remove_picked_peaks = function () {
     self.spectrum = null;
     self.$vis.selectAll('.peak').remove();
     self.$vis.selectAll('.peak_text').remove();
+    self.remove_selected_peak_cross();
 };
 
 /**
@@ -2351,6 +3015,13 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
         .attr('stroke-width', 3);
 }
 
+/**
+ * Handles label click.
+ *
+ * @param {any} event - Event
+ * @param {any} target - Target
+ * @param {any} isRotated - Is rotated
+ */
 plotit.prototype.handleLabelClick = function (event, target, isRotated) {
     // Prevent event bubbling so dragging doesn't start immediately or cause issues
     if (event && event.stopPropagation) event.stopPropagation();
@@ -2399,12 +3070,16 @@ plotit.prototype.handleLabelClick = function (event, target, isRotated) {
 
     let isClosed = false;
 
-    // Save on Enter or Blur
     const saveAndClose = () => {
         if (isClosed) return;
         isClosed = true;
         const newText = inputNode.value;
         textNode.text(newText);
+        if (isRotated) {
+            self.ylabel_text = newText;
+        } else {
+            self.xlabel_text = newText;
+        }
         textNode.style("display", null);
         foreignObject.remove();
     };
@@ -2436,6 +3111,9 @@ plotit.prototype.handleLabelClick = function (event, target, isRotated) {
     });
 };
 
+/**
+ * Setups axis pan.
+ */
 plotit.prototype.setup_axis_pan = function () {
     let self = this;
     let mode = ""; // "x", "y", or ""
@@ -2525,6 +3203,9 @@ plotit.prototype.setup_axis_pan = function () {
 };
 
 
+/**
+ * Setups axis wheel.
+ */
 plotit.prototype.setup_axis_wheel = function () {
     let self = this;
 
@@ -2636,3 +3317,826 @@ plotit.prototype.pan_to_center_ppm = function (axis, center_ppm) {
     self.sync_3d_views();
 };
 
+/**
+ * Sets a secondary (parallel) X axis on the top edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_x_axis = function (config) {
+    this.secondary_x_config = config;
+    this.update_secondary_x_axis();
+};
+
+/**
+ * Updates the secondary X axis scale, ticks, and label based on current primary X scale.
+ */
+plotit.prototype.update_secondary_x_axis = function () {
+    if (!this.secondary_x_config || !this.$vis) return;
+    const cfg = this.secondary_x_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.xRange2) {
+        this.xRange2 = d3.scaleLinear();
+    }
+    this.xRange2.range([this.MARGINS.left, this.WIDTH - this.MARGINS.right]);
+    const sec_dom0 = mapVal(this.xscale[0]);
+    const sec_dom1 = mapVal(this.xscale[1]);
+    this.xRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickWidth = self.fontsize * 4;
+    const maxTicks = Math.floor((this.WIDTH - this.MARGINS.left - this.MARGINS.right) / estimatedTickWidth);
+    this.xAxis2 = d3.axisTop(this.xRange2).ticks(maxTicks).tickSizeInner(6 * thickness);
+
+    if (!this.$xAxis2_svg) {
+        this.$xAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'xaxis2');
+    }
+    this.$xAxis2_svg.attr('transform', 'translate(0,' + this.MARGINS.top + ')');
+
+    this.$xAxis2_svg.call(this.xAxis2);
+
+    this.$xAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$xAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".xaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".xaxis2 path, .xaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary X label centered above axis
+    const xLabel2X = this.MARGINS.left + (this.WIDTH - this.MARGINS.left - this.MARGINS.right) / 2;
+    const xLabel2Y = this.MARGINS.top > 60
+        ? Math.max(16, this.MARGINS.top / 2 - this.fontsize / 2 + 5)
+        : Math.max(12, this.MARGINS.top - 20);
+
+    if (!this.$xLabel2Group) {
+        this.$xLabel2Group = this.$vis.append("g")
+            .attr("class", "x2-label-group");
+        this.$xLabel2Group.append("text")
+            .attr("class", "xlabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$xLabel2Group.attr("transform", `translate(${xLabel2X}, ${xLabel2Y})`);
+    this.$xLabel2Group.select(".xlabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary X axis from the plot.
+ */
+plotit.prototype.remove_secondary_x_axis = function () {
+    this.secondary_x_config = null;
+    if (this.$xAxis2_svg) {
+        this.$xAxis2_svg.remove();
+        this.$xAxis2_svg = null;
+    }
+    if (this.$xLabel2Group) {
+        this.$xLabel2Group.remove();
+        this.$xLabel2Group = null;
+    }
+    this.xRange2 = null;
+    this.xAxis2 = null;
+};
+
+/**
+ * Sets a secondary (parallel) Y axis on the right edge of the plot.
+ * @param {Object} config - Configuration object containing label, primary_range, secondary_range, unit
+ */
+plotit.prototype.set_secondary_y_axis = function (config) {
+    this.secondary_y_config = config;
+    this.update_secondary_y_axis();
+};
+
+/**
+ * Updates the secondary Y axis scale, ticks, and label based on current primary Y scale.
+ */
+plotit.prototype.update_secondary_y_axis = function () {
+    if (!this.secondary_y_config || !this.$vis) return;
+    const cfg = this.secondary_y_config;
+    const self = this;
+
+    const prim_start = cfg.primary_range[0];
+    const prim_end = cfg.primary_range[1];
+    const sec_start = cfg.secondary_range[0];
+    const sec_end = cfg.secondary_range[1];
+
+    const mapVal = function (val) {
+        const denom = prim_end - prim_start;
+        if (Math.abs(denom) < 1e-9) return sec_start;
+        const t = (val - prim_start) / denom;
+        return sec_start + t * (sec_end - sec_start);
+    };
+
+    if (!this.yRange2) {
+        this.yRange2 = d3.scaleLinear();
+    }
+    this.yRange2.range([this.HEIGHT - this.MARGINS.bottom, this.MARGINS.top]);
+    const sec_dom0 = mapVal(this.yscale[0]);
+    const sec_dom1 = mapVal(this.yscale[1]);
+    this.yRange2.domain([sec_dom0, sec_dom1]);
+
+    let thickness = Math.round(self.fontsize * 0.05);
+    if (thickness < 1) thickness = 1;
+
+    const estimatedTickHeight = self.fontsize * 2;
+    const maxTicksY = Math.floor((this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / estimatedTickHeight);
+    this.yAxis2 = d3.axisRight(this.yRange2).ticks(maxTicksY).tickSizeInner(6 * thickness);
+
+    if (!this.$yAxis2_svg) {
+        this.$yAxis2_svg = this.$vis.append('svg:g')
+            .attr('class', 'yaxis2');
+    }
+    this.$yAxis2_svg.attr('transform', 'translate(' + (this.WIDTH - this.MARGINS.right) + ',0)');
+
+    this.$yAxis2_svg.call(this.yAxis2);
+
+    this.$yAxis2_svg.select(".domain").style("stroke-width", thickness + "px");
+    this.$yAxis2_svg.selectAll(".tick line").style("stroke-width", thickness + "px");
+
+    this.$vis.selectAll(".yaxis2>.tick>text")
+        .each(function () {
+            d3.select(this)
+                .style("font-size", self.fontsize + "px")
+                .style("font-family", "Arial, Helvetica, sans-serif")
+                .style("fill", "#0f172a");
+        });
+    this.$vis.selectAll(".yaxis2 path, .yaxis2 line")
+        .style("stroke", "#475569");
+
+    // Secondary Y label placed on the right
+    const yLabel2X = this.MARGINS.right > 80
+        ? (this.WIDTH - (this.MARGINS.right / 2 - this.fontsize / 2 - 15))
+        : (this.WIDTH - this.MARGINS.right + 42);
+    const yLabel2Y = this.MARGINS.top + (this.HEIGHT - this.MARGINS.top - this.MARGINS.bottom) / 2;
+
+    if (!this.$yLabel2Group) {
+        this.$yLabel2Group = this.$vis.append("g")
+            .attr("class", "y2-label-group");
+        this.$yLabel2Group.append("text")
+            .attr("class", "ylabel2")
+            .attr("text-anchor", "middle")
+            .attr("font-family", "Arial, Helvetica, sans-serif")
+            .attr("font-weight", "bold")
+            .attr("fill", "#1e3a8a");
+    }
+    this.$yLabel2Group.attr("transform", `translate(${yLabel2X}, ${yLabel2Y}) rotate(90)`);
+    this.$yLabel2Group.select(".ylabel2")
+        .attr("font-size", (this.fontsize + 1) + "px")
+        .text(cfg.label || "");
+};
+
+/**
+ * Removes the secondary Y axis from the plot.
+ */
+plotit.prototype.remove_secondary_y_axis = function () {
+    this.secondary_y_config = null;
+    if (this.$yAxis2_svg) {
+        this.$yAxis2_svg.remove();
+        this.$yAxis2_svg = null;
+    }
+    if (this.$yLabel2Group) {
+        this.$yLabel2Group.remove();
+        this.$yLabel2Group = null;
+    }
+    this.yRange2 = null;
+    this.yAxis2 = null;
+};
+
+/* =========================================================================
+ * SPIN Webserver / Metabolomics Query & Reference Methods
+ * ========================================================================= */
+
+plotit.prototype.update_contour_ref = function (ref1, ref2) {
+    if (!this.contour_plot) return;
+    this.contour_plot.update_ppm(ref1, ref2);
+    if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+    this.contour_plot.drawScene();
+};
+
+plotit.prototype.toggle_recon = function () {
+    if (!this.contour_plot || !this.spectral_type) return;
+    for (var i = 0; i < this.spectral_type.length; i++) {
+        if (this.spectral_type[i] === "hsqcrecon") {
+            if (this.contour_plot.visible) {
+                this.contour_plot.visible[i] = !this.contour_plot.visible[i];
+            }
+        }
+    }
+    this.contour_plot.drawScene();
+};
+
+// Text representation of peaks (using integral if present, otherwise index)
+plotit.prototype.text = function () {
+    if (!this.realdata) return;
+    var out = "";
+    var temp = this.realdata.slice(0);
+    temp.sort(function (a, b) { return a.cs_x - b.cs_x; });
+
+    for (var i = 0; i < temp.length; i++) {
+        if (typeof temp[i].noise !== "undefined" && temp[i].noise === 0) {
+            continue;
+        }
+        if (typeof temp[i].intergral !== "undefined") {
+            out += temp[i].cs_x.toFixed(3) + " " + temp[i].cs_y.toFixed(2) + " " + temp[i].index.toFixed(2) + " " + temp[i].intergral.toFixed(2) + "\n";
+        } else {
+            out += temp[i].cs_x.toFixed(3) + " " + temp[i].cs_y.toFixed(2) + " " + temp[i].index.toFixed(2) + " " + temp[i].index.toFixed(2) + "\n";
+        }
+    }
+
+    if (this.drawto_peak) {
+        $(this.drawto_peak).val(out);
+    }
+};
+
+plotit.prototype.transition_data = function () {
+    var self = this;
+    if (this.preparedata) this.preparedata();
+    if (typeof this.dss !== "undefined" && this.prepare_dss) this.prepare_dss();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".point_match")
+            .attr("cx", function (d) { return self.xRange(d.x); })
+            .attr("cy", function (d) { return self.yRange(d.y); });
+
+        vis.selectAll(".dss")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".dss2")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".line")
+            .attr('d', function (d) { return self.lineFunc(d); });
+
+        vis.selectAll(".compound2")
+            .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+    }
+};
+
+plotit.prototype.brushend_zoom = function (selection) {
+    var self = this;
+    if (Math.abs(selection[0][0] - selection[1][0]) < 3.0 || Math.abs(selection[0][1] - selection[1][1]) < 3.0) {
+        return;
+    }
+    this.xscales.push(this.xscale);
+    this.yscales.push(this.yscale);
+    this.xscale = [self.xRange.invert(selection[0][0]), self.xRange.invert(selection[1][0])];
+    this.yscale = [self.yRange.invert(selection[1][1]), self.yRange.invert(selection[0][1])];
+    this.xRange.domain(this.xscale);
+    this.yRange.domain(this.yscale);
+
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+
+    this.transition_data();
+    this.reset_axis();
+    this.brushend_time = new Date().getTime() + 100;
+};
+
+plotit.prototype.brushend_remove = function (selection) {
+    if (typeof stage !== 'undefined' && stage >= 2) return;
+    var self = this;
+    var ppm_x1 = self.xRange.invert(selection[0][0]);
+    var ppm_x2 = self.xRange.invert(selection[1][0]);
+    var ppm_y1 = self.yRange.invert(selection[0][1]);
+    var ppm_y2 = self.yRange.invert(selection[1][1]);
+
+    if (ppm_x1 > ppm_x2) { var t = ppm_x1; ppm_x1 = ppm_x2; ppm_x2 = t; }
+    if (ppm_y1 > ppm_y2) { var t = ppm_y1; ppm_y1 = ppm_y2; ppm_y2 = t; }
+
+    if (self.PointData) {
+        for (var i = self.PointData.length - 1; i >= 0; i--) {
+            if (self.PointData[i].cs_x >= ppm_x1 && self.PointData[i].cs_x <= ppm_x2 &&
+                self.PointData[i].cs_y >= ppm_y1 && self.PointData[i].cs_y <= ppm_y2) {
+                self.PointData.splice(i, 1);
+            }
+        }
+    }
+
+    self.realdata = [];
+    if (self.PointData) {
+        for (var i = 0; i < self.PointData.length; i++) {
+            if (self.PointData[i].index > self.cutoff) self.realdata.push(self.PointData[i]);
+        }
+    }
+
+    self.preparedata();
+    self.update_picked_peaks();
+    self.brushend_time = new Date().getTime() + 100;
+    self.text();
+};
+
+plotit.prototype.preparedata = function () {
+    if (!this.realdata) return;
+    for (var j = 0; j < this.realdata.length; j++) {
+        this.realdata[j].x = this.xRange(this.realdata[j].cs_x);
+        this.realdata[j].y = this.yRange(this.realdata[j].cs_y);
+    }
+};
+
+plotit.prototype.invertdata = function () {
+    if (!this.realdata) return;
+    for (var j = 0; j < this.realdata.length; j++) {
+        this.realdata[j].cs_x = this.xRange.invert(this.realdata[j].x);
+        this.realdata[j].cs_y = this.yRange.invert(this.realdata[j].y);
+    }
+};
+
+plotit.prototype.prepare_dss = function () {
+    if (this.dss) {
+        for (var j = 0; j < this.dss.length; j++) {
+            this.dss[j].x = this.xRange(this.dss[j].cs_x);
+            this.dss[j].y = this.yRange(this.dss[j].cs_y);
+        }
+    }
+    if (this.dss2) {
+        for (var j = 0; j < this.dss2.length; j++) {
+            this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+            this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+        }
+    }
+};
+
+plotit.prototype.toggle_peak = function (flag) {
+    if (typeof flag === "undefined") {
+        this.show_peak = 1 - this.show_peak;
+    } else {
+        this.show_peak = flag;
+    }
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point").style("opacity", this.show_peak);
+        vis.selectAll(".point_match").style("opacity", this.show_peak);
+    }
+};
+
+plotit.prototype.removepeaks = function () {
+    this.data1 = [];
+    this.data2 = [];
+    this.compounds = [];
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point_match").data([]).exit().remove();
+        vis.selectAll(".compound").data([]).exit().remove();
+        vis.selectAll(".compound2").data([]).exit().remove();
+        vis.selectAll(".point").remove();
+    }
+
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+        }
+    }
+
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .style("opacity", this.show_peak)
+            .attr("stroke", "blue")
+            .attr("stroke-width", "1")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+
+    if (this.legend) {
+        this.legend.selectAll(".legend").data([]).exit().remove();
+    }
+    if (this.drawto_legend) {
+        $(this.drawto_legend).height(20);
+    }
+};
+
+plotit.prototype.addpeaks = function (data1, compounds) {
+    var self = this;
+    this.data1 = data1;
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").data([]).exit().remove();
+        vis.selectAll(".dss").data([]).exit().remove();
+        vis.selectAll(".dss2").data([]).exit().remove();
+
+        vis.selectAll(".point_match")
+            .data(this.data1)
+            .enter().append("circle")
+            .attr("class", "point_match")
+            .attr("clip-path", clipUrl)
+            .attr("r", function (d) { return (d.z && d.z.length >= 1) ? 4.0 : 3.0; })
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", "black")
+            .attr("stroke-width", function (d) {
+                if (d.z && d.z.length > 1) return 4;
+                if (d.z && d.z.length === 1) return 2;
+                return 1;
+            })
+            .attr("cx", function (d) { return self.xRange(d.x); })
+            .attr("cy", function (d) { return self.yRange(d.y); });
+    }
+
+    this.update_compound(compounds);
+    this.dolegend();
+};
+
+plotit.prototype.color_compound = function (m) {
+    var data = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#bcbd22', '#17becf'];
+    return data[m % data.length];
+};
+
+plotit.prototype.update_compound = function (compounds) {
+    var self = this;
+    this.compounds = compounds || [];
+
+    for (var i = 0; i < this.compounds.length; i++) {
+        this.compounds[i].show = 1;
+        if (this.compounds[i].peaks) {
+            for (var j = 0; j < this.compounds[i].peaks.length; j++) {
+                this.compounds[i].peaks[j].z = i;
+            }
+        }
+    }
+
+    this.color_compound2 = d3.scaleLinear().rangeRound([0, 8]).domain([0, Math.max(this.compounds.length, 8)]);
+
+    let vis = this.$vis || this.vis;
+    if (!vis) return;
+
+    vis.selectAll(".compound").data([]).exit().remove();
+    vis.selectAll(".compound2").data([]).exit().remove();
+
+    const index = d3.local();
+
+    this.compound = vis.selectAll(".compound")
+        .data(this.compounds)
+        .enter().append("g")
+        .attr("class", "compound")
+        .each(function (d, i) {
+            index.set(this, i);
+        })
+        .style("opacity", function (d) { return d.show; })
+        .attr('stroke', function (d, i) { return self.color_compound(self.color_compound2(i)); });
+
+    var defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",              // triangle
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",        // diamond
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z", // cross
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",      // square
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0" // circle
+    ];
+    var activeShapes = (typeof shapes !== 'undefined' && Array.isArray(shapes)) ? shapes : defaultShapes;
+
+    this.compound2 = this.compound.selectAll(".compound2")
+        .data(function (d) { return d.peaks || []; }).enter().append("path")
+        .attr("class", "compound2")
+        .attr('stroke-width', 2)
+        .attr('fill', 'none')
+        .attr("d", function (d, i) {
+            let shapeIdx = (typeof d.z !== 'undefined' ? d.z : i) % activeShapes.length;
+            return activeShapes[shapeIdx];
+        })
+        .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+};
+
+plotit.prototype.dolegend = function () {
+    var self = this;
+    if (!this.drawto_legend) return;
+    this.legend = d3.select(this.drawto_legend);
+
+    this.legend.selectAll(".legend").remove();
+    this.legend.selectAll(".legend2").remove();
+
+    let svg_id = this.drawto ? this.drawto.replace(/[^a-zA-Z0-9_-]/g, "") : "";
+    let elem = svg_id ? document.getElementById(svg_id) : null;
+    var t = elem ? elem.clientWidth : 1024;
+    if (t < 1024) t = 1024;
+    t = t - 15;
+
+    var n_perline = Math.round(t / 200 - 0.5);
+    if (n_perline < 1) n_perline = 1;
+
+    const index = d3.local();
+    var defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z",
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0"
+    ];
+    var activeShapes = (typeof shapes !== 'undefined' && Array.isArray(shapes)) ? shapes : defaultShapes;
+
+    this.legend.selectAll(".legend").data(this.compounds || [])
+        .enter().append("text").attr("class", "legend")
+        .attr("x", function (d, i) { return 30 + (i % n_perline) * 200; })
+        .attr("y", function (d, i) { return 40 + 20 * Math.round(i / n_perline - 0.5); })
+        .style("fill", function (d, i) { return self.color_compound(self.color_compound2(i)); })
+        .each(function (d, i) { index.set(this, i); })
+        .text(function (d) { return d.name ? d.name.substring(0, 18) : ""; })
+        .on("click", function (event, d) {
+            self.legendClick(index.get(this));
+        });
+
+    this.legend.selectAll(".legend2").data(this.compounds || [])
+        .enter().append("path").attr("class", "legend2")
+        .attr('stroke-width', 2)
+        .attr('fill', 'none')
+        .attr("d", function (d, i) { return activeShapes[i % activeShapes.length]; })
+        .attr('stroke', function (d, i) { return self.color_compound(self.color_compound2(i)); })
+        .attr("transform", function (d, i) { return "translate(" + ((i % n_perline) * 200 + 10) + "," + (35 + 20 * Math.round(i / n_perline - 0.5)) + ")"; });
+
+    var len = 60 + 20 * Math.round((this.compounds ? this.compounds.length : 0) / n_perline - 0.5);
+    $(this.drawto_legend).height(len);
+    $(this.drawto_legend).width(t);
+};
+
+plotit.prototype.legendall = function (show) {
+    var obj = this;
+    if (!this.compounds) return;
+
+    for (var i = 0; i < this.compounds.length; i++) {
+        this.compounds[i].show = show;
+    }
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound").style("opacity", function (d) { return d.show; });
+    }
+
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.show_one = function (index) {
+    var obj = this;
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound").style("opacity", function (d, i) {
+            return (d.show === 1.0) ? 1.0 : 0.0;
+        });
+    }
+
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.legendClick = function (index) {
+    var obj = this;
+    if (!this.compounds || !this.compounds[index]) return;
+    this.compounds[index].show = 1 - this.compounds[index].show;
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound").style("opacity", function (d, i) {
+            return (d.show === 1.0) ? 1.0 : 0.0;
+        });
+    }
+
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.update_contour = function (value) {
+    if (this.contour_plot && this.contour_plot.set_level_lb) {
+        this.contour_plot.set_level_lb(value - 1);
+    }
+    if (this.levels && this.levels[value - 1]) {
+        this.cutoff = this.levels[value - 1] * 0.99;
+    }
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+        }
+    }
+    this.preparedata();
+    this.update_picked_peaks();
+};
+
+plotit.prototype.update_pointdata = function (input) {
+    this.PointData = input || [];
+    this.realdata = [];
+    for (var i = 0; i < this.PointData.length; i++) {
+        if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+    }
+    this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").remove();
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) {
+                return (typeof d.noise !== "undefined" && d.noise === 0) ? "red" : "blue";
+            })
+            .attr("stroke-width", "1")
+            .style("opacity", this.show_peak)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+    this.text();
+};
+
+plotit.prototype.update_picked_peaks = function () {
+    if (typeof stage === 'undefined' || stage < 2) {
+        let vis = this.$vis || this.vis;
+        if (vis) {
+            let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+            vis.selectAll(".point").remove();
+            vis.selectAll(".point")
+                .data(this.realdata || [])
+                .enter().append("circle")
+                .attr("class", "point")
+                .attr("clip-path", clipUrl)
+                .attr("r", 4.0)
+                .attr("fill-opacity", 0.0)
+                .attr("stroke", function (d) {
+                    return (typeof d.noise !== "undefined" && d.noise === 0) ? "red" : "blue";
+                })
+                .style("opacity", this.show_peak)
+                .attr("stroke-width", "1")
+                .attr("cx", function (d) { return d.x; })
+                .attr("cy", function (d) { return d.y; });
+        }
+        this.text();
+    }
+};
+
+plotit.prototype.doref = function () {
+    var self = this;
+    this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".line")
+            .attr('d', function (d) { return self.lineFunc(d); });
+    }
+    this.text();
+
+    if (typeof this.dss !== "undefined" && this.dss && this.dss2) {
+        for (var i = 0; i < this.dss.length; i++) {
+            this.dss2[i].cs_x = this.dss[i].cs_x;
+            this.dss2[i].cs_y = this.dss[i].cs_y;
+        }
+
+        for (var j = 0; j < this.dss2.length; j++) {
+            this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+            this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+        }
+
+        if (vis) {
+            vis.selectAll(".dss2")
+                .attr("cx", function (d) { return d.x; })
+                .attr("cy", function (d) { return d.y; });
+        }
+    }
+};
+
+plotit.prototype.dodss = function (data) {
+    this.dss = data;
+    if (!this.dss) return;
+
+    this.dss2 = [];
+    for (var i = 0; i < this.dss.length; i++) {
+        this.dss[i].x = this.dss[i].cs_x;
+        this.dss[i].y = this.dss[i].cs_y;
+
+        var t = {
+            x: this.dss[i].x,
+            y: this.dss[i].y,
+            cs_x: this.dss[i].cs_x,
+            cs_y: this.dss[i].cs_y,
+            name: this.dss[i].name,
+            color: this.dss[i].color
+        };
+        this.dss2.push(t);
+    }
+
+    this.prepare_dss();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".dss").data([]).exit().remove();
+        vis.selectAll(".dss")
+            .data(this.dss)
+            .enter().append("circle")
+            .attr("class", "dss")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) { return d.color; })
+            .attr("fill", "red")
+            .attr("stroke-width", 2)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".dss2").data([]).exit().remove();
+        vis.selectAll(".dss2")
+            .data(this.dss2)
+            .enter().append("circle")
+            .attr("class", "dss2")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) { return d.color; })
+            .attr("stroke-width", 1)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+};
+
+// Auto-reference update with defensive null guard for this.dss
+plotit.prototype.ref = function (ref1, ref2) {
+    if (!this.dss || !this.dss2) return;
+    for (var i = 0; i < this.dss.length; i++) {
+        this.dss2[i].cs_x = this.dss[i].cs_x - ref1;
+        this.dss2[i].cs_y = this.dss[i].cs_y - ref2;
+    }
+
+    for (var j = 0; j < this.dss2.length; j++) {
+        this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+        this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+    }
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".dss2").transition()
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = plotit;
+}
+if (typeof window !== 'undefined') {
+    window.plotit = plotit;
+}
