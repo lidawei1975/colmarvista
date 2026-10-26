@@ -1,30 +1,15 @@
 
 /**
- * GLOBAL VARIABLES AND DIRECT DOM ELEMENT REFERENCES
- * 
- * Other classes and libraries required.
- * - d3: Used for visualization (lines 58, 158, etc.)
- * - cross_section_plot: Constructor (lines 79, 81)
- * - webgl_contour_plot: Constructor (line 762)
- * - fitting_plot: Constructor (line 1798)
- * 
- * 
- * Global Variables:
- * - hsqc_spectra: Global spectra state
- * - current_reprocess_spectrum_index: State variable
- * - tooldiv: Tooltip element 
- * - zoom_on_call_function: global on-call function
- * 
- * Direct DOM References:
- * - document.getElementById("plot_group") 
- * - document.getElementById("infor")
- * - document.getElementById("peak_information_div") 
- * - document.getElementById("pseudo3d_fitting_plot")
- * - document.activeElement
- * 
- * 
- * Class varibles that are actually DOM elements
- * xAxis_svg, $yAxis_svg, $vis, $rect, $brush_element
+ * 2D NMR Plot Class (plotit)
+ *
+ * External libraries / companion classes (resolved via constructor options or global scope):
+ * - d3: D3.js visualization library
+ * - webgl_contour_plot: WebGL 2D contour renderer (myplot_webgl_2d.js)
+ * - cross_section_plot: 1D cross-section / projection renderer (optional)
+ * - fitting_plot: Pseudo-3D fitting scatter/line plot renderer (optional, or passed via input.fitting_plot_class)
+ *
+ * All spectrum data, state flags, tooltips, and view-sync callbacks are encapsulated
+ * as instance properties on `plotit` (passed via `input` or updated via setter methods).
  */
 
 /**
@@ -64,6 +49,16 @@ function plotit(input) {
     // Compatibility properties for SPIN metabolomics
     this.show_peak = 1;
     this.show_recon = (typeof input.show_recon !== 'undefined') ? !!input.show_recon : true;
+    this.stage = (typeof input.stage !== 'undefined') ? input.stage : 1;
+    this.b0 = input.b0 || input.observed_frequency || input.observing_frequency || null;
+    const defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",              // triangle
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",        // diamond
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z", // cross
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",      // square
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0" // circle
+    ];
+    this.shapes = (Array.isArray(input.shapes) && input.shapes.length > 0) ? input.shapes : defaultShapes;
     this.brushend_time = 0.0;
     this.levels = input.levels || [];
     this.colors = input.colors || [[0.7, 0.7, 0.7, 1.0]];
@@ -75,13 +70,25 @@ function plotit(input) {
     this.realdata = [];
 
     // Encapsulated data, tooltip, and configuration properties
-    this.spectra = input.spectra || (input.spectrum ? [input.spectrum] : null);
-    this.tooldiv = input.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+    if (Array.isArray(input.spectra)) {
+        this.spectra = input.spectra;
+    } else if (input.spectrum) {
+        this.spectra = [input.spectrum];
+    } else if (input && typeof input.n_direct !== 'undefined' && typeof input.x_ppm_start !== 'undefined') {
+        this.spectra = [input];
+    } else {
+        this.spectra = [];
+    }
+    this.local_spectra = input.local_spectra || null;
+    this.tooldiv = input.tooldiv || null;
     if (!this.tooldiv && typeof document !== 'undefined') {
         this.tooldiv = document.getElementById("information_bar");
     }
     this.peak_group = input.peak_group || null;
-    this.current_reprocess_spectrum_index = (typeof input.current_reprocess_spectrum_index !== 'undefined') ? input.current_reprocess_spectrum_index : null;
+    this.plot_group_id = input.plot_group_id || "plot_group";
+    this.current_reprocess_spectrum_index = (typeof input.current_reprocess_spectrum_index === 'number') ? input.current_reprocess_spectrum_index : -1;
+    this.on_sync_views = (typeof input.on_sync_views === 'function') ? input.on_sync_views : null;
+    this.fitting_plot_class = input.fitting_plot_class || (typeof fitting_plot !== 'undefined' ? fitting_plot : null);
 
 
     this.inter_window_channel = input.inter_window_channel; //for inter-window coupling
@@ -180,15 +187,32 @@ function plotit(input) {
 };
 
 /**
- * Resolves the active spectra array from instance properties or fallback globals.
- * Prioritizes this.spectra, this.local_spectra, and this.spectrum.
+ * Sets or updates the active spectra array on this plot instance and its WebGL contour renderer.
+ */
+plotit.prototype.set_spectra = function (spectra) {
+    let arr = Array.isArray(spectra) ? spectra : (spectra ? [spectra] : []);
+    this.spectra = arr;
+    this.local_spectra = arr;
+    if (this.contour_plot) {
+        this.contour_plot.spectra = arr;
+    }
+};
+
+/**
+ * Sets the workflow stage (e.g. 1 = peak picking, 2 = compound matching in SPIN).
+ */
+plotit.prototype.set_stage = function (s) {
+    this.stage = s;
+};
+
+/**
+ * Resolves the active spectra array from instance properties.
+ * Prioritizes this.local_spectra, this.spectra, and this.spectrum.
  */
 plotit.prototype.get_spectra = function () {
-    if (this.spectra && this.spectra.length > 0) return this.spectra;
     if (this.local_spectra && this.local_spectra.length > 0) return this.local_spectra;
+    if (this.spectra && this.spectra.length > 0) return this.spectra;
     if (this.spectrum) return [this.spectrum];
-    if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) return hsqc_spectra;
-    if (typeof hsqc_spectrum !== 'undefined') return Array.isArray(hsqc_spectrum) ? hsqc_spectrum : [hsqc_spectrum];
     return [];
 };
 
@@ -202,7 +226,7 @@ plotit.prototype.get_infor_element = function (tooltip) {
         let el = document.getElementById(this.drawto_infor);
         if (el) return el;
     }
-    let tip = tooltip || this.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+    let tip = tooltip || this.tooldiv || null;
     if (!tip && typeof document !== 'undefined') {
         tip = document.getElementById("information_bar");
     }
@@ -571,7 +595,7 @@ plotit.prototype.brushend = function (e) {
     var radios = document.getElementsByName('radio1');
     for (var i = 0, length = radios.length; i < length; i++) {
         if (radios[i].checked) {
-            if (radios[i].value === "zoom" || (typeof stage !== 'undefined' && stage >= 2)) {
+            if (radios[i].value === "zoom" || this.stage >= 2) {
                 if (typeof this.brushend_zoom === 'function') {
                     this.brushend_zoom(e.selection);
                     if (this.brush_element) this.brush_element.call(this.brush.move, null);
@@ -678,49 +702,24 @@ plotit.prototype.brushend = function (e) {
 };
 
 /**
- * Synchronize this plot's view with other 3D plots
+ * Synchronize this plot's view with other linked/3D plots via host callback
  */
 plotit.prototype.sync_3d_views = function (is_end = true) {
-    if (this.drawto === '#visualization') {
-        // Main XY plot - sync sliders and axes to XZ/YZ
-        if (typeof window !== 'undefined' && typeof window.sync_sliders_to_center === 'function') {
-            window.sync_sliders_to_center(is_end);
-        } else if (typeof sync_sliders_to_center === 'function') {
-            sync_sliders_to_center(is_end);
-        }
-    } else if (this.drawto === '#visualization_xz') {
-        // XZ plot - sync to main and YZ
-        if (typeof window !== 'undefined' && typeof window.sync_from_xz_plot === 'function') {
-            window.sync_from_xz_plot(is_end);
-        } else if (typeof sync_from_xz_plot === 'function') {
-            sync_from_xz_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_yz') {
-        // YZ plot - sync to main and XZ
-        if (typeof window !== 'undefined' && typeof window.sync_from_yz_plot === 'function') {
-            window.sync_from_yz_plot(is_end);
-        } else if (typeof sync_from_yz_plot === 'function') {
-            sync_from_yz_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj') {
-        if (typeof window !== 'undefined' && typeof window.sync_from_proj_plot === 'function') {
-            window.sync_from_proj_plot(is_end);
-        } else if (typeof sync_from_proj_plot === 'function') {
-            sync_from_proj_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj_y') {
-        if (typeof window !== 'undefined' && typeof window.sync_from_proj_y_plot === 'function') {
-            window.sync_from_proj_y_plot(is_end);
-        } else if (typeof sync_from_proj_y_plot === 'function') {
-            sync_from_proj_y_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj_x') {
-        if (typeof window !== 'undefined' && typeof window.sync_from_proj_x_plot === 'function') {
-            window.sync_from_proj_x_plot(is_end);
-        } else if (typeof sync_from_proj_x_plot === 'function') {
-            sync_from_proj_x_plot(is_end);
-        }
+    if (typeof this.on_sync_views === 'function') {
+        this.on_sync_views(this, is_end);
     }
+};
+
+/**
+ * Resolves the current inter-window plot group identifier.
+ */
+plotit.prototype.get_plot_group_value = function () {
+    if (this.peak_group) return this.peak_group;
+    if (this.plot_group_id && typeof document !== 'undefined') {
+        const pg_el = document.getElementById(this.plot_group_id);
+        if (pg_el) return pg_el.value;
+    }
+    return "1";
 };
 
 /**
@@ -731,8 +730,7 @@ plotit.prototype.send_scales_to_other_window = function () {
     /**
      * Get plot_group number (from 1 to 10)
      */
-    const pg_el = document.getElementById("plot_group");
-    let peak_group = this.peak_group || (pg_el ? pg_el.value : "1");
+    let peak_group = this.get_plot_group_value();
 
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
@@ -1153,7 +1151,7 @@ plotit.prototype.draw = function () {
         }
 
         let spectra_source = self.get_spectra();
-        let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+        let tooltip = self.tooldiv || null;
         if (!tooltip && typeof document !== 'undefined') {
             tooltip = document.getElementById("information_bar");
         }
@@ -1171,9 +1169,10 @@ plotit.prototype.draw = function () {
                 let y_ppm_val = self.yRange ? self.yRange.invert(temp[1]) : 0;
                 let infor_el = self.get_infor_element(tooltip);
                 if (infor_el) {
-                    let cur_spec = (self.spectrum || (typeof hsqc_spectrum !== 'undefined' ? hsqc_spectrum : null));
-                    let frq1 = (cur_spec && cur_spec.frq1) || (typeof b0 !== 'undefined' ? b0 : null);
-                    let frq2 = (cur_spec && cur_spec.frq2) || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
+                    let cur_spec = self.spectrum || (spectra_source.length > 0 ? spectra_source[0] : null);
+                    let b0_val = (cur_spec && (cur_spec.b0 || cur_spec.observed_frequency)) || self.b0 || null;
+                    let frq1 = (cur_spec && cur_spec.frq1) || b0_val;
+                    let frq2 = (cur_spec && cur_spec.frq2) || (b0_val ? (b0_val * 0.2514) : null);
                     let x_hz_str = frq1 ? (" (" + (x_ppm_val * frq1).toFixed(1) + " Hz)") : "";
                     let y_hz_str = frq2 ? (" (" + (y_ppm_val * frq2).toFixed(1) + " Hz)") : "";
                     infor_el.innerHTML = "x_ppm: " + x_ppm_val.toFixed(3) + x_hz_str + ", y_ppm: " + y_ppm_val.toFixed(2) + y_hz_str;
@@ -1293,8 +1292,9 @@ plotit.prototype.draw = function () {
                 : "";
 
             if (infor_el) {
-                let frq1 = spectrum.frq1 || (typeof b0 !== 'undefined' ? b0 : null);
-                let frq2 = spectrum.frq2 || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
+                let b0_val = (spectrum && (spectrum.b0 || spectrum.observed_frequency)) || self.b0 || null;
+                let frq1 = (spectrum && spectrum.frq1) || b0_val;
+                let frq2 = (spectrum && spectrum.frq2) || (b0_val ? (b0_val * 0.2514) : null);
                 infor_el.innerHTML
                     = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
                     + "x: " + x_distance.toFixed(3) + " ppm  " + (frq1 ? (x_distance * frq1).toFixed(3) + " Hz" : "")
@@ -1303,8 +1303,9 @@ plotit.prototype.draw = function () {
         }
         else {
             if (infor_el) {
-                let frq1 = (spectrum && spectrum.frq1) || (typeof b0 !== 'undefined' ? b0 : null);
-                let frq2 = (spectrum && spectrum.frq2) || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
+                let b0_val = (spectrum && (spectrum.b0 || spectrum.observed_frequency)) || self.b0 || null;
+                let frq1 = (spectrum && spectrum.frq1) || b0_val;
+                let frq2 = (spectrum && spectrum.frq2) || (b0_val ? (b0_val * 0.2514) : null);
                 let x_hz_str = (frq1 && !x2_str) ? (" (" + (x_ppm * frq1).toFixed(1) + " Hz)") : "";
                 let y_hz_str = (frq2 && !y2_str) ? (" (" + (y_ppm * frq2).toFixed(1) + " Hz)") : "";
                 infor_el.innerHTML
@@ -1324,7 +1325,7 @@ plotit.prototype.draw = function () {
         }
     });
     this.$vis.on("mouseleave", function (d) {
-        let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+        let tooltip = self.tooldiv || null;
         if (!tooltip && typeof document !== 'undefined') {
             tooltip = document.getElementById("information_bar");
         }
@@ -1399,7 +1400,7 @@ plotit.prototype.setup_cross_line = function (event) {
             type: 'cross_line',
             y_ppm: y_ppm,
             x_ppm: x_ppm,
-            peak_group: (self.peak_group || (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1"))
+            peak_group: self.get_plot_group_value()
         });
     }
 
@@ -1535,9 +1536,9 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     }
 
     let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
-    let reprocess_idx = (typeof self.current_reprocess_spectrum_index !== "undefined" && self.current_reprocess_spectrum_index !== null)
+    let reprocess_idx = (typeof self.current_reprocess_spectrum_index === "number")
         ? self.current_reprocess_spectrum_index
-        : (typeof current_reprocess_spectrum_index !== "undefined" ? current_reprocess_spectrum_index : -1);
+        : -1;
     let is_reprocessing_active = (reprocess_idx !== -1 && reprocess_idx === self.current_spectral_index);
     let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
 
@@ -1942,13 +1943,13 @@ plotit.prototype.redraw_contour = function () {
     }
 
     /**
-     * For SPIN multi-spectral overlays, only spectral_type hsqc, tocsy, hsqcrecon, and simulated are visible
+     * For SPIN multi-spectral overlays, only spectral_type hsqc, tocsy, and hsqcrecon (when enabled) are visible on main_plot
      */
     if (this.spectral_type && Array.isArray(this.spectral_type)) {
         this.contour_plot.visible = new Array(this.spectral_type.length).fill(0);
         let recon_val = (this.show_recon !== undefined) ? (this.show_recon ? 1 : 0) : 1;
         for (let i = 0; i < this.spectral_type.length; i++) {
-            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy' || this.spectral_type[i] === 'simulated') {
+            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy') {
                 this.contour_plot.visible[i] = 1;
             } else if (this.spectral_type[i] === 'hsqcrecon') {
                 this.contour_plot.visible[i] = recon_val;
@@ -3040,8 +3041,9 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
             if (p3d_el) {
                 p3d_el.innerHTML = "";
 
-                if (typeof fitting_plot !== 'undefined') {
-                    const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+                const FittingPlotClass = self.fitting_plot_class;
+                if (FittingPlotClass) {
+                    const plot = new FittingPlotClass('#pseudo3d_fitting_plot', {
                         width: 400,
                         height: 300,
                         xLabel: self.pseudo3d_x_label,
@@ -3314,6 +3316,7 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
  * @param {any} isRotated - Is rotated
  */
 plotit.prototype.handleLabelClick = function (event, target, isRotated) {
+    const self = this;
     // Prevent event bubbling so dragging doesn't start immediately or cause issues
     if (event && event.stopPropagation) event.stopPropagation();
 
@@ -3492,6 +3495,24 @@ plotit.prototype.setup_axis_pan = function () {
                 self.sync_3d_views(true);
             }
         });
+
+    const ensureEventView = function (e) {
+        if (e && !e.view && typeof window !== "undefined") {
+            try {
+                Object.defineProperty(e, "view", { value: window, configurable: true });
+            } catch (_) {
+                e.view = window;
+            }
+        }
+    };
+    if (this.$vis && typeof this.$vis.node === "function" && this.$vis.node()) {
+        this.$vis.node().addEventListener("mousedown", ensureEventView, true);
+    }
+    if (typeof window !== "undefined" && !window.__plotit_ensure_event_view) {
+        window.__plotit_ensure_event_view = true;
+        window.addEventListener("mousemove", ensureEventView, true);
+        window.addEventListener("mouseup", ensureEventView, true);
+    }
 
     this.$vis.call(drag);
 };
@@ -3976,7 +3997,7 @@ plotit.prototype.brushend_zoom = function (selection) {
 };
 
 plotit.prototype.brushend_remove = function (selection) {
-    if (typeof stage !== 'undefined' && stage >= 2) return;
+    if (this.stage >= 2) return;
     var self = this;
     var ppm_x1 = self.xRange.invert(selection[0][0]);
     var ppm_x2 = self.xRange.invert(selection[1][0]);
@@ -4055,6 +4076,7 @@ plotit.prototype.toggle_peak = function (flag) {
 };
 
 plotit.prototype.removepeaks = function () {
+    this.stage = 1;
     this.data1 = [];
     this.data2 = [];
     this.compounds = [];
@@ -4100,6 +4122,7 @@ plotit.prototype.removepeaks = function () {
 
 plotit.prototype.addpeaks = function (data1, compounds) {
     var self = this;
+    this.stage = 2;
     this.data1 = data1;
 
     let vis = this.$vis || this.vis;
@@ -4178,7 +4201,7 @@ plotit.prototype.update_compound = function (compounds) {
         "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",      // square
         "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0" // circle
     ];
-    var activeShapes = (typeof shapes !== 'undefined' && Array.isArray(shapes)) ? shapes : defaultShapes;
+    var activeShapes = (Array.isArray(this.shapes) && this.shapes.length > 0) ? this.shapes : defaultShapes;
 
     this.compound2 = this.compound.selectAll(".compound2")
         .data(function (d) { return d.peaks || []; }).enter().append("path")
@@ -4217,7 +4240,7 @@ plotit.prototype.dolegend = function () {
         "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",
         "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0"
     ];
-    var activeShapes = (typeof shapes !== 'undefined' && Array.isArray(shapes)) ? shapes : defaultShapes;
+    var activeShapes = (Array.isArray(this.shapes) && this.shapes.length > 0) ? this.shapes : defaultShapes;
 
     this.legend.selectAll(".legend").data(this.compounds || [])
         .enter().append("text").attr("class", "legend")
@@ -4374,7 +4397,7 @@ plotit.prototype.update_pointdata = function (input) {
 };
 
 plotit.prototype.update_picked_peaks = function () {
-    if (typeof stage === 'undefined' || stage < 2) {
+    if (this.stage < 2) {
         let vis = this.$vis || this.vis;
         if (vis) {
             let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";

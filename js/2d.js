@@ -543,6 +543,7 @@ $(document).ready(function () {
                 }
                 if (current_reprocess_spectrum_index !== -1) {
                     current_reprocess_spectrum_index = -1;
+                    if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
                     let fidBtn = document.getElementById("button_fid_process");
                     if (fidBtn) fidBtn.value = "Upload experimental files and process";
                     let fileArea = document.getElementById("file_area");
@@ -569,6 +570,7 @@ $(document).ready(function () {
             }
             if (current_reprocess_spectrum_index !== -1) {
                 current_reprocess_spectrum_index = -1;
+                if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
                 let fidBtn = document.getElementById("button_fid_process");
                 if (fidBtn) fidBtn.value = "Upload experimental files and process";
                 let fileArea = document.getElementById("file_area");
@@ -3963,6 +3965,9 @@ function init_plot(input) {
     input.drawto_peak = "#peaklist";
     input.drawto_contour = "canvas1"; //webgl background as contour plot
     input.fontsize = 24;
+    input.spectra = hsqc_spectra;
+    input.tooldiv = tooldiv;
+    input.current_reprocess_spectrum_index = current_reprocess_spectrum_index;
 
     /**
      * Check whether checkbox Horizontal_cross_section and Vertical_cross_section are checked
@@ -7269,6 +7274,7 @@ function reprocess_spectrum(self, spectrum_index) {
          * Switch to cross section mode for current spectrum by simulating a click event
          */
         current_reprocess_spectrum_index = spectrum_index;
+        if (main_plot) main_plot.current_reprocess_spectrum_index = spectrum_index;
         set_current_spectrum(spectrum_index);
 
 
@@ -7301,6 +7307,7 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("input_files").style.display = "flex";
         document.getElementById("button_fid_process").value = "Upload experimental files and process";
         current_reprocess_spectrum_index = -1;
+        if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
 
         /**
          * Restore default values for html elements
@@ -7499,7 +7506,12 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     let show_pseudo3d = document.getElementById("show_pseudo3d_peaks");
     if (show_pseudo3d) show_pseudo3d.checked = false;
 
+    current_reprocess_spectrum_index = -1;
     if (main_plot) {
+        main_plot.current_reprocess_spectrum_index = -1;
+        if (typeof main_plot.set_spectra === "function") {
+            main_plot.set_spectra(hsqc_spectra);
+        }
         if (typeof main_plot.remove_picked_peaks === "function") {
             main_plot.remove_picked_peaks();
         }

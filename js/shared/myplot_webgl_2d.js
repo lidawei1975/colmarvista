@@ -3,7 +3,7 @@
 
 class webgl_contour_plot {
 
-    constructor(canvas_id) {
+    constructor(canvas_id, spectra = null) {
         let selector = (typeof canvas_id === 'string' && canvas_id.startsWith('#')) ? canvas_id : ('#' + canvas_id);
         this.canvas = document.querySelector(selector);
         if (!this.canvas) {
@@ -127,7 +127,7 @@ class webgl_contour_plot {
         this.camera_stack = [camera];
         this.camera_ppm_stack = [];
         this.view_stack = [view];
-        this.spectra = null;
+        this.spectra = spectra;
         this.x_ppm_ref = 0;
         this.y_ppm_ref = 0;
     };
@@ -137,12 +137,11 @@ class webgl_contour_plot {
      * @param {Float32Array} points
      */
     /**
-     * Resolves active spectra from instance property or fallback globals
+     * Resolves active spectra from instance property
      */
     get_spectra() {
-        if (this.spectra && this.spectra.length > 0) return this.spectra;
-        if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) return hsqc_spectra;
-        if (typeof hsqc_spectrum !== 'undefined') return Array.isArray(hsqc_spectrum) ? hsqc_spectrum : [hsqc_spectrum];
+        if (Array.isArray(this.spectra)) return this.spectra;
+        if (this.spectra) return [this.spectra];
         return [];
     }
 

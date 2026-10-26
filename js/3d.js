@@ -4271,7 +4271,9 @@ function init_main_plot(first_spectrum) {
         drawto_infor: "infor",
         size: [cr.width, cr.height],
         PointData: [],
-        inter_window_channel: null
+        inter_window_channel: null,
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
 
     main_plot = new plotit(input);
@@ -4449,6 +4451,9 @@ function refresh_current_view(spectrum_in) {
     }
 
     // Set the data
+    if (typeof main_plot.set_spectra === 'function') {
+        main_plot.set_spectra(spectra_list);
+    }
     main_plot.contour_plot.spectral_order = spectral_order_list;
 
     main_plot.contour_plot.set_data(
@@ -4853,7 +4858,9 @@ function init_ortho_plots(s) {
             drawto: "#visualization_xz",
             drawto_contour: "canvas_xz",
             drawto_infor: "infor_xz",
-            size: [cr.width, cr.height]
+            size: [cr.width, cr.height],
+            tooldiv: tooldiv,
+            on_sync_views: sync_3d_views
         };
         main_plot_xz = new plotit(input_xz);
         main_plot_xz.draw();
@@ -4905,7 +4912,9 @@ function init_ortho_plots(s) {
             drawto: "#visualization_yz",
             drawto_contour: "canvas_yz",
             drawto_infor: "infor_yz",
-            size: [cr.width, cr.height]
+            size: [cr.width, cr.height],
+            tooldiv: tooldiv,
+            on_sync_views: sync_3d_views
         };
         main_plot_yz = new plotit(input_yz);
         main_plot_yz.draw();
@@ -5410,6 +5419,9 @@ function refresh_ortho_plot(type) {
         offset += points_neg_list[i].length;
     }
 
+    if (typeof plot.set_spectra === 'function') {
+        plot.set_spectra(spectra_list);
+    }
     plot.contour_plot.spectral_order = spectral_order_list;
 
     plot.contour_plot.set_data(
@@ -8774,7 +8786,9 @@ function init_proj_plot(s) {
         drawto: "#visualization_proj",
         drawto_contour: "canvas_proj",
         drawto_infor: "infor_proj",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj = new plotit(input_proj);
     main_plot_proj.draw();
@@ -8828,7 +8842,11 @@ function refresh_proj_plot() {
 function render_to_plot(plot, spectra_list) {
     if (!plot) return;
 
-    plot.local_spectra = spectra_list;
+    if (typeof plot.set_spectra === 'function') {
+        plot.set_spectra(spectra_list);
+    } else {
+        plot.local_spectra = spectra_list;
+    }
 
     let points_pos_list = [];
     let len_pos_list = [];
@@ -9269,7 +9287,9 @@ function init_proj_y_plot(s) {
         drawto: "#visualization_proj_y",
         drawto_contour: "canvas_proj_y",
         drawto_infor: "infor_proj_y",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
@@ -9418,7 +9438,9 @@ function init_proj_x_plot(s) {
         drawto: "#visualization_proj_x",
         drawto_contour: "canvas_proj_x",
         drawto_infor: "infor_proj_x",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj_x = new plotit(input_proj);
     main_plot_proj_x.draw();
