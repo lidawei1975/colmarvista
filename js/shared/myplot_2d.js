@@ -63,6 +63,7 @@ function plotit(input) {
     this.data2 = [];  //remove it??
     // Compatibility properties for SPIN metabolomics
     this.show_peak = 1;
+    this.show_recon = (typeof input.show_recon !== 'undefined') ? !!input.show_recon : true;
     this.brushend_time = 0.0;
     this.levels = input.levels || [];
     this.colors = input.colors || [[0.7, 0.7, 0.7, 1.0]];
@@ -1938,9 +1939,12 @@ plotit.prototype.redraw_contour = function () {
      */
     if (this.spectral_type && Array.isArray(this.spectral_type)) {
         this.contour_plot.visible = new Array(this.spectral_type.length).fill(0);
+        let recon_val = (this.show_recon !== undefined) ? (this.show_recon ? 1 : 0) : 1;
         for (let i = 0; i < this.spectral_type.length; i++) {
-            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy' || this.spectral_type[i] === 'hsqcrecon' || this.spectral_type[i] === 'simulated') {
+            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy' || this.spectral_type[i] === 'simulated') {
                 this.contour_plot.visible[i] = 1;
+            } else if (this.spectral_type[i] === 'hsqcrecon') {
+                this.contour_plot.visible[i] = recon_val;
             } else {
                 this.contour_plot.visible[i] = 0;
             }
@@ -3842,16 +3846,23 @@ plotit.prototype.update_contour_ref = function (ref1, ref2) {
     this.contour_plot.drawScene();
 };
 
-plotit.prototype.toggle_recon = function () {
+plotit.prototype.set_recon_visible = function (visible) {
+    this.show_recon = !!visible;
     if (!this.contour_plot || !this.spectral_type) return;
     for (var i = 0; i < this.spectral_type.length; i++) {
         if (this.spectral_type[i] === "hsqcrecon") {
             if (this.contour_plot.visible) {
-                this.contour_plot.visible[i] = this.contour_plot.visible[i] ? 0 : 1;
+                this.contour_plot.visible[i] = this.show_recon ? 1 : 0;
             }
         }
     }
     this.contour_plot.drawScene();
+};
+
+plotit.prototype.toggle_recon = function () {
+    if (!this.contour_plot || !this.spectral_type) return;
+    var current = (this.show_recon !== undefined) ? this.show_recon : true;
+    this.set_recon_visible(!current);
 };
 
 // Text representation of peaks (using integral if present, otherwise index)
