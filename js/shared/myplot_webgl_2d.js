@@ -178,7 +178,14 @@ class webgl_contour_plot {
             return;
         }
 
+        let oldInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
         if (spectral_information && !Array.isArray(spectral_information) && typeof spectral_information === 'object') {
+            if (spectral_information.x_ppm_ref === undefined && oldInfo && oldInfo.x_ppm_ref !== undefined) {
+                spectral_information.x_ppm_ref = oldInfo.x_ppm_ref;
+            }
+            if (spectral_information.y_ppm_ref === undefined && oldInfo && oldInfo.y_ppm_ref !== undefined) {
+                spectral_information.y_ppm_ref = oldInfo.y_ppm_ref;
+            }
             this.spectral_information = [spectral_information];
         } else {
             this.spectral_information = spectral_information;

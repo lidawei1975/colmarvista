@@ -37,8 +37,10 @@ function plotit(input) {
     this.yscales = new Array();
 
 
-    this.xscale = [input.x_ppm_start, input.x_ppm_start + input.x_ppm_step * input.n_direct];
-    this.yscale = [input.y_ppm_start, input.y_ppm_start + input.y_ppm_step * input.n_indirect];
+    const x_ref = (typeof input.x_ppm_ref === 'number') ? input.x_ppm_ref : 0;
+    const y_ref = (typeof input.y_ppm_ref === 'number') ? input.y_ppm_ref : 0;
+    this.xscale = [input.x_ppm_start + x_ref, input.x_ppm_start + x_ref + input.x_ppm_step * input.n_direct];
+    this.yscale = [input.y_ppm_start + y_ref, input.y_ppm_start + y_ref + input.y_ppm_step * input.n_indirect];
     if (Array.isArray(this.xscale) && !isNaN(this.xscale[0]) && !isNaN(this.xscale[1])) {
         this.init_xscale = [this.xscale[0], this.xscale[1]];
     }
@@ -3810,20 +3812,20 @@ plotit.prototype.update_contour_ref = function (ref1, ref2) {
         this.init_yscale = [this.init_yscale[0] + ref2, this.init_yscale[1] + ref2];
     }
 
-    if (!this.contour_plot) {
-        if (this.spectral_information) {
-            if (Array.isArray(this.spectral_information)) {
-                for (let i = 0; i < this.spectral_information.length; i++) {
-                    if (this.spectral_information[i]) {
-                        this.spectral_information[i].x_ppm_ref = (this.spectral_information[i].x_ppm_ref || 0) + ref1;
-                        this.spectral_information[i].y_ppm_ref = (this.spectral_information[i].y_ppm_ref || 0) + ref2;
-                    }
-                }
-            } else {
-                this.spectral_information.x_ppm_ref = (this.spectral_information.x_ppm_ref || 0) + ref1;
-                this.spectral_information.y_ppm_ref = (this.spectral_information.y_ppm_ref || 0) + ref2;
+    if (this.spectral_information) {
+        const sInfo = Array.isArray(this.spectral_information) ? this.spectral_information : [this.spectral_information];
+        const cInfo = this.contour_plot && this.contour_plot.spectral_information
+            ? (Array.isArray(this.contour_plot.spectral_information) ? this.contour_plot.spectral_information : [this.contour_plot.spectral_information])
+            : [];
+        for (let i = 0; i < sInfo.length; i++) {
+            if (sInfo[i] && !cInfo.includes(sInfo[i])) {
+                sInfo[i].x_ppm_ref = (sInfo[i].x_ppm_ref || 0) + ref1;
+                sInfo[i].y_ppm_ref = (sInfo[i].y_ppm_ref || 0) + ref2;
             }
         }
+    }
+
+    if (!this.contour_plot) {
         return;
     }
     this.contour_plot.update_ppm(ref1, ref2);
