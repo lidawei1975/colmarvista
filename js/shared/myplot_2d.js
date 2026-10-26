@@ -1148,12 +1148,17 @@ plotit.prototype.draw = function () {
         if (spe_index < 0 || spe_index >= spectra_source.length) {
             // Update tooltip for SPIN or single-spectrum view
             if (tooltip) {
-                let temp = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event) : [event.offsetX, event.offsetY];
+                let temp = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined) : [event.offsetX, event.offsetY];
                 let x_ppm_val = self.xRange ? self.xRange.invert(temp[0]) : 0;
                 let y_ppm_val = self.yRange ? self.yRange.invert(temp[1]) : 0;
                 let infor_el = self.get_infor_element(tooltip);
                 if (infor_el) {
-                    infor_el.innerHTML = "x_ppm: " + x_ppm_val.toFixed(3) + ", y_ppm: " + y_ppm_val.toFixed(2);
+                    let cur_spec = (self.spectrum || (typeof hsqc_spectrum !== 'undefined' ? hsqc_spectrum : null));
+                    let frq1 = (cur_spec && cur_spec.frq1) || (typeof b0 !== 'undefined' ? b0 : null);
+                    let frq2 = (cur_spec && cur_spec.frq2) || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
+                    let x_hz_str = frq1 ? (" (" + (x_ppm_val * frq1).toFixed(1) + " Hz)") : "";
+                    let y_hz_str = frq2 ? (" (" + (y_ppm_val * frq2).toFixed(1) + " Hz)") : "";
+                    infor_el.innerHTML = "x_ppm: " + x_ppm_val.toFixed(3) + x_hz_str + ", y_ppm: " + y_ppm_val.toFixed(2) + y_hz_str;
                 } else if (typeof tooltip.html === 'function') {
                     tooltip.html(x_ppm_val.toFixed(3) + " " + y_ppm_val.toFixed(2))
                         .style("left", (event.pageX + 12) + "px")
@@ -1179,7 +1184,9 @@ plotit.prototype.draw = function () {
                 tooltip.style.opacity = 1.0;
             }
         }
-        let coordinates = [event.offsetX, event.offsetY];
+        let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+            ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+            : [event.offsetX, event.offsetY];
         let x_ppm = self.xRange.invert(coordinates[0]);
         let y_ppm = self.yRange.invert(coordinates[1]);
 
@@ -1278,14 +1285,20 @@ plotit.prototype.draw = function () {
         }
         else {
             if (infor_el) {
+                let frq1 = (spectrum && spectrum.frq1) || (typeof b0 !== 'undefined' ? b0 : null);
+                let frq2 = (spectrum && spectrum.frq2) || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
+                let x_hz_str = (frq1 && !x2_str) ? (" (" + (x_ppm * frq1).toFixed(1) + " Hz)") : "";
+                let y_hz_str = (frq2 && !y2_str) ? (" (" + (y_ppm * frq2).toFixed(1) + " Hz)") : "";
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + " ppm" + x_hz_str + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + " ppm" + y_hz_str + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 
 
         if (self.magnifying_glass == true) {
-            let coordinates = [event.offsetX, event.offsetY];
+            let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+            ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+            : [event.offsetX, event.offsetY];
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
             // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
@@ -1298,10 +1311,14 @@ plotit.prototype.draw = function () {
             tooltip = document.getElementById("information_bar");
         }
         if (tooltip) {
-            if (typeof tooltip.style === 'function') {
-                tooltip.style("opacity", 0.0);
-            } else if (tooltip.style) {
-                tooltip.style.opacity = 0.0;
+            let tipNode = (typeof tooltip.node === 'function') ? tooltip.node() : tooltip;
+            let isFixedBar = (tipNode && tipNode.id === "information_bar") || (typeof tooltip.attr === 'function' && tooltip.attr("id") === "information_bar");
+            if (!isFixedBar) {
+                if (typeof tooltip.style === 'function') {
+                    tooltip.style("opacity", 0.0);
+                } else if (tooltip.style) {
+                    tooltip.style.opacity = 0.0;
+                }
             }
         }
         if (document.activeElement && typeof document.activeElement.blur === 'function') {
@@ -1350,7 +1367,9 @@ plotit.prototype.draw = function () {
  */
 plotit.prototype.setup_cross_line = function (event) {
     let self = this;
-    let coordinates = [event.offsetX, event.offsetY];
+    let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+        ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+        : [event.offsetX, event.offsetY];
     let x_ppm = self.xRange.invert(coordinates[0]);
     let y_ppm = self.yRange.invert(coordinates[1]);
 
@@ -3467,8 +3486,7 @@ plotit.prototype.setup_axis_wheel = function () {
     svgNode.addEventListener("wheel", function (event) {
 
         // Check location
-        let x = event.offsetX;
-        let y = event.offsetY;
+        let [x, y] = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event, svgNode) : [event.offsetX, event.offsetY];
 
         let isX = (y > self.HEIGHT - self.MARGINS.bottom);
         let isY = (x < self.MARGINS.left);
@@ -3781,7 +3799,33 @@ plotit.prototype.remove_secondary_y_axis = function () {
  * ========================================================================= */
 
 plotit.prototype.update_contour_ref = function (ref1, ref2) {
-    if (!this.contour_plot) return;
+    if (this.spectrum) {
+        this.spectrum.x_ppm_ref = (this.spectrum.x_ppm_ref || 0) + ref1;
+        this.spectrum.y_ppm_ref = (this.spectrum.y_ppm_ref || 0) + ref2;
+    }
+    if (Array.isArray(this.init_xscale) && this.init_xscale.length === 2 && !isNaN(this.init_xscale[0])) {
+        this.init_xscale = [this.init_xscale[0] + ref1, this.init_xscale[1] + ref1];
+    }
+    if (Array.isArray(this.init_yscale) && this.init_yscale.length === 2 && !isNaN(this.init_yscale[0])) {
+        this.init_yscale = [this.init_yscale[0] + ref2, this.init_yscale[1] + ref2];
+    }
+
+    if (!this.contour_plot) {
+        if (this.spectral_information) {
+            if (Array.isArray(this.spectral_information)) {
+                for (let i = 0; i < this.spectral_information.length; i++) {
+                    if (this.spectral_information[i]) {
+                        this.spectral_information[i].x_ppm_ref = (this.spectral_information[i].x_ppm_ref || 0) + ref1;
+                        this.spectral_information[i].y_ppm_ref = (this.spectral_information[i].y_ppm_ref || 0) + ref2;
+                    }
+                }
+            } else {
+                this.spectral_information.x_ppm_ref = (this.spectral_information.x_ppm_ref || 0) + ref1;
+                this.spectral_information.y_ppm_ref = (this.spectral_information.y_ppm_ref || 0) + ref2;
+            }
+        }
+        return;
+    }
     this.contour_plot.update_ppm(ref1, ref2);
     if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
@@ -3793,7 +3837,7 @@ plotit.prototype.toggle_recon = function () {
     for (var i = 0; i < this.spectral_type.length; i++) {
         if (this.spectral_type[i] === "hsqcrecon") {
             if (this.contour_plot.visible) {
-                this.contour_plot.visible[i] = !this.contour_plot.visible[i];
+                this.contour_plot.visible[i] = this.contour_plot.visible[i] ? 0 : 1;
             }
         }
     }
@@ -3859,12 +3903,31 @@ plotit.prototype.brushend_zoom = function (selection) {
     if (Math.abs(selection[0][0] - selection[1][0]) < 3.0 || Math.abs(selection[0][1] - selection[1][1]) < 3.0) {
         return;
     }
-    this.xscales.push(this.xscale);
-    this.yscales.push(this.yscale);
+    if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+        this.xscales.push([this.xscale[0], this.xscale[1]]);
+        this.yscales.push([this.yscale[0], this.yscale[1]]);
+    }
     this.xscale = [self.xRange.invert(selection[0][0]), self.xRange.invert(selection[1][0])];
     this.yscale = [self.yRange.invert(selection[1][1]), self.yRange.invert(selection[0][1])];
     this.xRange.domain(this.xscale);
     this.yRange.domain(this.yscale);
+
+    if (!this.init_xscale || isNaN(this.init_xscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.x_ppm_start !== undefined && sInfo.x_ppm_step !== undefined && sInfo.n_direct) {
+            let xRef = sInfo.x_ppm_ref || 0;
+            let x0 = sInfo.x_ppm_start + xRef;
+            this.init_xscale = [x0, x0 + sInfo.x_ppm_step * sInfo.n_direct];
+        }
+    }
+    if (!this.init_yscale || isNaN(this.init_yscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.y_ppm_start !== undefined && sInfo.y_ppm_step !== undefined && sInfo.n_indirect) {
+            let yRef = sInfo.y_ppm_ref || 0;
+            let y0 = sInfo.y_ppm_start + yRef;
+            this.init_yscale = [y0, y0 + sInfo.y_ppm_step * sInfo.n_indirect];
+        }
+    }
 
     if (this.contour_plot) {
         if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
@@ -3874,6 +3937,10 @@ plotit.prototype.brushend_zoom = function (selection) {
 
     this.transition_data();
     this.reset_axis();
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
+    this.send_scales_to_other_window();
+    this.sync_3d_views();
     this.brushend_time = new Date().getTime() + 100;
 };
 

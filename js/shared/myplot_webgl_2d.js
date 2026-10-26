@@ -252,7 +252,7 @@ class webgl_contour_plot {
          */
         for (var nn = 0; nn < number_of_spectra; nn++) {
             let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
-            if (this.visible && this.visible[n] === 0) continue;
+            if (this.visible && !this.visible[n]) continue;
             let sInfo = Array.isArray(this.spectral_information)
                 ? (this.spectral_information[n] || this.spectral_information[0])
                 : this.spectral_information;
@@ -293,7 +293,7 @@ class webgl_contour_plot {
              * Draw the positive contour plot, one level at a time
              */
             let _spectra = this.get_spectra();
-            let is_spec_visible = (!_spectra[n] || _spectra[n].visible !== false);
+            let is_spec_visible = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
             if (is_spec_visible) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
@@ -439,7 +439,7 @@ class webgl_contour_plot {
         let number_of_spectra = this.levels_length.length;
         for (var nn = 0; nn < number_of_spectra; nn++) {
             let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
-            if (this.visible && this.visible[n] === 0) continue;
+            if (this.visible && !this.visible[n]) continue;
             let sInfo = Array.isArray(this.spectral_information)
                 ? (this.spectral_information[n] || this.spectral_information[0])
                 : this.spectral_information;
@@ -850,7 +850,7 @@ class webgl_contour_plot {
         if (Array.isArray(this.spectral_order) && this.spectral_order.length > 0) {
             for (let i = 0; i < this.spectral_order.length; i++) {
                 let n = this.spectral_order[i];
-                let is_vis = (!_spectra[n] || _spectra[n].visible !== false);
+                let is_vis = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
                 if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
                     return n;
                 }
@@ -858,7 +858,7 @@ class webgl_contour_plot {
         }
         if (_spectra.length > 0) {
             for (let n = 0; n < _spectra.length; n++) {
-                let is_vis = (!_spectra[n] || _spectra[n].visible !== false);
+                let is_vis = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
                 if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
                     return n;
                 }
@@ -1204,6 +1204,19 @@ class webgl_contour_plot {
     update_ppm(ref1, ref2) {
         this.x_ppm_start += ref1;
         this.y_ppm_start += ref2;
+        if (this.spectral_information) {
+            if (Array.isArray(this.spectral_information)) {
+                for (let i = 0; i < this.spectral_information.length; i++) {
+                    if (this.spectral_information[i]) {
+                        this.spectral_information[i].x_ppm_ref = (this.spectral_information[i].x_ppm_ref || 0) + ref1;
+                        this.spectral_information[i].y_ppm_ref = (this.spectral_information[i].y_ppm_ref || 0) + ref2;
+                    }
+                }
+            } else {
+                this.spectral_information.x_ppm_ref = (this.spectral_information.x_ppm_ref || 0) + ref1;
+                this.spectral_information.y_ppm_ref = (this.spectral_information.y_ppm_ref || 0) + ref2;
+            }
+        }
     }
 
     /**
