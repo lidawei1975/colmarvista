@@ -517,6 +517,13 @@ plotit.prototype.reset_axis = function () {
     }
 
     /**
+     * Reset SPIN mode peak symbols (.point, .point_match, .dss, .dss2, .line)
+     */
+    if (typeof this.transition_data === "function") {
+        this.transition_data();
+    }
+
+    /**
      * Update extra peaks position
      */
     /**
@@ -3416,9 +3423,14 @@ plotit.prototype.setup_axis_pan = function () {
             let y = event.y;
 
             // Define detection zones (Margins)
+            // Bottom-Left Corner: both X and Y
             // Left Margin: x < MARGINS.left
             // Bottom Margin: y > HEIGHT - MARGINS.bottom
-            if (y > self.HEIGHT - self.MARGINS.bottom) {
+            if (y > self.HEIGHT - self.MARGINS.bottom && x < self.MARGINS.left) {
+                mode = "both";
+                start_scale_x = d3.scaleLinear().domain(self.xscale).range([self.MARGINS.left, self.WIDTH - self.MARGINS.right]);
+                start_scale_y = d3.scaleLinear().domain(self.yscale).range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top]);
+            } else if (y > self.HEIGHT - self.MARGINS.bottom) {
                 mode = "x";
                 start_scale_x = d3.scaleLinear().domain(self.xscale).range([self.MARGINS.left, self.WIDTH - self.MARGINS.right]);
             } else if (x < self.MARGINS.left) {
@@ -3440,38 +3452,35 @@ plotit.prototype.setup_axis_pan = function () {
             let x = event.x;
             let y = event.y;
 
-            if (mode === "x") {
+            if (mode === "x" || mode === "both") {
                 // Calculate PPM shift using the initial scale
                 let start_ppm = start_scale_x.invert(start_mouse[0]);
                 let curr_ppm = start_scale_x.invert(x);
                 let delta_ppm = start_ppm - curr_ppm;
 
                 self.xscale = [start_domain_x[0] + delta_ppm, start_domain_x[1] + delta_ppm];
-
-                // Update Range and View
                 self.xRange.domain(self.xscale);
-                // Update View
-                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
-                self.contour_plot.drawScene();
-                self.reset_axis();
-                if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
-                self.sync_3d_views(false);
             }
-            else if (mode === "y") {
+            if (mode === "y" || mode === "both") {
                 let start_ppm = start_scale_y.invert(start_mouse[1]);
                 let curr_ppm = start_scale_y.invert(y);
                 let delta_ppm = start_ppm - curr_ppm;
 
                 self.yscale = [start_domain_y[0] + delta_ppm, start_domain_y[1] + delta_ppm];
-
                 self.yRange.domain(self.yscale);
-                // Update View
-                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
-                self.contour_plot.drawScene();
-                self.reset_axis();
-                if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
-                self.sync_3d_views(false);
             }
+
+            // Update View
+            self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+            self.contour_plot.drawScene();
+            self.reset_axis();
+            if (mode === "x" || mode === "both") {
+                if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
+            }
+            if (mode === "y" || mode === "both") {
+                if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
+            }
+            self.sync_3d_views(false);
         })
         .on("end", function (event) {
             if (mode !== "") {
@@ -3479,6 +3488,7 @@ plotit.prototype.setup_axis_pan = function () {
                 self.yscales.push(start_domain_y);
                 self.send_scales_to_other_window();
                 mode = "";
+                self.reset_axis();
                 self.sync_3d_views(true);
             }
         });
@@ -4001,8 +4011,10 @@ plotit.prototype.brushend_remove = function (selection) {
 plotit.prototype.preparedata = function () {
     if (!this.realdata) return;
     for (var j = 0; j < this.realdata.length; j++) {
-        this.realdata[j].x = this.xRange(this.realdata[j].cs_x);
-        this.realdata[j].y = this.yRange(this.realdata[j].cs_y);
+        let px = typeof this.realdata[j].cs_x !== "undefined" ? this.realdata[j].cs_x : (typeof this.realdata[j].X_PPM !== "undefined" ? this.realdata[j].X_PPM : this.realdata[j].x_ppm);
+        let py = typeof this.realdata[j].cs_y !== "undefined" ? this.realdata[j].cs_y : (typeof this.realdata[j].Y_PPM !== "undefined" ? this.realdata[j].Y_PPM : this.realdata[j].y_ppm);
+        if (typeof px !== "undefined") this.realdata[j].x = this.xRange(px);
+        if (typeof py !== "undefined") this.realdata[j].y = this.yRange(py);
     }
 };
 
