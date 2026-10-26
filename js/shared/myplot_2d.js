@@ -68,6 +68,9 @@ function plotit(input) {
     // Encapsulated data, tooltip, and configuration properties
     this.spectra = input.spectra || (input.spectrum ? [input.spectrum] : null);
     this.tooldiv = input.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+    if (!this.tooldiv && typeof document !== 'undefined') {
+        this.tooldiv = document.getElementById("information_bar");
+    }
     this.peak_group = input.peak_group || null;
     this.current_reprocess_spectrum_index = (typeof input.current_reprocess_spectrum_index !== 'undefined') ? input.current_reprocess_spectrum_index : null;
 
@@ -81,7 +84,7 @@ function plotit(input) {
     this.bottom = -1000;
 
     this.drawto_contour = input.drawto_contour;
-    this.drawto_infor = input.drawto_infor || "infor";
+    this.drawto_infor = input.drawto_infor || (typeof document !== 'undefined' && document.getElementById("plot_infor") ? "plot_infor" : null);
 
     this.x_ppm_start = input.x_ppm_start;
     this.x_ppm_step = input.x_ppm_step;
@@ -178,6 +181,38 @@ plotit.prototype.get_spectra = function () {
     if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) return hsqc_spectra;
     if (typeof hsqc_spectrum !== 'undefined') return Array.isArray(hsqc_spectrum) ? hsqc_spectrum : [hsqc_spectrum];
     return [];
+};
+
+/**
+ * Resolves the information element (span/div) where coordinates (ppm, hz, intensity, S/N)
+ * are displayed on mouse hover.
+ * Guards against overwriting system-level status divs like SPIN's <div id="infor" style="color: red">.
+ */
+plotit.prototype.get_infor_element = function (tooltip) {
+    if (this.drawto_infor) {
+        let el = document.getElementById(this.drawto_infor);
+        if (el) return el;
+    }
+    let tip = tooltip || this.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+    if (!tip && typeof document !== 'undefined') {
+        tip = document.getElementById("information_bar");
+    }
+    if (tip) {
+        if (tip.querySelector) {
+            let span = tip.querySelector("span");
+            if (span) return span;
+        }
+        return tip;
+    }
+    if (typeof document !== 'undefined') {
+        let el = document.getElementById("infor");
+        // Never overwrite system status elements with red text
+        if (el && el.style && el.style.color === "red") {
+            return null;
+        }
+        return el;
+    }
+    return null;
 };
 
 /**
@@ -1001,6 +1036,9 @@ plotit.prototype.draw = function () {
 
         let spectra_source = self.get_spectra();
         let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+        if (!tooltip && typeof document !== 'undefined') {
+            tooltip = document.getElementById("information_bar");
+        }
 
         /**
          * Get the spectral index of the current spectral data
@@ -1013,11 +1051,17 @@ plotit.prototype.draw = function () {
                 let temp = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event) : [event.offsetX, event.offsetY];
                 let x_ppm_val = self.xRange ? self.xRange.invert(temp[0]) : 0;
                 let y_ppm_val = self.yRange ? self.yRange.invert(temp[1]) : 0;
-                if (typeof tooltip.html === 'function') {
+                let infor_el = self.get_infor_element(tooltip);
+                if (infor_el) {
+                    infor_el.innerHTML = "x_ppm: " + x_ppm_val.toFixed(3) + ", y_ppm: " + y_ppm_val.toFixed(2);
+                } else if (typeof tooltip.html === 'function') {
                     tooltip.html(x_ppm_val.toFixed(3) + " " + y_ppm_val.toFixed(2))
                         .style("left", (event.pageX + 12) + "px")
                         .style("top", (event.pageY + 12) + "px")
                         .style("opacity", .9);
+                }
+                if (typeof tooltip.style === 'function') {
+                    tooltip.style("opacity", 1.0);
                 } else if (tooltip.style) {
                     tooltip.style.opacity = 1.0;
                 }
@@ -1042,7 +1086,13 @@ plotit.prototype.draw = function () {
         let spectrum = spectra_source[spe_index];
 
         // Safety check for invalid spectrum object
-        if (!spectrum || !spectrum.raw_data) return;
+        if (!spectrum || !spectrum.raw_data || spectrum.raw_data.length === 0) {
+            let infor_el = self.get_infor_element(tooltip);
+            if (infor_el) {
+                infor_el.innerHTML = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2);
+            }
+            return;
+        }
 
         let y_pos = Math.floor((y_ppm - spectrum.y_ppm_ref - spectrum.y_ppm_start) / spectrum.y_ppm_step);
         let x_pos = Math.floor((x_ppm - spectrum.x_ppm_ref - spectrum.x_ppm_start) / spectrum.x_ppm_step);
@@ -1105,7 +1155,7 @@ plotit.prototype.draw = function () {
             }
         }
 
-        const infor_el = document.getElementById(self.drawto_infor);
+        const infor_el = self.get_infor_element(tooltip);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
@@ -1118,10 +1168,12 @@ plotit.prototype.draw = function () {
                 : "";
 
             if (infor_el) {
+                let frq1 = spectrum.frq1 || (typeof b0 !== 'undefined' ? b0 : null);
+                let frq2 = spectrum.frq2 || (typeof b0 !== 'undefined' ? (b0 * 0.2514) : null);
                 infor_el.innerHTML
                     = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
-                    + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
-                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+                    + "x: " + x_distance.toFixed(3) + " ppm  " + (frq1 ? (x_distance * frq1).toFixed(3) + " Hz" : "")
+                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (frq2 ? (y_distance * frq2).toFixed(3) + " Hz" : "");
             }
         }
         else {
@@ -1142,6 +1194,9 @@ plotit.prototype.draw = function () {
     });
     this.$vis.on("mouseleave", function (d) {
         let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+        if (!tooltip && typeof document !== 'undefined') {
+            tooltip = document.getElementById("information_bar");
+        }
         if (tooltip) {
             if (typeof tooltip.style === 'function') {
                 tooltip.style("opacity", 0.0);
