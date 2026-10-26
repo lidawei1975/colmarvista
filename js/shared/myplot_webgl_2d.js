@@ -126,12 +126,23 @@ class webgl_contour_plot {
         let view = { left: 0, right: 1, bottom: 0, top: 1 };
         this.camera_stack = [camera];
         this.view_stack = [view];
+        this.spectra = null;
     };
 
     /**
      * Set buffer data and draw the scene
      * @param {Float32Array} points
      */
+    /**
+     * Resolves active spectra from instance property or fallback globals
+     */
+    get_spectra() {
+        if (this.spectra && this.spectra.length > 0) return this.spectra;
+        if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) return hsqc_spectra;
+        if (typeof hsqc_spectrum !== 'undefined') return Array.isArray(hsqc_spectrum) ? hsqc_spectrum : [hsqc_spectrum];
+        return [];
+    }
+
     set_data(spectral_information, points, points_start, polygon_length, levels_length, colors, contour_lbs, points_start_n, polygon_length_n, levels_length_n, colors_n, contour_lbs_n) {
         if (spectral_information instanceof Float32Array || (Array.isArray(spectral_information) && typeof spectral_information[0] === 'number')) {
             // SPIN signature: points was passed as 1st argument
@@ -258,7 +269,8 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            let is_spec_visible = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+            let _spectra = this.get_spectra();
+            let is_spec_visible = (!_spectra[n] || _spectra[n].visible !== false);
             if (is_spec_visible) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
@@ -436,7 +448,8 @@ class webgl_contour_plot {
             /**
              * Draw the positive contour plot, one level at a time
              */
-            let is_spec_visible = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+            let _spectra = this.get_spectra();
+            let is_spec_visible = (!_spectra[n] || _spectra[n].visible !== false);
             if (is_spec_visible) {
                 for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
                     let i_start = 0;
@@ -783,7 +796,8 @@ class webgl_contour_plot {
     _contour_level_color(n, m) {
         const hm = this.ratio_heatmap;
         if (hm && hm.mode === "contour" && ((Array.isArray(hm.indices) && hm.indices.indexOf(n) !== -1) || hm.index === n)) {
-            const spec = (typeof hsqc_spectra !== 'undefined') ? hsqc_spectra[n] : null;
+            const _spectra = this.get_spectra();
+            const spec = (_spectra && _spectra[n]) ? _spectra[n] : null;
             if (spec && Array.isArray(spec.levels) && m >= 0 && m < spec.levels.length && spec.levels[m] > 0) {
                 const log_val = Math.log(spec.levels[m]);
                 const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
@@ -801,18 +815,19 @@ class webgl_contour_plot {
      * If spectra are reordered or some are hidden, this finds the top visible spectrum.
      */
     _get_first_visible_spectrum() {
+        const _spectra = this.get_spectra();
         if (Array.isArray(this.spectral_order) && this.spectral_order.length > 0) {
             for (let i = 0; i < this.spectral_order.length; i++) {
                 let n = this.spectral_order[i];
-                let is_vis = (typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+                let is_vis = (!_spectra[n] || _spectra[n].visible !== false);
                 if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
                     return n;
                 }
             }
         }
-        if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) {
-            for (let n = 0; n < hsqc_spectra.length; n++) {
-                let is_vis = (!hsqc_spectra[n] || hsqc_spectra[n].visible !== false);
+        if (_spectra.length > 0) {
+            for (let n = 0; n < _spectra.length; n++) {
+                let is_vis = (!_spectra[n] || _spectra[n].visible !== false);
                 if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
                     return n;
                 }
@@ -1019,7 +1034,8 @@ class webgl_contour_plot {
      */
     _lowest_contour_levels(n, fallback) {
         const NONE = 1e30;
-        const spec = (typeof hsqc_spectra !== 'undefined') ? hsqc_spectra[n] : null;
+        const _spectra = this.get_spectra();
+            const spec = (_spectra && _spectra[n]) ? _spectra[n] : null;
         const pick = (levels, lbs, default_value) => {
             if (!levels || levels.length === 0 || !lbs || lbs[n] === undefined) {
                 return default_value;
@@ -1284,10 +1300,11 @@ class webgl_contour_plot {
             return;
         }
         const n = this._get_first_visible_spectrum();
-        if (n === -1 || typeof hsqc_spectra === 'undefined' || !hsqc_spectra[n]) {
+        const _spectra = this.get_spectra();
+        if (n === -1 || !_spectra[n]) {
             return;
         }
-        const s = hsqc_spectra[n];
+        const s = _spectra[n];
         if (!s.raw_data || s.raw_data.length === 0) {
             return;
         }

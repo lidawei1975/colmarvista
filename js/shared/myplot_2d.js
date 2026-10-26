@@ -65,6 +65,12 @@ function plotit(input) {
     this.cutoff = (this.levels && this.levels.length > 0) ? this.levels[0] * 0.99 : 0;
     this.realdata = [];
 
+    // Encapsulated data, tooltip, and configuration properties
+    this.spectra = input.spectra || (input.spectrum ? [input.spectrum] : null);
+    this.tooldiv = input.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+    this.peak_group = input.peak_group || null;
+    this.current_reprocess_spectrum_index = (typeof input.current_reprocess_spectrum_index !== 'undefined') ? input.current_reprocess_spectrum_index : null;
+
 
     this.inter_window_channel = input.inter_window_channel; //for inter-window coupling
 
@@ -162,6 +168,19 @@ function plotit(input) {
 };
 
 /**
+ * Resolves the active spectra array from instance properties or fallback globals.
+ * Prioritizes this.spectra, this.local_spectra, and this.spectrum.
+ */
+plotit.prototype.get_spectra = function () {
+    if (this.spectra && this.spectra.length > 0) return this.spectra;
+    if (this.local_spectra && this.local_spectra.length > 0) return this.local_spectra;
+    if (this.spectrum) return [this.spectrum];
+    if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) return hsqc_spectra;
+    if (typeof hsqc_spectrum !== 'undefined') return Array.isArray(hsqc_spectrum) ? hsqc_spectrum : [hsqc_spectrum];
+    return [];
+};
+
+/**
  * Enables magnifying glass.
  *
  * @param {any} flag - Flag
@@ -196,7 +215,7 @@ plotit.prototype.set_labels = function (xlabel, ylabel) {
  * Set a on call function for zoom event
  */
 plotit.prototype.set_zoom_on_call_function = function (func) {
-    if (zoom_on_call_function === null) {
+    if (this.zoom_on_call_function === null) {
         this.zoom_on_call_function = func;
     }
     else {
@@ -588,29 +607,41 @@ plotit.prototype.brushend = function (e) {
 plotit.prototype.sync_3d_views = function (is_end = true) {
     if (this.drawto === '#visualization') {
         // Main XY plot - sync sliders and axes to XZ/YZ
-        if (typeof sync_sliders_to_center === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_sliders_to_center === 'function') {
+            window.sync_sliders_to_center(is_end);
+        } else if (typeof sync_sliders_to_center === 'function') {
             sync_sliders_to_center(is_end);
         }
     } else if (this.drawto === '#visualization_xz') {
         // XZ plot - sync to main and YZ
-        if (typeof sync_from_xz_plot === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_from_xz_plot === 'function') {
+            window.sync_from_xz_plot(is_end);
+        } else if (typeof sync_from_xz_plot === 'function') {
             sync_from_xz_plot(is_end);
         }
     } else if (this.drawto === '#visualization_yz') {
         // YZ plot - sync to main and XZ
-        if (typeof sync_from_yz_plot === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_from_yz_plot === 'function') {
+            window.sync_from_yz_plot(is_end);
+        } else if (typeof sync_from_yz_plot === 'function') {
             sync_from_yz_plot(is_end);
         }
     } else if (this.drawto === '#visualization_proj') {
-        if (typeof sync_from_proj_plot === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_from_proj_plot === 'function') {
+            window.sync_from_proj_plot(is_end);
+        } else if (typeof sync_from_proj_plot === 'function') {
             sync_from_proj_plot(is_end);
         }
     } else if (this.drawto === '#visualization_proj_y') {
-        if (typeof sync_from_proj_y_plot === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_from_proj_y_plot === 'function') {
+            window.sync_from_proj_y_plot(is_end);
+        } else if (typeof sync_from_proj_y_plot === 'function') {
             sync_from_proj_y_plot(is_end);
         }
     } else if (this.drawto === '#visualization_proj_x') {
-        if (typeof sync_from_proj_x_plot === 'function') {
+        if (typeof window !== 'undefined' && typeof window.sync_from_proj_x_plot === 'function') {
+            window.sync_from_proj_x_plot(is_end);
+        } else if (typeof sync_from_proj_x_plot === 'function') {
             sync_from_proj_x_plot(is_end);
         }
     }
@@ -625,7 +656,7 @@ plotit.prototype.send_scales_to_other_window = function () {
      * Get plot_group number (from 1 to 10)
      */
     const pg_el = document.getElementById("plot_group");
-    let peak_group = pg_el ? pg_el.value : "1";
+    let peak_group = this.peak_group || (pg_el ? pg_el.value : "1");
 
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
@@ -968,7 +999,8 @@ plotit.prototype.draw = function () {
             clearTimeout(self.cross_line_timeout);
         }
 
-        let spectra_source = self.local_spectra || hsqc_spectra;
+        let spectra_source = self.get_spectra();
+        let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
 
         /**
          * Get the spectral index of the current spectral data
@@ -976,13 +1008,33 @@ plotit.prototype.draw = function () {
         */
         let spe_index = self.current_spectral_index;
         if (spe_index < 0 || spe_index >= spectra_source.length) {
+            // Update tooltip for SPIN or single-spectrum view
+            if (tooltip) {
+                let temp = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event) : [event.offsetX, event.offsetY];
+                let x_ppm_val = self.xRange ? self.xRange.invert(temp[0]) : 0;
+                let y_ppm_val = self.yRange ? self.yRange.invert(temp[1]) : 0;
+                if (typeof tooltip.html === 'function') {
+                    tooltip.html(x_ppm_val.toFixed(3) + " " + y_ppm_val.toFixed(2))
+                        .style("left", (event.pageX + 12) + "px")
+                        .style("top", (event.pageY + 12) + "px")
+                        .style("opacity", .9);
+                } else if (tooltip.style) {
+                    tooltip.style.opacity = 1.0;
+                }
+            }
             return;
         }
 
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
-        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 1.0;
+        if (tooltip) {
+            if (typeof tooltip.style === 'function') {
+                tooltip.style("opacity", 1.0);
+            } else if (tooltip.style) {
+                tooltip.style.opacity = 1.0;
+            }
+        }
         let coordinates = [event.offsetX, event.offsetY];
         let x_ppm = self.xRange.invert(coordinates[0]);
         let y_ppm = self.yRange.invert(coordinates[1]);
@@ -1089,15 +1141,26 @@ plotit.prototype.draw = function () {
         }
     });
     this.$vis.on("mouseleave", function (d) {
-        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 0.0;
-        document.activeElement.blur();
+        let tooltip = self.tooldiv || (typeof tooldiv !== 'undefined' ? tooldiv : null);
+        if (tooltip) {
+            if (typeof tooltip.style === 'function') {
+                tooltip.style("opacity", 0.0);
+            } else if (tooltip.style) {
+                tooltip.style.opacity = 0.0;
+            }
+        }
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
         if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
         }
         /**
          * Clear the magnifying glass
          */
-        self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+        if (self.contour_plot) {
+            self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+        }
     });
 
     /**
@@ -1108,7 +1171,12 @@ plotit.prototype.draw = function () {
     /**
      * Draw contour on the canvas, which is a background layer
      */
-    this.contour_plot = new webgl_contour_plot(this.drawto_contour);
+    if (typeof webgl_contour_plot !== 'undefined') {
+        this.contour_plot = new webgl_contour_plot(this.drawto_contour);
+        this.contour_plot.spectra = this.get_spectra();
+    } else {
+        this.contour_plot = null;
+    }
 
     self.setup_axis_pan();
     self.setup_axis_wheel();
@@ -1139,7 +1207,7 @@ plotit.prototype.setup_cross_line = function (event) {
             type: 'cross_line',
             y_ppm: y_ppm,
             x_ppm: x_ppm,
-            peak_group: (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1")
+            peak_group: (self.peak_group || (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1"))
         });
     }
 
@@ -1157,7 +1225,7 @@ plotit.prototype.setup_cross_line = function (event) {
  */
 plotit.prototype.get_maximal_spectrum_point = function () {
     let self = this;
-    let spectra_source = self.local_spectra || (typeof hsqc_spectra !== 'undefined' ? hsqc_spectra : []);
+    let spectra_source = self.get_spectra();
     let spec = null;
     if (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) {
         spec = spectra_source[self.current_spectral_index];
@@ -1248,7 +1316,7 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
     if (cs_radio) cs_radio.checked = true;
 
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
     let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
     let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
     let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
@@ -1275,7 +1343,10 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     }
 
     let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
-    let is_reprocessing_active = (typeof current_reprocess_spectrum_index !== "undefined" && current_reprocess_spectrum_index !== -1 && current_reprocess_spectrum_index === self.current_spectral_index);
+    let reprocess_idx = (typeof self.current_reprocess_spectrum_index !== "undefined" && self.current_reprocess_spectrum_index !== null)
+        ? self.current_reprocess_spectrum_index
+        : (typeof current_reprocess_spectrum_index !== "undefined" ? current_reprocess_spectrum_index : -1);
+    let is_reprocessing_active = (reprocess_idx !== -1 && reprocess_idx === self.current_spectral_index);
     let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
 
     if ((is_reprocessing_active || is_single_fid) && cur_spec && cur_spec.visible !== false) {
@@ -1368,7 +1439,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
     if (spectrum_index === undefined || !flag_manual_phase_correction) {
         return self.show_cross_section(x_ppm, y_ppm);
     }
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
     let spectrum = spectra_source[spectrum_index];
 
     if (!spectrum) return;
@@ -1585,7 +1656,7 @@ plotit.prototype.show_projection = function () {
     let indirect_max = -Infinity;
     let visible_count = 0;
 
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
 
     /**
      * Loop all spectrum, except unknown, removed and invisible
@@ -1673,7 +1744,10 @@ plotit.prototype.redraw_contour = function () {
         this.contour_lbs_negative
     );
 
-    this.contour_plot.spectral_order = this.spectral_order;
+    if (this.contour_plot) {
+        this.contour_plot.spectra = this.get_spectra();
+        this.contour_plot.spectral_order = this.spectral_order;
+    }
 
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
@@ -1690,19 +1764,23 @@ plotit.prototype.update_cross_section = function (spe_index, flag) {
      * Only need to update when current cross section is the same as the spectral_index
      */
     if (this.current_spectral_index === spe_index) {
+        let spectra_source = this.get_spectra();
+        let spec = spectra_source[spe_index];
+        if (!spec) return;
+
         if (flag === 0) {
             let ppm = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
+            for (let i = 0; i < spec.n_direct; i++) {
+                ppm.push(spec.x_ppm_start + (spec.x_ppm_ref || 0) + i * spec.x_ppm_step);
             }
-            if (this.x_cross_section_plot) this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref, hsqc_spectra[spe_index].x_ppm_step, hsqc_spectra[spe_index].n_direct], ppm, spe_index);
+            if (this.x_cross_section_plot) this.x_cross_section_plot.update_ppm([spec.x_ppm_start + (spec.x_ppm_ref || 0), spec.x_ppm_step, spec.n_direct], ppm, spe_index);
         }
         else if (flag === 1) {
             let ppm2 = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
+            for (let i = 0; i < spec.n_indirect; i++) {
+                ppm2.push(spec.y_ppm_start + (spec.y_ppm_ref || 0) + i * spec.y_ppm_step);
             }
-            if (this.y_cross_section_plot) this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref, hsqc_spectra[spe_index].y_ppm_step, hsqc_spectra[spe_index].n_indirect], ppm2, spe_index);
+            if (this.y_cross_section_plot) this.y_cross_section_plot.update_ppm([spec.y_ppm_start + (spec.y_ppm_ref || 0), spec.y_ppm_step, spec.n_indirect], ppm2, spe_index);
         }
     }
 };
@@ -2680,10 +2758,11 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * set display to block. 
              */
             let peak_information_div = document.getElementById('peak_information_div');
-            if (peak_information_div) peak_information_div.style.display = 'block';
-
-            peak_information_div.style.left = x + 'px';
-            peak_information_div.style.top = y + 'px';
+            if (peak_information_div) {
+                peak_information_div.style.display = 'block';
+                peak_information_div.style.left = x + 'px';
+                peak_information_div.style.top = y + 'px';
+            }
 
             /**
              * self.pseudo3d_plane_y_value is something line Z_A0, Z_A1, Z_A2 ....
@@ -2749,33 +2828,36 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * Remove (if any) previous drawing
              */
             const p3d_el = document.getElementById("pseudo3d_fitting_plot");
-            if (p3d_el) p3d_el.innerHTML = "";
+            if (p3d_el) {
+                p3d_el.innerHTML = "";
 
+                if (typeof fitting_plot !== 'undefined') {
+                    const plot = new fitting_plot('#pseudo3d_fitting_plot', {
+                        width: 400,
+                        height: 300,
+                        xLabel: self.pseudo3d_x_label,
+                        yLabel: self.pseudo3d_y_label,
+                    });
 
-            const plot = new fitting_plot('#pseudo3d_fitting_plot', {
-                width: 400,
-                height: 300,
-                xLabel: self.pseudo3d_x_label,
-                yLabel: self.pseudo3d_y_label,
-            });
+                    plot.draw_scatter(data);
+                    plot.draw_line(data2);
 
-            plot.draw_scatter(data);
-            plot.draw_line(data2);
-
-            /**
-           * If d.DOSY_STD is defined, then add two lines with slope = (d.DOSY+-d.DOSY_STD) * self.pseudo3d_slope_factor
-           */
-            if (typeof d.DOSY_STD !== "undefined") {
-                const data3 = [
-                    { x: 0, y: 0 },
-                    { x: data[data.length - 1].x, y: (slope + d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
-                ];
-                const data4 = [
-                    { x: 0, y: 0 },
-                    { x: data[data.length - 1].x, y: (slope - d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
-                ];
-                plot.draw_line(data3);
-                plot.draw_line(data4);
+                    /**
+                     * If d.DOSY_STD is defined, then add two lines with slope = (d.DOSY+-d.DOSY_STD) * self.pseudo3d_slope_factor
+                     */
+                    if (typeof d.DOSY_STD !== "undefined") {
+                        const data3 = [
+                            { x: 0, y: 0 },
+                            { x: data[data.length - 1].x, y: (slope + d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                        ];
+                        const data4 = [
+                            { x: 0, y: 0 },
+                            { x: data[data.length - 1].x, y: (slope - d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                        ];
+                        plot.draw_line(data3);
+                        plot.draw_line(data4);
+                    }
+                }
             }
 
 
