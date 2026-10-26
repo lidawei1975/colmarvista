@@ -508,6 +508,14 @@ plotit.prototype.reset_axis = function () {
     this.$vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
 
     /**
+     * Reset compound peaks position if any
+     */
+    if (this.$vis) {
+        this.$vis.selectAll(".compound2")
+            .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+    }
+
+    /**
      * Update extra peaks position
      */
     /**
@@ -4122,8 +4130,9 @@ plotit.prototype.update_compound = function (compounds) {
     let vis = this.$vis || this.vis;
     if (!vis) return;
 
-    vis.selectAll(".compound").data([]).exit().remove();
-    vis.selectAll(".compound2").data([]).exit().remove();
+    vis.selectAll(".compound").remove();
+
+    let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
 
     const index = d3.local();
 
@@ -4131,10 +4140,12 @@ plotit.prototype.update_compound = function (compounds) {
         .data(this.compounds)
         .enter().append("g")
         .attr("class", "compound")
+        .attr("clip-path", clipUrl)
         .each(function (d, i) {
             index.set(this, i);
         })
-        .style("opacity", function (d) { return d.show; })
+        .style("opacity", function (d) { return (d.show === 1 || d.show === 1.0) ? 1.0 : 0.0; })
+        .style("display", function (d) { return (d.show === 1 || d.show === 1.0) ? "inline" : "none"; })
         .attr('stroke', function (d, i) { return self.color_compound(self.color_compound2(i)); });
 
     var defaultShapes = [
@@ -4189,7 +4200,7 @@ plotit.prototype.dolegend = function () {
         .enter().append("text").attr("class", "legend")
         .attr("x", function (d, i) { return 30 + (i % n_perline) * 200; })
         .attr("y", function (d, i) { return 40 + 20 * Math.round(i / n_perline - 0.5); })
-        .style("fill", function (d, i) { return self.color_compound(self.color_compound2(i)); })
+        .style("fill", function (d, i) { return (d.show === 0 || d.show === 0.0) ? "gray" : self.color_compound(self.color_compound2(i)); })
         .each(function (d, i) { index.set(this, i); })
         .text(function (d) { return d.name ? d.name.substring(0, 18) : ""; })
         .on("click", function (event, d) {
@@ -4201,7 +4212,7 @@ plotit.prototype.dolegend = function () {
         .attr('stroke-width', 2)
         .attr('fill', 'none')
         .attr("d", function (d, i) { return activeShapes[i % activeShapes.length]; })
-        .attr('stroke', function (d, i) { return self.color_compound(self.color_compound2(i)); })
+        .attr('stroke', function (d, i) { return (d.show === 0 || d.show === 0.0) ? "gray" : self.color_compound(self.color_compound2(i)); })
         .attr("transform", function (d, i) { return "translate(" + ((i % n_perline) * 200 + 10) + "," + (35 + 20 * Math.round(i / n_perline - 0.5)) + ")"; });
 
     var len = 60 + 20 * Math.round((this.compounds ? this.compounds.length : 0) / n_perline - 0.5);
@@ -4219,15 +4230,20 @@ plotit.prototype.legendall = function (show) {
 
     let vis = this.$vis || this.vis;
     if (vis) {
-        vis.selectAll(".compound").style("opacity", function (d) { return d.show; });
+        vis.selectAll(".compound")
+            .style("opacity", function (d) { return (d.show === 1 || d.show === 1.0) ? 1.0 : 0.0; })
+            .style("display", function (d) { return (d.show === 1 || d.show === 1.0) ? "inline" : "none"; });
     }
 
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
     if (this.legend) {
         this.legend.selectAll(".legend").style("fill", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
         this.legend.selectAll(".legend2").style("stroke", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
     }
 };
@@ -4236,17 +4252,24 @@ plotit.prototype.show_one = function (index) {
     var obj = this;
     let vis = this.$vis || this.vis;
     if (vis) {
-        vis.selectAll(".compound").style("opacity", function (d, i) {
-            return (d.show === 1.0) ? 1.0 : 0.0;
-        });
+        vis.selectAll(".compound")
+            .style("opacity", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? 1.0 : 0.0;
+            })
+            .style("display", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? "inline" : "none";
+            });
     }
 
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
     if (this.legend) {
         this.legend.selectAll(".legend").style("fill", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
         this.legend.selectAll(".legend2").style("stroke", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
     }
 };
@@ -4254,21 +4277,28 @@ plotit.prototype.show_one = function (index) {
 plotit.prototype.legendClick = function (index) {
     var obj = this;
     if (!this.compounds || !this.compounds[index]) return;
-    this.compounds[index].show = 1 - this.compounds[index].show;
+    this.compounds[index].show = 1 - (this.compounds[index].show || 0);
 
     let vis = this.$vis || this.vis;
     if (vis) {
-        vis.selectAll(".compound").style("opacity", function (d, i) {
-            return (d.show === 1.0) ? 1.0 : 0.0;
-        });
+        vis.selectAll(".compound")
+            .style("opacity", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? 1.0 : 0.0;
+            })
+            .style("display", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? "inline" : "none";
+            });
     }
 
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
     if (this.legend) {
         this.legend.selectAll(".legend").style("fill", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
         this.legend.selectAll(".legend2").style("stroke", function (d, i) {
-            return (d.show === 1.0) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
         });
     }
 };
