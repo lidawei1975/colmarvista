@@ -178,7 +178,23 @@ class webgl_contour_plot {
             return;
         }
 
-        this.spectral_information = spectral_information;
+        if (spectral_information && !Array.isArray(spectral_information) && typeof spectral_information === 'object') {
+            this.spectral_information = [spectral_information];
+        } else {
+            this.spectral_information = spectral_information;
+        }
+
+        if (Array.isArray(this.spectral_information) && this.spectral_information.length > 0) {
+            let s0 = this.spectral_information[0];
+            if (s0) {
+                if (s0.x_ppm_start !== undefined) this.x_ppm_start = s0.x_ppm_start;
+                if (s0.x_ppm_step !== undefined) this.x_ppm_step = s0.x_ppm_step;
+                if (s0.y_ppm_start !== undefined) this.y_ppm_start = s0.y_ppm_start;
+                if (s0.y_ppm_step !== undefined) this.y_ppm_step = s0.y_ppm_step;
+                if (s0.n_direct !== undefined) this.n_direct = s0.n_direct;
+                if (s0.n_indirect !== undefined) this.n_indirect = s0.n_indirect;
+            }
+        }
 
         this.colors = colors;
         this.polygon_length = polygon_length;
@@ -203,6 +219,10 @@ class webgl_contour_plot {
      */
     drawScene(flag = 0, flag_glass = false, center = [], mag_scale = 10.0, mag_size = 0.2) {
         if (!this.gl) return;
+
+        if (typeof webglUtils !== 'undefined' && webglUtils.resizeCanvasToDisplaySize) {
+            webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+        }
 
         this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
 
@@ -232,8 +252,11 @@ class webgl_contour_plot {
          */
         for (var nn = 0; nn < number_of_spectra; nn++) {
             let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
-            if (!this.spectral_information || !this.spectral_information[n]) continue;
-            let sInfo = this.spectral_information[n];
+            if (this.visible && this.visible[n] === 0) continue;
+            let sInfo = Array.isArray(this.spectral_information)
+                ? (this.spectral_information[n] || this.spectral_information[0])
+                : this.spectral_information;
+            if (!sInfo) continue;
             let xStart = sInfo.x_ppm_start || 0;
             let xStep = sInfo.x_ppm_step || 1;
             let xRef = sInfo.x_ppm_ref || 0;
@@ -415,15 +438,23 @@ class webgl_contour_plot {
          */
         let number_of_spectra = this.levels_length.length;
         for (var nn = 0; nn < number_of_spectra; nn++) {
-            let n = this.spectral_order[nn];
-            /**
-             * setCamera first, using saved this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm
-             * and this.spec_information
-             */
-            let x = (x_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
-            let x2 = (x2_ppm_new - this.spectral_information[n].x_ppm_start - this.spectral_information[n].x_ppm_ref) / this.spectral_information[n].x_ppm_step;
-            let y = (y_ppm_new - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
-            let y2 = (y2_ppm_new - this.spectral_information[n].y_ppm_start - this.spectral_information[n].y_ppm_ref) / this.spectral_information[n].y_ppm_step;
+            let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
+            if (this.visible && this.visible[n] === 0) continue;
+            let sInfo = Array.isArray(this.spectral_information)
+                ? (this.spectral_information[n] || this.spectral_information[0])
+                : this.spectral_information;
+            if (!sInfo) continue;
+            let xStart = sInfo.x_ppm_start || 0;
+            let xStep = sInfo.x_ppm_step || 1;
+            let xRef = sInfo.x_ppm_ref || 0;
+            let yStart = sInfo.y_ppm_start || 0;
+            let yStep = sInfo.y_ppm_step || 1;
+            let yRef = sInfo.y_ppm_ref || 0;
+
+            let x = (x_ppm_new - xStart - xRef) / xStep;
+            let x2 = (x2_ppm_new - xStart - xRef) / xStep;
+            let y = (y_ppm_new - yStart - yRef) / yStep;
+            let y2 = (y2_ppm_new - yStart - yRef) / yStep;
             this.setCamera(x, x2, y, y2);
 
             /**
@@ -1144,11 +1175,13 @@ class webgl_contour_plot {
             y = tmp;
         }
 
+        let w = (this.gl && this.gl.canvas && this.gl.canvas.width > 0) ? this.gl.canvas.width : (this.canvas ? this.canvas.clientWidth : 1200);
+        let h = (this.gl && this.gl.canvas && this.gl.canvas.height > 0) ? this.gl.canvas.height : (this.canvas ? this.canvas.clientHeight : 800);
         this.camera = {
             x: x,
             y: y,
-            zoom_x: this.canvas.clientWidth / (x2 - x),
-            zoom_y: this.canvas.clientHeight / (y2 - y)
+            zoom_x: w / (x2 - x),
+            zoom_y: h / (y2 - y)
         };
 
     };

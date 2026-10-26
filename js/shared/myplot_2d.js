@@ -1749,6 +1749,20 @@ plotit.prototype.redraw_contour = function () {
         this.contour_plot.spectral_order = this.spectral_order;
     }
 
+    /**
+     * For SPIN multi-spectral overlays, only spectral_type hsqc, tocsy, hsqcrecon, and simulated are visible
+     */
+    if (this.spectral_type && Array.isArray(this.spectral_type)) {
+        this.contour_plot.visible = new Array(this.spectral_type.length).fill(0);
+        for (let i = 0; i < this.spectral_type.length; i++) {
+            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy' || this.spectral_type[i] === 'hsqcrecon' || this.spectral_type[i] === 'simulated') {
+                this.contour_plot.visible[i] = 1;
+            } else {
+                this.contour_plot.visible[i] = 0;
+            }
+        }
+    }
+
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
 }
