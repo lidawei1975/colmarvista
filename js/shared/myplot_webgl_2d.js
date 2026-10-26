@@ -125,8 +125,11 @@ class webgl_contour_plot {
         let camera = { x: 0, y: 0, zoom_x: 1, zoom_y: 1 };
         let view = { left: 0, right: 1, bottom: 0, top: 1 };
         this.camera_stack = [camera];
+        this.camera_ppm_stack = [];
         this.view_stack = [view];
         this.spectra = null;
+        this.x_ppm_ref = 0;
+        this.y_ppm_ref = 0;
     };
 
     /**
@@ -158,17 +161,31 @@ class webgl_contour_plot {
             this.colors_negative = levels_length_n;
             this.contour_lbs_negative = colors_n;
 
-            if (!this.spectral_information || Object.keys(this.spectral_information).length === 0) {
+            if (!this.spectral_information || (Array.isArray(this.spectral_information) && this.spectral_information.length === 0) || Object.keys(this.spectral_information).length === 0) {
                 this.spectral_information = [{
                     x_ppm_start: this.x_ppm_start || 0,
                     x_ppm_step: this.x_ppm_step || 1,
                     y_ppm_start: this.y_ppm_start || 0,
                     y_ppm_step: this.y_ppm_step || 1,
-                    x_ppm_ref: 0,
-                    y_ppm_ref: 0,
+                    x_ppm_ref: this.x_ppm_ref || 0,
+                    y_ppm_ref: this.y_ppm_ref || 0,
                     n_direct: this.n_direct || 1024,
                     n_indirect: this.n_indirect || 1024
                 }];
+            } else if (Array.isArray(this.spectral_information) && this.spectral_information[0]) {
+                if (this.spectral_information[0].x_ppm_ref === undefined && this.x_ppm_ref !== undefined) {
+                    this.spectral_information[0].x_ppm_ref = this.x_ppm_ref;
+                }
+                if (this.spectral_information[0].y_ppm_ref === undefined && this.y_ppm_ref !== undefined) {
+                    this.spectral_information[0].y_ppm_ref = this.y_ppm_ref;
+                }
+            } else if (typeof this.spectral_information === 'object') {
+                if (this.spectral_information.x_ppm_ref === undefined && this.x_ppm_ref !== undefined) {
+                    this.spectral_information.x_ppm_ref = this.x_ppm_ref;
+                }
+                if (this.spectral_information.y_ppm_ref === undefined && this.y_ppm_ref !== undefined) {
+                    this.spectral_information.y_ppm_ref = this.y_ppm_ref;
+                }
             }
             if (!this.spectral_order || this.spectral_order.length === 0) {
                 this.spectral_order = [0];
@@ -180,13 +197,23 @@ class webgl_contour_plot {
 
         let oldInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
         if (spectral_information && !Array.isArray(spectral_information) && typeof spectral_information === 'object') {
-            if (spectral_information.x_ppm_ref === undefined && oldInfo && oldInfo.x_ppm_ref !== undefined) {
-                spectral_information.x_ppm_ref = oldInfo.x_ppm_ref;
+            if (spectral_information.x_ppm_ref === undefined) {
+                spectral_information.x_ppm_ref = (oldInfo && oldInfo.x_ppm_ref !== undefined) ? oldInfo.x_ppm_ref : (this.x_ppm_ref || 0);
             }
-            if (spectral_information.y_ppm_ref === undefined && oldInfo && oldInfo.y_ppm_ref !== undefined) {
-                spectral_information.y_ppm_ref = oldInfo.y_ppm_ref;
+            if (spectral_information.y_ppm_ref === undefined) {
+                spectral_information.y_ppm_ref = (oldInfo && oldInfo.y_ppm_ref !== undefined) ? oldInfo.y_ppm_ref : (this.y_ppm_ref || 0);
             }
             this.spectral_information = [spectral_information];
+        } else if (Array.isArray(spectral_information)) {
+            this.spectral_information = spectral_information;
+            if (this.spectral_information.length > 0 && this.spectral_information[0]) {
+                if (this.spectral_information[0].x_ppm_ref === undefined) {
+                    this.spectral_information[0].x_ppm_ref = (oldInfo && oldInfo.x_ppm_ref !== undefined) ? oldInfo.x_ppm_ref : (this.x_ppm_ref || 0);
+                }
+                if (this.spectral_information[0].y_ppm_ref === undefined) {
+                    this.spectral_information[0].y_ppm_ref = (oldInfo && oldInfo.y_ppm_ref !== undefined) ? oldInfo.y_ppm_ref : (this.y_ppm_ref || 0);
+                }
+            }
         } else {
             this.spectral_information = spectral_information;
         }
@@ -200,6 +227,8 @@ class webgl_contour_plot {
                 if (s0.y_ppm_step !== undefined) this.y_ppm_step = s0.y_ppm_step;
                 if (s0.n_direct !== undefined) this.n_direct = s0.n_direct;
                 if (s0.n_indirect !== undefined) this.n_indirect = s0.n_indirect;
+                if (s0.x_ppm_ref !== undefined) this.x_ppm_ref = s0.x_ppm_ref;
+                if (s0.y_ppm_ref !== undefined) this.y_ppm_ref = s0.y_ppm_ref;
             }
         }
 
@@ -221,6 +250,47 @@ class webgl_contour_plot {
 
 
     /**
+     * Helper to draw positive and negative contour lines for a given spectrum
+     */
+    _draw_spectrum_contours(n) {
+        let _spectra = this.get_spectra();
+        let is_spec_visible = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
+        if (!is_spec_visible) return;
+
+        if (this.levels_length && this.levels_length[n]) {
+            let start_lb = (this.contour_lbs && this.contour_lbs[n] !== undefined) ? this.contour_lbs[n] : 0;
+            for (var m = start_lb; m < this.levels_length[n].length; m++) {
+                let i_start = (m > 0) ? this.levels_length[n][m - 1] : 0;
+                let i_stop = this.levels_length[n][m];
+
+                // Draw drop shadow under 1st visible contour if enabled
+                if (this._should_draw_contour_shadow(n, m, false)) {
+                    this._draw_contour_level_shadow(n, i_start, i_stop, false);
+                }
+
+                let level_color = this._contour_level_color(n, m);
+                this._draw_contour_segments(n, i_start, i_stop, level_color, false);
+            }
+        }
+
+        if (this.levels_length_negative && this.levels_length_negative[n] && n < this.contour_lbs_negative.length) {
+            let start_lb_neg = (this.contour_lbs_negative && this.contour_lbs_negative[n] !== undefined) ? this.contour_lbs_negative[n] : 0;
+            for (var m = start_lb_neg; m < this.levels_length_negative[n].length; m++) {
+                let i_start = (m > 0) ? this.levels_length_negative[n][m - 1] : 0;
+                let i_stop = this.levels_length_negative[n][m];
+
+                // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
+                if (this._should_draw_contour_shadow(n, m, true)) {
+                    this._draw_contour_level_shadow(n, i_start, i_stop, true);
+                }
+
+                let color_neg = (this.colors_negative && this.colors_negative[n]) ? this.colors_negative[n] : [0.8, 0.2, 0.2, 1.0];
+                this._draw_contour_segments(n, i_start, i_stop, color_neg, true);
+            }
+        }
+    }
+
+    /**
      * Draw the scene.
      * @param {number} flag - 0: draw the contour plot, 1: draw and return the image data
      */
@@ -229,6 +299,74 @@ class webgl_contour_plot {
 
         if (typeof webglUtils !== 'undefined' && webglUtils.resizeCanvasToDisplaySize) {
             webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+        }
+
+        let is_multi_view = Boolean(this.view_stack && this.view_stack.length > 0 &&
+            this.camera_ppm_stack && this.camera_ppm_stack.length === this.view_stack.length &&
+            (this.view_stack.length > 1 || (this.view_stack[0] && (this.view_stack[0].left !== 0 || this.view_stack[0].right !== 1 || this.view_stack[0].bottom !== 0 || this.view_stack[0].top !== 1))));
+
+        let number_of_spectra = (this.levels_length && Array.isArray(this.levels_length)) ? this.levels_length.length : 0;
+
+        if (is_multi_view) {
+            this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.clearColor(1, 1, 1, 1);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+            if (number_of_spectra > 0) {
+                this.gl.enable(this.gl.SCISSOR_TEST);
+                for (let v = 0; v < this.view_stack.length; v++) {
+                    let view = this.view_stack[v];
+                    let camPpm = this.camera_ppm_stack[v];
+                    if (!view || !camPpm) continue;
+
+                    let vx = view.left * this.gl.canvas.width;
+                    let vy = view.bottom * this.gl.canvas.height;
+                    let vw = (view.right - view.left) * this.gl.canvas.width;
+                    let vh = (view.top - view.bottom) * this.gl.canvas.height;
+
+                    this.gl.viewport(vx, vy, vw, vh);
+                    this.gl.scissor(vx, vy, vw, vh);
+
+                    for (var nn = 0; nn < number_of_spectra; nn++) {
+                        let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
+                        if (this.visible && !this.visible[n]) continue;
+                        let sInfo = Array.isArray(this.spectral_information)
+                            ? (this.spectral_information[n] || this.spectral_information[0])
+                            : this.spectral_information;
+                        if (!sInfo) continue;
+                        let xStart = sInfo.x_ppm_start || 0;
+                        let xStep = sInfo.x_ppm_step || 1;
+                        let xRef = sInfo.x_ppm_ref || 0;
+                        let yStart = sInfo.y_ppm_start || 0;
+                        let yStep = sInfo.y_ppm_step || 1;
+                        let yRef = sInfo.y_ppm_ref || 0;
+
+                        let x = (camPpm.x_ppm - xStart - xRef) / xStep;
+                        let x2 = (camPpm.x2_ppm - xStart - xRef) / xStep;
+                        let y = (camPpm.y_ppm - yStart - yRef) / yStep;
+                        let y2 = (camPpm.y2_ppm - yStart - yRef) / yStep;
+                        this.setCamera(x, x2, y, y2);
+
+                        const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+                        const zoomScale_x = 1 / this.camera.zoom_x;
+                        const zoomScale_y = 1 / this.camera.zoom_y;
+
+                        let cameraMat = m3.identity();
+                        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+                        cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+                        let viewMat = m3.inverse(cameraMat);
+                        this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+                        this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+                        this._draw_spectrum_contours(n);
+                    }
+                }
+                this.gl.disable(this.gl.SCISSOR_TEST);
+            }
+
+            if (flag == 1) return this.gl.canvas.toDataURL();
+            return;
         }
 
         this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
@@ -247,7 +385,6 @@ class webgl_contour_plot {
             this._draw_hillshading(this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm);
         }
 
-        let number_of_spectra = (this.levels_length && Array.isArray(this.levels_length)) ? this.levels_length.length : 0;
         if (number_of_spectra === 0) {
             if (flag == 1) return this.gl.canvas.toDataURL();
             return;
@@ -295,52 +432,7 @@ class webgl_contour_plot {
             // Set the matrix. This matrix changes when zooming and panning
             this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
 
-
-            /**
-             * Draw the positive contour plot, one level at a time
-             */
-            let _spectra = this.get_spectra();
-            let is_spec_visible = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
-            if (is_spec_visible) {
-                for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
-                    let i_start = 0;
-                    if (m > 0) {
-                        i_start = this.levels_length[n][m - 1];
-                    }
-                    let i_stop = this.levels_length[n][m];
-
-                    // Draw drop shadow under 1st visible contour if enabled
-                    if (this._should_draw_contour_shadow(n, m, false)) {
-                        this._draw_contour_level_shadow(n, i_start, i_stop, false);
-                    }
-
-                    let level_color = this._contour_level_color(n, m);
-                    this._draw_contour_segments(n, i_start, i_stop, level_color, false);
-                }
-            }
-
-            /**
-             * Draw the negative contour plot, one level at a time only if negative contour is available
-             */
-            if (n >= this.contour_lbs_negative.length) {
-                continue;
-            }
-            if (is_spec_visible) {
-                for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
-                    let i_start = 0;
-                    if (m > 0) {
-                        i_start = this.levels_length_negative[n][m - 1];
-                    }
-                    let i_stop = this.levels_length_negative[n][m];
-
-                    // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
-                    if (this._should_draw_contour_shadow(n, m, true)) {
-                        this._draw_contour_level_shadow(n, i_start, i_stop, true);
-                    }
-
-                    this._draw_contour_segments(n, i_start, i_stop, this.colors_negative[n], true);
-                }
-            }
+            this._draw_spectrum_contours(n);
         }
 
         if (flag_glass == true) {
@@ -483,51 +575,7 @@ class webgl_contour_plot {
             this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
 
 
-            /**
-             * Draw the positive contour plot, one level at a time
-             */
-            let _spectra = this.get_spectra();
-            let is_spec_visible = (!_spectra[n] || _spectra[n].visible !== false);
-            if (is_spec_visible) {
-                for (var m = this.contour_lbs[n]; m < this.levels_length[n].length; m++) {
-                    let i_start = 0;
-                    if (m > 0) {
-                        i_start = this.levels_length[n][m - 1];
-                    }
-                    let i_stop = this.levels_length[n][m];
-
-                    // Draw drop shadow under 1st visible contour if enabled
-                    if (this._should_draw_contour_shadow(n, m, false)) {
-                        this._draw_contour_level_shadow(n, i_start, i_stop, false);
-                    }
-
-                    let level_color = this._contour_level_color(n, m);
-                    this._draw_contour_segments(n, i_start, i_stop, level_color, false);
-                }
-            }
-
-            /**
-             * Draw the negative contour plot, one level at a time only if negative contour is available
-             */
-            if (n >= this.contour_lbs_negative.length) {
-                continue;
-            }
-            if (is_spec_visible) {
-                for (var m = this.contour_lbs_negative[n]; m < this.levels_length_negative[n].length; m++) {
-                    let i_start = 0;
-                    if (m > 0) {
-                        i_start = this.levels_length_negative[n][m - 1];
-                    }
-                    let i_stop = this.levels_length_negative[n][m];
-
-                    // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
-                    if (this._should_draw_contour_shadow(n, m, true)) {
-                        this._draw_contour_level_shadow(n, i_start, i_stop, true);
-                    }
-
-                    this._draw_contour_segments(n, i_start, i_stop, this.colors_negative[n], true);
-                }
-            }
+            this._draw_spectrum_contours(n);
         }
         /**
          * Disable the scissor test.
@@ -1190,7 +1238,8 @@ class webgl_contour_plot {
             zoom_x: w / (x2 - x),
             zoom_y: h / (y2 - y)
         };
-
+        if (!this.camera_stack) this.camera_stack = [];
+        this.camera_stack.push(this.camera);
     };
 
 
@@ -1203,6 +1252,8 @@ class webgl_contour_plot {
         this.x2_ppm = x2_ppm;
         this.y_ppm = y_ppm;
         this.y2_ppm = y2_ppm;
+        if (!this.camera_ppm_stack) this.camera_ppm_stack = [];
+        this.camera_ppm_stack.push({ x_ppm: x_ppm, x2_ppm: x2_ppm, y_ppm: y_ppm, y2_ppm: y2_ppm });
     }
 
     /**
@@ -1211,6 +1262,8 @@ class webgl_contour_plot {
     update_ppm(ref1, ref2) {
         this.x_ppm_start += ref1;
         this.y_ppm_start += ref2;
+        this.x_ppm_ref = (this.x_ppm_ref || 0) + ref1;
+        this.y_ppm_ref = (this.y_ppm_ref || 0) + ref2;
         if (this.spectral_information) {
             if (Array.isArray(this.spectral_information)) {
                 for (let i = 0; i < this.spectral_information.length; i++) {
@@ -1454,21 +1507,23 @@ class webgl_contour_plot {
     // SPIN Compatibility Helpers
     // =========================================================================
 
-    set_spectrum_information(x_ppm_start, x_ppm_step, y_ppm_start, y_ppm_step, n_direct, n_indirect) {
+    set_spectrum_information(x_ppm_start, x_ppm_step, y_ppm_start, y_ppm_step, n_direct, n_indirect, x_ppm_ref = 0, y_ppm_ref = 0) {
         this.x_ppm_start = x_ppm_start;
         this.x_ppm_step = x_ppm_step;
         this.y_ppm_start = y_ppm_start;
         this.y_ppm_step = y_ppm_step;
         this.n_direct = n_direct;
         this.n_indirect = n_indirect;
+        this.x_ppm_ref = x_ppm_ref;
+        this.y_ppm_ref = y_ppm_ref;
 
         this.spectral_information = [{
             x_ppm_start: x_ppm_start,
             x_ppm_step: x_ppm_step,
             y_ppm_start: y_ppm_start,
             y_ppm_step: y_ppm_step,
-            x_ppm_ref: 0,
-            y_ppm_ref: 0,
+            x_ppm_ref: x_ppm_ref,
+            y_ppm_ref: y_ppm_ref,
             n_direct: n_direct,
             n_indirect: n_indirect
         }];
@@ -1508,6 +1563,7 @@ class webgl_contour_plot {
 
     clearCamera() {
         this.camera_stack = [];
+        this.camera_ppm_stack = [];
     }
 
     clearView() {
