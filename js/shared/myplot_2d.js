@@ -39,6 +39,12 @@ function plotit(input) {
 
     this.xscale = [input.x_ppm_start, input.x_ppm_start + input.x_ppm_step * input.n_direct];
     this.yscale = [input.y_ppm_start, input.y_ppm_start + input.y_ppm_step * input.n_indirect];
+    if (Array.isArray(this.xscale) && !isNaN(this.xscale[0]) && !isNaN(this.xscale[1])) {
+        this.init_xscale = [this.xscale[0], this.xscale[1]];
+    }
+    if (Array.isArray(this.yscale) && !isNaN(this.yscale[0]) && !isNaN(this.yscale[1])) {
+        this.init_yscale = [this.yscale[0], this.yscale[1]];
+    }
 
 
 
@@ -619,6 +625,23 @@ plotit.prototype.brushend = function (e) {
     /**
      * Update webgl contour. No change of view is needed here
      */
+    if (!this.init_xscale || isNaN(this.init_xscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.x_ppm_start !== undefined && sInfo.x_ppm_step !== undefined && sInfo.n_direct) {
+            let xRef = sInfo.x_ppm_ref || 0;
+            let x0 = sInfo.x_ppm_start + xRef;
+            this.init_xscale = [x0, x0 + sInfo.x_ppm_step * sInfo.n_direct];
+        }
+    }
+    if (!this.init_yscale || isNaN(this.init_yscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.y_ppm_start !== undefined && sInfo.y_ppm_step !== undefined && sInfo.n_indirect) {
+            let yRef = sInfo.y_ppm_ref || 0;
+            let y0 = sInfo.y_ppm_start + yRef;
+            this.init_yscale = [y0, y0 + sInfo.y_ppm_step * sInfo.n_indirect];
+        }
+    }
+
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
 
@@ -713,21 +736,27 @@ plotit.prototype.send_scales_to_other_window = function () {
  * @param {any} y_scale - Y scale
  */
 plotit.prototype.zoom_to = function (x_scale, y_scale) {
-    this.xscales.push(this.xscale);
-    this.yscales.push(this.yscale);
-    this.xscale = x_scale;
-    this.yscale = y_scale;
-    this.xRange.domain(this.xscale);
-    this.yRange.domain(this.yscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (!Array.isArray(x_scale) || x_scale.length < 2 || isNaN(x_scale[0]) || isNaN(x_scale[1]) ||
+        !Array.isArray(y_scale) || y_scale.length < 2 || isNaN(y_scale[0]) || isNaN(y_scale[1])) return;
+
+    if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+        this.xscales.push([this.xscale[0], this.xscale[1]]);
+        this.yscales.push([this.yscale[0], this.yscale[1]]);
+    }
+    this.xscale = [x_scale[0], x_scale[1]];
+    this.yscale = [y_scale[0], y_scale[1]];
+    if (this.xRange) this.xRange.domain(this.xscale);
+    if (this.yRange) this.yRange.domain(this.yscale);
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
     if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
     if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
-    /**
-     * No need to send scales to other window, because this function is only called when receive a message from other window
-     */
-}
+};
 
 /**
  * Zooms X.
@@ -735,20 +764,22 @@ plotit.prototype.zoom_to = function (x_scale, y_scale) {
  * @param {any} x_ppm - X PPM
  */
 plotit.prototype.zoom_x = function (x_ppm) {
-
     let self = this;
-    this.xscale = x_ppm;
-    /**
-     * Save the current time. Update stack of xscales and yscales only when the time difference is greater than 1s
-     */
+    if (!Array.isArray(x_ppm) || x_ppm.length < 2 || isNaN(x_ppm[0]) || isNaN(x_ppm[1])) return;
+    this.xscale = [x_ppm[0], x_ppm[1]];
     if (Date.now() - self.lastCallTime_zoom_x > 1000) {
-        this.xscales.push(this.xscale);
-        this.yscales.push(this.yscale);
+        if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+            this.xscales.push([this.xscale[0], this.xscale[1]]);
+            this.yscales.push([this.yscale[0], this.yscale[1]]);
+        }
         self.lastCallTime_zoom_x = Date.now();
     }
-    this.xRange.domain(this.xscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (this.xRange) this.xRange.domain(this.xscale);
+    if (this.contour_plot) {
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
     this.send_scales_to_other_window();
 };
@@ -760,74 +791,143 @@ plotit.prototype.zoom_x = function (x_ppm) {
  */
 plotit.prototype.zoom_y = function (y_ppm) {
     let self = this;
-    this.yscale = y_ppm;
-    /**
-     * Save the current time. Update stack of xscales and yscales only when the time difference is greater than 1s
-     */
+    if (!Array.isArray(y_ppm) || y_ppm.length < 2 || isNaN(y_ppm[0]) || isNaN(y_ppm[1])) return;
+    this.yscale = [y_ppm[0], y_ppm[1]];
     if (Date.now() - self.lastCallTime_zoom_y > 1000) {
-        this.xscales.push(this.xscale);
-        this.yscales.push(this.yscale);
+        if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+            this.xscales.push([this.xscale[0], this.xscale[1]]);
+            this.yscales.push([this.yscale[0], this.yscale[1]]);
+        }
         self.lastCallTime_zoom_y = Date.now();
     }
-    this.yRange.domain(this.yscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (this.yRange) this.yRange.domain(this.yscale);
+    if (this.contour_plot) {
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
     this.send_scales_to_other_window();
 };
 
-
-
 /**
- * Pops zoom.
+ * Pops zoom (Zoom back).
  */
 plotit.prototype.popzoom = function () {
+    while (this.xscales.length > 0) {
+        let prev_x = this.xscales.pop();
+        let prev_y = this.yscales.pop();
+        if (Array.isArray(prev_x) && prev_x.length === 2 && !isNaN(prev_x[0]) && !isNaN(prev_x[1]) &&
+            Array.isArray(prev_y) && prev_y.length === 2 && !isNaN(prev_y[0]) && !isNaN(prev_y[1])) {
+            this.xscale = [prev_x[0], prev_x[1]];
+            this.yscale = [prev_y[0], prev_y[1]];
 
-    if (this.xscales.length > 0) {
-        this.xscale = this.xscales.pop();
-        this.yscale = this.yscales.pop();
-        this.xRange.domain(this.xscale);
-        this.yRange.domain(this.yscale);
+            if (this.xRange) this.xRange.domain(this.xscale);
+            if (this.yRange) this.yRange.domain(this.yscale);
 
-        /**
-        * Update webgl contour. No need to update view
-        */
-        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-        this.contour_plot.drawScene();
+            if (this.contour_plot) {
+                if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+                this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+                this.contour_plot.drawScene();
+            }
+
+            this.transition_data();
+            this.reset_axis();
+            if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+            if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
+            this.send_scales_to_other_window();
+            this.sync_3d_views();
+            return;
+        }
+    }
+    // If zoom stack is exhausted or empty, reset to initial full view
+    this.resetzoom();
+};
+
+/**
+ * Resets zoom (Reset all zoom).
+ * Can be called with explicit ranges [x1, x2], [y1, y2], or with 0 arguments.
+ *
+ * @param {Array<number>} [x] - Optional target X range [x1, x2]
+ * @param {Array<number>} [y] - Optional target Y range [y1, y2]
+ */
+plotit.prototype.resetzoom = function (x, y) {
+    let target_x = (Array.isArray(x) && x.length === 2 && !isNaN(x[0]) && !isNaN(x[1])) ? [x[0], x[1]] : null;
+    let target_y = (Array.isArray(y) && y.length === 2 && !isNaN(y[0]) && !isNaN(y[1])) ? [y[0], y[1]] : null;
+
+    if (!target_x) {
+        if (Array.isArray(this.init_xscale) && this.init_xscale.length === 2 && !isNaN(this.init_xscale[0])) {
+            target_x = [this.init_xscale[0], this.init_xscale[1]];
+        } else if (Array.isArray(this.xscales) && this.xscales.length > 0 && Array.isArray(this.xscales[0])) {
+            target_x = [this.xscales[0][0], this.xscales[0][1]];
+        } else {
+            let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+            let xs = (sInfo && sInfo.x_ppm_start !== undefined) ? sInfo.x_ppm_start : this.x_ppm_start;
+            let xstep = (sInfo && sInfo.x_ppm_step !== undefined) ? sInfo.x_ppm_step : this.x_ppm_step;
+            let nd = (sInfo && sInfo.n_direct !== undefined) ? sInfo.n_direct : this.n_direct;
+            let xref = (sInfo && sInfo.x_ppm_ref !== undefined) ? sInfo.x_ppm_ref : (this.x_ppm_ref || 0);
+            if (xs !== undefined && xstep !== undefined && nd) {
+                target_x = [xs + xref, xs + xref + xstep * nd];
+            }
+        }
+    }
+
+    if (!target_y) {
+        if (Array.isArray(this.init_yscale) && this.init_yscale.length === 2 && !isNaN(this.init_yscale[0])) {
+            target_y = [this.init_yscale[0], this.init_yscale[1]];
+        } else if (Array.isArray(this.yscales) && this.yscales.length > 0 && Array.isArray(this.yscales[0])) {
+            target_y = [this.yscales[0][0], this.yscales[0][1]];
+        } else {
+            let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+            let ys = (sInfo && sInfo.y_ppm_start !== undefined) ? sInfo.y_ppm_start : this.y_ppm_start;
+            let ystep = (sInfo && sInfo.y_ppm_step !== undefined) ? sInfo.y_ppm_step : this.y_ppm_step;
+            let ni = (sInfo && sInfo.n_indirect !== undefined) ? sInfo.n_indirect : this.n_indirect;
+            let yref = (sInfo && sInfo.y_ppm_ref !== undefined) ? sInfo.y_ppm_ref : (this.y_ppm_ref || 0);
+            if (ys !== undefined && ystep !== undefined && ni) {
+                target_y = [ys + yref, ys + yref + ystep * ni];
+            }
+        }
+    }
+
+    this.xscales = [];
+    this.yscales = [];
+
+    if (target_x && target_y) {
+        this.xscale = [target_x[0], target_x[1]];
+        this.yscale = [target_y[0], target_y[1]];
+
+        if (this.xRange) this.xRange.domain(this.xscale);
+        if (this.yRange) this.yRange.domain(this.yscale);
+
+        if (this.contour_plot) {
+            if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+            this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+            this.contour_plot.drawScene();
+        }
+
+        this.transition_data();
         this.reset_axis();
         if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
         if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
         this.send_scales_to_other_window();
-
-        // Sync other plots
         this.sync_3d_views();
     }
 };
 
 /**
- * Resets zoom.
- *
- * @param {any} x - X
- * @param {any} y - Y
- */
-plotit.prototype.resetzoom = function (x, y) {
-    /**
-     * Clear the zoom stack
-     */
-    this.xscales = [];
-    this.yscales = [];
-    this.xscales.push(x);
-    this.yscales.push(y);
-    this.popzoom()
-};
-
-
-/**
- * Zooms out.
+ * Zooms out by 20%.
  */
 plotit.prototype.zoomout = function () {
-    this.xscales.push(this.xscale);
-    this.yscales.push(this.yscale);
+    if (!Array.isArray(this.xscale) || this.xscale.length < 2 || isNaN(this.xscale[0]) || isNaN(this.xscale[1]) ||
+        !Array.isArray(this.yscale) || this.yscale.length < 2 || isNaN(this.yscale[0]) || isNaN(this.yscale[1])) {
+        this.resetzoom();
+        return;
+    }
+
+    if (!Array.isArray(this.xscales)) this.xscales = [];
+    if (!Array.isArray(this.yscales)) this.yscales = [];
+    this.xscales.push([this.xscale[0], this.xscale[1]]);
+    this.yscales.push([this.yscale[0], this.yscale[1]]);
 
     var m1 = this.xscale[0];
     var m2 = this.xscale[1];
@@ -836,34 +936,34 @@ plotit.prototype.zoomout = function () {
     m2 = m2 - c;
     this.xscale = [m1, m2];
 
-    m1 = this.yscale[0];
-    m2 = this.yscale[1];
-    c = 0.1 * (m1 - m2);
-    m1 = m1 + c;
-    m2 = m2 - c;
-    this.yscale = [m1, m2];
+    var n1 = this.yscale[0];
+    var n2 = this.yscale[1];
+    var cy = 0.1 * (n1 - n2);
+    n1 = n1 + cy;
+    n2 = n2 - cy;
+    this.yscale = [n1, n2];
 
-    this.xRange.domain(this.xscale);
-    this.yRange.domain(this.yscale);
+    if (this.xRange) {
+        this.xRange.domain(this.xscale);
+        this.xscale = this.xRange.domain();
+    }
+    if (this.yRange) {
+        this.yRange.domain(this.yscale);
+        this.yscale = this.yRange.domain();
+    }
 
-    /**
-     * Because of nice. The domain may be changed. So we need to update xscale and yscale
-     */
-    this.xscale = this.xRange.domain();
-    this.yscale = this.yRange.domain();
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
 
-    /**
-     * Update webgl contour. No need to update view
-     */
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    this.transition_data();
     this.reset_axis();
-
     if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
     if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
     this.sync_3d_views();
-
 };
 
 
