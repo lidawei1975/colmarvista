@@ -60,7 +60,7 @@ onmessage = (e) => {
 
     let workerResult = {};
     process_spectrum_data(e.data.response_value, e.data.spectrum, workerResult);
-    postMessage(workerResult);
+    postMessage(workerResult, (workerResult.points && workerResult.points.buffer) ? [workerResult.points.buffer] : []);
 };
 
 function process_spectrum_data(response_value, spectrum, workerResult) {

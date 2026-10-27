@@ -87,6 +87,16 @@ onmessage = async function (e) {
 
     if (e.data.spectrum_data && e.data.smile_mode === 'nus_3d') {
         console.log('3D spectrum data received by Smile worker');
+        let nusPipeFn;
+        try {
+            nusPipeFn = await getNusPipe();
+        } catch (err) {
+            postMessage({
+                error: '3D SMILE init failed: ' + (err && err.message ? err.message : String(err))
+            });
+            return;
+        }
+
         postRuntimeDiagnostics('3d-before-fs-write', e.data.spectrum_data);
 
         safeUnlink('nuslist');
@@ -110,7 +120,6 @@ onmessage = async function (e) {
         postMessage({ stdout: 'Calling nusPipe function for 3D NUS reconstruction' });
         let retVal;
         try {
-            const nusPipeFn = await getNusPipe();
             postMessage({ stdout: '[smile-diag] 3d nuspipe typeof=' + typeof nusPipeFn });
             retVal = await nusPipeFn();
             postMessage({ stdout: '[smile-diag] 3d nuspipe finished with return code ' + retVal });
