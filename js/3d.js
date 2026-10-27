@@ -8645,7 +8645,7 @@ function handle_webass_smile_3d_message(e) {
     }
 
     if (e.data && e.data.spectrum_data && e.data.file_type === 'smile_3d') {
-        const smileBytes = e.data.spectrum_data instanceof Uint8Array
+        let smileBytes = e.data.spectrum_data instanceof Uint8Array
             ? e.data.spectrum_data
             : new Uint8Array(e.data.spectrum_data);
         append_3d_log('[main] Received smile.ft3 from SMILE worker, bytes=' + smileBytes.length);
