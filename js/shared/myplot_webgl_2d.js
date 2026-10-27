@@ -297,7 +297,9 @@ class webgl_contour_plot {
         if (!this.gl) return;
 
         if (typeof webglUtils !== 'undefined' && webglUtils.resizeCanvasToDisplaySize) {
-            webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+            if (this.gl.canvas.clientWidth > 0 && this.gl.canvas.clientHeight > 0) {
+                webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+            }
         }
 
         let is_multi_view = Boolean(this.view_stack && this.view_stack.length > 0 &&
