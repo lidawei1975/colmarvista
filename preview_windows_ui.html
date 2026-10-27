@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLMARvista 2D - Windows Style UI Prototype</title>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+    <style>
+        :root {
+            --win-bg: #f3f3f3;
+            --win-panel-bg: #ffffff;
+            --win-surface-alt: #f9f9f9;
+            --win-titlebar-bg: #e8ebf0;
+            --win-titlebar-active: #dce4ee;
+            --win-titlebar-text: #1a1a1a;
+            --win-border: #d0d7de;
+            --win-border-active: #0067c0;
+            --win-accent: #0067c0;
+            --win-accent-hover: #187cd4;
+            --win-taskbar-bg: rgba(243, 243, 243, 0.88);
+            --win-taskbar-btn: #ffffff;
+            --win-taskbar-btn-hover: #e5e5e5;
+            --win-taskbar-btn-active: #e0e8f5;
+            --win-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+            --win-font: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--win-font);
+            background: #d8e2ec;
+            background: radial-gradient(circle at 50% 30%, #eef4fb 0%, #d4e2f0 100%);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Ribbon / Command Bar */
+        #app-topbar {
+            height: 96px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--win-border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            z-index: 5000;
+        }
+
+        .titlebar-strip {
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            border-bottom: 1px solid #eaeaea;
+        }
+
+        .titlebar-strip .app-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            color: #222;
+        }
+
+        .titlebar-strip .app-brand img {
+            width: 18px;
+            height: 18px;
+        }
+
+        .layout-switch-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .layout-btn {
+            background: #f0f2f5;
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            padding: 2px 10px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #333;
+            transition: all 0.15s;
+        }
+
+        .layout-btn:hover {
+            background: #e1e7ef;
+            border-color: #0067c0;
+        }
+
+        .layout-btn.active {
+            background: #0067c0;
+            color: #fff;
+            border-color: #005a9e;
+        }
+
+        .ribbon-tabs {
+            height: 64px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 16px;
+            overflow-x: auto;
+        }
+
+        .ribbon-group {
+            display: flex;
+            flex-direction: column;
+            height: 52px;
+            border-right: 1px solid #e1e4e8;
+            padding-right: 12px;
+            justify-content: space-between;
+        }
+
+        .ribbon-tools {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .ribbon-label {
+            font-size: 9.5px;
+            color: #666;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .r-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            padding: 4px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            cursor: pointer;
+            font-size: 11px;
+            color: #24292f;
+            transition: all 0.15s;
+        }
+
+        .r-btn:hover {
+            background: #eef2f6;
+            border-color: #cbd5e1;
+        }
+
+        .r-btn span.icon {
+            font-size: 16px;
+        }
+
+        /* Desktop Workspace */
+        #desktop-workspace {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            height: calc(100vh - 96px - 40px);
+        }
+
+        /* Windows */
+        .win-window {
+            position: absolute;
+            background: var(--win-panel-bg);
+            border: 1px solid var(--win-border);
+            border-radius: 8px;
+            box-shadow: var(--win-shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 200px;
+            min-height: 120px;
+            z-index: 100;
+            transition: box-shadow 0.15s;
+        }
+
+        .win-window.win-active {
+            border-color: #79a8d2;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+            z-index: 200;
+        }
+
+        .win-titlebar {
+            height: 32px;
+            background: var(--win-titlebar-bg);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 8px 0 12px;
+            cursor: move;
+            border-bottom: 1px solid #d8dde4;
+            flex-shrink: 0;
+        }
+
+        .win-window.win-active .win-titlebar {
+            background: var(--win-titlebar-active);
+        }
+
+        .win-titlebar-text {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--win-titlebar-text);
+            pointer-events: none;
+        }
+
+        .win-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .win-btn {
+            width: 26px;
+            height: 22px;
+            background: transparent;
+            border: none;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 11px;
+            color: #444;
+            transition: all 0.15s;
+        }
+
+        .win-btn:hover {
+            background: rgba(0, 0, 0, 0.08);
+            color: #000;
+        }
+
+        .win-btn.win-btn-close:hover {
+            background: #e81123;
+            color: #ffffff;
+        }
+
+        .win-body {
+            flex: 1;
+            padding: 10px;
+            overflow: auto;
+            user-select: text;
+            background: #ffffff;
+        }
+
+        /* 2D Spectrum Specific Window */
+        #win-spectrum {
+            top: 10px;
+            left: 310px;
+            width: calc(100vw - 710px);
+            height: calc(100vh - 160px);
+        }
+
+        .mock-plot-container {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            grid-template-rows: 80px 1fr;
+            gap: 6px;
+            background: #fafafa;
+            border: 1px solid #e1e4e8;
+            border-radius: 4px;
+            padding: 6px;
+        }
+
+        .mock-x-slice {
+            grid-column: 2;
+            grid-row: 1;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .mock-y-slice {
+            grid-column: 1;
+            grid-row: 2;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #64748b;
+            writing-mode: vertical-lr;
+            transform: rotate(180deg);
+        }
+
+        .mock-2d-canvas {
+            grid-column: 2;
+            grid-row: 2;
+            background: #0f172a;
+            border: 1px solid #334155;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Decorative mock NMR contours */
+        .contour-oval {
+            position: absolute;
+            border-radius: 50%;
+            border: 1.5px solid #ef4444;
+            opacity: 0.85;
+            pointer-events: none;
+        }
+
+        .contour-oval.neg {
+            border-color: #3b82f6;
+        }
+
+        /* Docked Left: Spectra Layers */
+        #win-spectra {
+            top: 10px;
+            left: 10px;
+            width: 290px;
+            height: calc(100vh - 160px);
+        }
+
+        /* Docked Right: Peak Table */
+        #win-peaks {
+            top: 10px;
+            right: 10px;
+            width: 370px;
+            height: calc(100vh - 160px);
+        }
+
+        /* Floating Tool Windows */
+        #win-fid {
+            top: 80px;
+            left: 360px;
+            width: 480px;
+            height: 420px;
+            display: none;
+        }
+
+        #win-cest {
+            top: 120px;
+            right: 120px;
+            width: 520px;
+            height: 380px;
+            display: none;
+        }
+
+        #win-log {
+            bottom: 20px;
+            left: 330px;
+            width: 560px;
+            height: 180px;
+            display: none;
+        }
+
+        /* Table Styling */
+        table.win-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11.5px;
+        }
+
+        table.win-table th, table.win-table td {
+            border: 1px solid #e2e8f0;
+            padding: 4px 8px;
+            text-align: left;
+        }
+
+        table.win-table th {
+            background: #f1f5f9;
+            font-weight: 600;
+            color: #334155;
+            position: sticky;
+            top: 0;
+        }
+
+        table.win-table tr:hover td {
+            background: #e0f2fe;
+            cursor: pointer;
+        }
+
+        /* Taskbar (Bottom) */
+        #app-taskbar {
+            height: 40px;
+            background: var(--win-taskbar-bg);
+            backdrop-filter: blur(15px);
+            border-top: 1px solid var(--win-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            z-index: 5000;
+        }
+
+        .taskbar-apps {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tb-btn {
+            background: var(--win-taskbar-btn);
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            padding: 4px 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #333;
+        }
+
+        .tb-btn:hover {
+            background: var(--win-taskbar-btn-hover);
+        }
+
+        .tb-btn.active {
+            background: var(--win-taskbar-btn-active);
+            border-bottom: 2px solid #0067c0;
+            font-weight: 600;
+        }
+
+        .system-tray {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 11px;
+            color: #555;
+        }
+
+        .tray-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background: #e2fbe8;
+            color: #1e7e34;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Ribbon / Command Bar -->
+    <header id="app-topbar">
+        <div class="titlebar-strip">
+            <div class="app-brand">
+                <span>🧪</span>
+                <span><strong>COLMARvista 2D</strong> - Interactive Windows UI Preview</span>
+            </div>
+            <div class="layout-switch-bar">
+                <span style="font-size: 11px; color: #555;">Layout Presets:</span>
+                <button class="layout-btn active" onclick="applyPreset('default')">Standard 2D</button>
+                <button class="layout-btn" onclick="applyPreset('full')">Full Spectrum</button>
+                <button class="layout-btn" onclick="applyPreset('processing')">FID Studio</button>
+                <button class="layout-btn" onclick="resetAllPositions()">Reset Windows</button>
+            </div>
+        </div>
+
+        <div class="ribbon-tabs">
+            <div class="ribbon-group">
+                <div class="ribbon-tools">
+                    <button class="r-btn" onclick="alert('Session Saved')"><span class="icon">💾</span>Save</button>
+                    <button class="r-btn" onclick="toggleWin('win-fid')"><span class="icon">📥</span>Import FID</button>
+                    <button class="r-btn"><span class="icon">📂</span>Load FT2</button>
+                </div>
+                <div class="ribbon-label">File &amp; Session</div>
+            </div>
+
+            <div class="ribbon-group">
+                <div class="ribbon-tools">
+                    <button class="r-btn" onclick="toggleWin('win-fid')"><span class="icon">⚡</span>FID Process</button>
+                    <button class="r-btn"><span class="icon">🔄</span>Phase Corr</button>
+                    <button class="r-btn"><span class="icon">〰️</span>Baseline</button>
+                    <button class="r-btn"><span class="icon">↕️</span>Flip Indirect</button>
+                </div>
+                <div class="ribbon-label">Processing</div>
+            </div>
+
+            <div class="ribbon-group">
+                <div class="ribbon-tools">
+                    <button class="r-btn"><span class="icon">🔍</span>Zoom Reset</button>
+                    <button class="r-btn"><span class="icon">🔙</span>Zoom Back</button>
+                    <button class="r-btn"><span class="icon">🎨</span>Colormap</button>
+                    <button class="r-btn"><span class="icon">⛰️</span>Hillshading</button>
+                </div>
+                <div class="ribbon-label">View &amp; Display</div>
+            </div>
+
+            <div class="ribbon-group">
+                <div class="ribbon-tools">
+                    <button class="r-btn" onclick="toggleWin('win-peaks')"><span class="icon">📋</span>Peak Table</button>
+                    <button class="r-btn"><span class="icon">📍</span>Pick Peaks</button>
+                    <button class="r-btn"><span class="icon">🏷️</span>Transfer Ass.</button>
+                </div>
+                <div class="ribbon-label">Peaks &amp; Labels</div>
+            </div>
+
+            <div class="ribbon-group">
+                <div class="ribbon-tools">
+                    <button class="r-btn" onclick="toggleWin('win-cest')"><span class="icon">🔬</span>Pseudo-3D / CEST</button>
+                    <button class="r-btn" onclick="toggleWin('win-log')"><span class="icon">📝</span>Server Log</button>
+                </div>
+                <div class="ribbon-label">Analysis &amp; Tools</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Desktop Workspace -->
+    <main id="desktop-workspace">
+
+        <!-- Window: 2D Spectrum Viewer -->
+        <div class="win-window win-active" id="win-spectrum">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-spectrum')">
+                <div class="win-titlebar-text">
+                    <span>📊</span>
+                    <span>2D Spectrum Viewer (1H-15N HSQC)</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-spectrum')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-spectrum')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-spectrum')">✕</button>
+                </div>
+            </div>
+            <div class="win-body" style="padding: 6px;">
+                <div class="mock-plot-container">
+                    <div class="mock-x-slice">
+                        <span>1D Cross-Section (Direct: 1H ppm)</span>
+                    </div>
+                    <div class="mock-y-slice">
+                        <span>1D Slice (Indirect: 15N ppm)</span>
+                    </div>
+                    <div class="mock-2d-canvas" id="canvas-area">
+                        <!-- Simulated NMR Contours -->
+                        <div class="contour-oval" style="width: 60px; height: 35px; top: 30%; left: 40%;"></div>
+                        <div class="contour-oval" style="width: 40px; height: 25px; top: 32%; left: 41%;"></div>
+                        <div class="contour-oval" style="width: 50px; height: 30px; top: 60%; left: 25%;"></div>
+                        <div class="contour-oval" style="width: 30px; height: 18px; top: 62%; left: 26%;"></div>
+                        <div class="contour-oval neg" style="width: 45px; height: 26px; top: 45%; left: 70%;"></div>
+                        <span style="color: #64748b; font-size: 12px; pointer-events: none;">WebGL + D3 Dynamic 2D Contour Canvas</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Window: Spectra & Layers List -->
+        <div class="win-window" id="win-spectra">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-spectra')">
+                <div class="win-titlebar-text">
+                    <span>📑</span>
+                    <span>Spectra &amp; Layers (2)</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-spectra')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-spectra')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-spectra')">✕</button>
+                </div>
+            </div>
+            <div class="win-body">
+                <div style="margin-bottom: 12px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong>1. hsqc_wt.ft2</strong>
+                        <input type="checkbox" checked>
+                    </div>
+                    <div style="font-size: 11px; color: #555; margin-top: 4px;">
+                        Color: <input type="color" value="#ef4444" style="height: 18px; width: 30px;">
+                        Pos Contours: 1.4x
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 12px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong>2. hsqc_mutant.ft2</strong>
+                        <input type="checkbox" checked>
+                    </div>
+                    <div style="font-size: 11px; color: #555; margin-top: 4px;">
+                        Color: <input type="color" value="#3b82f6" style="height: 18px; width: 30px;">
+                        Pos Contours: 1.4x
+                    </div>
+                </div>
+
+                <button style="width: 100%; padding: 6px; font-size: 11px; border: 1px dashed #94a3b8; background: #f1f5f9; border-radius: 4px; cursor: pointer;">+ Overlay Spectrum</button>
+            </div>
+        </div>
+
+        <!-- Window: Peak Table & Search -->
+        <div class="win-window" id="win-peaks">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-peaks')">
+                <div class="win-titlebar-text">
+                    <span>📋</span>
+                    <span>Peak Table (4 peaks picked)</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-peaks')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-peaks')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-peaks')">✕</button>
+                </div>
+            </div>
+            <div class="win-body">
+                <div style="margin-bottom: 8px; display: flex; gap: 4px;">
+                    <input type="text" placeholder="Search residue / ppm..." style="flex: 1; padding: 3px 6px; font-size: 11px; border: 1px solid #cbd5e1; border-radius: 3px;">
+                    <button style="padding: 2px 8px; font-size: 11px;">Search</button>
+                </div>
+                <table class="win-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Assign</th>
+                            <th>w1 (ppm)</th>
+                            <th>w2 (ppm)</th>
+                            <th>Vol</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1</td><td><strong>G24NH</strong></td><td>118.42</td><td>8.32</td><td>1.4e6</td></tr>
+                        <tr><td>2</td><td><strong>A25NH</strong></td><td>121.15</td><td>7.94</td><td>2.1e6</td></tr>
+                        <tr><td>3</td><td><strong>K26NH</strong></td><td>115.80</td><td>8.51</td><td>1.8e6</td></tr>
+                        <tr><td>4</td><td><strong>L27NH</strong></td><td>123.60</td><td>8.12</td><td>1.2e6</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Window: Bruker FID Processing -->
+        <div class="win-window" id="win-fid">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-fid')">
+                <div class="win-titlebar-text">
+                    <span>⚡</span>
+                    <span>Bruker FID Processing Studio</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-fid')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-fid')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-fid')">✕</button>
+                </div>
+            </div>
+            <div class="win-body" style="font-size: 12px; line-height: 1.6;">
+                <p><strong>Bruker Time-Domain Input:</strong></p>
+                <div style="border: 2px dashed #94a3b8; border-radius: 6px; padding: 12px; text-align: center; background: #f8fafc; margin-bottom: 10px;">
+                    Drag &amp; drop Bruker experiment folder (acqus, acqu2s, ser) here
+                </div>
+                <label><input type="checkbox" checked> Water suppression</label><br>
+                <label>Direct Apodization: <input type="text" value="SP off 0.5 end 0.98 pow 2" style="width: 200px; font-size: 11px;"></label><br>
+                <label>Zero Filling (Direct): <select><option>2</option><option selected>4</option><option>8</option></select></label><br>
+                <label><input type="checkbox" checked> Automated Entropy PC</label>
+                <label><input type="checkbox" checked> Neural Network ANN Auto PC</label><br>
+                <div style="margin-top: 10px;">
+                    <button style="padding: 6px 14px; background: #0067c0; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Upload &amp; Process Spectrum</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Window: Pseudo-3D / CEST Tool -->
+        <div class="win-window" id="win-cest">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-cest')">
+                <div class="win-titlebar-text">
+                    <span>🔬</span>
+                    <span>CEST / Pseudo-3D Fitting &amp; ChemEx</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-cest')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-cest')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-cest')">✕</button>
+                </div>
+            </div>
+            <div class="win-body" style="font-size: 12px;">
+                <p><strong>Interactive CEST Profile &amp; Exchange Model:</strong></p>
+                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                    <button style="padding: 3px 8px; font-weight: bold;">Run Pre-Analysis</button>
+                    <button style="padding: 3px 8px;">Filter &gt;= 2 Dips</button>
+                </div>
+                <label>B1 Field (Hz): <input type="number" value="25" style="width: 60px;"></label>&nbsp;
+                <label>T1 Delay (s): <input type="number" value="1.0" style="width: 60px;"></label><br>
+                <div style="margin-top: 8px; border: 1px solid #e2e8f0; padding: 6px; border-radius: 4px; background: #f8fafc;">
+                    <strong>ChemEx On-the-Fly Simulation:</strong>
+                    <div style="font-size: 11px; margin-top: 4px;">pB: 2.0% | kex: 100 s⁻¹ | Δϖ: 3.0 ppm</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Window: Server Log -->
+        <div class="win-window" id="win-log">
+            <div class="win-titlebar" onmousedown="startDrag(event, 'win-log')">
+                <div class="win-titlebar-text">
+                    <span>📝</span>
+                    <span>Server &amp; WebAssembly Diagnostics</span>
+                </div>
+                <div class="win-controls">
+                    <button class="win-btn" onclick="minimizeWin('win-log')">—</button>
+                    <button class="win-btn" onclick="maximizeWin('win-log')">□</button>
+                    <button class="win-btn win-btn-close" onclick="closeWin('win-log')">✕</button>
+                </div>
+            </div>
+            <div class="win-body" style="padding: 4px; background: #1e1e1e;">
+                <pre style="margin: 0; font-family: Consolas, monospace; font-size: 11px; color: #4ec9b0;">[WASM] Module initialized successfully.
+[Worker] Ready for ephemeral pipeline requests.
+[2D Engine] WebGL contour render pipeline active (8 levels).
+[System] Waiting for user input or spectral file drop...</pre>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Windows Taskbar -->
+    <footer id="app-taskbar">
+        <div class="taskbar-apps">
+            <button class="tb-btn active" id="tb-win-spectrum" onclick="toggleWin('win-spectrum')">📊 2D Spectrum</button>
+            <button class="tb-btn active" id="tb-win-spectra" onclick="toggleWin('win-spectra')">📑 Spectra Layers</button>
+            <button class="tb-btn active" id="tb-win-peaks" onclick="toggleWin('win-peaks')">📋 Peak Table</button>
+            <button class="tb-btn" id="tb-win-fid" onclick="toggleWin('win-fid')">⚡ FID Processor</button>
+            <button class="tb-btn" id="tb-win-cest" onclick="toggleWin('win-cest')">🔬 CEST Tool</button>
+            <button class="tb-btn" id="tb-win-log" onclick="toggleWin('win-log')">📝 Server Log</button>
+        </div>
+        <div class="system-tray">
+            <span>Cursor: <strong>118.42 ppm (15N), 8.32 ppm (1H)</strong></span>
+            <span class="tray-badge">● WASM Ready</span>
+            <span>Windows Mode</span>
+        </div>
+    </footer>
+
+    <!-- Interactive Window Manager Script -->
+    <script>
+        let highestZ = 200;
+        let dragTarget = null;
+        let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+
+        function bringToFront(winId) {
+            const el = document.getElementById(winId);
+            if (!el) return;
+            highestZ += 1;
+            el.style.zIndex = highestZ;
+            document.querySelectorAll('.win-window').forEach(w => w.classList.remove('win-active'));
+            el.classList.add('win-active');
+            updateTaskbar();
+        }
+
+        function toggleWin(winId) {
+            const el = document.getElementById(winId);
+            if (!el) return;
+            if (el.style.display === 'none') {
+                el.style.display = 'flex';
+                bringToFront(winId);
+            } else if (el.classList.contains('win-active')) {
+                el.style.display = 'none';
+            } else {
+                bringToFront(winId);
+            }
+            updateTaskbar();
+        }
+
+        function closeWin(winId) {
+            const el = document.getElementById(winId);
+            if (el) el.style.display = 'none';
+            updateTaskbar();
+        }
+
+        function minimizeWin(winId) {
+            closeWin(winId);
+        }
+
+        function maximizeWin(winId) {
+            const el = document.getElementById(winId);
+            if (!el) return;
+            if (el.dataset.maximized === 'true') {
+                el.style.top = el.dataset.prevTop;
+                el.style.left = el.dataset.prevLeft;
+                el.style.width = el.dataset.prevWidth;
+                el.style.height = el.dataset.prevHeight;
+                el.dataset.maximized = 'false';
+            } else {
+                el.dataset.prevTop = el.style.top;
+                el.dataset.prevLeft = el.style.left;
+                el.dataset.prevWidth = el.style.width;
+                el.dataset.prevHeight = el.style.height;
+                el.style.top = '0px';
+                el.style.left = '0px';
+                el.style.width = '100%';
+                el.style.height = '100%';
+                el.dataset.maximized = 'true';
+            }
+            bringToFront(winId);
+        }
+
+        function updateTaskbar() {
+            ['win-spectrum', 'win-spectra', 'win-peaks', 'win-fid', 'win-cest', 'win-log'].forEach(id => {
+                const win = document.getElementById(id);
+                const btn = document.getElementById('tb-' + id);
+                if (win && btn) {
+                    if (win.style.display !== 'none') {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                }
+            });
+        }
+
+        function startDrag(e, winId) {
+            if (e.target.tagName === 'BUTTON') return;
+            dragTarget = document.getElementById(winId);
+            bringToFront(winId);
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = dragTarget.offsetLeft;
+            initialTop = dragTarget.offsetTop;
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+
+        function onDrag(e) {
+            if (!dragTarget) return;
+            e.preventDefault();
+            dragTarget.style.left = (initialLeft + (e.clientX - startX)) + 'px';
+            dragTarget.style.top = (initialTop + (e.clientY - startY)) + 'px';
+        }
+
+        function stopDrag() {
+            dragTarget = null;
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        // Layout presets
+        function applyPreset(preset) {
+            document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (preset === 'default') {
+                const s = document.getElementById('win-spectrum');
+                const sp = document.getElementById('win-spectra');
+                const pk = document.getElementById('win-peaks');
+                s.style.display = 'flex'; s.style.top = '10px'; s.style.left = '310px'; s.style.width = 'calc(100vw - 710px)'; s.style.height = 'calc(100vh - 160px)';
+                sp.style.display = 'flex'; sp.style.top = '10px'; sp.style.left = '10px'; sp.style.width = '290px'; sp.style.height = 'calc(100vh - 160px)';
+                pk.style.display = 'flex'; pk.style.top = '10px'; pk.style.right = '10px'; pk.style.width = '370px'; pk.style.height = 'calc(100vh - 160px)';
+                document.getElementById('win-fid').style.display = 'none';
+                document.getElementById('win-cest').style.display = 'none';
+            } else if (preset === 'full') {
+                const s = document.getElementById('win-spectrum');
+                s.style.display = 'flex'; s.style.top = '0px'; s.style.left = '0px'; s.style.width = '100%'; s.style.height = '100%';
+                document.getElementById('win-spectra').style.display = 'none';
+                document.getElementById('win-peaks').style.display = 'none';
+            } else if (preset === 'processing') {
+                document.getElementById('win-fid').style.display = 'flex';
+                document.getElementById('win-log').style.display = 'flex';
+            }
+            updateTaskbar();
+        }
+
+        function resetAllPositions() {
+            location.reload();
+        }
+
+        document.querySelectorAll('.win-window').forEach(w => {
+            w.addEventListener('mousedown', () => bringToFront(w.id));
+        });
+    </script>
+</body>
+</html>
+
