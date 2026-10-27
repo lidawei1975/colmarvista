@@ -8161,6 +8161,9 @@ async function load_fid_3d_file() {
 
         const showArtifactChecked = !!(document.getElementById('show_spectrum_artifact_3d') && document.getElementById('show_spectrum_artifact_3d').checked);
         cfg.showArtifact = showArtifactChecked;
+        if (showArtifactChecked) {
+            cfg.debugNusRunFullProcess = true;
+        }
 
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
@@ -8849,24 +8852,7 @@ window.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Handle grey out for "show spectrum with artifact" based on auto phase correction
-        autoDirectNormal.addEventListener('change', function () {
-            const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
-            const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
-            if (artifactCheckbox && artifactLabel) {
-                if (this.checked) {
-                    artifactCheckbox.disabled = false;
-                    artifactLabel.style.color = '';
-                } else {
-                    artifactCheckbox.disabled = true;
-                    artifactCheckbox.checked = false; // Reset to unchecked when disabled
-                    artifactLabel.style.color = 'gray';
-                }
-            }
-        });
-
-        // Trigger initial state
-        autoDirectNormal.dispatchEvent(new Event('change'));
+        // "Show spectrum with artifact" remains independently selectable for manual phase correction
     }
 
 });
