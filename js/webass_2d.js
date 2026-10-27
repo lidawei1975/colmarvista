@@ -50,6 +50,40 @@ function getWebassemblyJob(data) {
 }
 
 /**
+ * EPHEMERAL WORKER NOTE
+ * ---------------------
+ * The main thread (js/wasm_runner.js, EphemeralWasmRunner) spawns a fresh worker for every
+ * task and terminates it as soon as the final result message is received, so the WebAssembly
+ * linear memory is released after each task.
+ *
+ * The WebAssembly.Module (compiled bytecode) is loaded and compiled on the MAIN thread,
+ * then delivered in the first message under EPHEMERAL_MODULE_KEY. The worker NEVER fetches
+ * or loads .wasm from the network/filesystem, eliminating CORS and opaque origin issues on file://.
+ * The Emscripten `instantiateWasm` hook below instantiates it on demand in memory with
+ * WebAssembly.instantiate(module, imports); this is where the linear memory is created.
+ */
+const EPHEMERAL_MODULE_KEY = '__wasm_module__';
+let resolveCachedModule;
+let cachedModuleDelivered = false;
+const cachedModulePromise = new Promise((resolve) => {
+    resolveCachedModule = resolve;
+});
+
+function instantiateFromCachedModule(imports, successCallback) {
+    cachedModulePromise.then(async (cachedModule) => {
+        let wasmModule = cachedModule;
+        if (!wasmModule) {
+            throw new Error('webass_2d: WebAssembly.Module was not provided by main thread');
+        }
+        const instance = await WebAssembly.instantiate(wasmModule, imports);
+        successCallback(instance, wasmModule);
+    }).catch((err) => {
+        postMessage({ error: 'webdp1d_cpp instantiate failed: ' + (err && err.message ? err.message : String(err)) });
+    });
+    return {}; // asynchronous instantiation
+}
+
+/**
  * Redirect the stdout and stderr to postMessage
  */
 let ModulePromise = webdp1d_cpp({
@@ -61,10 +95,88 @@ let ModulePromise = webdp1d_cpp({
     printErr: (text) => {
         // This captures C++ stderr
         postMessage({ stdout: text });
-    }
+    },
+    instantiateWasm: instantiateFromCachedModule
 });
 
+/**
+ * Fast bulk transfer helpers for Bruker FID and NMRPipe buffers.
+ * Uses direct HEAPU8 memory copy and raw pointer C++ methods when available,
+ * with safe fallback to VectorUChar if raw methods are not available.
+ */
+function loadBrukerFidBytes(Module, processor, fidBytes) {
+    if (typeof processor.read_bruker_fid_data_bytes_raw === 'function' && typeof Module._malloc === 'function') {
+        const ptr = Module._malloc(fidBytes.length);
+        try {
+            Module.HEAPU8.set(fidBytes, ptr);
+            return processor.read_bruker_fid_data_bytes_raw(ptr, fidBytes.length);
+        } finally {
+            Module._free(ptr);
+        }
+    } else {
+        const fidBytesVec = new Module.VectorUChar();
+        try {
+            for (let i = 0; i < fidBytes.length; i++) {
+                fidBytesVec.push_back(fidBytes[i]);
+            }
+            return processor.read_bruker_fid_data_bytes(fidBytesVec);
+        } finally {
+            fidBytesVec.delete();
+        }
+    }
+}
+
+function readNmrpipeFileBuffer(Module, processor, inputBytes) {
+    if (typeof processor.read_nmrpipe_file_from_buffer_raw === 'function' && typeof Module._malloc === 'function') {
+        const ptr = Module._malloc(inputBytes.length);
+        try {
+            Module.HEAPU8.set(inputBytes, ptr);
+            return processor.read_nmrpipe_file_from_buffer_raw(ptr, inputBytes.length);
+        } finally {
+            Module._free(ptr);
+        }
+    } else {
+        const nmrpipeBytesVec = new Module.VectorUChar();
+        try {
+            for (let i = 0; i < inputBytes.length; i++) {
+                nmrpipeBytesVec.push_back(inputBytes[i]);
+            }
+            return processor.read_nmrpipe_file_from_buffer(nmrpipeBytesVec);
+        } finally {
+            nmrpipeBytesVec.delete();
+        }
+    }
+}
+
 self.onmessage = async function (event) {
+    /**
+     * Take the cached WebAssembly.Module out of the first message (null if not provided)
+     * so that the instantiateWasm hook above can proceed.
+     */
+    if (!cachedModuleDelivered) {
+        cachedModuleDelivered = true;
+        resolveCachedModule((event.data && event.data[EPHEMERAL_MODULE_KEY]) || null);
+    }
+    if (event.data && event.data[EPHEMERAL_MODULE_KEY] !== undefined) {
+        delete event.data[EPHEMERAL_MODULE_KEY];
+    }
+
+    /**
+     * An exception that escapes a job must still produce a final message,
+     * otherwise the main thread would wait for this ephemeral worker forever.
+     */
+    try {
+        await handleWebassemblyJob(event);
+    }
+    catch (err) {
+        postMessage({
+            error: 'webass_2d: ' + (err && err.message ? err.message : String(err)),
+            spectrum_index: event.data ? event.data.spectrum_index : undefined
+        });
+    }
+};
+
+async function handleWebassemblyJob(event) {
     const webassembly_job = getWebassemblyJob(event.data);
     // Wait for the module to be ready
     const Module = await ModulePromise;
@@ -98,7 +210,6 @@ self.onmessage = async function (event) {
                 throw new Error('Invalid nmrPipe payload for nus_step2');
             }
 
-            const nmrpipeBytesVec = new Module.VectorUChar();
             const processor = new Module.fid_2d();
 
             let file_data;
@@ -118,10 +229,7 @@ self.onmessage = async function (event) {
                 if (!processor.read_phase_correction_from_string(phase_correction)) {
                     throw new Error('read_phase_correction_from_string failed');
                 }
-                for (let i = 0; i < inputBytes.length; i++) {
-                    nmrpipeBytesVec.push_back(inputBytes[i]);
-                }
-                if (!processor.read_nmrpipe_file_from_buffer(nmrpipeBytesVec)) {
+                if (!readNmrpipeFileBuffer(Module, processor, inputBytes)) {
                     throw new Error('read_nmrpipe_file_from_buffer failed');
                 }
                 postMessage({ stdout: "Running indirect_only_process for NUS spectrum" });
@@ -158,7 +266,6 @@ self.onmessage = async function (event) {
             }
             finally {
                 processor.delete();
-                nmrpipeBytesVec.delete();
             }
 
             const transferList = [];
@@ -235,11 +342,6 @@ self.onmessage = async function (event) {
             const fidBytes = encodeBytes(event.data.file_data[2]);
             const nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[3]));
 
-            const fidBytesVec = new Module.VectorUChar();
-            for (let i = 0; i < fidBytes.length; i++) {
-                fidBytesVec.push_back(fidBytes[i]);
-            }
-
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const apodizationDirect = String(event.data.apodization_direct);
@@ -266,7 +368,7 @@ self.onmessage = async function (event) {
                     if (!estimator.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                         throw new Error('read_bruker_files_as_strings failed');
                     }
-                    if (!estimator.read_bruker_fid_data_bytes(fidBytesVec)) {
+                    if (!loadBrukerFidBytes(Module, estimator, fidBytes)) {
                         throw new Error('read_bruker_fid_data_bytes failed');
                     }
                     estimator.set_negative(negativeImaginary);
@@ -330,7 +432,7 @@ self.onmessage = async function (event) {
                 if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
-                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                if (!loadBrukerFidBytes(Module, processor, fidBytes)) {
                     throw new Error('read_bruker_fid_data_bytes failed');
                 }
                 postMessage({ stdout: "Running direct_only_process for NUS spectrum" });
@@ -363,7 +465,6 @@ self.onmessage = async function (event) {
             }
             finally {
                 processor.delete();
-                fidBytesVec.delete();
             }
 
             const transferList = [];
@@ -444,11 +545,11 @@ self.onmessage = async function (event) {
                 return result;
             };
 
-            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, acqu3sText, fidBytesVec) {
+            const initializeFromBrukerInput = function (processor, acqusText, acqu2sText, acqu3sText, fidBytes) {
                 if (!processor.read_bruker_files_as_strings('', acqusText, acqu2sText, acqu3sText)) {
                     throw new Error('read_bruker_files_as_strings failed');
                 }
-                if (!processor.read_bruker_fid_data_bytes(fidBytesVec)) {
+                if (!loadBrukerFidBytes(Module, processor, fidBytes)) {
                     throw new Error('read_bruker_fid_data_bytes failed');
                 }
             };
@@ -487,11 +588,6 @@ self.onmessage = async function (event) {
                 nusListText = new TextDecoder('utf-8').decode(encodeBytes(event.data.file_data[4]));
             }
 
-            const fidBytesVec = new Module.VectorUChar();
-            for (let i = 0; i < fidBytes.length; i++) {
-                fidBytesVec.push_back(fidBytes[i]);
-            }
-
             const negativeImaginary = toBool(event.data.neg_imaginary);
             const zfDirect = toInt(event.data.zf_direct, 1);
             const zfIndirect = toInt(event.data.zf_indirect, 1);
@@ -515,7 +611,7 @@ self.onmessage = async function (event) {
                         throw new Error('read_nus_list_from_string failed');
                     }
                 }
-                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytesVec);
+                initializeFromBrukerInput(processor, acquisitionText, acquisitionText2, acqu3sText, fidBytes);
                 configureCommon(processor, {
                     negativeImaginary: negativeImaginary,
                     firstOnly: processAllPlanes === false,
@@ -592,7 +688,6 @@ self.onmessage = async function (event) {
             }
             finally {
                 processor.delete();
-                fidBytesVec.delete();
             }
 
             const transferList = [];
@@ -673,24 +768,49 @@ self.onmessage = async function (event) {
                  * C++ signature: init_all_spectra_from_buffers(const std::vector<unsigned char> &nmrpipe_bytes, int nspectra_in)
                  * Takes a single flat byte buffer containing all spectra data concatenated.
                  */
-                const buffersVec = new Module.VectorUChar();
-                try {
+                if (typeof obj.init_all_spectra_from_buffers_raw === 'function' && typeof Module._malloc === 'function') {
+                    let totalBytes = 0;
                     for (let b = 0; b < buffers.length; b++) {
-                        const uint8 = new Uint8Array(
-                            buffers[b].buffer !== undefined ? buffers[b].buffer : buffers[b],
-                            buffers[b].byteOffset || 0,
-                            buffers[b].byteLength
-                        );
-                        for (let i = 0; i < uint8.length; i++) {
-                            buffersVec.push_back(uint8[i]);
+                        totalBytes += (buffers[b].byteLength !== undefined) ? buffers[b].byteLength : buffers[b].length;
+                    }
+                    const ptr = Module._malloc(totalBytes);
+                    try {
+                        let offset = 0;
+                        for (let b = 0; b < buffers.length; b++) {
+                            const uint8 = new Uint8Array(
+                                buffers[b].buffer !== undefined ? buffers[b].buffer : buffers[b],
+                                buffers[b].byteOffset || 0,
+                                buffers[b].byteLength
+                            );
+                            Module.HEAPU8.set(uint8, ptr + offset);
+                            offset += uint8.length;
                         }
+                        if (!obj.init_all_spectra_from_buffers_raw(ptr, totalBytes, buffers.length)) {
+                            throw new Error('peak_fitter_v2_spectrum_fit: init_all_spectra_from_buffers_raw failed');
+                        }
+                    } finally {
+                        Module._free(ptr);
                     }
+                } else {
+                    const buffersVec = new Module.VectorUChar();
+                    try {
+                        for (let b = 0; b < buffers.length; b++) {
+                            const uint8 = new Uint8Array(
+                                buffers[b].buffer !== undefined ? buffers[b].buffer : buffers[b],
+                                buffers[b].byteOffset || 0,
+                                buffers[b].byteLength
+                            );
+                            for (let i = 0; i < uint8.length; i++) {
+                                buffersVec.push_back(uint8[i]);
+                            }
+                        }
 
-                    if (!obj.init_all_spectra_from_buffers(buffersVec, buffers.length)) {
-                        throw new Error('peak_fitter_v2_spectrum_fit: init_all_spectra_from_buffers failed');
+                        if (!obj.init_all_spectra_from_buffers(buffersVec, buffers.length)) {
+                            throw new Error('peak_fitter_v2_spectrum_fit: init_all_spectra_from_buffers failed');
+                        }
+                    } finally {
+                        buffersVec.delete();
                     }
-                } finally {
-                    buffersVec.delete();
                 }
 
                 /**
@@ -787,38 +907,76 @@ self.onmessage = async function (event) {
                 obj.initflags_fit(maxround, removalCutoff, tooNearCutoff, iMethod);
                 obj.set_scale(scale, scale2);
 
-                const buffersVec = new Module.VectorUChar();
-                try {
+                if (typeof obj.init_all_spectra_from_buffers_raw === 'function' && typeof Module._malloc === 'function') {
+                    let totalBytes = 0;
                     for (let b = 0; b < allFiles.length; b++) {
-                        let uint8;
                         const source = allFiles[b];
-                        if (source instanceof Uint8Array) {
-                            uint8 = source;
-                        }
-                        else if (source instanceof ArrayBuffer) {
-                            uint8 = new Uint8Array(source);
-                        }
-                        else if (source && source.buffer !== undefined && source.byteLength !== undefined) {
-                            uint8 = new Uint8Array(source.buffer, source.byteOffset || 0, source.byteLength);
-                        }
-                        else {
+                        const byteLen = source && source.byteLength !== undefined ? source.byteLength : (source && source.length ? source.length : 0);
+                        if (!byteLen) {
                             throw new Error('pseudo3d_fitting: invalid spectrum buffer at index ' + b.toString());
                         }
+                        totalBytes += byteLen;
+                    }
 
-                        for (let i = 0; i < uint8.length; i++) {
-                            buffersVec.push_back(uint8[i]);
+                    const ptr = Module._malloc(totalBytes);
+                    try {
+                        let offset = 0;
+                        for (let b = 0; b < allFiles.length; b++) {
+                            let uint8;
+                            const source = allFiles[b];
+                            if (source instanceof Uint8Array) {
+                                uint8 = source;
+                            } else if (source instanceof ArrayBuffer) {
+                                uint8 = new Uint8Array(source);
+                            } else if (source && source.buffer !== undefined && source.byteLength !== undefined) {
+                                uint8 = new Uint8Array(source.buffer, source.byteOffset || 0, source.byteLength);
+                            } else {
+                                throw new Error('pseudo3d_fitting: invalid spectrum buffer at index ' + b.toString());
+                            }
+
+                            Module.HEAPU8.set(uint8, ptr + offset);
+                            offset += uint8.length;
+
+                            done++;
+                            postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
                         }
 
-                        done++;
-                        postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
+                        if (!obj.init_all_spectra_from_buffers_raw(ptr, totalBytes, allFiles.length)) {
+                            throw new Error('pseudo3d_fitting: init_all_spectra_from_buffers_raw failed');
+                        }
+                    } finally {
+                        Module._free(ptr);
                     }
+                } else {
+                    const buffersVec = new Module.VectorUChar();
+                    try {
+                        for (let b = 0; b < allFiles.length; b++) {
+                            let uint8;
+                            const source = allFiles[b];
+                            if (source instanceof Uint8Array) {
+                                uint8 = source;
+                            } else if (source instanceof ArrayBuffer) {
+                                uint8 = new Uint8Array(source);
+                            } else if (source && source.buffer !== undefined && source.byteLength !== undefined) {
+                                uint8 = new Uint8Array(source.buffer, source.byteOffset || 0, source.byteLength);
+                            } else {
+                                throw new Error('pseudo3d_fitting: invalid spectrum buffer at index ' + b.toString());
+                            }
 
-                    if (!obj.init_all_spectra_from_buffers(buffersVec, allFiles.length)) {
-                        throw new Error('pseudo3d_fitting: init_all_spectra_from_buffers failed');
+                            for (let i = 0; i < uint8.length; i++) {
+                                buffersVec.push_back(uint8[i]);
+                            }
+
+                            done++;
+                            postMessage({ [WEBASSEMBLY_JOB_KEY]: "pseudo3d_progress", done: done, total: total });
+                        }
+
+                        if (!obj.init_all_spectra_from_buffers(buffersVec, allFiles.length)) {
+                            throw new Error('pseudo3d_fitting: init_all_spectra_from_buffers failed');
+                        }
+                    } finally {
+                        buffersVec.delete();
                     }
-                }
-                finally {
-                    buffersVec.delete();
                 }
 
                 if (noiseLevel > 1e-20) {
@@ -1004,12 +1162,7 @@ self.onmessage = async function (event) {
             event.data.spectrum_data.byteOffset,
             event.data.spectrum_data.byteLength);
 
-        const nmrpipe_bytes = new Module.VectorUChar();
-        for (let i = 0; i < spectrum_uint8.length; i++) {
-            nmrpipe_bytes.push_back(spectrum_uint8[i]);
-        }
-
-        if (obj.read_nmrpipe_file_from_buffer(nmrpipe_bytes)) {
+        if (readNmrpipeFileBuffer(Module, obj, spectrum_uint8)) {
 
             /**
              * Set noise level if provided
@@ -1046,7 +1199,6 @@ self.onmessage = async function (event) {
             self.postMessage({ error: 'peak_picker_2d: init_from_buffer failed' });
         }
 
-        nmrpipe_bytes.delete();
         obj.delete();
     }
 
@@ -1066,15 +1218,10 @@ self.onmessage = async function (event) {
 
             const polyOrder = parseInt(event.data.polynomial_order, 10);
 
-            const nmrpipeBytesVec = new Module.VectorUChar();
-            for (let i = 0; i < inputBytes.length; i++) {
-                nmrpipeBytesVec.push_back(inputBytes[i]);
-            }
-
             const fid = new Module.fid_2d();
             let file_data;
             try {
-                const successRead = fid.read_nmrpipe_file_from_buffer(nmrpipeBytesVec);
+                const successRead = readNmrpipeFileBuffer(Module, fid, inputBytes);
                 if (!successRead) {
                     throw new Error("Failed to read NMRPipe file from buffer.");
                 }
@@ -1103,7 +1250,6 @@ self.onmessage = async function (event) {
                 file_data = new Uint8Array(Module.HEAPF32.buffer, addressVal, sizeInFloat32 * 4).slice();
             } finally {
                 fid.delete();
-                nmrpipeBytesVec.delete();
             }
 
             const transferList = [];
@@ -1141,4 +1287,4 @@ self.onmessage = async function (event) {
         // Handle other jobs or errors
         self.postMessage({ error: 'Unknown webassembly job type' });
     }
-};
+}

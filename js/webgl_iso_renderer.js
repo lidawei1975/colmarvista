@@ -330,6 +330,23 @@ class IsoSurfaceRenderer {
      * Set the geometry data to render.
      * @param {Array} meshes - Array of mesh objects { vertices: Float32Array, normals: Float32Array, color: [r,g,b,a], mode: "TRIANGLES"|"LINES" }
      */
+    /**
+     * Clear all active geometry and delete WebGL buffers.
+     */
+    clearGeometry() {
+        if (this.objectData && this.gl) {
+            this.objectData.forEach(obj => {
+                if (obj.positionBuffer) this.gl.deleteBuffer(obj.positionBuffer);
+                if (obj.normalBuffer) this.gl.deleteBuffer(obj.normalBuffer);
+                obj.vertices = null;
+            });
+        }
+        this.objectData = [];
+        if (this.gl) {
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        }
+    }
+
     updateGeometry(meshes) {
         // Cleanup old buffers
         if (this.objectData) {

@@ -1,0 +1,1587 @@
+"use strict";
+
+
+class webgl_contour_plot {
+
+    constructor(canvas_id, spectra = null) {
+        let selector = (typeof canvas_id === 'string' && canvas_id.startsWith('#')) ? canvas_id : ('#' + canvas_id);
+        this.canvas = document.querySelector(selector);
+        if (!this.canvas) {
+            console.warn("Canvas not found:", canvas_id);
+            return;
+        }
+        this.gl = this.canvas.getContext("webgl") || this.canvas.getContext("experimental-webgl");
+        if (!this.gl) {
+            console.warn("No WebGL context for canvas:", canvas_id);
+            return;
+        }
+        /**
+         * camera define zoom and pan of the camera. We don't need rotation for this application
+         */
+        this.camera = {
+            x: 0,
+            y: 0,
+            zoom_x: 1,
+            zoom_y: 1,
+        };
+
+
+        /**
+         * wheel zoom global variables
+         */
+        this.viewProjectionMat;
+        /**
+         * Pan the camera by tracking mouse click and mouse move
+         */
+        this.startInvViewProjMat;
+        this.startCamera;
+        this.startPos;
+        this.startClipPos;
+        this.startMousePos;
+
+        let vertex_shader_2d = `
+            attribute vec2 a_position;
+            uniform mat3 u_matrix;
+            void main() {
+            // Multiply the position by the matrix.
+            gl_Position = vec4((u_matrix * vec3(a_position, 1)).xy, 0, 1);
+            }
+            `;
+
+        let fragment_shader_2d = `
+            precision mediump float;
+            uniform vec4 u_color;
+            void main() {
+            gl_FragColor = u_color;
+            }
+            `;
+
+        // setup GLSL program
+        this.program = webglUtils.createProgramFromSources(this.gl, [vertex_shader_2d, fragment_shader_2d]);
+
+        // look up where the vertex data needs to go.
+        this.positionLocation = this.gl.getAttribLocation(this.program, "a_position");
+
+        // lookup uniforms
+        this.colorLocation = this.gl.getUniformLocation(this.program, "u_color");
+        this.matrixLocation = this.gl.getUniformLocation(this.program, "u_matrix");
+
+        // Create a buffer to put positions in
+        this.positionBuffer = this.gl.createBuffer();
+        // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+
+        /**
+         * Tell it to use our program (pair of shaders)
+         * For our simple 2d program, we will only use one program. 
+         * So we don't need to call gl.useProgram(program) every time we draw
+         */
+        this.gl.useProgram(this.program);
+
+        // Turn on the attribute
+        this.gl.enableVertexAttribArray(this.positionLocation);
+
+
+        // Bind the position buffer.
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+
+        /**
+         * Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+         * In our case, the data will not change, so we will use STATIC_DRAW in load_file() call
+         * and we only need to call vertexAttribPointer once when initializing the program
+         */
+        var size = 2;          // 2 components per iteration
+        var type = this.gl.FLOAT;   // the data is 32bit floats
+        var normalize = false; // don't normalize the data
+        var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+        var offset = 0;        // start at the beginning of the buffer
+        this.gl.vertexAttribPointer(this.positionLocation, size, type, normalize, stride, offset);
+
+        this.polygon_length = [];
+
+        /**
+         * Flag to determine where to put magnified region.
+         */
+        this.magnification_region_x = 0; //0: left, 1: right
+        this.magnification_region_y = 1; //0: bottom, 1: top
+
+        this.levels_length = [];
+        this.contour_lbs = [];
+        this.spectral_order = [];
+        this.contour_lbs_negative = [];
+        this.levels_length_negative = [];
+        this.colors = [];
+        this.contour_shadow_enabled = false;
+        this.contour_shadow_mode = 'bold';
+        this.hillshading_enabled = false;
+        this.hillshade_program = null;
+        this.hillshade_texture = null;
+        this.hillshade_cached_spec = -1;
+        this.hillshade_cached_data = null;
+        this.spectral_information = {};
+
+        // Compatibility state for SPIN
+        this.level_lb = 0;
+        let camera = { x: 0, y: 0, zoom_x: 1, zoom_y: 1 };
+        let view = { left: 0, right: 1, bottom: 0, top: 1 };
+        this.camera_stack = [camera];
+        this.camera_ppm_stack = [];
+        this.view_stack = [view];
+        this.spectra = spectra;
+        this.x_ppm_ref = 0;
+        this.y_ppm_ref = 0;
+    };
+
+    /**
+     * Set buffer data and draw the scene
+     * @param {Float32Array} points
+     */
+    /**
+     * Resolves active spectra from instance property
+     */
+    get_spectra() {
+        if (Array.isArray(this.spectra)) return this.spectra;
+        if (this.spectra) return [this.spectra];
+        return [];
+    }
+
+    set_data(spectral_information, points, points_start, polygon_length, levels_length, colors, contour_lbs, points_start_n, polygon_length_n, levels_length_n, colors_n, contour_lbs_n) {
+        if (spectral_information instanceof Float32Array || (Array.isArray(spectral_information) && typeof spectral_information[0] === 'number')) {
+            // SPIN signature: points was passed as 1st argument
+            let pts = spectral_information;
+            this.points_start = points;
+            this.polygon_length = points_start;
+            this.levels_length = polygon_length;
+            this.colors = levels_length;
+            this.contour_lbs = colors;
+            this.points_start_negative = contour_lbs;
+            this.polygon_length_negative = points_start_n;
+            this.levels_length_negative = polygon_length_n;
+            this.colors_negative = levels_length_n;
+            this.contour_lbs_negative = colors_n;
+
+            if (!this.spectral_information || (Array.isArray(this.spectral_information) && this.spectral_information.length === 0) || Object.keys(this.spectral_information).length === 0) {
+                this.spectral_information = [{
+                    x_ppm_start: this.x_ppm_start || 0,
+                    x_ppm_step: this.x_ppm_step || 1,
+                    y_ppm_start: this.y_ppm_start || 0,
+                    y_ppm_step: this.y_ppm_step || 1,
+                    x_ppm_ref: this.x_ppm_ref || 0,
+                    y_ppm_ref: this.y_ppm_ref || 0,
+                    n_direct: this.n_direct || 1024,
+                    n_indirect: this.n_indirect || 1024
+                }];
+            } else if (Array.isArray(this.spectral_information) && this.spectral_information[0]) {
+                if (this.spectral_information[0].x_ppm_ref === undefined && this.x_ppm_ref !== undefined) {
+                    this.spectral_information[0].x_ppm_ref = this.x_ppm_ref;
+                }
+                if (this.spectral_information[0].y_ppm_ref === undefined && this.y_ppm_ref !== undefined) {
+                    this.spectral_information[0].y_ppm_ref = this.y_ppm_ref;
+                }
+            } else if (typeof this.spectral_information === 'object') {
+                if (this.spectral_information.x_ppm_ref === undefined && this.x_ppm_ref !== undefined) {
+                    this.spectral_information.x_ppm_ref = this.x_ppm_ref;
+                }
+                if (this.spectral_information.y_ppm_ref === undefined && this.y_ppm_ref !== undefined) {
+                    this.spectral_information.y_ppm_ref = this.y_ppm_ref;
+                }
+            }
+            if (!this.spectral_order || this.spectral_order.length === 0) {
+                this.spectral_order = [0];
+            }
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, pts, this.gl.STATIC_DRAW);
+            return;
+        }
+
+        let oldInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (spectral_information && !Array.isArray(spectral_information) && typeof spectral_information === 'object') {
+            if (spectral_information.x_ppm_ref === undefined) {
+                spectral_information.x_ppm_ref = (oldInfo && oldInfo.x_ppm_ref !== undefined) ? oldInfo.x_ppm_ref : (this.x_ppm_ref || 0);
+            }
+            if (spectral_information.y_ppm_ref === undefined) {
+                spectral_information.y_ppm_ref = (oldInfo && oldInfo.y_ppm_ref !== undefined) ? oldInfo.y_ppm_ref : (this.y_ppm_ref || 0);
+            }
+            this.spectral_information = [spectral_information];
+        } else if (Array.isArray(spectral_information)) {
+            this.spectral_information = spectral_information;
+            if (this.spectral_information.length > 0 && this.spectral_information[0]) {
+                if (this.spectral_information[0].x_ppm_ref === undefined) {
+                    this.spectral_information[0].x_ppm_ref = (oldInfo && oldInfo.x_ppm_ref !== undefined) ? oldInfo.x_ppm_ref : (this.x_ppm_ref || 0);
+                }
+                if (this.spectral_information[0].y_ppm_ref === undefined) {
+                    this.spectral_information[0].y_ppm_ref = (oldInfo && oldInfo.y_ppm_ref !== undefined) ? oldInfo.y_ppm_ref : (this.y_ppm_ref || 0);
+                }
+            }
+        } else {
+            this.spectral_information = spectral_information;
+        }
+
+        if (Array.isArray(this.spectral_information) && this.spectral_information.length > 0) {
+            let s0 = this.spectral_information[0];
+            if (s0) {
+                if (s0.x_ppm_start !== undefined) this.x_ppm_start = s0.x_ppm_start;
+                if (s0.x_ppm_step !== undefined) this.x_ppm_step = s0.x_ppm_step;
+                if (s0.y_ppm_start !== undefined) this.y_ppm_start = s0.y_ppm_start;
+                if (s0.y_ppm_step !== undefined) this.y_ppm_step = s0.y_ppm_step;
+                if (s0.n_direct !== undefined) this.n_direct = s0.n_direct;
+                if (s0.n_indirect !== undefined) this.n_indirect = s0.n_indirect;
+                if (s0.x_ppm_ref !== undefined) this.x_ppm_ref = s0.x_ppm_ref;
+                if (s0.y_ppm_ref !== undefined) this.y_ppm_ref = s0.y_ppm_ref;
+            }
+        }
+
+        this.colors = colors;
+        this.polygon_length = polygon_length;
+        this.levels_length = levels_length;
+        this.contour_lbs = contour_lbs;
+        this.points_start = points_start;
+
+        this.colors_negative = colors_n;
+        this.polygon_length_negative = polygon_length_n;
+        this.levels_length_negative = levels_length_n;
+        this.contour_lbs_negative = contour_lbs_n;
+        this.points_start_negative = points_start_n;
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, points, this.gl.STATIC_DRAW);
+    };
+
+
+    /**
+     * Helper to draw positive and negative contour lines for a given spectrum
+     */
+    _draw_spectrum_contours(n) {
+        let _spectra = this.get_spectra();
+        let is_spec_visible = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
+        if (!is_spec_visible) return;
+
+        if (this.levels_length && this.levels_length[n]) {
+            let start_lb = (this.contour_lbs && this.contour_lbs[n] !== undefined) ? this.contour_lbs[n] : 0;
+            for (var m = start_lb; m < this.levels_length[n].length; m++) {
+                let i_start = (m > 0) ? this.levels_length[n][m - 1] : 0;
+                let i_stop = this.levels_length[n][m];
+
+                // Draw drop shadow under 1st visible contour if enabled
+                if (this._should_draw_contour_shadow(n, m, false)) {
+                    this._draw_contour_level_shadow(n, i_start, i_stop, false);
+                }
+
+                let level_color = this._contour_level_color(n, m);
+                this._draw_contour_segments(n, i_start, i_stop, level_color, false);
+            }
+        }
+
+        if (this.levels_length_negative && this.levels_length_negative[n] && n < this.contour_lbs_negative.length) {
+            let start_lb_neg = (this.contour_lbs_negative && this.contour_lbs_negative[n] !== undefined) ? this.contour_lbs_negative[n] : 0;
+            for (var m = start_lb_neg; m < this.levels_length_negative[n].length; m++) {
+                let i_start = (m > 0) ? this.levels_length_negative[n][m - 1] : 0;
+                let i_stop = this.levels_length_negative[n][m];
+
+                // Draw drop shadow under 1st visible negative contour if spectrum has no positive contours
+                if (this._should_draw_contour_shadow(n, m, true)) {
+                    this._draw_contour_level_shadow(n, i_start, i_stop, true);
+                }
+
+                let color_neg = (this.colors_negative && this.colors_negative[n]) ? this.colors_negative[n] : [0.8, 0.2, 0.2, 1.0];
+                this._draw_contour_segments(n, i_start, i_stop, color_neg, true);
+            }
+        }
+    }
+
+    /**
+     * Draw the scene.
+     * @param {number} flag - 0: draw the contour plot, 1: draw and return the image data
+     */
+    drawScene(flag = 0, flag_glass = false, center = [], mag_scale = 10.0, mag_size = 0.2) {
+        if (!this.gl) return;
+
+        if (typeof webglUtils !== 'undefined' && webglUtils.resizeCanvasToDisplaySize) {
+            webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+        }
+
+        let is_multi_view = Boolean(this.view_stack && this.view_stack.length > 0 &&
+            this.camera_ppm_stack && this.camera_ppm_stack.length === this.view_stack.length &&
+            (this.view_stack.length > 1 || (this.view_stack[0] && (this.view_stack[0].left !== 0 || this.view_stack[0].right !== 1 || this.view_stack[0].bottom !== 0 || this.view_stack[0].top !== 1))));
+
+        let number_of_spectra = (this.levels_length && Array.isArray(this.levels_length)) ? this.levels_length.length : 0;
+
+        if (is_multi_view) {
+            this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.clearColor(1, 1, 1, 1);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+            if (number_of_spectra > 0) {
+                this.gl.enable(this.gl.SCISSOR_TEST);
+                for (let v = 0; v < this.view_stack.length; v++) {
+                    let view = this.view_stack[v];
+                    let camPpm = this.camera_ppm_stack[v];
+                    if (!view || !camPpm) continue;
+
+                    let vx = view.left * this.gl.canvas.width;
+                    let vy = view.bottom * this.gl.canvas.height;
+                    let vw = (view.right - view.left) * this.gl.canvas.width;
+                    let vh = (view.top - view.bottom) * this.gl.canvas.height;
+
+                    this.gl.viewport(vx, vy, vw, vh);
+                    this.gl.scissor(vx, vy, vw, vh);
+
+                    for (var nn = 0; nn < number_of_spectra; nn++) {
+                        let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
+                        if (this.visible && !this.visible[n]) continue;
+                        let sInfo = Array.isArray(this.spectral_information)
+                            ? (this.spectral_information[n] || this.spectral_information[0])
+                            : this.spectral_information;
+                        if (!sInfo) continue;
+                        let xStart = sInfo.x_ppm_start || 0;
+                        let xStep = sInfo.x_ppm_step || 1;
+                        let xRef = sInfo.x_ppm_ref || 0;
+                        let yStart = sInfo.y_ppm_start || 0;
+                        let yStep = sInfo.y_ppm_step || 1;
+                        let yRef = sInfo.y_ppm_ref || 0;
+
+                        let x = (camPpm.x_ppm - xStart - xRef) / xStep;
+                        let x2 = (camPpm.x2_ppm - xStart - xRef) / xStep;
+                        let y = (camPpm.y_ppm - yStart - yRef) / yStep;
+                        let y2 = (camPpm.y2_ppm - yStart - yRef) / yStep;
+                        this.setCamera(x, x2, y, y2);
+
+                        const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+                        const zoomScale_x = 1 / this.camera.zoom_x;
+                        const zoomScale_y = 1 / this.camera.zoom_y;
+
+                        let cameraMat = m3.identity();
+                        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+                        cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+                        let viewMat = m3.inverse(cameraMat);
+                        this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+                        this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+                        this._draw_spectrum_contours(n);
+                    }
+                }
+                this.gl.disable(this.gl.SCISSOR_TEST);
+            }
+
+            if (flag == 1) return this.gl.canvas.toDataURL();
+            return;
+        }
+
+        this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
+
+        // Clear the canvas. Set background color to white
+        this.gl.clearColor(1, 1, 1, 1);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+        // Ratio heatmap goes below the contours
+        if (typeof this._draw_ratio_heatmap === 'function') {
+            this._draw_ratio_heatmap(this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm);
+        }
+
+        // Continuous 3D topographical hillshading for 1st visible spectrum
+        if (typeof this._draw_hillshading === 'function') {
+            this._draw_hillshading(this.x_ppm, this.x2_ppm, this.y_ppm, this.y2_ppm);
+        }
+
+        if (number_of_spectra === 0) {
+            if (flag == 1) return this.gl.canvas.toDataURL();
+            return;
+        }
+        /**
+         * Draw the contour plot
+         * One spectrum at a time
+         * # of spectra = this.levels_length.length = this.colors.length = this.spectral_information.length = this.contour_lbs.length = this.polygon_length.length
+         */
+        for (var nn = 0; nn < number_of_spectra; nn++) {
+            let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
+            if (this.visible && !this.visible[n]) continue;
+            let sInfo = Array.isArray(this.spectral_information)
+                ? (this.spectral_information[n] || this.spectral_information[0])
+                : this.spectral_information;
+            if (!sInfo) continue;
+            let xStart = sInfo.x_ppm_start || 0;
+            let xStep = sInfo.x_ppm_step || 1;
+            let xRef = sInfo.x_ppm_ref || 0;
+            let yStart = sInfo.y_ppm_start || 0;
+            let yStep = sInfo.y_ppm_step || 1;
+            let yRef = sInfo.y_ppm_ref || 0;
+
+            let x = (this.x_ppm - xStart - xRef) / xStep;
+            let x2 = (this.x2_ppm - xStart - xRef) / xStep;
+            let y = (this.y_ppm - yStart - yRef) / yStep;
+            let y2 = (this.y2_ppm - yStart - yRef) / yStep;
+            this.setCamera(x, x2, y, y2);
+
+            /**
+             * Update the matrix according to the translation and scale defined in camera
+             * this also depends on setCamera_ppm() and setCamera() functions
+             */
+            const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+            const zoomScale_x = 1 / this.camera.zoom_x;
+            const zoomScale_y = 1 / this.camera.zoom_y;
+
+            let cameraMat = m3.identity();
+            cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+            cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+            let viewMat = m3.inverse(cameraMat);
+            this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+
+            // Set the matrix. This matrix changes when zooming and panning
+            this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+            this._draw_spectrum_contours(n);
+        }
+
+        if (flag_glass == true) {
+            this.magnification_glass(center, mag_scale, mag_size);
+        }
+
+        if (flag == 1) {
+            return this.gl.canvas.toDataURL();
+        }
+        return;
+    };
+
+    /**
+     * Magnification glass tool
+     * IMPORTANT: Not meant to be called directly. 
+     * Use drawScene() instead, because all webGl drawing needs to be done un-interrupted
+     */
+    magnification_glass(cursor_position, magnifying_factor, magnification_glass_size) {
+        /**
+         * Test magnification glass tool here.
+         * At cursor_position (init is ppm), we will zoom in magnifying_factor
+         */
+        /**
+         * Step 1: get canvas location in pixel from ppm (cursor_position)
+         */
+        let x_pixel = (cursor_position[0] - this.x_ppm) * this.gl.canvas.width / (this.x2_ppm - this.x_ppm);
+        let y_pixel = (cursor_position[1] - this.y_ppm) * this.gl.canvas.height / (this.y2_ppm - this.y_ppm);
+
+        /**
+         * If x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width  < 0, 
+         * move viewing area to the right of the cursor
+         */
+        if (x_pixel - 1.1 * magnification_glass_size * this.gl.canvas.width < 0) {
+            this.magnification_region_x = 1;
+        }
+        if (x_pixel + 1.1 * magnification_glass_size * this.gl.canvas.width > this.gl.canvas.width) {
+            this.magnification_region_x = 0;
+        }
+        if (y_pixel - 1.1 * magnification_glass_size * this.gl.canvas.height < 0) {
+            this.magnification_region_y = 1;
+        }
+        if (y_pixel + 1.1 * magnification_glass_size * this.gl.canvas.height > this.gl.canvas.height) {
+            this.magnification_region_y = 0;
+        }
+
+        /**
+         * Get magnification glass view center ppm
+         */
+        let x_ppm_center, y_ppm_center, x_scissor, y_scissor;
+        let x_width_scissor = magnification_glass_size * this.gl.canvas.width;
+        let y_height_scissor = magnification_glass_size * this.gl.canvas.height;
+
+        if (this.magnification_region_x == 0) {
+            x_ppm_center = -0.6 * magnification_glass_size * (this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel - magnification_glass_size * this.gl.canvas.width * 1.1;
+        }
+        else {
+            x_ppm_center = +0.6 * magnification_glass_size * (this.x2_ppm - this.x_ppm) + cursor_position[0];
+            x_scissor = x_pixel + magnification_glass_size * this.gl.canvas.width * 0.1;
+        }
+        if (this.magnification_region_y == 0) {
+            y_ppm_center = -0.6 * magnification_glass_size * (this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel - magnification_glass_size * this.gl.canvas.height * 1.1;
+        }
+        else {
+            y_ppm_center = +0.6 * magnification_glass_size * (this.y2_ppm - this.y_ppm) + cursor_position[1];
+            y_scissor = y_pixel + magnification_glass_size * this.gl.canvas.height * 0.1;
+        }
+
+        this.gl.enable(this.gl.SCISSOR_TEST);
+        this.gl.scissor(x_scissor, y_scissor, x_width_scissor, y_height_scissor);
+        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // set background color to Gray
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        this._draw_ratio_heatmap(
+            cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor);
+
+        this._draw_hillshading(
+            cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor,
+            cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor);
+
+        // console.log("x_scissor: " + x_scissor + " y_scissor: " + y_scissor + " x_width_scissor: " + x_width_scissor + " y_height_scissor: " + y_height_scissor);
+        // console.log("x_ppm_center: " + x_ppm_center + " y_ppm_center: " + y_ppm_center);
+
+        /**
+         * Step 3, get new ppm range, centered at cursor_position and zoom in by a factor of magnifying_factor
+         * keep in mind this.x_ppm > this.x2_ppm and this.y_ppm > this.y2_ppm (NMR convention)
+         */
+        let x_ppm_new = cursor_position[0] + (this.x_ppm - x_ppm_center) / magnifying_factor;
+        let x2_ppm_new = cursor_position[0] + (this.x2_ppm - x_ppm_center) / magnifying_factor;
+        let y_ppm_new = cursor_position[1] + (this.y_ppm - y_ppm_center) / magnifying_factor;
+        let y2_ppm_new = cursor_position[1] + (this.y2_ppm - y_ppm_center) / magnifying_factor;
+
+
+
+        /**
+         * Draw the contour plot again, but only the center part
+         */
+        let number_of_spectra = this.levels_length.length;
+        for (var nn = 0; nn < number_of_spectra; nn++) {
+            let n = (this.spectral_order && this.spectral_order[nn] !== undefined) ? this.spectral_order[nn] : nn;
+            if (this.visible && !this.visible[n]) continue;
+            let sInfo = Array.isArray(this.spectral_information)
+                ? (this.spectral_information[n] || this.spectral_information[0])
+                : this.spectral_information;
+            if (!sInfo) continue;
+            let xStart = sInfo.x_ppm_start || 0;
+            let xStep = sInfo.x_ppm_step || 1;
+            let xRef = sInfo.x_ppm_ref || 0;
+            let yStart = sInfo.y_ppm_start || 0;
+            let yStep = sInfo.y_ppm_step || 1;
+            let yRef = sInfo.y_ppm_ref || 0;
+
+            let x = (x_ppm_new - xStart - xRef) / xStep;
+            let x2 = (x2_ppm_new - xStart - xRef) / xStep;
+            let y = (y_ppm_new - yStart - yRef) / yStep;
+            let y2 = (y2_ppm_new - yStart - yRef) / yStep;
+            this.setCamera(x, x2, y, y2);
+
+            /**
+             * Update the matrix according to the translation and scale defined in camera
+             * this also depends on setCamera_ppm() and setCamera() functions
+             */
+            const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+            const zoomScale_x = 1 / this.camera.zoom_x;
+            const zoomScale_y = 1 / this.camera.zoom_y;
+
+            let cameraMat = m3.identity();
+            cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+            cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+
+            let viewMat = m3.inverse(cameraMat);
+            this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+
+            // Set the matrix. This matrix changes when zooming and panning
+            this.gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+
+
+            this._draw_spectrum_contours(n);
+        }
+        /**
+         * Disable the scissor test.
+         */
+        this.gl.disable(this.gl.SCISSOR_TEST);
+    }
+
+    /**
+     * Create (lazily) the program used to draw the ratio heatmap.
+     * The heatmap is a single textured quad. Spectra A and B are float textures and the
+     * log2 ratio, noise mask and diverging blue-white-red colormap are computed in the fragment shader.
+     */
+    _init_heatmap_program() {
+        if (this.heatmap_program) {
+            return;
+        }
+        const gl = this.gl;
+        const vs = `
+            attribute vec2 a_position;
+            uniform mat3 u_matrix;
+            uniform vec2 u_size;
+            varying vec2 v_uv;
+            void main() {
+                v_uv = a_position / u_size;
+                gl_Position = vec4((u_matrix * vec3(a_position, 1)).xy, 0, 1);
+            }`;
+        const fs = `
+            precision highp float;
+            uniform sampler2D u_tex_a;
+            uniform sampler2D u_tex_b;
+            uniform vec2 u_size;
+            uniform vec2 u_threshold; // x: lowest pos level A, y: lowest pos level B
+            uniform vec2 u_ratio_min_max; // x: min_ratio, y: max_ratio
+            uniform int u_cmap;
+            varying vec2 v_uv;
+
+            // Colormaps: input s in [0, 1]
+            vec3 cm_rdbu(float s) {   // 0: blue - white - red (default)
+                vec3 red = vec3(0.70, 0.09, 0.17);
+                vec3 blue = vec3(0.13, 0.40, 0.67);
+                return s >= 0.5 ? mix(vec3(1.0), red, (s - 0.5) * 2.0) : mix(vec3(1.0), blue, (0.5 - s) * 2.0);
+            }
+            vec3 cm_coolwarm(float s) {   // 1
+                vec3 cold = vec3(0.23, 0.30, 0.75);
+                vec3 mid = vec3(0.87, 0.87, 0.87);
+                vec3 hot = vec3(0.71, 0.02, 0.15);
+                return s >= 0.5 ? mix(mid, hot, (s - 0.5) * 2.0) : mix(cold, mid, s * 2.0);
+            }
+            vec3 cm_viridis(float t) {   // 2 (polynomial fit)
+                const vec3 c0 = vec3(0.2777273272234177, 0.005407344544966578, 0.3340998053353061);
+                const vec3 c1 = vec3(0.1050930431085774, 1.404613529898575, 1.384590162594685);
+                const vec3 c2 = vec3(-0.3308618287255563, 0.214847559468213, 0.09509516302823659);
+                const vec3 c3 = vec3(-4.634230498983486, -5.799100973351585, -19.33244095627987);
+                const vec3 c4 = vec3(6.228269936347081, 14.17993336680509, 56.69055260068105);
+                const vec3 c5 = vec3(4.776384997670288, -13.74514537774601, -65.35303263337234);
+                const vec3 c6 = vec3(-5.435455855934631, 4.645852612178535, 26.3124352495832);
+                return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
+            }
+            vec3 cm_plasma(float t) {   // 3 (polynomial fit)
+                const vec3 c0 = vec3(0.05873234392399702, 0.02333670892565664, 0.5433401826748754);
+                const vec3 c1 = vec3(2.176514634195958, 0.2383834171260182, 0.7539604599784036);
+                const vec3 c2 = vec3(-2.689460476458034, -7.455851135738909, 3.110799939717086);
+                const vec3 c3 = vec3(6.130348345893603, 42.3461881477227, -28.51885465332158);
+                const vec3 c4 = vec3(-11.10743619062271, -82.66631109428045, 60.13984767418263);
+                const vec3 c5 = vec3(10.02306557647065, 71.41361770095349, -54.07218655560067);
+                const vec3 c6 = vec3(-3.658713842777788, -22.93153465461149, 18.19190778539828);
+                return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
+            }
+            vec3 cm_jet(float s) {   // 4
+                return clamp(vec3(1.5 - abs(4.0 * s - 3.0), 1.5 - abs(4.0 * s - 2.0), 1.5 - abs(4.0 * s - 1.0)), 0.0, 1.0);
+            }
+            vec3 cm_gray(float s) {   // 5
+                return vec3(s);
+            }
+            vec3 colormap(float s) {
+                if (u_cmap == 1) return cm_coolwarm(s);
+                if (u_cmap == 2) return cm_viridis(s);
+                if (u_cmap == 3) return cm_plasma(s);
+                if (u_cmap == 4) return cm_jet(s);
+                if (u_cmap == 5) return cm_gray(s);
+                return cm_rdbu(s);
+            }
+
+            // Manual bilinear interpolation (float textures are sampled with NEAREST)
+            float bilerp(sampler2D tex, vec2 p) {
+                vec2 q = p - 0.5;
+                vec2 i0 = floor(q);
+                vec2 f = q - i0;
+                vec2 s = 1.0 / u_size;
+                float v00 = texture2D(tex, (i0 + vec2(0.5, 0.5)) * s).r;
+                float v10 = texture2D(tex, (i0 + vec2(1.5, 0.5)) * s).r;
+                float v01 = texture2D(tex, (i0 + vec2(0.5, 1.5)) * s).r;
+                float v11 = texture2D(tex, (i0 + vec2(1.5, 1.5)) * s).r;
+                return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+            }
+
+            void main() {
+                vec2 p = v_uv * u_size;
+                float va = bilerp(u_tex_a, p);
+                float vb = bilerp(u_tex_b, p);
+
+                // --- Heatmap visibility condition ---
+                // Previous intersection rule (both spectra must reach their lowest positive contour level):
+                // if (va < u_threshold.x || vb < u_threshold.y) discard;
+                //
+                // Current rule: Denominator spectrum (B) lowest positive contour level defines visibility.
+                // A small margin (0.95) allows the heatmap to fill completely across D3 straight chords
+                // and saddle necks, and negative noise in A is clamped to 0.0 to prevent blank holes.
+                if (vb < u_threshold.y * 0.95) discard;
+
+                float r = max(va, 0.0) / vb;
+                float span = u_ratio_min_max.y - u_ratio_min_max.x;
+                float s = span > 0.0 ? clamp((r - u_ratio_min_max.x) / span, 0.0, 1.0) : 0.5;
+                gl_FragColor = vec4(colormap(s), 1.0);
+            }`;
+        this.heatmap_program = webglUtils.createProgramFromSources(gl, [vs, fs]);
+        this.heatmap_loc = {
+            position: gl.getAttribLocation(this.heatmap_program, "a_position"),
+            matrix: gl.getUniformLocation(this.heatmap_program, "u_matrix"),
+            size: gl.getUniformLocation(this.heatmap_program, "u_size"),
+            tex_a: gl.getUniformLocation(this.heatmap_program, "u_tex_a"),
+            tex_b: gl.getUniformLocation(this.heatmap_program, "u_tex_b"),
+            threshold: gl.getUniformLocation(this.heatmap_program, "u_threshold"),
+            ratio_min_max: gl.getUniformLocation(this.heatmap_program, "u_ratio_min_max"),
+            cmap: gl.getUniformLocation(this.heatmap_program, "u_cmap"),
+        };
+        this.heatmap_buffer = gl.createBuffer();
+    }
+
+    /**
+     * Upload two spectra (A and B) as float textures. The ratio is computed per fragment
+     * in the shader from bilinearly interpolated A and B, so the heatmap is smooth when zoomed in.
+     * Displayed value is the ratio |A| / |B|, clamped to [0, 1].
+     * Only points where both A and B reach their current lowest displayed contour level are drawn and used.
+     * Red: A > B, Blue: A < B.
+     *
+     * @param {Float32Array} dataA - raw data of spectrum A (n_indirect rows of n_direct)
+     * @param {Float32Array} dataB - raw data of spectrum B
+     * @param {number} n_direct
+     * @param {number} n_indirect
+     * @param {number} index_a - spectrum index whose ppm axes are used to position the heatmap
+     * @param {number} index_b - spectrum index of B (used to look up its current lowest contour levels)
+     * @param {number} threshold - fallback noise threshold, used only if a spectrum has no contour levels
+     * @returns {boolean} true on success
+     */
+    set_ratio_heatmap(dataA, dataB, n_direct, n_indirect, index_a, index_b, threshold) {
+        const gl = this.gl;
+        const max_size = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (n_direct > max_size || n_indirect > max_size) {
+            return false;
+        }
+        // Float textures (sampled with NEAREST, interpolation is done in the shader)
+        if (!gl.getExtension("OES_texture_float")) {
+            return false;
+        }
+        // Float fragment precision is needed for raw intensities
+        const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        if (!hp || hp.precision === 0) {
+            return false;
+        }
+        this._init_heatmap_program();
+
+        const upload = (tex, data) => {
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, n_direct, n_indirect, 0, gl.LUMINANCE, gl.FLOAT, data);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        };
+        if (!this.heatmap_texture_a) {
+            this.heatmap_texture_a = gl.createTexture();
+            this.heatmap_texture_b = gl.createTexture();
+        }
+        upload(this.heatmap_texture_a, dataA);
+        upload(this.heatmap_texture_b, dataB);
+
+        // Compute true min and max ratio (A/B) for positive data points
+        const [a_pos] = this._lowest_contour_levels(index_a, threshold);
+        const [b_pos] = this._lowest_contour_levels(index_b, threshold);
+        let min_r = Infinity;
+        let max_r = -Infinity;
+        const total = n_direct * n_indirect;
+        for (let i = 0; i < total; i++) {
+            const va = dataA[i];
+            const vb = dataB[i];
+
+            // --- Heatmap visibility condition ---
+            // Previous intersection rule (both spectra must reach their lowest displayed positive contour level):
+            // const is_visible = (va >= a_pos && vb >= b_pos && vb > 0);
+            //
+            // Current rule: Denominator spectrum (B) lowest positive contour level (with 0.95 margin) defines visibility.
+            // Negative noise in A is clamped to 0.0 to prevent holes.
+            const is_visible = (vb >= b_pos * 0.95 && vb > 0);
+
+            if (is_visible) {
+                const r = Math.max(va, 0.0) / vb;
+                if (r < min_r) min_r = r;
+                if (r > max_r) max_r = r;
+            }
+        }
+        if (!Number.isFinite(min_r) || !Number.isFinite(max_r)) {
+            min_r = 0.0;
+            max_r = 1.0;
+        } else if (min_r === max_r) {
+            max_r = min_r + 1.0;
+        }
+
+        this.ratio_heatmap = {
+            mode: "ratio",
+            n_direct: n_direct, n_indirect: n_indirect, index: index_a, index_b: index_b,
+            threshold: threshold, min_ratio: min_r, max_ratio: max_r,
+            display_min: min_r, display_max: max_r
+        };
+        return true;
+    }
+
+    /**
+     * Activate contour colormap mode on the specified spectrum index or array of indices using log(contour level) in [min_log, max_log].
+     */
+    set_contour_colormap(indices, min_log, max_log) {
+        const idx_list = Array.isArray(indices) ? indices : [indices];
+        if (idx_list.length === 0) {
+            this.ratio_heatmap = null;
+            return false;
+        }
+        let min_r = min_log;
+        let max_r = max_log;
+        if (!Number.isFinite(min_r) || !Number.isFinite(max_r)) {
+            min_r = 0.0;
+            max_r = 1.0;
+        } else if (min_r === max_r) {
+            max_r = min_r + 1.0;
+        }
+        this.ratio_heatmap = {
+            mode: "contour",
+            index: idx_list[0],
+            indices: idx_list,
+            min_ratio: min_r, max_ratio: max_r,
+            display_min: min_r, display_max: max_r
+        };
+        return true;
+    }
+
+    /**
+     * Evaluate colormap id at s in [0, 1] and return [r, g, b, 1.0] in 0..1.
+     */
+    _colormap_rgb01(id, s) {
+        const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+        const poly = (c, t) => c[0].map((_, k) => {
+            let v = c[6][k];
+            for (let j = 5; j >= 0; j--) v = c[j][k] + t * v;
+            return v;
+        });
+        let rgb;
+        switch (id) {
+            case 1: {
+                const cold = [0.23, 0.30, 0.75], mid = [0.87, 0.87, 0.87], hot = [0.71, 0.02, 0.15];
+                rgb = s >= 0.5 ? mix(mid, hot, (s - 0.5) * 2) : mix(cold, mid, s * 2);
+                break;
+            }
+            case 2:
+                rgb = poly([[0.2777273272234177, 0.005407344544966578, 0.3340998053353061],
+                [0.1050930431085774, 1.404613529898575, 1.384590162594685],
+                [-0.3308618287255563, 0.214847559468213, 0.09509516302823659],
+                [-4.634230498983486, -5.799100973351585, -19.33244095627987],
+                [6.228269936347081, 14.17993336680509, 56.69055260068105],
+                [4.776384997670288, -13.74514537774601, -65.35303263337234],
+                [-5.435455855934631, 4.645852612178535, 26.3124352495832]], s);
+                break;
+            case 3:
+                rgb = poly([[0.05873234392399702, 0.02333670892565664, 0.5433401826748754],
+                [2.176514634195958, 0.2383834171260182, 0.7539604599784036],
+                [-2.689460476458034, -7.455851135738909, 3.110799939717086],
+                [6.130348345893603, 42.3461881477227, -28.51885465332158],
+                [-11.10743619062271, -82.66631109428045, 60.13984767418263],
+                [10.02306557647065, 71.41361770095349, -54.07218655560067],
+                [-3.658713842777788, -22.93153465461149, 18.19190778539828]], s);
+                break;
+            case 4:
+                rgb = [1.5 - Math.abs(4 * s - 3), 1.5 - Math.abs(4 * s - 2), 1.5 - Math.abs(4 * s - 1)];
+                break;
+            case 5:
+                rgb = [s, s, s];
+                break;
+            default: {
+                const red = [0.70, 0.09, 0.17], blue = [0.13, 0.40, 0.67], white = [1, 1, 1];
+                rgb = s >= 0.5 ? mix(white, red, (s - 0.5) * 2) : mix(white, blue, (0.5 - s) * 2);
+            }
+        }
+        return [
+            Math.max(0, Math.min(1, rgb[0])),
+            Math.max(0, Math.min(1, rgb[1])),
+            Math.max(0, Math.min(1, rgb[2])),
+            1.0
+        ];
+    }
+
+    /**
+     * Get RGBA color for positive contour level m of spectrum n.
+     * In contour colormap mode, maps log(contour level) into [display_min, display_max].
+     */
+    _contour_level_color(n, m) {
+        const hm = this.ratio_heatmap;
+        if (hm && hm.mode === "contour" && ((Array.isArray(hm.indices) && hm.indices.indexOf(n) !== -1) || hm.index === n)) {
+            const _spectra = this.get_spectra();
+            const spec = (_spectra && _spectra[n]) ? _spectra[n] : null;
+            if (spec && Array.isArray(spec.levels) && m >= 0 && m < spec.levels.length && spec.levels[m] > 0) {
+                const log_val = Math.log(spec.levels[m]);
+                const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
+                const dmax = Number.isFinite(hm.display_max) ? hm.display_max : hm.max_ratio;
+                const span = dmax - dmin;
+                const s = span > 0 ? Math.max(0, Math.min(1, (log_val - dmin) / span)) : 0.5;
+                return this._colormap_rgb01(this.ratio_colormap || 0, s);
+            }
+        }
+        return this.colors[n];
+    }
+
+    /**
+     * Get the index of the 1st visible spectrum according to spectral_order.
+     * If spectra are reordered or some are hidden, this finds the top visible spectrum.
+     */
+    _get_first_visible_spectrum() {
+        const _spectra = this.get_spectra();
+        if (Array.isArray(this.spectral_order) && this.spectral_order.length > 0) {
+            for (let i = 0; i < this.spectral_order.length; i++) {
+                let n = this.spectral_order[i];
+                let is_vis = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
+                if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
+                    return n;
+                }
+            }
+        }
+        if (_spectra.length > 0) {
+            for (let n = 0; n < _spectra.length; n++) {
+                let is_vis = (!this.visible || this.visible[n]) && (!_spectra[n] || _spectra[n].visible !== false);
+                if (is_vis && this.levels_length[n] && (this.levels_length[n].length > 0 || (this.levels_length_negative[n] && this.levels_length_negative[n].length > 0))) {
+                    return n;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Determines whether to draw drop shadow for level m of spectrum n.
+     * Per design: only drawn for the 1st visible spectrum (e.g. if 5 spectra are visible, only 1st spectrum).
+     * When drawn, it applies to ALL visible contour levels of that 1st spectrum.
+     */
+    _should_draw_contour_shadow(n, m, is_negative = false) {
+        if (!this.contour_shadow_enabled) {
+            return false;
+        }
+        const first_visible_n = this._get_first_visible_spectrum();
+        if (first_visible_n === -1 || n !== first_visible_n) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Draw vector line drop-shadow passes underneath contour lines for level m.
+     * Shifts vertex positions by screen-pixel offsets (down-right) and uses alpha blending
+     * to project a rich, feathered, embossed 3D relief drop shadow.
+     */
+    _draw_contour_level_shadow(n, i_start, i_stop, is_negative = false) {
+        const gl = this.gl;
+        if (!gl || i_start >= i_stop) {
+            return;
+        }
+
+        const mode = this.contour_shadow_mode || 'bold';
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        // Multi-sample Gaussian drop shadow kernel (light from top-left, casting down-right).
+        // Uses subpixel offset passes to turn a 1-pixel vector line into a thick, continuous,
+        // feathered shadow band with high core opacity (~85%-90%) and zero gaps.
+        const passes = (mode === 'subtle') ? [
+            { dx_px: 1.8, dy_px: -1.8, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 2.5, dy_px: -2.5, color: [0.0, 0.0, 0.0, 0.25] },
+            { dx_px: 1.8, dy_px: -2.5, color: [0.0, 0.0, 0.0, 0.18] },
+            { dx_px: 2.5, dy_px: -1.8, color: [0.0, 0.0, 0.0, 0.18] },
+            { dx_px: 3.2, dy_px: -3.2, color: [0.0, 0.0, 0.0, 0.12] }
+        ] : [
+            // Bold mode (default):
+            // 1. Embossed highlight rim on illuminated edge (top-left) - enhances 3D pop over heatmaps & between rings
+            { dx_px: -1.0, dy_px: 1.0, color: [1.0, 1.0, 1.0, 0.65] },
+            { dx_px: -1.6, dy_px: 1.6, color: [1.0, 1.0, 1.0, 0.35] },
+
+            // 2. Core shadow (distance 2.2 - 3.5 px)
+            { dx_px: 2.2, dy_px: -2.2, color: [0.0, 0.0, 0.0, 0.50] },
+            { dx_px: 2.8, dy_px: -2.8, color: [0.0, 0.0, 0.0, 0.55] },
+            { dx_px: 3.5, dy_px: -3.5, color: [0.0, 0.0, 0.0, 0.45] },
+
+            // 3. Lateral spread to bridge diagonal/curved segments and avoid gaps
+            { dx_px: 2.2, dy_px: -3.2, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 3.2, dy_px: -2.2, color: [0.0, 0.0, 0.0, 0.35] },
+            { dx_px: 2.8, dy_px: -3.5, color: [0.0, 0.0, 0.0, 0.30] },
+            { dx_px: 3.5, dy_px: -2.8, color: [0.0, 0.0, 0.0, 0.30] },
+
+            // 4. Outer soft feathering (distance 4.2 - 5.0 px)
+            { dx_px: 4.2, dy_px: -4.2, color: [0.0, 0.0, 0.0, 0.22] },
+            { dx_px: 5.0, dy_px: -5.0, color: [0.0, 0.0, 0.0, 0.12] }
+        ];
+
+        const w = gl.canvas.width;
+        const h = gl.canvas.height;
+        const poly_len = is_negative ? this.polygon_length_negative[n] : this.polygon_length[n];
+        const pts_start = is_negative ? this.points_start_negative[n] : this.points_start[n];
+        const overlay_offset = pts_start / 2;
+
+        for (let p = 0; p < passes.length; p++) {
+            const pass = passes[p];
+            const dx_clip = (pass.dx_px * 2.0) / w;
+            const dy_clip = (pass.dy_px * 2.0) / h;
+
+            let shadowMat = new Float32Array(this.viewProjectionMat);
+            shadowMat[6] += dx_clip;
+            shadowMat[7] += dy_clip;
+
+            gl.uniformMatrix3fv(this.matrixLocation, false, shadowMat);
+            gl.uniform4fv(this.colorLocation, pass.color);
+
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = 0;
+                if (i > 0) {
+                    point_start = poly_len[i - 1];
+                }
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+        }
+
+        // Restore original matrix and disable blending
+        gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+        gl.disable(gl.BLEND);
+    }
+
+    /**
+     * Draw contour line segments for range [i_start, i_stop).
+     * If Line Drop-Shadow is enabled for this spectrum, draws thick contour lines
+     * via multi-pass subpixel dilation. When drop shadow is OFF, reverses to normal 1px lines.
+     */
+    _draw_contour_segments(n, i_start, i_stop, color, is_negative = false) {
+        const gl = this.gl;
+        if (!gl || i_start >= i_stop) {
+            return;
+        }
+
+        const poly_len = is_negative ? this.polygon_length_negative[n] : this.polygon_length[n];
+        const pts_start = is_negative ? this.points_start_negative[n] : this.points_start[n];
+        const overlay_offset = pts_start / 2;
+
+        gl.uniform4fv(this.colorLocation, color);
+
+        // Check if Line Drop-Shadow is active for this spectrum
+        const is_thick = this._should_draw_contour_shadow(n, 0, is_negative);
+
+        if (!is_thick) {
+            // Normal 1px contour line (single pass)
+            gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = (i > 0) ? poly_len[i - 1] : 0;
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+            return;
+        }
+
+        // Thick contour lines: multi-pass subpixel dilation to overcome WebGL 1.0px lineWidth limitation
+        const w = gl.canvas.width;
+        const h = gl.canvas.height;
+        const mode = this.contour_shadow_mode || 'bold';
+
+        // Subpixel offsets in screen pixels (denser kernel for solid stroke coverage)
+        const offsets = (mode === 'subtle') ? [
+            [0.0, 0.0],
+            [-0.6, 0.0], [0.6, 0.0],
+            [0.0, -0.6], [0.0, 0.6]
+        ] : [
+            [0.0, 0.0],
+            [-0.75, 0.0], [0.75, 0.0],
+            [0.0, -0.75], [0.0, 0.75],
+            [-0.55, -0.55], [0.55, -0.55],
+            [-0.55, 0.55], [0.55, 0.55]
+        ];
+
+        for (let p = 0; p < offsets.length; p++) {
+            const dx_clip = (offsets[p][0] * 2.0) / w;
+            const dy_clip = (offsets[p][1] * 2.0) / h;
+
+            let lineMat = new Float32Array(this.viewProjectionMat);
+            lineMat[6] += dx_clip;
+            lineMat[7] += dy_clip;
+
+            gl.uniformMatrix3fv(this.matrixLocation, false, lineMat);
+
+            for (let i = i_start; i < i_stop; i++) {
+                let point_start = (i > 0) ? poly_len[i - 1] : 0;
+                let count = poly_len[i] - point_start;
+                gl.drawArrays(gl.LINE_STRIP, point_start + overlay_offset, count);
+            }
+        }
+
+        // Restore original matrix
+        gl.uniformMatrix3fv(this.matrixLocation, false, this.viewProjectionMat);
+    }
+
+    /**
+     * Set custom user-selected colormap range [display_min, display_max], clamped within [min_ratio, max_ratio].
+     */
+    set_ratio_range(display_min, display_max) {
+        if (!this.ratio_heatmap) {
+            return;
+        }
+        const min_r = this.ratio_heatmap.min_ratio;
+        const max_r = this.ratio_heatmap.max_ratio;
+        let dmin = Math.max(min_r, Math.min(max_r, display_min));
+        let dmax = Math.max(min_r, Math.min(max_r, display_max));
+        if (dmin > dmax) {
+            const tmp = dmin;
+            dmin = dmax;
+            dmax = tmp;
+        }
+        this.ratio_heatmap.display_min = dmin;
+        this.ratio_heatmap.display_max = dmax;
+    }
+
+    clear_ratio_heatmap() {
+        this.ratio_heatmap = null;
+    }
+
+    /**
+     * Current lowest displayed contour level (as magnitude) of a spectrum.
+     * Uses contour_lbs (the first drawn level), so it follows contour level changes.
+     * @returns {number[]} [positive level, negative level]. A missing negative contour gives a huge
+     * value, so negative data never passes. A missing positive contour falls back to fallback.
+     */
+    _lowest_contour_levels(n, fallback) {
+        const NONE = 1e30;
+        const _spectra = this.get_spectra();
+            const spec = (_spectra && _spectra[n]) ? _spectra[n] : null;
+        const pick = (levels, lbs, default_value) => {
+            if (!levels || levels.length === 0 || !lbs || lbs[n] === undefined) {
+                return default_value;
+            }
+            const level = levels[Math.min(Math.max(lbs[n], 0), levels.length - 1)];
+            return Number.isFinite(level) && level !== 0 ? Math.abs(level) : default_value;
+        };
+        return [
+            pick(spec ? spec.levels : null, this.contour_lbs, fallback),
+            pick(spec ? spec.negative_levels : null, this.contour_lbs_negative, NONE)
+        ];
+    }
+
+    /**
+     * Select heatmap colormap. 0: red-white-blue (default), 1: coolwarm, 2: viridis,
+     * 3: plasma, 4: jet, 5: grayscale. Takes effect at the next drawScene().
+     */
+    set_ratio_colormap(id) {
+        this.ratio_colormap = id;
+    }
+
+    /**
+     * Draw the ratio heatmap (if any). Must be called after clear and before the contours.
+     * Restores the contour program state afterwards.
+     * IMPORTANT: not meant to be called directly. Use drawScene() instead.
+     */
+    _draw_ratio_heatmap(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        const hm = this.ratio_heatmap;
+        if (!hm || hm.mode === "contour" || !this.heatmap_texture_a || !this.heatmap_texture_b) {
+            return;
+        }
+        const info = this.spectral_information[hm.index];
+        if (!info) {
+            return;
+        }
+        const gl = this.gl;
+
+        // Camera for the spectrum that defines the heatmap geometry
+        let x = (x_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let x2 = (x2_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let y = (y_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        let y2 = (y2_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        this.setCamera(x, x2, y, y2);
+        const projectionMat = m3.projection(gl.canvas.width, gl.canvas.height);
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+        cameraMat = m3.scale(cameraMat, 1 / this.camera.zoom_x, 1 / this.camera.zoom_y);
+        const mat = m3.multiply(projectionMat, m3.inverse(cameraMat));
+
+        // Quad covering all data points. d3.contours() places grid value i at coordinate i + 0.5,
+        // so pixel i spans [i, i + 1] and the quad spans [0, n].
+        const x0 = 0, x1 = hm.n_direct, y0 = 0, y1 = hm.n_indirect;
+        const quad = new Float32Array([x0, y0, x1, y0, x0, y1, x0, y1, x1, y0, x1, y1]);
+
+        gl.useProgram(this.heatmap_program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmap_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(this.heatmap_loc.position);
+        gl.vertexAttribPointer(this.heatmap_loc.position, 2, gl.FLOAT, false, 0, 0);
+        gl.uniformMatrix3fv(this.heatmap_loc.matrix, false, mat);
+        gl.uniform2f(this.heatmap_loc.size, hm.n_direct, hm.n_indirect);
+        const [a_pos] = this._lowest_contour_levels(hm.index, hm.threshold);
+        const [b_pos] = this._lowest_contour_levels(hm.index_b, hm.threshold);
+        gl.uniform2f(this.heatmap_loc.threshold, a_pos, b_pos);
+        const dmin = Number.isFinite(hm.display_min) ? hm.display_min : hm.min_ratio;
+        const dmax = Number.isFinite(hm.display_max) ? hm.display_max : hm.max_ratio;
+        gl.uniform2f(this.heatmap_loc.ratio_min_max, dmin, dmax);
+        gl.uniform1i(this.heatmap_loc.cmap, this.ratio_colormap || 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_a);
+        gl.uniform1i(this.heatmap_loc.tex_a, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.heatmap_texture_b);
+        gl.uniform1i(this.heatmap_loc.tex_b, 1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        // Restore contour program state
+        if (this.heatmap_loc.position !== this.positionLocation) {
+            gl.disableVertexAttribArray(this.heatmap_loc.position);
+        }
+        gl.useProgram(this.program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.enableVertexAttribArray(this.positionLocation);
+        gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    /**
+     * Directly set this.camera position by calling this function.
+     * This is useful when we want to zoom to a specific location, 
+     * such as when webgl is overlaid as a background of a SVG plot and 
+     * all the zooming and panning is handled by the SVG plot
+     */
+    setCamera(x, x2, y, y2) {
+        /**
+         * make sure x2 > x and y2 > y. Swap if not
+         */
+        if (x2 <= x) {
+            let tmp = x2;
+            x2 = x;
+            x = tmp;
+        }
+        if (y2 <= y) {
+            let tmp = y2;
+            y2 = y;
+            y = tmp;
+        }
+
+        let w = (this.gl && this.gl.canvas && this.gl.canvas.width > 0) ? this.gl.canvas.width : (this.canvas ? this.canvas.clientWidth : 1200);
+        let h = (this.gl && this.gl.canvas && this.gl.canvas.height > 0) ? this.gl.canvas.height : (this.canvas ? this.canvas.clientHeight : 800);
+        this.camera = {
+            x: x,
+            y: y,
+            zoom_x: w / (x2 - x),
+            zoom_y: h / (y2 - y)
+        };
+        if (!this.camera_stack) this.camera_stack = [];
+        this.camera_stack.push(this.camera);
+    };
+
+
+    /**
+     * Set the camera according to ppm
+     * Later in drawScene(), we will use this information to set the camera
+     */
+    setCamera_ppm(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        this.x_ppm = x_ppm;
+        this.x2_ppm = x2_ppm;
+        this.y_ppm = y_ppm;
+        this.y2_ppm = y2_ppm;
+        if (!this.camera_ppm_stack) this.camera_ppm_stack = [];
+        this.camera_ppm_stack.push({ x_ppm: x_ppm, x2_ppm: x2_ppm, y_ppm: y_ppm, y2_ppm: y2_ppm });
+    }
+
+    /**
+     * Update ppm information
+     */
+    update_ppm(ref1, ref2) {
+        this.x_ppm_start += ref1;
+        this.y_ppm_start += ref2;
+        this.x_ppm_ref = (this.x_ppm_ref || 0) + ref1;
+        this.y_ppm_ref = (this.y_ppm_ref || 0) + ref2;
+        if (this.spectral_information) {
+            if (Array.isArray(this.spectral_information)) {
+                for (let i = 0; i < this.spectral_information.length; i++) {
+                    if (this.spectral_information[i]) {
+                        this.spectral_information[i].x_ppm_ref = (this.spectral_information[i].x_ppm_ref || 0) + ref1;
+                        this.spectral_information[i].y_ppm_ref = (this.spectral_information[i].y_ppm_ref || 0) + ref2;
+                    }
+                }
+            } else {
+                this.spectral_information.x_ppm_ref = (this.spectral_information.x_ppm_ref || 0) + ref1;
+                this.spectral_information.y_ppm_ref = (this.spectral_information.y_ppm_ref || 0) + ref2;
+            }
+        }
+    }
+
+    /**
+     * Create (lazily) the WebGL program used to render 3D topographical hillshading.
+     */
+    _init_hillshading_program() {
+        if (this.hillshade_program) {
+            return;
+        }
+        const gl = this.gl;
+        if (!gl.getExtension("OES_texture_float")) {
+            return;
+        }
+        const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        if (!hp || hp.precision === 0) {
+            return;
+        }
+
+        const vs = `
+            attribute vec2 a_position;
+            uniform mat3 u_matrix;
+            uniform vec2 u_size;
+            varying vec2 v_uv;
+            void main() {
+                v_uv = a_position / u_size;
+                gl_Position = vec4((u_matrix * vec3(a_position, 1)).xy, 0, 1);
+            }`;
+
+        const fs = `
+            precision highp float;
+            uniform sampler2D u_tex;
+            uniform vec2 u_size;
+            uniform float u_threshold;
+            uniform float u_z_max;
+            uniform vec4 u_spec_color;
+            varying vec2 v_uv;
+
+            float bilerp(sampler2D tex, vec2 p) {
+                vec2 q = p - 0.5;
+                vec2 i0 = floor(q);
+                vec2 f = fract(q);
+                vec2 s = 1.0 / u_size;
+                float v00 = texture2D(tex, (i0 + vec2(0.5, 0.5)) * s).r;
+                float v10 = texture2D(tex, (i0 + vec2(1.5, 0.5)) * s).r;
+                float v01 = texture2D(tex, (i0 + vec2(0.5, 1.5)) * s).r;
+                float v11 = texture2D(tex, (i0 + vec2(1.5, 1.5)) * s).r;
+                return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+            }
+
+            // Logarithmic elevation matching the exponential contour spacing
+            float get_log_elevation(sampler2D tex, vec2 p, float thresh) {
+                float val = bilerp(tex, p);
+                return log(max(val, thresh * 0.1) / thresh);
+            }
+
+            void main() {
+                vec2 p = v_uv * u_size;
+                float z = bilerp(u_tex, p);
+
+                // Discard fragments below the lowest visible contour level
+                if (z < u_threshold) {
+                    discard;
+                }
+
+                // Smooth edge fade across the lowest contour boundary
+                float edge_fade = clamp((z - u_threshold) / max(u_threshold * 0.15, 1e-6), 0.0, 1.0);
+
+                // Sample log elevation at 4 neighbors using central differences
+                float delta = 1.5;
+                float h_east  = get_log_elevation(u_tex, p + vec2(delta, 0.0), u_threshold);
+                float h_west  = get_log_elevation(u_tex, p - vec2(delta, 0.0), u_threshold);
+                float h_north = get_log_elevation(u_tex, p + vec2(0.0, delta), u_threshold);
+                float h_south = get_log_elevation(u_tex, p - vec2(delta, 0.0), u_threshold);
+
+                float dh_dx = (h_east - h_west) / (2.0 * delta);
+                float dh_dy = (h_north - h_south) / (2.0 * delta);
+
+                // Normal vector in log-elevation space
+                float relief_scale = 3.0;
+                vec3 N = normalize(vec3(-dh_dx * relief_scale, -dh_dy * relief_scale, 1.0));
+
+                // Directional sunlight from NW (azimuth 315 deg, altitude 45 deg)
+                vec3 L = normalize(vec3(-0.7071, 0.7071, 0.90));
+                float diff = max(0.0, dot(N, L));
+
+                // Continuous Lambertian illumination curve:
+                // NW sunlit slopes ~ 0.95-1.0 (bright), hilltop ~ 0.78-0.82 (sculpted dome), SE slopes ~ 0.45-0.55 (shadow)
+                float shade = 0.35 + 0.65 * diff;
+
+                // Subtle specular crest highlight along illuminated ridges
+                vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+                float spec = pow(max(0.0, dot(N, H)), 16.0) * 0.28;
+
+                // Normalized elevation ratio h_ratio: 0.0 at base threshold to 1.0 at peak top
+                float h_ratio = clamp(log(max(z / u_threshold, 1.0)) / max(log(max(u_z_max / u_threshold, 2.0)), 0.5), 0.0, 1.0);
+
+                // Base terrain tone enriched with spectrum color tint towards the hilltop.
+                // Gives the peak summit volume and substance so it is never a washed-out white patch.
+                vec3 base_color = mix(vec3(0.92, 0.93, 0.95), u_spec_color.rgb, 0.10 + 0.25 * h_ratio);
+
+                vec3 final_rgb = base_color * shade + vec3(spec);
+
+                // Alpha blending: smoothly fades at the outer contour base, solid tactile presence on the hill
+                float alpha = mix(0.45, 0.75, h_ratio) * edge_fade;
+
+                gl_FragColor = vec4(clamp(final_rgb, 0.0, 1.0), alpha);
+            }`;
+
+        this.hillshade_program = webglUtils.createProgramFromSources(gl, [vs, fs]);
+        this.hillshade_loc = {
+            position: gl.getAttribLocation(this.hillshade_program, "a_position"),
+            matrix: gl.getUniformLocation(this.hillshade_program, "u_matrix"),
+            size: gl.getUniformLocation(this.hillshade_program, "u_size"),
+            tex: gl.getUniformLocation(this.hillshade_program, "u_tex"),
+            threshold: gl.getUniformLocation(this.hillshade_program, "u_threshold"),
+            z_max: gl.getUniformLocation(this.hillshade_program, "u_z_max"),
+            spec_color: gl.getUniformLocation(this.hillshade_program, "u_spec_color"),
+        };
+        this.hillshade_buffer = gl.createBuffer();
+    }
+
+    /**
+     * Draw continuous 3D topographical hillshading for the 1st visible spectrum.
+     */
+    _draw_hillshading(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        if (!this.hillshading_enabled) {
+            return;
+        }
+        const n = this._get_first_visible_spectrum();
+        const _spectra = this.get_spectra();
+        if (n === -1 || !_spectra[n]) {
+            return;
+        }
+        const s = _spectra[n];
+        if (!s.raw_data || s.raw_data.length === 0) {
+            return;
+        }
+        const info = this.spectral_information[n];
+        if (!info) {
+            return;
+        }
+
+        const gl = this.gl;
+        const max_size = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        if (info.n_direct > max_size || info.n_indirect > max_size) {
+            return;
+        }
+
+        this._init_hillshading_program();
+        if (!this.hillshade_program) {
+            return;
+        }
+
+        // Upload texture if not already cached for this spectrum & data
+        if (!this.hillshade_texture) {
+            this.hillshade_texture = gl.createTexture();
+        }
+        if (this.hillshade_cached_spec !== n || this.hillshade_cached_data !== s.raw_data) {
+            gl.bindTexture(gl.TEXTURE_2D, this.hillshade_texture);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, info.n_direct, info.n_indirect, 0, gl.LUMINANCE, gl.FLOAT, s.raw_data);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            this.hillshade_cached_spec = n;
+            this.hillshade_cached_data = s.raw_data;
+        }
+
+        // Camera for the 1st visible spectrum
+        let x = (x_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let x2 = (x2_ppm - info.x_ppm_start - info.x_ppm_ref) / info.x_ppm_step;
+        let y = (y_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        let y2 = (y2_ppm - info.y_ppm_start - info.y_ppm_ref) / info.y_ppm_step;
+        this.setCamera(x, x2, y, y2);
+        const projectionMat = m3.projection(gl.canvas.width, gl.canvas.height);
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x, this.camera.y);
+        cameraMat = m3.scale(cameraMat, 1 / this.camera.zoom_x, 1 / this.camera.zoom_y);
+        const mat = m3.multiply(projectionMat, m3.inverse(cameraMat));
+
+        // Quad covering data area
+        const x0 = 0, x1 = info.n_direct, y0 = 0, y1 = info.n_indirect;
+        const quad = new Float32Array([x0, y0, x1, y0, x0, y1, x0, y1, x1, y0, x1, y1]);
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        gl.useProgram(this.hillshade_program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.hillshade_buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(this.hillshade_loc.position);
+        gl.vertexAttribPointer(this.hillshade_loc.position, 2, gl.FLOAT, false, 0, 0);
+
+        gl.uniformMatrix3fv(this.hillshade_loc.matrix, false, mat);
+        gl.uniform2f(this.hillshade_loc.size, info.n_direct, info.n_indirect);
+
+        // Calculate threshold (lowest visible contour level) and z_max
+        const lb_idx = (this.contour_lbs && typeof this.contour_lbs[n] === 'number') ? this.contour_lbs[n] : 0;
+        let threshold = (Array.isArray(s.levels) && s.levels.length > lb_idx) ? s.levels[lb_idx] : 0.0;
+        let z_max = (Array.isArray(s.levels) && s.levels.length > 0) ? s.levels[s.levels.length - 1] : (threshold * 5.0);
+
+        gl.uniform1f(this.hillshade_loc.threshold, Math.max(threshold, 1e-6));
+        gl.uniform1f(this.hillshade_loc.z_max, Math.max(z_max, threshold * 1.5));
+
+        const specColor = this.colors[n] || [0.2, 0.4, 0.8, 1.0];
+        gl.uniform4fv(this.hillshade_loc.spec_color, specColor);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.hillshade_texture);
+        gl.uniform1i(this.hillshade_loc.tex, 0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.disable(gl.BLEND);
+
+        // Restore contour program state
+        if (this.hillshade_loc.position !== this.positionLocation) {
+            gl.disableVertexAttribArray(this.hillshade_loc.position);
+        }
+        gl.useProgram(this.program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.enableVertexAttribArray(this.positionLocation);
+        gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    // =========================================================================
+    // SPIN Compatibility Helpers
+    // =========================================================================
+
+    set_spectrum_information(x_ppm_start, x_ppm_step, y_ppm_start, y_ppm_step, n_direct, n_indirect, x_ppm_ref = 0, y_ppm_ref = 0) {
+        this.x_ppm_start = x_ppm_start;
+        this.x_ppm_step = x_ppm_step;
+        this.y_ppm_start = y_ppm_start;
+        this.y_ppm_step = y_ppm_step;
+        this.n_direct = n_direct;
+        this.n_indirect = n_indirect;
+        this.x_ppm_ref = x_ppm_ref;
+        this.y_ppm_ref = y_ppm_ref;
+
+        this.spectral_information = [{
+            x_ppm_start: x_ppm_start,
+            x_ppm_step: x_ppm_step,
+            y_ppm_start: y_ppm_start,
+            y_ppm_step: y_ppm_step,
+            x_ppm_ref: x_ppm_ref,
+            y_ppm_ref: y_ppm_ref,
+            n_direct: n_direct,
+            n_indirect: n_indirect
+        }];
+        this.spectral_order = [0];
+    }
+
+    makeCameraMatrix() {
+        if (!this.camera) return m3.identity();
+        const zoomScale_x = 1 / (this.camera.zoom_x || 1);
+        const zoomScale_y = 1 / (this.camera.zoom_y || 1);
+        let cameraMat = m3.identity();
+        cameraMat = m3.translate(cameraMat, this.camera.x || 0, this.camera.y || 0);
+        cameraMat = m3.scale(cameraMat, zoomScale_x, zoomScale_y);
+        return cameraMat;
+    }
+
+    updateViewProjection() {
+        const projectionMat = m3.projection(this.gl.canvas.width, this.gl.canvas.height);
+        const cameraMat = this.makeCameraMatrix();
+        let viewMat = m3.inverse(cameraMat);
+        this.viewProjectionMat = m3.multiply(projectionMat, viewMat);
+    }
+
+    setView(x, x2, y, y2) {
+        if (x2 <= x) { let tmp = x2; x2 = x; x = tmp; }
+        if (y2 <= y) { let tmp = y2; y2 = y; y = tmp; }
+
+        let view = {
+            left: x,
+            right: x2,
+            bottom: y,
+            top: y2
+        };
+        if (!this.view_stack) this.view_stack = [];
+        this.view_stack.push(view);
+    }
+
+    clearCamera() {
+        this.camera_stack = [];
+        this.camera_ppm_stack = [];
+    }
+
+    clearView() {
+        this.view_stack = [];
+    }
+
+    set_level_lb(level_lb) {
+        this.level_lb = level_lb;
+        if (this.contour_lbs && this.contour_lbs.length > 0) {
+            this.contour_lbs[0] = level_lb;
+        }
+        this.drawScene();
+    }
+
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = webgl_contour_plot;
+}
+if (typeof window !== 'undefined') {
+    window.webgl_contour_plot = webgl_contour_plot;
+}

@@ -12,7 +12,8 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2;
+var my_contour_worker, webassembly_worker, webassembly_worker2 = null;
+var wasm_2d_runner = null;
 const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
 
 function get_webassembly_job_flag(data) {
@@ -22,9 +23,33 @@ function get_webassembly_job_flag(data) {
     return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
 }
 try {
-    my_contour_worker = new Worker('./js/contour.js');
-    webassembly_worker = new Worker('./js/webass_2d.js');
-    webassembly_worker2 = new Worker('./js/webass_smile.js');
+    my_contour_worker = new Worker('js/shared/contour_worker_2d.js');
+
+    /**
+     * webdp1d_cpp.wasm is run in EPHEMERAL workers (see js/wasm_runner.js):
+     *  - the compiled WebAssembly.Module is cached here on the main thread
+     *    (WebAssembly.compileStreaming, compiled only once),
+     *  - a new js/webass_2d.js worker is spawned only when a job is submitted and the module is
+     *    posted to it together with the input data; the worker instantiates the module (and
+     *    therefore its linear memory) on demand,
+     *  - the worker is terminated as soon as the final result message is received (or on error),
+     *    so the memory is released after every job. Jobs run one at a time.
+     *
+     * `webassembly_worker` is a facade exposing postMessage/onmessage/terminate, so every
+     * webassembly_worker.postMessage(job, transferList) call below runs as an ephemeral job.
+     */
+    wasm_2d_runner = new EphemeralWasmRunner({
+        label: 'webdp1d_cpp',
+        workerUrl: './js/webass_2d.js',
+        wasmUrl: './js/webdp1d_cpp.wasm',
+        maxConcurrent: 1,
+        isIntermediate: function (data) {
+            return !!data && (typeof data.stdout !== 'undefined'
+                || get_webassembly_job_flag(data) === "pseudo3d_progress");
+        }
+    });
+    webassembly_worker = wasm_2d_runner.createWorkerFacade();
+    wasm_2d_runner.preload(); //compile now (no worker, no linear memory is created)
 
     function clear_webassembly_message_after_delay(delay_ms = 5000) {
         window.setTimeout(function () {
@@ -38,8 +63,7 @@ try {
 catch (err) {
     console.log(err);
     if (typeof (my_contour_worker) === "undefined"
-        || typeof (webassembly_worker) === "undefined"
-        || typeof (webassembly_worker2) === "undefined") {
+        || typeof (webassembly_worker) === "undefined") {
         alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
     }
 }
@@ -519,6 +543,7 @@ $(document).ready(function () {
                 }
                 if (current_reprocess_spectrum_index !== -1) {
                     current_reprocess_spectrum_index = -1;
+                    if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
                     let fidBtn = document.getElementById("button_fid_process");
                     if (fidBtn) fidBtn.value = "Upload experimental files and process";
                     let fileArea = document.getElementById("file_area");
@@ -545,6 +570,7 @@ $(document).ready(function () {
             }
             if (current_reprocess_spectrum_index !== -1) {
                 current_reprocess_spectrum_index = -1;
+                if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
                 let fidBtn = document.getElementById("button_fid_process");
                 if (fidBtn) fidBtn.value = "Upload experimental files and process";
                 let fileArea = document.getElementById("file_area");
@@ -1277,7 +1303,36 @@ function run_pseudo3d(flag) {
         peak_comments: peak_comments,
         peak_xppm: peak_xppm,
         peak_yppm: peak_yppm,
-    });
+    }, all_files.map(f => f.buffer));
+}
+
+function release_webassembly_worker2() {
+    if (webassembly_worker2) {
+        webassembly_worker2.terminate();
+        webassembly_worker2 = null;
+        console.log("SMILE worker (webassembly_worker2) terminated and released.");
+    }
+}
+
+function get_or_create_webassembly_worker2() {
+    release_webassembly_worker2();
+    webassembly_worker2 = new Worker('./js/webass_smile.js');
+    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+    webassembly_worker2.onerror = function (err) {
+        console.error("SMILE worker error:", err);
+        const msg = (err && err.message) ? err.message : String(err);
+        const logEl = document.getElementById("log");
+        if (logEl) {
+            logEl.value += "SMILE worker error: " + msg + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        const msgEl = document.getElementById("webassembly_message");
+        if (msgEl) {
+            msgEl.innerText = "SMILE worker error: " + msg;
+        }
+        release_webassembly_worker2();
+    };
+    return webassembly_worker2;
 }
 
 function handle_webassembly_worker2_message(e) {
@@ -1301,6 +1356,11 @@ function handle_webassembly_worker2_message(e) {
         console.log("Processed smile spectrum data received");
         let spectrum_data = new Uint8Array(e.data.spectrum_data);
 
+        /**
+         * Release SMILE worker and its WebAssembly memory immediately after reconstruction
+         */
+        release_webassembly_worker2();
+
         // Always pass primitive values to the worker to avoid cloning DOM objects.
         const phaseCorrectionIndirectP0 = parseFloat(document.getElementById("phase_correction_indirect_p0").value);
         const phaseCorrectionIndirectP1 = parseFloat(document.getElementById("phase_correction_indirect_p1").value);
@@ -1321,18 +1381,25 @@ function handle_webassembly_worker2_message(e) {
             processing_flag: e.data.processing_flag,
             pseudo3d_process: e.data.pseudo3d_process || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_process : undefined),
             pseudo3d_children: e.data.pseudo3d_children || (typeof fid_process_parameters !== 'undefined' ? fid_process_parameters.pseudo3d_children : undefined),
-        });
+        }, [spectrum_data.buffer]);
+    }
+    else if (e.data.error) {
+        console.error("SMILE worker reported error:", e.data.error);
+        const logEl = document.getElementById("log");
+        if (logEl) {
+            logEl.value += "SMILE error: " + e.data.error + "\n";
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        const msgEl = document.getElementById("webassembly_message");
+        if (msgEl) {
+            msgEl.innerText = "SMILE error: " + e.data.error;
+        }
+        release_webassembly_worker2();
     }
 }
 
-webassembly_worker2.onmessage = handle_webassembly_worker2_message;
-
 function restart_webassembly_worker2() {
-    if (webassembly_worker2) {
-        webassembly_worker2.terminate();
-    }
-    webassembly_worker2 = new Worker('./js/webass_smile.js');
-    webassembly_worker2.onmessage = handle_webassembly_worker2_message;
+    release_webassembly_worker2();
 }
 
 function finalize_peak_fitter_v2_if_done(spectrum_index) {
@@ -1821,7 +1888,8 @@ function handle_webassembly_worker_message(e) {
         */
         let arrayBuffer = directBytes;
 
-        webassembly_worker2.postMessage({
+        const smileWorker = get_or_create_webassembly_worker2();
+        smileWorker.postMessage({
             spectrum_data: arrayBuffer,
             nuslist_as_string: nuslist_as_string, //saved as global variable
             apodization_direct: fid_process_parameters.apodization_direct,
@@ -1833,7 +1901,7 @@ function handle_webassembly_worker_message(e) {
             spectrum_index: e.data.spectrum_index,
             processing_flag: e.data.processing_flag,
             pseudo3d_process: e.data.pseudo3d_process || fid_process_parameters.pseudo3d_process,
-        });
+        }, [arrayBuffer.buffer]);
     }
 
     /**
@@ -2058,11 +2126,13 @@ function handle_webassembly_worker_message(e) {
 webassembly_worker.onmessage = handle_webassembly_worker_message;
 
 function restart_webassembly_worker() {
+    /**
+     * Workers are ephemeral: terminate cancels the running and queued jobs, and
+     * the next job is run in a brand new worker.
+     */
     if (webassembly_worker) {
         webassembly_worker.terminate();
     }
-    webassembly_worker = new Worker('./js/webass_2d.js');
-    webassembly_worker.onmessage = handle_webassembly_worker_message;
 }
 
 var plot_div_resize_observer = new ResizeObserver(entries => {
@@ -3895,6 +3965,9 @@ function init_plot(input) {
     input.drawto_peak = "#peaklist";
     input.drawto_contour = "canvas1"; //webgl background as contour plot
     input.fontsize = 24;
+    input.spectra = hsqc_spectra;
+    input.tooldiv = tooldiv;
+    input.current_reprocess_spectrum_index = current_reprocess_spectrum_index;
 
     /**
      * Check whether checkbox Horizontal_cross_section and Vertical_cross_section are checked
@@ -5832,7 +5905,7 @@ function run_DEEP_Picker(spectrum_index, flag) {
             noise_level: noise_level,
             remove_t1_noise: remove_t1_noise,
             flag: flag
-        });
+        }, [data_uint8.buffer]);
         document.getElementById("webassembly_message").innerText = "Run DEEP Picker, please wait...";
     }
 
@@ -7201,6 +7274,7 @@ function reprocess_spectrum(self, spectrum_index) {
          * Switch to cross section mode for current spectrum by simulating a click event
          */
         current_reprocess_spectrum_index = spectrum_index;
+        if (main_plot) main_plot.current_reprocess_spectrum_index = spectrum_index;
         set_current_spectrum(spectrum_index);
 
 
@@ -7233,6 +7307,7 @@ function reprocess_spectrum(self, spectrum_index) {
         document.getElementById("input_files").style.display = "flex";
         document.getElementById("button_fid_process").value = "Upload experimental files and process";
         current_reprocess_spectrum_index = -1;
+        if (main_plot) main_plot.current_reprocess_spectrum_index = -1;
 
         /**
          * Restore default values for html elements
@@ -7431,7 +7506,12 @@ async function loadBinaryAndJsonWithLength(arrayBuffer) {
     let show_pseudo3d = document.getElementById("show_pseudo3d_peaks");
     if (show_pseudo3d) show_pseudo3d.checked = false;
 
+    current_reprocess_spectrum_index = -1;
     if (main_plot) {
+        main_plot.current_reprocess_spectrum_index = -1;
+        if (typeof main_plot.set_spectra === "function") {
+            main_plot.set_spectra(hsqc_spectra);
+        }
         if (typeof main_plot.remove_picked_peaks === "function") {
             main_plot.remove_picked_peaks();
         }
@@ -11018,7 +11098,7 @@ async function apply_baseline_correction() {
             file_data: inputFt2FileBytes,
             polynomial_order: polyOrder,
             spectrum_index: plane_idx
-        });
+        }, [inputFt2FileBytes.buffer]);
     }
 }
 

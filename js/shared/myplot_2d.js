@@ -1,30 +1,15 @@
 
 /**
- * GLOBAL VARIABLES AND DIRECT DOM ELEMENT REFERENCES
- * 
- * Other classes and libraries required.
- * - d3: Used for visualization (lines 58, 158, etc.)
- * - cross_section_plot: Constructor (lines 79, 81)
- * - webgl_contour_plot: Constructor (line 762)
- * - fitting_plot: Constructor (line 1798)
- * 
- * 
- * Global Variables:
- * - hsqc_spectra: Global spectra state
- * - current_reprocess_spectrum_index: State variable
- * - tooldiv: Tooltip element 
- * - zoom_on_call_function: global on-call function
- * 
- * Direct DOM References:
- * - document.getElementById("plot_group") 
- * - document.getElementById("infor")
- * - document.getElementById("peak_information_div") 
- * - document.getElementById("pseudo3d_fitting_plot")
- * - document.activeElement
- * 
- * 
- * Class varibles that are actually DOM elements
- * xAxis_svg, $yAxis_svg, $vis, $rect, $brush_element
+ * 2D NMR Plot Class (plotit)
+ *
+ * External libraries / companion classes (resolved via constructor options or global scope):
+ * - d3: D3.js visualization library
+ * - webgl_contour_plot: WebGL 2D contour renderer (myplot_webgl_2d.js)
+ * - cross_section_plot: 1D cross-section / projection renderer (optional)
+ * - fitting_plot: Pseudo-3D fitting scatter/line plot renderer (optional, or passed via input.fitting_plot_class)
+ *
+ * All spectrum data, state flags, tooltips, and view-sync callbacks are encapsulated
+ * as instance properties on `plotit` (passed via `input` or updated via setter methods).
  */
 
 /**
@@ -37,8 +22,16 @@ function plotit(input) {
     this.yscales = new Array();
 
 
-    this.xscale = [input.x_ppm_start, input.x_ppm_start + input.x_ppm_step * input.n_direct];
-    this.yscale = [input.y_ppm_start, input.y_ppm_start + input.y_ppm_step * input.n_indirect];
+    const x_ref = (typeof input.x_ppm_ref === 'number') ? input.x_ppm_ref : 0;
+    const y_ref = (typeof input.y_ppm_ref === 'number') ? input.y_ppm_ref : 0;
+    this.xscale = [input.x_ppm_start + x_ref, input.x_ppm_start + x_ref + input.x_ppm_step * input.n_direct];
+    this.yscale = [input.y_ppm_start + y_ref, input.y_ppm_start + y_ref + input.y_ppm_step * input.n_indirect];
+    if (Array.isArray(this.xscale) && !isNaN(this.xscale[0]) && !isNaN(this.xscale[1])) {
+        this.init_xscale = [this.xscale[0], this.xscale[1]];
+    }
+    if (Array.isArray(this.yscale) && !isNaN(this.yscale[0]) && !isNaN(this.yscale[1])) {
+        this.init_yscale = [this.yscale[0], this.yscale[1]];
+    }
 
 
 
@@ -53,6 +46,50 @@ function plotit(input) {
     this.size = input.size;
     this.data1 = [];  //peaks that match compound
     this.data2 = [];  //remove it??
+    // Compatibility properties for SPIN metabolomics
+    this.show_peak = 1;
+    this.show_recon = (typeof input.show_recon !== 'undefined') ? !!input.show_recon : true;
+    this.stage = (typeof input.stage !== 'undefined') ? input.stage : 1;
+    this.b0 = input.b0 || input.observed_frequency || input.observing_frequency || null;
+    const defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",              // triangle
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",        // diamond
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z", // cross
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",      // square
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0" // circle
+    ];
+    this.shapes = (Array.isArray(input.shapes) && input.shapes.length > 0) ? input.shapes : defaultShapes;
+    this.brushend_time = 0.0;
+    this.levels = input.levels || [];
+    this.colors = input.colors || [[0.7, 0.7, 0.7, 1.0]];
+    this.overlays = [];
+    this.polygon_length = [];
+    this.levels_length = [];
+    this.points = new Float32Array(0);
+    this.cutoff = (this.levels && this.levels.length > 0) ? this.levels[0] * 0.99 : 0;
+    this.realdata = [];
+
+    // Encapsulated data, tooltip, and configuration properties
+    if (Array.isArray(input.spectra)) {
+        this.spectra = input.spectra;
+    } else if (input.spectrum) {
+        this.spectra = [input.spectrum];
+    } else if (input && typeof input.n_direct !== 'undefined' && typeof input.x_ppm_start !== 'undefined') {
+        this.spectra = [input];
+    } else {
+        this.spectra = [];
+    }
+    this.local_spectra = input.local_spectra || null;
+    this.tooldiv = input.tooldiv || null;
+    if (!this.tooldiv && typeof document !== 'undefined') {
+        this.tooldiv = document.getElementById("information_bar");
+    }
+    this.peak_group = input.peak_group || null;
+    this.plot_group_id = input.plot_group_id || "plot_group";
+    this.current_reprocess_spectrum_index = (typeof input.current_reprocess_spectrum_index === 'number') ? input.current_reprocess_spectrum_index : -1;
+    this.on_sync_views = (typeof input.on_sync_views === 'function') ? input.on_sync_views : null;
+    this.fitting_plot_class = input.fitting_plot_class || (typeof fitting_plot !== 'undefined' ? fitting_plot : null);
+
 
     this.inter_window_channel = input.inter_window_channel; //for inter-window coupling
 
@@ -63,7 +100,7 @@ function plotit(input) {
     this.bottom = -1000;
 
     this.drawto_contour = input.drawto_contour;
-    this.drawto_infor = input.drawto_infor || "infor";
+    this.drawto_infor = input.drawto_infor || (typeof document !== 'undefined' && document.getElementById("plot_infor") ? "plot_infor" : null);
 
     this.x_ppm_start = input.x_ppm_start;
     this.x_ppm_step = input.x_ppm_step;
@@ -107,12 +144,17 @@ function plotit(input) {
      * y_domain is [0,1]
      */
     this.current_spectral_index = 0;
-    this.b_show_cross_section = true;
+    this.b_show_cross_section = (typeof cross_section_plot !== 'undefined');
     this.b_show_projection = false;
-    this.x_cross_section_plot = new cross_section_plot(this);
-    this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
-    this.y_cross_section_plot = new cross_section_plot(this);
-    this.y_cross_section_plot.init(200, this.HEIGHT, [0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y", 'vertical');
+    if (typeof cross_section_plot !== 'undefined') {
+        this.x_cross_section_plot = new cross_section_plot(this);
+        this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
+        this.y_cross_section_plot = new cross_section_plot(this);
+        this.y_cross_section_plot.init(200, this.HEIGHT, [0, 1], this.yscale, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 }, "cross_section_svg_y", 'vertical');
+    } else {
+        this.x_cross_section_plot = null;
+        this.y_cross_section_plot = null;
+    }
 
     this.lastCallTime_zoom_x = Date.now();
     this.lastCallTime_zoom_y = Date.now();
@@ -142,6 +184,68 @@ function plotit(input) {
 
     this.xlabel_text = input.xlabel || "Chemical Shift (ppm)";
     this.ylabel_text = input.ylabel || "Chemical Shift (ppm)";
+};
+
+/**
+ * Sets or updates the active spectra array on this plot instance and its WebGL contour renderer.
+ */
+plotit.prototype.set_spectra = function (spectra) {
+    let arr = Array.isArray(spectra) ? spectra : (spectra ? [spectra] : []);
+    this.spectra = arr;
+    this.local_spectra = arr;
+    if (this.contour_plot) {
+        this.contour_plot.spectra = arr;
+    }
+};
+
+/**
+ * Sets the workflow stage (e.g. 1 = peak picking, 2 = compound matching in SPIN).
+ */
+plotit.prototype.set_stage = function (s) {
+    this.stage = s;
+};
+
+/**
+ * Resolves the active spectra array from instance properties.
+ * Prioritizes this.local_spectra, this.spectra, and this.spectrum.
+ */
+plotit.prototype.get_spectra = function () {
+    if (this.local_spectra && this.local_spectra.length > 0) return this.local_spectra;
+    if (this.spectra && this.spectra.length > 0) return this.spectra;
+    if (this.spectrum) return [this.spectrum];
+    return [];
+};
+
+/**
+ * Resolves the information element (span/div) where coordinates (ppm, hz, intensity, S/N)
+ * are displayed on mouse hover.
+ * Guards against overwriting system-level status divs like SPIN's <div id="infor" style="color: red">.
+ */
+plotit.prototype.get_infor_element = function (tooltip) {
+    if (this.drawto_infor) {
+        let el = document.getElementById(this.drawto_infor);
+        if (el) return el;
+    }
+    let tip = tooltip || this.tooldiv || null;
+    if (!tip && typeof document !== 'undefined') {
+        tip = document.getElementById("information_bar");
+    }
+    if (tip) {
+        if (tip.querySelector) {
+            let span = tip.querySelector("span");
+            if (span) return span;
+        }
+        return tip;
+    }
+    if (typeof document !== 'undefined') {
+        let el = document.getElementById("infor");
+        // Never overwrite system status elements with red text
+        if (el && el.style && el.style.color === "red") {
+            return null;
+        }
+        return el;
+    }
+    return null;
 };
 
 /**
@@ -179,7 +283,7 @@ plotit.prototype.set_labels = function (xlabel, ylabel) {
  * Set a on call function for zoom event
  */
 plotit.prototype.set_zoom_on_call_function = function (func) {
-    if (zoom_on_call_function === null) {
+    if (this.zoom_on_call_function === null) {
         this.zoom_on_call_function = func;
     }
     else {
@@ -290,8 +394,8 @@ plotit.prototype.update = function (input) {
      */
     this.reset_axis();
 
-    this.x_cross_section_plot.resize_x(this.WIDTH, { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
-    this.y_cross_section_plot.resize_y(this.HEIGHT, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
+    if (this.x_cross_section_plot) this.x_cross_section_plot.resize_x(this.WIDTH, { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left });
+    if (this.y_cross_section_plot) this.y_cross_section_plot.resize_y(this.HEIGHT, { top: this.MARGINS.top, right: 10, bottom: this.MARGINS.bottom, left: 10 });
 
 };
 
@@ -429,6 +533,21 @@ plotit.prototype.reset_axis = function () {
     this.$vis.selectAll(".vline").attr("d", self.lineFunc(self.vline_data));
 
     /**
+     * Reset compound peaks position if any
+     */
+    if (this.$vis) {
+        this.$vis.selectAll(".compound2")
+            .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+    }
+
+    /**
+     * Reset SPIN mode peak symbols (.point, .point_match, .dss, .dss2, .line)
+     */
+    if (typeof this.transition_data === "function") {
+        this.transition_data();
+    }
+
+    /**
      * Update extra peaks position
      */
     /**
@@ -471,6 +590,29 @@ plotit.prototype.brushend = function (e) {
     }
 
     let self = this;
+
+    // Check SPIN's radio1 mode if present
+    var radios = document.getElementsByName('radio1');
+    for (var i = 0, length = radios.length; i < length; i++) {
+        if (radios[i].checked) {
+            if (radios[i].value === "zoom" || this.stage >= 2) {
+                if (typeof this.brushend_zoom === 'function') {
+                    this.brushend_zoom(e.selection);
+                    if (this.brush_element) this.brush_element.call(this.brush.move, null);
+                    else if (this.$vis) this.$vis.select(".brush").call(this.brush.move, null);
+                    return;
+                }
+            } else if (radios[i].value === "remove") {
+                if (typeof this.brushend_remove === 'function') {
+                    this.brushend_remove(e.selection);
+                    if (this.brush_element) this.brush_element.call(this.brush.move, null);
+                    else if (this.$vis) this.$vis.select(".brush").call(this.brush.move, null);
+                    return;
+                }
+            }
+        }
+    }
+
 
     /**
      * IF allow_brush_to_remove is true, then do not zoom.
@@ -525,14 +667,31 @@ plotit.prototype.brushend = function (e) {
     /**
      * Update webgl contour. No change of view is needed here
      */
+    if (!this.init_xscale || isNaN(this.init_xscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.x_ppm_start !== undefined && sInfo.x_ppm_step !== undefined && sInfo.n_direct) {
+            let xRef = sInfo.x_ppm_ref || 0;
+            let x0 = sInfo.x_ppm_start + xRef;
+            this.init_xscale = [x0, x0 + sInfo.x_ppm_step * sInfo.n_direct];
+        }
+    }
+    if (!this.init_yscale || isNaN(this.init_yscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.y_ppm_start !== undefined && sInfo.y_ppm_step !== undefined && sInfo.n_indirect) {
+            let yRef = sInfo.y_ppm_ref || 0;
+            let y0 = sInfo.y_ppm_start + yRef;
+            this.init_yscale = [y0, y0 + sInfo.y_ppm_step * sInfo.n_indirect];
+        }
+    }
+
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
 
 
     this.reset_axis();
 
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
 
     this.$vis.select(".brush").call(this.brush.move, null);
 
@@ -543,37 +702,24 @@ plotit.prototype.brushend = function (e) {
 };
 
 /**
- * Synchronize this plot's view with other 3D plots
+ * Synchronize this plot's view with other linked/3D plots via host callback
  */
 plotit.prototype.sync_3d_views = function (is_end = true) {
-    if (this.drawto === '#visualization') {
-        // Main XY plot - sync sliders and axes to XZ/YZ
-        if (typeof sync_sliders_to_center === 'function') {
-            sync_sliders_to_center(is_end);
-        }
-    } else if (this.drawto === '#visualization_xz') {
-        // XZ plot - sync to main and YZ
-        if (typeof sync_from_xz_plot === 'function') {
-            sync_from_xz_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_yz') {
-        // YZ plot - sync to main and XZ
-        if (typeof sync_from_yz_plot === 'function') {
-            sync_from_yz_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj') {
-        if (typeof sync_from_proj_plot === 'function') {
-            sync_from_proj_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj_y') {
-        if (typeof sync_from_proj_y_plot === 'function') {
-            sync_from_proj_y_plot(is_end);
-        }
-    } else if (this.drawto === '#visualization_proj_x') {
-        if (typeof sync_from_proj_x_plot === 'function') {
-            sync_from_proj_x_plot(is_end);
-        }
+    if (typeof this.on_sync_views === 'function') {
+        this.on_sync_views(this, is_end);
     }
+};
+
+/**
+ * Resolves the current inter-window plot group identifier.
+ */
+plotit.prototype.get_plot_group_value = function () {
+    if (this.peak_group) return this.peak_group;
+    if (this.plot_group_id && typeof document !== 'undefined') {
+        const pg_el = document.getElementById(this.plot_group_id);
+        if (pg_el) return pg_el.value;
+    }
+    return "1";
 };
 
 /**
@@ -584,8 +730,7 @@ plotit.prototype.send_scales_to_other_window = function () {
     /**
      * Get plot_group number (from 1 to 10)
      */
-    const pg_el = document.getElementById("plot_group");
-    let peak_group = pg_el ? pg_el.value : "1";
+    let peak_group = this.get_plot_group_value();
 
     /**
      * Send this.xscale and this.yscale through the channel to let other windows know
@@ -607,21 +752,27 @@ plotit.prototype.send_scales_to_other_window = function () {
  * @param {any} y_scale - Y scale
  */
 plotit.prototype.zoom_to = function (x_scale, y_scale) {
-    this.xscales.push(this.xscale);
-    this.yscales.push(this.yscale);
-    this.xscale = x_scale;
-    this.yscale = y_scale;
-    this.xRange.domain(this.xscale);
-    this.yRange.domain(this.yscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (!Array.isArray(x_scale) || x_scale.length < 2 || isNaN(x_scale[0]) || isNaN(x_scale[1]) ||
+        !Array.isArray(y_scale) || y_scale.length < 2 || isNaN(y_scale[0]) || isNaN(y_scale[1])) return;
+
+    if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+        this.xscales.push([this.xscale[0], this.xscale[1]]);
+        this.yscales.push([this.yscale[0], this.yscale[1]]);
+    }
+    this.xscale = [x_scale[0], x_scale[1]];
+    this.yscale = [y_scale[0], y_scale[1]];
+    if (this.xRange) this.xRange.domain(this.xscale);
+    if (this.yRange) this.yRange.domain(this.yscale);
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
-    /**
-     * No need to send scales to other window, because this function is only called when receive a message from other window
-     */
-}
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
+};
 
 /**
  * Zooms X.
@@ -629,20 +780,22 @@ plotit.prototype.zoom_to = function (x_scale, y_scale) {
  * @param {any} x_ppm - X PPM
  */
 plotit.prototype.zoom_x = function (x_ppm) {
-
     let self = this;
-    this.xscale = x_ppm;
-    /**
-     * Save the current time. Update stack of xscales and yscales only when the time difference is greater than 1s
-     */
+    if (!Array.isArray(x_ppm) || x_ppm.length < 2 || isNaN(x_ppm[0]) || isNaN(x_ppm[1])) return;
+    this.xscale = [x_ppm[0], x_ppm[1]];
     if (Date.now() - self.lastCallTime_zoom_x > 1000) {
-        this.xscales.push(this.xscale);
-        this.yscales.push(this.yscale);
+        if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+            this.xscales.push([this.xscale[0], this.xscale[1]]);
+            this.yscales.push([this.yscale[0], this.yscale[1]]);
+        }
         self.lastCallTime_zoom_x = Date.now();
     }
-    this.xRange.domain(this.xscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (this.xRange) this.xRange.domain(this.xscale);
+    if (this.contour_plot) {
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
     this.send_scales_to_other_window();
 };
@@ -654,74 +807,143 @@ plotit.prototype.zoom_x = function (x_ppm) {
  */
 plotit.prototype.zoom_y = function (y_ppm) {
     let self = this;
-    this.yscale = y_ppm;
-    /**
-     * Save the current time. Update stack of xscales and yscales only when the time difference is greater than 1s
-     */
+    if (!Array.isArray(y_ppm) || y_ppm.length < 2 || isNaN(y_ppm[0]) || isNaN(y_ppm[1])) return;
+    this.yscale = [y_ppm[0], y_ppm[1]];
     if (Date.now() - self.lastCallTime_zoom_y > 1000) {
-        this.xscales.push(this.xscale);
-        this.yscales.push(this.yscale);
+        if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+            this.xscales.push([this.xscale[0], this.xscale[1]]);
+            this.yscales.push([this.yscale[0], this.yscale[1]]);
+        }
         self.lastCallTime_zoom_y = Date.now();
     }
-    this.yRange.domain(this.yscale);
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    if (this.yRange) this.yRange.domain(this.yscale);
+    if (this.contour_plot) {
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+    this.transition_data();
     this.reset_axis();
     this.send_scales_to_other_window();
 };
 
-
-
 /**
- * Pops zoom.
+ * Pops zoom (Zoom back).
  */
 plotit.prototype.popzoom = function () {
+    while (this.xscales.length > 0) {
+        let prev_x = this.xscales.pop();
+        let prev_y = this.yscales.pop();
+        if (Array.isArray(prev_x) && prev_x.length === 2 && !isNaN(prev_x[0]) && !isNaN(prev_x[1]) &&
+            Array.isArray(prev_y) && prev_y.length === 2 && !isNaN(prev_y[0]) && !isNaN(prev_y[1])) {
+            this.xscale = [prev_x[0], prev_x[1]];
+            this.yscale = [prev_y[0], prev_y[1]];
 
-    if (this.xscales.length > 0) {
-        this.xscale = this.xscales.pop();
-        this.yscale = this.yscales.pop();
-        this.xRange.domain(this.xscale);
-        this.yRange.domain(this.yscale);
+            if (this.xRange) this.xRange.domain(this.xscale);
+            if (this.yRange) this.yRange.domain(this.yscale);
 
-        /**
-        * Update webgl contour. No need to update view
-        */
-        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-        this.contour_plot.drawScene();
+            if (this.contour_plot) {
+                if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+                this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+                this.contour_plot.drawScene();
+            }
+
+            this.transition_data();
+            this.reset_axis();
+            if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+            if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
+            this.send_scales_to_other_window();
+            this.sync_3d_views();
+            return;
+        }
+    }
+    // If zoom stack is exhausted or empty, reset to initial full view
+    this.resetzoom();
+};
+
+/**
+ * Resets zoom (Reset all zoom).
+ * Can be called with explicit ranges [x1, x2], [y1, y2], or with 0 arguments.
+ *
+ * @param {Array<number>} [x] - Optional target X range [x1, x2]
+ * @param {Array<number>} [y] - Optional target Y range [y1, y2]
+ */
+plotit.prototype.resetzoom = function (x, y) {
+    let target_x = (Array.isArray(x) && x.length === 2 && !isNaN(x[0]) && !isNaN(x[1])) ? [x[0], x[1]] : null;
+    let target_y = (Array.isArray(y) && y.length === 2 && !isNaN(y[0]) && !isNaN(y[1])) ? [y[0], y[1]] : null;
+
+    if (!target_x) {
+        if (Array.isArray(this.init_xscale) && this.init_xscale.length === 2 && !isNaN(this.init_xscale[0])) {
+            target_x = [this.init_xscale[0], this.init_xscale[1]];
+        } else if (Array.isArray(this.xscales) && this.xscales.length > 0 && Array.isArray(this.xscales[0])) {
+            target_x = [this.xscales[0][0], this.xscales[0][1]];
+        } else {
+            let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+            let xs = (sInfo && sInfo.x_ppm_start !== undefined) ? sInfo.x_ppm_start : this.x_ppm_start;
+            let xstep = (sInfo && sInfo.x_ppm_step !== undefined) ? sInfo.x_ppm_step : this.x_ppm_step;
+            let nd = (sInfo && sInfo.n_direct !== undefined) ? sInfo.n_direct : this.n_direct;
+            let xref = (sInfo && sInfo.x_ppm_ref !== undefined) ? sInfo.x_ppm_ref : (this.x_ppm_ref || 0);
+            if (xs !== undefined && xstep !== undefined && nd) {
+                target_x = [xs + xref, xs + xref + xstep * nd];
+            }
+        }
+    }
+
+    if (!target_y) {
+        if (Array.isArray(this.init_yscale) && this.init_yscale.length === 2 && !isNaN(this.init_yscale[0])) {
+            target_y = [this.init_yscale[0], this.init_yscale[1]];
+        } else if (Array.isArray(this.yscales) && this.yscales.length > 0 && Array.isArray(this.yscales[0])) {
+            target_y = [this.yscales[0][0], this.yscales[0][1]];
+        } else {
+            let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+            let ys = (sInfo && sInfo.y_ppm_start !== undefined) ? sInfo.y_ppm_start : this.y_ppm_start;
+            let ystep = (sInfo && sInfo.y_ppm_step !== undefined) ? sInfo.y_ppm_step : this.y_ppm_step;
+            let ni = (sInfo && sInfo.n_indirect !== undefined) ? sInfo.n_indirect : this.n_indirect;
+            let yref = (sInfo && sInfo.y_ppm_ref !== undefined) ? sInfo.y_ppm_ref : (this.y_ppm_ref || 0);
+            if (ys !== undefined && ystep !== undefined && ni) {
+                target_y = [ys + yref, ys + yref + ystep * ni];
+            }
+        }
+    }
+
+    this.xscales = [];
+    this.yscales = [];
+
+    if (target_x && target_y) {
+        this.xscale = [target_x[0], target_x[1]];
+        this.yscale = [target_y[0], target_y[1]];
+
+        if (this.xRange) this.xRange.domain(this.xscale);
+        if (this.yRange) this.yRange.domain(this.yscale);
+
+        if (this.contour_plot) {
+            if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+            this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+            this.contour_plot.drawScene();
+        }
+
+        this.transition_data();
         this.reset_axis();
-        this.x_cross_section_plot.zoom_x(this.xscale);
-        this.y_cross_section_plot.zoom_y(this.yscale);
+        if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+        if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
         this.send_scales_to_other_window();
-
-        // Sync other plots
         this.sync_3d_views();
     }
 };
 
 /**
- * Resets zoom.
- *
- * @param {any} x - X
- * @param {any} y - Y
- */
-plotit.prototype.resetzoom = function (x, y) {
-    /**
-     * Clear the zoom stack
-     */
-    this.xscales = [];
-    this.yscales = [];
-    this.xscales.push(x);
-    this.yscales.push(y);
-    this.popzoom()
-};
-
-
-/**
- * Zooms out.
+ * Zooms out by 20%.
  */
 plotit.prototype.zoomout = function () {
-    this.xscales.push(this.xscale);
-    this.yscales.push(this.yscale);
+    if (!Array.isArray(this.xscale) || this.xscale.length < 2 || isNaN(this.xscale[0]) || isNaN(this.xscale[1]) ||
+        !Array.isArray(this.yscale) || this.yscale.length < 2 || isNaN(this.yscale[0]) || isNaN(this.yscale[1])) {
+        this.resetzoom();
+        return;
+    }
+
+    if (!Array.isArray(this.xscales)) this.xscales = [];
+    if (!Array.isArray(this.yscales)) this.yscales = [];
+    this.xscales.push([this.xscale[0], this.xscale[1]]);
+    this.yscales.push([this.yscale[0], this.yscale[1]]);
 
     var m1 = this.xscale[0];
     var m2 = this.xscale[1];
@@ -730,34 +952,34 @@ plotit.prototype.zoomout = function () {
     m2 = m2 - c;
     this.xscale = [m1, m2];
 
-    m1 = this.yscale[0];
-    m2 = this.yscale[1];
-    c = 0.1 * (m1 - m2);
-    m1 = m1 + c;
-    m2 = m2 - c;
-    this.yscale = [m1, m2];
+    var n1 = this.yscale[0];
+    var n2 = this.yscale[1];
+    var cy = 0.1 * (n1 - n2);
+    n1 = n1 + cy;
+    n2 = n2 - cy;
+    this.yscale = [n1, n2];
 
-    this.xRange.domain(this.xscale);
-    this.yRange.domain(this.yscale);
+    if (this.xRange) {
+        this.xRange.domain(this.xscale);
+        this.xscale = this.xRange.domain();
+    }
+    if (this.yRange) {
+        this.yRange.domain(this.yscale);
+        this.yscale = this.yRange.domain();
+    }
 
-    /**
-     * Because of nice. The domain may be changed. So we need to update xscale and yscale
-     */
-    this.xscale = this.xRange.domain();
-    this.yscale = this.yRange.domain();
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
 
-    /**
-     * Update webgl contour. No need to update view
-     */
-    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
-    this.contour_plot.drawScene();
+    this.transition_data();
     this.reset_axis();
-
-    this.x_cross_section_plot.zoom_x(this.xscale);
-    this.y_cross_section_plot.zoom_y(this.yscale);
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
     this.send_scales_to_other_window();
     this.sync_3d_views();
-
 };
 
 
@@ -911,6 +1133,14 @@ plotit.prototype.draw = function () {
         .attr("class", "brush")
         .call(this.brush);
 
+    // Backward compatibility aliases for SPIN
+    this.vis = this.$vis;
+    this.rect = this.$rect;
+    this.brush_element = this.$brush_element;
+    this.x2 = this.$xAxis_svg;
+    this.y2 = this.$yAxis_svg;
+
+
     /**
      * Tool tip for mouse move
      */
@@ -920,7 +1150,11 @@ plotit.prototype.draw = function () {
             clearTimeout(self.cross_line_timeout);
         }
 
-        let spectra_source = self.local_spectra || hsqc_spectra;
+        let spectra_source = self.get_spectra();
+        let tooltip = self.tooldiv || null;
+        if (!tooltip && typeof document !== 'undefined') {
+            tooltip = document.getElementById("information_bar");
+        }
 
         /**
          * Get the spectral index of the current spectral data
@@ -928,21 +1162,61 @@ plotit.prototype.draw = function () {
         */
         let spe_index = self.current_spectral_index;
         if (spe_index < 0 || spe_index >= spectra_source.length) {
+            // Update tooltip for SPIN or single-spectrum view
+            if (tooltip) {
+                let temp = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined) : [event.offsetX, event.offsetY];
+                let x_ppm_val = self.xRange ? self.xRange.invert(temp[0]) : 0;
+                let y_ppm_val = self.yRange ? self.yRange.invert(temp[1]) : 0;
+                let infor_el = self.get_infor_element(tooltip);
+                if (infor_el) {
+                    let cur_spec = self.spectrum || (spectra_source.length > 0 ? spectra_source[0] : null);
+                    let b0_val = (cur_spec && (cur_spec.b0 || cur_spec.observed_frequency)) || self.b0 || null;
+                    let frq1 = (cur_spec && cur_spec.frq1) || b0_val;
+                    let frq2 = (cur_spec && cur_spec.frq2) || (b0_val ? (b0_val * 0.2514) : null);
+                    let x_hz_str = frq1 ? (" (" + (x_ppm_val * frq1).toFixed(1) + " Hz)") : "";
+                    let y_hz_str = frq2 ? (" (" + (y_ppm_val * frq2).toFixed(1) + " Hz)") : "";
+                    infor_el.innerHTML = "x_ppm: " + x_ppm_val.toFixed(3) + x_hz_str + ", y_ppm: " + y_ppm_val.toFixed(2) + y_hz_str;
+                } else if (typeof tooltip.html === 'function') {
+                    tooltip.html(x_ppm_val.toFixed(3) + " " + y_ppm_val.toFixed(2))
+                        .style("left", (event.pageX + 12) + "px")
+                        .style("top", (event.pageY + 12) + "px")
+                        .style("opacity", .9);
+                }
+                if (typeof tooltip.style === 'function') {
+                    tooltip.style("opacity", 1.0);
+                } else if (tooltip.style) {
+                    tooltip.style.opacity = 1.0;
+                }
+            }
             return;
         }
 
         /**
          * Show current ppm at the top-right corner of the plot in a span element with id "infor" (child of tooldiv)
         */
-        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 1.0;
-        let coordinates = [event.offsetX, event.offsetY];
+        if (tooltip) {
+            if (typeof tooltip.style === 'function') {
+                tooltip.style("opacity", 1.0);
+            } else if (tooltip.style) {
+                tooltip.style.opacity = 1.0;
+            }
+        }
+        let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+            ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+            : [event.offsetX, event.offsetY];
         let x_ppm = self.xRange.invert(coordinates[0]);
         let y_ppm = self.yRange.invert(coordinates[1]);
 
         let spectrum = spectra_source[spe_index];
 
         // Safety check for invalid spectrum object
-        if (!spectrum || !spectrum.raw_data) return;
+        if (!spectrum || !spectrum.raw_data || spectrum.raw_data.length === 0) {
+            let infor_el = self.get_infor_element(tooltip);
+            if (infor_el) {
+                infor_el.innerHTML = "x_ppm: " + x_ppm.toFixed(3) + ", y_ppm: " + y_ppm.toFixed(2);
+            }
+            return;
+        }
 
         let y_pos = Math.floor((y_ppm - spectrum.y_ppm_ref - spectrum.y_ppm_start) / spectrum.y_ppm_step);
         let x_pos = Math.floor((x_ppm - spectrum.x_ppm_ref - spectrum.x_ppm_start) / spectrum.x_ppm_step);
@@ -1005,7 +1279,7 @@ plotit.prototype.draw = function () {
             }
         }
 
-        const infor_el = document.getElementById(self.drawto_infor);
+        const infor_el = self.get_infor_element(tooltip);
         if (self.hline_ppm !== null && self.vline_ppm !== null) {
             let x_distance = x_ppm - self.vline_ppm;
             let y_distance = y_ppm - self.hline_ppm;
@@ -1018,22 +1292,32 @@ plotit.prototype.draw = function () {
                 : "";
 
             if (infor_el) {
+                let b0_val = (spectrum && (spectrum.b0 || spectrum.observed_frequency)) || self.b0 || null;
+                let frq1 = (spectrum && spectrum.frq1) || b0_val;
+                let frq2 = (spectrum && spectrum.frq2) || (b0_val ? (b0_val * 0.2514) : null);
                 infor_el.innerHTML
                     = "x: " + x_ppm.toFixed(3) + " ppm" + x2_info + ", y: " + y_ppm.toFixed(2) + " ppm" + y2_info + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2) + "<br>"
-                    + "x: " + x_distance.toFixed(3) + " ppm  " + (spectrum.frq1 ? (x_distance * spectrum.frq1).toFixed(3) + " Hz" : "")
-                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (spectrum.frq2 ? (y_distance * spectrum.frq2).toFixed(3) + " Hz" : "");
+                    + "x: " + x_distance.toFixed(3) + " ppm  " + (frq1 ? (x_distance * frq1).toFixed(3) + " Hz" : "")
+                    + ", y: " + y_distance.toFixed(3) + " ppm  " + (frq2 ? (y_distance * frq2).toFixed(3) + " Hz" : "");
             }
         }
         else {
             if (infor_el) {
+                let b0_val = (spectrum && (spectrum.b0 || spectrum.observed_frequency)) || self.b0 || null;
+                let frq1 = (spectrum && spectrum.frq1) || b0_val;
+                let frq2 = (spectrum && spectrum.frq2) || (b0_val ? (b0_val * 0.2514) : null);
+                let x_hz_str = (frq1 && !x2_str) ? (" (" + (x_ppm * frq1).toFixed(1) + " Hz)") : "";
+                let y_hz_str = (frq2 && !y2_str) ? (" (" + (y_ppm * frq2).toFixed(1) + " Hz)") : "";
                 infor_el.innerHTML
-                    = "x_ppm: " + x_ppm.toFixed(3) + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
+                    = "x_ppm: " + x_ppm.toFixed(3) + " ppm" + x_hz_str + x2_str + ", y_ppm: " + y_ppm.toFixed(2) + " ppm" + y_hz_str + y2_str + ", Inten: " + data_height.toExponential(2) + " ,S/N: " + signal_to_noise.toFixed(2);
             }
         }
 
 
         if (self.magnifying_glass == true) {
-            let coordinates = [event.offsetX, event.offsetY];
+            let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+            ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+            : [event.offsetX, event.offsetY];
             let x_ppm = self.xRange.invert(coordinates[0]);
             let y_ppm = self.yRange.invert(coordinates[1]);
             // console.log("x_ppm: " + x_ppm + ", y_ppm: " + y_ppm);
@@ -1041,15 +1325,33 @@ plotit.prototype.draw = function () {
         }
     });
     this.$vis.on("mouseleave", function (d) {
-        if (typeof tooldiv !== 'undefined' && tooldiv) tooldiv.style.opacity = 0.0;
-        document.activeElement.blur();
+        let tooltip = self.tooldiv || null;
+        if (!tooltip && typeof document !== 'undefined') {
+            tooltip = document.getElementById("information_bar");
+        }
+        if (tooltip) {
+            let tipNode = (typeof tooltip.node === 'function') ? tooltip.node() : tooltip;
+            let isFixedBar = (tipNode && tipNode.id === "information_bar") || (typeof tooltip.attr === 'function' && tooltip.attr("id") === "information_bar");
+            if (!isFixedBar) {
+                if (typeof tooltip.style === 'function') {
+                    tooltip.style("opacity", 0.0);
+                } else if (tooltip.style) {
+                    tooltip.style.opacity = 0.0;
+                }
+            }
+        }
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
         if (self.cross_line_timeout) {
             clearTimeout(self.cross_line_timeout);
         }
         /**
          * Clear the magnifying glass
          */
-        self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+        if (self.contour_plot) {
+            self.contour_plot.drawScene(0, false, [0, 0], 5, 0.4);
+        }
     });
 
     /**
@@ -1060,14 +1362,19 @@ plotit.prototype.draw = function () {
     /**
      * Draw contour on the canvas, which is a background layer
      */
-    this.contour_plot = new webgl_contour_plot(this.drawto_contour);
+    if (typeof webgl_contour_plot !== 'undefined') {
+        this.contour_plot = new webgl_contour_plot(this.drawto_contour);
+        this.contour_plot.spectra = this.get_spectra();
+    } else {
+        this.contour_plot = null;
+    }
 
     self.setup_axis_pan();
     self.setup_axis_wheel();
 
-    if (self.b_show_cross_section) {
+    if (self.b_show_cross_section && self.x_cross_section_plot) {
         self.show_cross_section();
-    } else if (self.b_show_projection) {
+    } else if (self.b_show_projection && self.x_cross_section_plot) {
         self.show_projection();
     }
 };
@@ -1079,7 +1386,9 @@ plotit.prototype.draw = function () {
  */
 plotit.prototype.setup_cross_line = function (event) {
     let self = this;
-    let coordinates = [event.offsetX, event.offsetY];
+    let coordinates = (typeof d3 !== 'undefined' && d3.pointer)
+        ? d3.pointer(event, self.$vis ? self.$vis.node() : undefined)
+        : [event.offsetX, event.offsetY];
     let x_ppm = self.xRange.invert(coordinates[0]);
     let y_ppm = self.yRange.invert(coordinates[1]);
 
@@ -1091,7 +1400,7 @@ plotit.prototype.setup_cross_line = function (event) {
             type: 'cross_line',
             y_ppm: y_ppm,
             x_ppm: x_ppm,
-            peak_group: (document.getElementById("plot_group") ? document.getElementById("plot_group").value : "1")
+            peak_group: self.get_plot_group_value()
         });
     }
 
@@ -1109,7 +1418,7 @@ plotit.prototype.setup_cross_line = function (event) {
  */
 plotit.prototype.get_maximal_spectrum_point = function () {
     let self = this;
-    let spectra_source = self.local_spectra || (typeof hsqc_spectra !== 'undefined' ? hsqc_spectra : []);
+    let spectra_source = self.get_spectra();
     let spec = null;
     if (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) {
         spec = spectra_source[self.current_spectral_index];
@@ -1200,7 +1509,7 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     const cs_radio = document.querySelector('input[name="select_plot_1d"][value="cross_section"]');
     if (cs_radio) cs_radio.checked = true;
 
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
     let x_ppm_start = self.x_ppm_start + self.x_ppm_ref;
     let x_ppm_end = x_ppm_start + self.x_ppm_step * self.n_direct;
     let y_ppm_start = self.y_ppm_start + self.y_ppm_ref;
@@ -1227,7 +1536,10 @@ plotit.prototype.show_cross_section = function (x_ppm, y_ppm) {
     }
 
     let cur_spec = (self.current_spectral_index >= 0 && self.current_spectral_index < spectra_source.length) ? spectra_source[self.current_spectral_index] : null;
-    let is_reprocessing_active = (typeof current_reprocess_spectrum_index !== "undefined" && current_reprocess_spectrum_index !== -1 && current_reprocess_spectrum_index === self.current_spectral_index);
+    let reprocess_idx = (typeof self.current_reprocess_spectrum_index === "number")
+        ? self.current_reprocess_spectrum_index
+        : -1;
+    let is_reprocessing_active = (reprocess_idx !== -1 && reprocess_idx === self.current_spectral_index);
     let is_single_fid = (spectra_source.length === 1 && cur_spec && (cur_spec.spectrum_origin == -2 || cur_spec.spectrum_origin == -1) && cur_spec.raw_data_ri && cur_spec.raw_data_ri.length > 0);
 
     if ((is_reprocessing_active || is_single_fid) && cur_spec && cur_spec.visible !== false) {
@@ -1320,7 +1632,7 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
     if (spectrum_index === undefined || !flag_manual_phase_correction) {
         return self.show_cross_section(x_ppm, y_ppm);
     }
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
     let spectrum = spectra_source[spectrum_index];
 
     if (!spectrum) return;
@@ -1494,10 +1806,10 @@ plotit.prototype.setup_cross_line_from_ppm = function (x_ppm, y_ppm, spectrum_in
  */
 plotit.prototype.get_phase_correction = function () {
     let self = this;
-    let phase_direct = self.x_cross_section_plot.get_phase_correction();
-    let phase_indirect = self.y_cross_section_plot.get_phase_correction();
-    self.x_cross_section_plot.clear_phase_correction();
-    self.y_cross_section_plot.clear_phase_correction();
+    let phase_direct = self.x_cross_section_plot ? self.x_cross_section_plot.get_phase_correction() : null;
+    let phase_indirect = self.y_cross_section_plot ? self.y_cross_section_plot.get_phase_correction() : null;
+    if (self.x_cross_section_plot) self.x_cross_section_plot.clear_phase_correction();
+    if (self.y_cross_section_plot) self.y_cross_section_plot.clear_phase_correction();
     return [phase_direct, phase_indirect];
 }
 
@@ -1537,7 +1849,7 @@ plotit.prototype.show_projection = function () {
     let indirect_max = -Infinity;
     let visible_count = 0;
 
-    let spectra_source = self.local_spectra || hsqc_spectra;
+    let spectra_source = self.get_spectra();
 
     /**
      * Loop all spectrum, except unknown, removed and invisible
@@ -1625,7 +1937,27 @@ plotit.prototype.redraw_contour = function () {
         this.contour_lbs_negative
     );
 
-    this.contour_plot.spectral_order = this.spectral_order;
+    if (this.contour_plot) {
+        this.contour_plot.spectra = this.get_spectra();
+        this.contour_plot.spectral_order = this.spectral_order;
+    }
+
+    /**
+     * For SPIN multi-spectral overlays, only spectral_type hsqc, tocsy, and hsqcrecon (when enabled) are visible on main_plot
+     */
+    if (this.spectral_type && Array.isArray(this.spectral_type)) {
+        this.contour_plot.visible = new Array(this.spectral_type.length).fill(0);
+        let recon_val = (this.show_recon !== undefined) ? (this.show_recon ? 1 : 0) : 1;
+        for (let i = 0; i < this.spectral_type.length; i++) {
+            if (this.spectral_type[i] === 'hsqc' || this.spectral_type[i] === 'tocsy') {
+                this.contour_plot.visible[i] = 1;
+            } else if (this.spectral_type[i] === 'hsqcrecon') {
+                this.contour_plot.visible[i] = recon_val;
+            } else {
+                this.contour_plot.visible[i] = 0;
+            }
+        }
+    }
 
     this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
     this.contour_plot.drawScene();
@@ -1642,19 +1974,23 @@ plotit.prototype.update_cross_section = function (spe_index, flag) {
      * Only need to update when current cross section is the same as the spectral_index
      */
     if (this.current_spectral_index === spe_index) {
+        let spectra_source = this.get_spectra();
+        let spec = spectra_source[spe_index];
+        if (!spec) return;
+
         if (flag === 0) {
             let ppm = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_direct; i++) {
-                ppm.push(hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref + i * hsqc_spectra[spe_index].x_ppm_step);
+            for (let i = 0; i < spec.n_direct; i++) {
+                ppm.push(spec.x_ppm_start + (spec.x_ppm_ref || 0) + i * spec.x_ppm_step);
             }
-            this.x_cross_section_plot.update_ppm([hsqc_spectra[spe_index].x_ppm_start + hsqc_spectra[spe_index].x_ppm_ref, hsqc_spectra[spe_index].x_ppm_step, hsqc_spectra[spe_index].n_direct], ppm, spe_index);
+            if (this.x_cross_section_plot) this.x_cross_section_plot.update_ppm([spec.x_ppm_start + (spec.x_ppm_ref || 0), spec.x_ppm_step, spec.n_direct], ppm, spe_index);
         }
         else if (flag === 1) {
             let ppm2 = [];
-            for (let i = 0; i < hsqc_spectra[spe_index].n_indirect; i++) {
-                ppm2.push(hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref + i * hsqc_spectra[spe_index].y_ppm_step);
+            for (let i = 0; i < spec.n_indirect; i++) {
+                ppm2.push(spec.y_ppm_start + (spec.y_ppm_ref || 0) + i * spec.y_ppm_step);
             }
-            this.y_cross_section_plot.update_ppm([hsqc_spectra[spe_index].y_ppm_start + hsqc_spectra[spe_index].y_ppm_ref, hsqc_spectra[spe_index].y_ppm_step, hsqc_spectra[spe_index].n_indirect], ppm2, spe_index);
+            if (this.y_cross_section_plot) this.y_cross_section_plot.update_ppm([spec.y_ppm_start + (spec.y_ppm_ref || 0), spec.y_ppm_step, spec.n_indirect], ppm2, spe_index);
         }
     }
 };
@@ -2194,68 +2530,88 @@ plotit.prototype.draw_center_lines = function (ppm_x, ppm_y) {
  * Draw peaks on the plot
  */
 plotit.prototype.draw_peaks = function () {
-
     let self = this;
-    if (typeof self.peak_flag === 'undefined' || self.peak_flag === null) {
+
+    // COLMARvista mode (when spectrum has picked_peaks_object or fitted_peaks_object)
+    if (self.spectrum && (self.peak_flag === 'picked' || self.peak_flag === 'fitted')) {
+        let vis = self.$vis || self.vis;
+        if (vis) vis.selectAll('.peak').remove();
+
+        if (self.peak_flag === 'picked' && self.spectrum.picked_peaks_object) {
+            this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
+        } else if (self.spectrum.fitted_peaks_object) {
+            this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
+        } else {
+            this.new_peaks = [];
+        }
+
+        for (let i = 0; i < self.new_peaks.length; i++) {
+            self.new_peaks[i].radius = 10.0;
+        }
+
+        if (vis) {
+            this.$peaks_svg = vis.selectAll('.peak')
+                .data(self.new_peaks)
+                .enter()
+                .append('circle')
+                .attr('class', 'peak')
+                .attr('cx', function (d) { return self.xRange(d.X_PPM); })
+                .attr('cy', function (d) { return self.yRange(d.Y_PPM); })
+                .attr('visibility', function (d) {
+                    if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
+                        return "visible";
+                    } else {
+                        return "hidden";
+                    }
+                })
+                .attr("clip-path", "url(#" + (self.clipId || "clip") + ")")
+                .attr('r', self.peak_size)
+                .attr('stroke', function () { return self.peak_color; })
+                .attr('fill', function () { return (self.filled_peaks === true) ? self.peak_color : 'none'; })
+                .attr('stroke-width', self.peak_thickness);
+        }
         return;
     }
 
-    /**
-     * Remove all peaks if there is any
-     */
-    self.$vis.selectAll('.peak').remove();
-
-    /**
-     * Filter peaks based on peak level
-     */
-    if (self.peak_flag === 'picked') {
-        this.new_peaks = self.spectrum.picked_peaks_object.get_selected_columns(self.peak_properties);
+    // SPIN mode (PointData peak list)
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff)
+                this.realdata.push(this.PointData[i]);
+        }
     }
-    else {
-        this.new_peaks = self.spectrum.fitted_peaks_object.get_selected_columns(self.peak_properties);
+    if (this.preparedata) this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").remove();
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", "blue")
+            .attr("stroke-width", "1")
+            .style("opacity", (typeof this.show_peak !== 'undefined') ? this.show_peak : 1)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".point_match").remove();
     }
 
-    for (let i = 0; i < self.new_peaks.length; i++) {
-        self.new_peaks[i].radius = 10.0;
+    if (this.text) this.text();
+
+    var bts = document.getElementsByClassName("compound_button");
+    for (var i = 0; i < bts.length; i++) {
+        bts[i].style.display = "none";
     }
 
-
-    /**
-     * Draw peaks, red circles without fill
-     */
-    this.$peaks_svg = self.$vis.selectAll('.peak')
-        .data(self.new_peaks)
-        .enter()
-        .append('circle')
-        .attr('class', 'peak')
-        .attr('cx', function (d) {
-            return self.xRange(d.X_PPM);
-        })
-        .attr('cy', function (d) {
-            return self.yRange(d.Y_PPM);
-        })
-        .attr('visibility', function (d) {
-            if (typeof d.HEIGHT === "undefined" || d.HEIGHT > self.peak_level || d.HEIGHT < self.peak_level_negative) {
-                return "visible";
-            }
-            else {
-                return "hidden";
-            }
-        })
-        .attr("clip-path", "url(#" + self.clipId + ")")
-        .attr('r', self.peak_size)
-        .attr('stroke', function () {
-            return self.peak_color;
-        })
-        .attr('fill', function () {
-            if (self.filled_peaks === true) {
-                return self.peak_color;
-            }
-            else {
-                return 'none';
-            }
-        })
-        .attr('stroke-width', self.peak_thickness);
+    this.data1 = [];
+    this.data2 = [];
 };
 
 /**
@@ -2612,10 +2968,11 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * set display to block. 
              */
             let peak_information_div = document.getElementById('peak_information_div');
-            if (peak_information_div) peak_information_div.style.display = 'block';
-
-            peak_information_div.style.left = x + 'px';
-            peak_information_div.style.top = y + 'px';
+            if (peak_information_div) {
+                peak_information_div.style.display = 'block';
+                peak_information_div.style.left = x + 'px';
+                peak_information_div.style.top = y + 'px';
+            }
 
             /**
              * self.pseudo3d_plane_y_value is something line Z_A0, Z_A1, Z_A2 ....
@@ -2681,33 +3038,37 @@ plotit.prototype.allow_hover_on_peaks = function (flag) {
              * Remove (if any) previous drawing
              */
             const p3d_el = document.getElementById("pseudo3d_fitting_plot");
-            if (p3d_el) p3d_el.innerHTML = "";
+            if (p3d_el) {
+                p3d_el.innerHTML = "";
 
+                const FittingPlotClass = self.fitting_plot_class;
+                if (FittingPlotClass) {
+                    const plot = new FittingPlotClass('#pseudo3d_fitting_plot', {
+                        width: 400,
+                        height: 300,
+                        xLabel: self.pseudo3d_x_label,
+                        yLabel: self.pseudo3d_y_label,
+                    });
 
-            const plot = new fitting_plot('#pseudo3d_fitting_plot', {
-                width: 400,
-                height: 300,
-                xLabel: self.pseudo3d_x_label,
-                yLabel: self.pseudo3d_y_label,
-            });
+                    plot.draw_scatter(data);
+                    plot.draw_line(data2);
 
-            plot.draw_scatter(data);
-            plot.draw_line(data2);
-
-            /**
-           * If d.DOSY_STD is defined, then add two lines with slope = (d.DOSY+-d.DOSY_STD) * self.pseudo3d_slope_factor
-           */
-            if (typeof d.DOSY_STD !== "undefined") {
-                const data3 = [
-                    { x: 0, y: 0 },
-                    { x: data[data.length - 1].x, y: (slope + d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
-                ];
-                const data4 = [
-                    { x: 0, y: 0 },
-                    { x: data[data.length - 1].x, y: (slope - d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
-                ];
-                plot.draw_line(data3);
-                plot.draw_line(data4);
+                    /**
+                     * If d.DOSY_STD is defined, then add two lines with slope = (d.DOSY+-d.DOSY_STD) * self.pseudo3d_slope_factor
+                     */
+                    if (typeof d.DOSY_STD !== "undefined") {
+                        const data3 = [
+                            { x: 0, y: 0 },
+                            { x: data[data.length - 1].x, y: (slope + d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                        ];
+                        const data4 = [
+                            { x: 0, y: 0 },
+                            { x: data[data.length - 1].x, y: (slope - d.DOSY_STD * self.pseudo3d_slope_factor) * data[data.length - 1].x } // line end point
+                        ];
+                        plot.draw_line(data3);
+                        plot.draw_line(data4);
+                    }
+                }
             }
 
 
@@ -2955,6 +3316,7 @@ plotit.prototype.add_predicted_peaks = function (peaks, flag_valid, index) {
  * @param {any} isRotated - Is rotated
  */
 plotit.prototype.handleLabelClick = function (event, target, isRotated) {
+    const self = this;
     // Prevent event bubbling so dragging doesn't start immediately or cause issues
     if (event && event.stopPropagation) event.stopPropagation();
 
@@ -3064,9 +3426,14 @@ plotit.prototype.setup_axis_pan = function () {
             let y = event.y;
 
             // Define detection zones (Margins)
+            // Bottom-Left Corner: both X and Y
             // Left Margin: x < MARGINS.left
             // Bottom Margin: y > HEIGHT - MARGINS.bottom
-            if (y > self.HEIGHT - self.MARGINS.bottom) {
+            if (y > self.HEIGHT - self.MARGINS.bottom && x < self.MARGINS.left) {
+                mode = "both";
+                start_scale_x = d3.scaleLinear().domain(self.xscale).range([self.MARGINS.left, self.WIDTH - self.MARGINS.right]);
+                start_scale_y = d3.scaleLinear().domain(self.yscale).range([self.HEIGHT - self.MARGINS.bottom, self.MARGINS.top]);
+            } else if (y > self.HEIGHT - self.MARGINS.bottom) {
                 mode = "x";
                 start_scale_x = d3.scaleLinear().domain(self.xscale).range([self.MARGINS.left, self.WIDTH - self.MARGINS.right]);
             } else if (x < self.MARGINS.left) {
@@ -3088,38 +3455,35 @@ plotit.prototype.setup_axis_pan = function () {
             let x = event.x;
             let y = event.y;
 
-            if (mode === "x") {
+            if (mode === "x" || mode === "both") {
                 // Calculate PPM shift using the initial scale
                 let start_ppm = start_scale_x.invert(start_mouse[0]);
                 let curr_ppm = start_scale_x.invert(x);
                 let delta_ppm = start_ppm - curr_ppm;
 
                 self.xscale = [start_domain_x[0] + delta_ppm, start_domain_x[1] + delta_ppm];
-
-                // Update Range and View
                 self.xRange.domain(self.xscale);
-                // Update View
-                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
-                self.contour_plot.drawScene();
-                self.reset_axis();
-                if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
-                self.sync_3d_views(false);
             }
-            else if (mode === "y") {
+            if (mode === "y" || mode === "both") {
                 let start_ppm = start_scale_y.invert(start_mouse[1]);
                 let curr_ppm = start_scale_y.invert(y);
                 let delta_ppm = start_ppm - curr_ppm;
 
                 self.yscale = [start_domain_y[0] + delta_ppm, start_domain_y[1] + delta_ppm];
-
                 self.yRange.domain(self.yscale);
-                // Update View
-                self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
-                self.contour_plot.drawScene();
-                self.reset_axis();
-                if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
-                self.sync_3d_views(false);
             }
+
+            // Update View
+            self.contour_plot.setCamera_ppm(self.xscale[0], self.xscale[1], self.yscale[0], self.yscale[1]);
+            self.contour_plot.drawScene();
+            self.reset_axis();
+            if (mode === "x" || mode === "both") {
+                if (self.x_cross_section_plot) self.x_cross_section_plot.zoom_x(self.xscale);
+            }
+            if (mode === "y" || mode === "both") {
+                if (self.y_cross_section_plot) self.y_cross_section_plot.zoom_y(self.yscale);
+            }
+            self.sync_3d_views(false);
         })
         .on("end", function (event) {
             if (mode !== "") {
@@ -3127,9 +3491,28 @@ plotit.prototype.setup_axis_pan = function () {
                 self.yscales.push(start_domain_y);
                 self.send_scales_to_other_window();
                 mode = "";
+                self.reset_axis();
                 self.sync_3d_views(true);
             }
         });
+
+    const ensureEventView = function (e) {
+        if (e && !e.view && typeof window !== "undefined") {
+            try {
+                Object.defineProperty(e, "view", { value: window, configurable: true });
+            } catch (_) {
+                e.view = window;
+            }
+        }
+    };
+    if (this.$vis && typeof this.$vis.node === "function" && this.$vis.node()) {
+        this.$vis.node().addEventListener("mousedown", ensureEventView, true);
+    }
+    if (typeof window !== "undefined" && !window.__plotit_ensure_event_view) {
+        window.__plotit_ensure_event_view = true;
+        window.addEventListener("mousemove", ensureEventView, true);
+        window.addEventListener("mouseup", ensureEventView, true);
+    }
 
     this.$vis.call(drag);
 };
@@ -3148,8 +3531,7 @@ plotit.prototype.setup_axis_wheel = function () {
     svgNode.addEventListener("wheel", function (event) {
 
         // Check location
-        let x = event.offsetX;
-        let y = event.offsetY;
+        let [x, y] = (typeof d3 !== 'undefined' && d3.pointer) ? d3.pointer(event, svgNode) : [event.offsetX, event.offsetY];
 
         let isX = (y > self.HEIGHT - self.MARGINS.bottom);
         let isY = (x < self.MARGINS.left);
@@ -3457,4 +3839,700 @@ plotit.prototype.remove_secondary_y_axis = function () {
     this.yAxis2 = null;
 };
 
+/* =========================================================================
+ * SPIN Webserver / Metabolomics Query & Reference Methods
+ * ========================================================================= */
 
+plotit.prototype.update_contour_ref = function (ref1, ref2) {
+    if (this.spectrum) {
+        this.spectrum.x_ppm_ref = (this.spectrum.x_ppm_ref || 0) + ref1;
+        this.spectrum.y_ppm_ref = (this.spectrum.y_ppm_ref || 0) + ref2;
+    }
+    if (Array.isArray(this.init_xscale) && this.init_xscale.length === 2 && !isNaN(this.init_xscale[0])) {
+        this.init_xscale = [this.init_xscale[0] + ref1, this.init_xscale[1] + ref1];
+    }
+    if (Array.isArray(this.init_yscale) && this.init_yscale.length === 2 && !isNaN(this.init_yscale[0])) {
+        this.init_yscale = [this.init_yscale[0] + ref2, this.init_yscale[1] + ref2];
+    }
+
+    if (this.spectral_information) {
+        const sInfo = Array.isArray(this.spectral_information) ? this.spectral_information : [this.spectral_information];
+        const cInfo = this.contour_plot && this.contour_plot.spectral_information
+            ? (Array.isArray(this.contour_plot.spectral_information) ? this.contour_plot.spectral_information : [this.contour_plot.spectral_information])
+            : [];
+        for (let i = 0; i < sInfo.length; i++) {
+            if (sInfo[i] && !cInfo.includes(sInfo[i])) {
+                sInfo[i].x_ppm_ref = (sInfo[i].x_ppm_ref || 0) + ref1;
+                sInfo[i].y_ppm_ref = (sInfo[i].y_ppm_ref || 0) + ref2;
+            }
+        }
+    }
+
+    if (!this.contour_plot) {
+        return;
+    }
+    this.contour_plot.update_ppm(ref1, ref2);
+    if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+    this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+    this.contour_plot.drawScene();
+};
+
+plotit.prototype.set_recon_visible = function (visible) {
+    this.show_recon = !!visible;
+    if (!this.contour_plot || !this.spectral_type) return;
+    for (var i = 0; i < this.spectral_type.length; i++) {
+        if (this.spectral_type[i] === "hsqcrecon") {
+            if (this.contour_plot.visible) {
+                this.contour_plot.visible[i] = this.show_recon ? 1 : 0;
+            }
+        }
+    }
+    this.contour_plot.drawScene();
+};
+
+plotit.prototype.toggle_recon = function () {
+    if (!this.contour_plot || !this.spectral_type) return;
+    var current = (this.show_recon !== undefined) ? this.show_recon : true;
+    this.set_recon_visible(!current);
+};
+
+// Text representation of peaks (using integral if present, otherwise index)
+plotit.prototype.text = function () {
+    if (!this.realdata) return;
+    var out = "";
+    var temp = this.realdata.slice(0);
+    temp.sort(function (a, b) { return a.cs_x - b.cs_x; });
+
+    for (var i = 0; i < temp.length; i++) {
+        if (typeof temp[i].noise !== "undefined" && temp[i].noise === 0) {
+            continue;
+        }
+        if (typeof temp[i].intergral !== "undefined") {
+            out += temp[i].cs_x.toFixed(3) + " " + temp[i].cs_y.toFixed(2) + " " + temp[i].index.toFixed(2) + " " + temp[i].intergral.toFixed(2) + "\n";
+        } else {
+            out += temp[i].cs_x.toFixed(3) + " " + temp[i].cs_y.toFixed(2) + " " + temp[i].index.toFixed(2) + " " + temp[i].index.toFixed(2) + "\n";
+        }
+    }
+
+    if (this.drawto_peak) {
+        $(this.drawto_peak).val(out);
+    }
+};
+
+plotit.prototype.transition_data = function () {
+    var self = this;
+    if (this.preparedata) this.preparedata();
+    if (typeof this.dss !== "undefined" && this.prepare_dss) this.prepare_dss();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".point_match")
+            .attr("cx", function (d) { return self.xRange(d.x); })
+            .attr("cy", function (d) { return self.yRange(d.y); });
+
+        vis.selectAll(".dss")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".dss2")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".line")
+            .attr('d', function (d) { return self.lineFunc(d); });
+
+        vis.selectAll(".compound2")
+            .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+    }
+};
+
+plotit.prototype.brushend_zoom = function (selection) {
+    var self = this;
+    if (Math.abs(selection[0][0] - selection[1][0]) < 3.0 || Math.abs(selection[0][1] - selection[1][1]) < 3.0) {
+        return;
+    }
+    if (Array.isArray(this.xscale) && Array.isArray(this.yscale)) {
+        this.xscales.push([this.xscale[0], this.xscale[1]]);
+        this.yscales.push([this.yscale[0], this.yscale[1]]);
+    }
+    this.xscale = [self.xRange.invert(selection[0][0]), self.xRange.invert(selection[1][0])];
+    this.yscale = [self.yRange.invert(selection[1][1]), self.yRange.invert(selection[0][1])];
+    this.xRange.domain(this.xscale);
+    this.yRange.domain(this.yscale);
+
+    if (!this.init_xscale || isNaN(this.init_xscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.x_ppm_start !== undefined && sInfo.x_ppm_step !== undefined && sInfo.n_direct) {
+            let xRef = sInfo.x_ppm_ref || 0;
+            let x0 = sInfo.x_ppm_start + xRef;
+            this.init_xscale = [x0, x0 + sInfo.x_ppm_step * sInfo.n_direct];
+        }
+    }
+    if (!this.init_yscale || isNaN(this.init_yscale[0])) {
+        let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information[0] : this.spectral_information;
+        if (sInfo && sInfo.y_ppm_start !== undefined && sInfo.y_ppm_step !== undefined && sInfo.n_indirect) {
+            let yRef = sInfo.y_ppm_ref || 0;
+            let y0 = sInfo.y_ppm_start + yRef;
+            this.init_yscale = [y0, y0 + sInfo.y_ppm_step * sInfo.n_indirect];
+        }
+    }
+
+    if (this.contour_plot) {
+        if (this.contour_plot.clearCamera) this.contour_plot.clearCamera();
+        this.contour_plot.setCamera_ppm(this.xscale[0], this.xscale[1], this.yscale[0], this.yscale[1]);
+        this.contour_plot.drawScene();
+    }
+
+    this.transition_data();
+    this.reset_axis();
+    if (this.x_cross_section_plot) this.x_cross_section_plot.zoom_x(this.xscale);
+    if (this.y_cross_section_plot) this.y_cross_section_plot.zoom_y(this.yscale);
+    this.send_scales_to_other_window();
+    this.sync_3d_views();
+    this.brushend_time = new Date().getTime() + 100;
+};
+
+plotit.prototype.brushend_remove = function (selection) {
+    if (this.stage >= 2) return;
+    var self = this;
+    var ppm_x1 = self.xRange.invert(selection[0][0]);
+    var ppm_x2 = self.xRange.invert(selection[1][0]);
+    var ppm_y1 = self.yRange.invert(selection[0][1]);
+    var ppm_y2 = self.yRange.invert(selection[1][1]);
+
+    if (ppm_x1 > ppm_x2) { var t = ppm_x1; ppm_x1 = ppm_x2; ppm_x2 = t; }
+    if (ppm_y1 > ppm_y2) { var t = ppm_y1; ppm_y1 = ppm_y2; ppm_y2 = t; }
+
+    if (self.PointData) {
+        for (var i = self.PointData.length - 1; i >= 0; i--) {
+            if (self.PointData[i].cs_x >= ppm_x1 && self.PointData[i].cs_x <= ppm_x2 &&
+                self.PointData[i].cs_y >= ppm_y1 && self.PointData[i].cs_y <= ppm_y2) {
+                self.PointData.splice(i, 1);
+            }
+        }
+    }
+
+    self.realdata = [];
+    if (self.PointData) {
+        for (var i = 0; i < self.PointData.length; i++) {
+            if (self.PointData[i].index > self.cutoff) self.realdata.push(self.PointData[i]);
+        }
+    }
+
+    self.preparedata();
+    self.update_picked_peaks();
+    self.brushend_time = new Date().getTime() + 100;
+    self.text();
+};
+
+plotit.prototype.preparedata = function () {
+    if (!this.realdata) return;
+    for (var j = 0; j < this.realdata.length; j++) {
+        let px = typeof this.realdata[j].cs_x !== "undefined" ? this.realdata[j].cs_x : (typeof this.realdata[j].X_PPM !== "undefined" ? this.realdata[j].X_PPM : this.realdata[j].x_ppm);
+        let py = typeof this.realdata[j].cs_y !== "undefined" ? this.realdata[j].cs_y : (typeof this.realdata[j].Y_PPM !== "undefined" ? this.realdata[j].Y_PPM : this.realdata[j].y_ppm);
+        if (typeof px !== "undefined") this.realdata[j].x = this.xRange(px);
+        if (typeof py !== "undefined") this.realdata[j].y = this.yRange(py);
+    }
+};
+
+plotit.prototype.invertdata = function () {
+    if (!this.realdata) return;
+    for (var j = 0; j < this.realdata.length; j++) {
+        this.realdata[j].cs_x = this.xRange.invert(this.realdata[j].x);
+        this.realdata[j].cs_y = this.yRange.invert(this.realdata[j].y);
+    }
+};
+
+plotit.prototype.prepare_dss = function () {
+    if (this.dss) {
+        for (var j = 0; j < this.dss.length; j++) {
+            this.dss[j].x = this.xRange(this.dss[j].cs_x);
+            this.dss[j].y = this.yRange(this.dss[j].cs_y);
+        }
+    }
+    if (this.dss2) {
+        for (var j = 0; j < this.dss2.length; j++) {
+            this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+            this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+        }
+    }
+};
+
+plotit.prototype.toggle_peak = function (flag) {
+    if (typeof flag === "undefined") {
+        this.show_peak = 1 - this.show_peak;
+    } else {
+        this.show_peak = flag;
+    }
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point").style("opacity", this.show_peak);
+        vis.selectAll(".point_match").style("opacity", this.show_peak);
+    }
+};
+
+plotit.prototype.removepeaks = function () {
+    this.stage = 1;
+    this.data1 = [];
+    this.data2 = [];
+    this.compounds = [];
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point_match").data([]).exit().remove();
+        vis.selectAll(".compound").data([]).exit().remove();
+        vis.selectAll(".compound2").data([]).exit().remove();
+        vis.selectAll(".point").remove();
+    }
+
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+        }
+    }
+
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .style("opacity", this.show_peak)
+            .attr("stroke", "blue")
+            .attr("stroke-width", "1")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+
+    if (this.legend) {
+        this.legend.selectAll(".legend").data([]).exit().remove();
+    }
+    if (this.drawto_legend) {
+        $(this.drawto_legend).height(20);
+    }
+};
+
+plotit.prototype.addpeaks = function (data1, compounds) {
+    var self = this;
+    this.stage = 2;
+    this.data1 = data1;
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").data([]).exit().remove();
+        vis.selectAll(".dss").data([]).exit().remove();
+        vis.selectAll(".dss2").data([]).exit().remove();
+
+        vis.selectAll(".point_match")
+            .data(this.data1)
+            .enter().append("circle")
+            .attr("class", "point_match")
+            .attr("clip-path", clipUrl)
+            .attr("r", function (d) { return (d.z && d.z.length >= 1) ? 4.0 : 3.0; })
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", "black")
+            .attr("stroke-width", function (d) {
+                if (d.z && d.z.length > 1) return 4;
+                if (d.z && d.z.length === 1) return 2;
+                return 1;
+            })
+            .attr("cx", function (d) { return self.xRange(d.x); })
+            .attr("cy", function (d) { return self.yRange(d.y); });
+    }
+
+    this.update_compound(compounds);
+    this.dolegend();
+};
+
+plotit.prototype.color_compound = function (m) {
+    var data = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#bcbd22', '#17becf'];
+    return data[m % data.length];
+};
+
+plotit.prototype.update_compound = function (compounds) {
+    var self = this;
+    this.compounds = compounds || [];
+
+    for (var i = 0; i < this.compounds.length; i++) {
+        this.compounds[i].show = 1;
+        if (this.compounds[i].peaks) {
+            for (var j = 0; j < this.compounds[i].peaks.length; j++) {
+                this.compounds[i].peaks[j].z = i;
+            }
+        }
+    }
+
+    this.color_compound2 = d3.scaleLinear().rangeRound([0, 8]).domain([0, Math.max(this.compounds.length, 8)]);
+
+    let vis = this.$vis || this.vis;
+    if (!vis) return;
+
+    vis.selectAll(".compound").remove();
+
+    let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+
+    const index = d3.local();
+
+    this.compound = vis.selectAll(".compound")
+        .data(this.compounds)
+        .enter().append("g")
+        .attr("class", "compound")
+        .attr("clip-path", clipUrl)
+        .each(function (d, i) {
+            index.set(this, i);
+        })
+        .style("opacity", function (d) { return (d.show === 1 || d.show === 1.0) ? 1.0 : 0.0; })
+        .style("display", function (d) { return (d.show === 1 || d.show === 1.0) ? "inline" : "none"; })
+        .attr('stroke', function (d, i) { return self.color_compound(self.color_compound2(i)); });
+
+    var defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",              // triangle
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",        // diamond
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z", // cross
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",      // square
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0" // circle
+    ];
+    var activeShapes = (Array.isArray(this.shapes) && this.shapes.length > 0) ? this.shapes : defaultShapes;
+
+    this.compound2 = this.compound.selectAll(".compound2")
+        .data(function (d) { return d.peaks || []; }).enter().append("path")
+        .attr("class", "compound2")
+        .attr('stroke-width', 2)
+        .attr('fill', 'none')
+        .attr("d", function (d, i) {
+            let shapeIdx = (typeof d.z !== 'undefined' ? d.z : i) % activeShapes.length;
+            return activeShapes[shapeIdx];
+        })
+        .attr("transform", function (d) { return "translate(" + self.xRange(d.x) + "," + self.yRange(d.y) + ")"; });
+};
+
+plotit.prototype.dolegend = function () {
+    var self = this;
+    if (!this.drawto_legend) return;
+    this.legend = d3.select(this.drawto_legend);
+
+    this.legend.selectAll(".legend").remove();
+    this.legend.selectAll(".legend2").remove();
+
+    let svg_id = this.drawto ? this.drawto.replace(/[^a-zA-Z0-9_-]/g, "") : "";
+    let elem = svg_id ? document.getElementById(svg_id) : null;
+    var t = elem ? elem.clientWidth : 1024;
+    if (t < 1024) t = 1024;
+    t = t - 15;
+
+    var n_perline = Math.round(t / 200 - 0.5);
+    if (n_perline < 1) n_perline = 1;
+
+    const index = d3.local();
+    var defaultShapes = [
+        "M 0 -4 L 4 4 L -4 4 Z",
+        "M 0 -4 L 4 0 L 0 4 L -4 0 Z",
+        "M -4 -1 L -1 -1 L -1 -4 L 1 -4 L 1 -1 L 4 -1 L 4 1 L 1 1 L 1 4 L -1 4 L -1 1 L -4 1 Z",
+        "M -3 -3 L 3 -3 L 3 3 L -3 3 Z",
+        "M -4 0 A 4 4 0 1 0 4 0 A 4 4 0 1 0 -4 0"
+    ];
+    var activeShapes = (Array.isArray(this.shapes) && this.shapes.length > 0) ? this.shapes : defaultShapes;
+
+    this.legend.selectAll(".legend").data(this.compounds || [])
+        .enter().append("text").attr("class", "legend")
+        .attr("x", function (d, i) { return 30 + (i % n_perline) * 200; })
+        .attr("y", function (d, i) { return 40 + 20 * Math.round(i / n_perline - 0.5); })
+        .style("fill", function (d, i) { return (d.show === 0 || d.show === 0.0) ? "gray" : self.color_compound(self.color_compound2(i)); })
+        .each(function (d, i) { index.set(this, i); })
+        .text(function (d) { return d.name ? d.name.substring(0, 18) : ""; })
+        .on("click", function (event, d) {
+            self.legendClick(index.get(this));
+        });
+
+    this.legend.selectAll(".legend2").data(this.compounds || [])
+        .enter().append("path").attr("class", "legend2")
+        .attr('stroke-width', 2)
+        .attr('fill', 'none')
+        .attr("d", function (d, i) { return activeShapes[i % activeShapes.length]; })
+        .attr('stroke', function (d, i) { return (d.show === 0 || d.show === 0.0) ? "gray" : self.color_compound(self.color_compound2(i)); })
+        .attr("transform", function (d, i) { return "translate(" + ((i % n_perline) * 200 + 10) + "," + (35 + 20 * Math.round(i / n_perline - 0.5)) + ")"; });
+
+    var len = 60 + 20 * Math.round((this.compounds ? this.compounds.length : 0) / n_perline - 0.5);
+    $(this.drawto_legend).height(len);
+    $(this.drawto_legend).width(t);
+};
+
+plotit.prototype.legendall = function (show) {
+    var obj = this;
+    if (!this.compounds) return;
+
+    for (var i = 0; i < this.compounds.length; i++) {
+        this.compounds[i].show = show;
+    }
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound")
+            .style("opacity", function (d) { return (d.show === 1 || d.show === 1.0) ? 1.0 : 0.0; })
+            .style("display", function (d) { return (d.show === 1 || d.show === 1.0) ? "inline" : "none"; });
+    }
+
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.show_one = function (index) {
+    var obj = this;
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound")
+            .style("opacity", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? 1.0 : 0.0;
+            })
+            .style("display", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? "inline" : "none";
+            });
+    }
+
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.legendClick = function (index) {
+    var obj = this;
+    if (!this.compounds || !this.compounds[index]) return;
+    this.compounds[index].show = 1 - (this.compounds[index].show || 0);
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".compound")
+            .style("opacity", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? 1.0 : 0.0;
+            })
+            .style("display", function (d, i) {
+                return (d.show === 1.0 || d.show === 1) ? "inline" : "none";
+            });
+    }
+
+    if (!this.legend && this.drawto_legend) {
+        this.legend = d3.select(this.drawto_legend);
+    }
+    if (this.legend) {
+        this.legend.selectAll(".legend").style("fill", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+        this.legend.selectAll(".legend2").style("stroke", function (d, i) {
+            return (d.show === 1.0 || d.show === 1) ? obj.color_compound(obj.color_compound2(i)) : "gray";
+        });
+    }
+};
+
+plotit.prototype.update_contour = function (value) {
+    if (this.contour_plot && this.contour_plot.set_level_lb) {
+        this.contour_plot.set_level_lb(value - 1);
+    }
+    if (this.levels && this.levels[value - 1]) {
+        this.cutoff = this.levels[value - 1] * 0.99;
+    }
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+        }
+    }
+    this.preparedata();
+    this.update_picked_peaks();
+};
+
+plotit.prototype.update_pointdata = function (input) {
+    this.PointData = input || [];
+    this.realdata = [];
+    for (var i = 0; i < this.PointData.length; i++) {
+        if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+    }
+    this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".point").remove();
+        vis.selectAll(".point")
+            .data(this.realdata)
+            .enter().append("circle")
+            .attr("class", "point")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) {
+                return (typeof d.noise !== "undefined" && d.noise === 0) ? "red" : "blue";
+            })
+            .attr("stroke-width", "1")
+            .style("opacity", this.show_peak)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+    this.text();
+};
+
+plotit.prototype.update_picked_peaks = function () {
+    if (this.stage < 2) {
+        let vis = this.$vis || this.vis;
+        if (vis) {
+            let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+            vis.selectAll(".point").remove();
+            vis.selectAll(".point")
+                .data(this.realdata || [])
+                .enter().append("circle")
+                .attr("class", "point")
+                .attr("clip-path", clipUrl)
+                .attr("r", 4.0)
+                .attr("fill-opacity", 0.0)
+                .attr("stroke", function (d) {
+                    return (typeof d.noise !== "undefined" && d.noise === 0) ? "red" : "blue";
+                })
+                .style("opacity", this.show_peak)
+                .attr("stroke-width", "1")
+                .attr("cx", function (d) { return d.x; })
+                .attr("cy", function (d) { return d.y; });
+        }
+        this.text();
+    }
+};
+
+plotit.prototype.doref = function () {
+    var self = this;
+    this.preparedata();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".point")
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".line")
+            .attr('d', function (d) { return self.lineFunc(d); });
+    }
+    this.text();
+
+    if (typeof this.dss !== "undefined" && this.dss && this.dss2) {
+        for (var i = 0; i < this.dss.length; i++) {
+            this.dss2[i].cs_x = this.dss[i].cs_x;
+            this.dss2[i].cs_y = this.dss[i].cs_y;
+        }
+
+        for (var j = 0; j < this.dss2.length; j++) {
+            this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+            this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+        }
+
+        if (vis) {
+            vis.selectAll(".dss2")
+                .attr("cx", function (d) { return d.x; })
+                .attr("cy", function (d) { return d.y; });
+        }
+    }
+};
+
+plotit.prototype.dodss = function (data) {
+    this.dss = data;
+    if (!this.dss) return;
+
+    this.dss2 = [];
+    for (var i = 0; i < this.dss.length; i++) {
+        this.dss[i].x = this.dss[i].cs_x;
+        this.dss[i].y = this.dss[i].cs_y;
+
+        var t = {
+            x: this.dss[i].x,
+            y: this.dss[i].y,
+            cs_x: this.dss[i].cs_x,
+            cs_y: this.dss[i].cs_y,
+            name: this.dss[i].name,
+            color: this.dss[i].color
+        };
+        this.dss2.push(t);
+    }
+
+    this.prepare_dss();
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        let clipUrl = this.clipId ? ("url(#" + this.clipId + ")") : "url(#clip)";
+        vis.selectAll(".dss").data([]).exit().remove();
+        vis.selectAll(".dss")
+            .data(this.dss)
+            .enter().append("circle")
+            .attr("class", "dss")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) { return d.color; })
+            .attr("fill", "red")
+            .attr("stroke-width", 2)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+
+        vis.selectAll(".dss2").data([]).exit().remove();
+        vis.selectAll(".dss2")
+            .data(this.dss2)
+            .enter().append("circle")
+            .attr("class", "dss2")
+            .attr("clip-path", clipUrl)
+            .attr("r", 4.0)
+            .attr("fill-opacity", 0.0)
+            .attr("stroke", function (d) { return d.color; })
+            .attr("stroke-width", 1)
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+};
+
+// Auto-reference update with defensive null guard for this.dss
+plotit.prototype.ref = function (ref1, ref2) {
+    if (!this.dss || !this.dss2) return;
+    for (var i = 0; i < this.dss.length; i++) {
+        this.dss2[i].cs_x = this.dss[i].cs_x - ref1;
+        this.dss2[i].cs_y = this.dss[i].cs_y - ref2;
+    }
+
+    for (var j = 0; j < this.dss2.length; j++) {
+        this.dss2[j].x = this.xRange(this.dss2[j].cs_x);
+        this.dss2[j].y = this.yRange(this.dss2[j].cs_y);
+    }
+
+    let vis = this.$vis || this.vis;
+    if (vis) {
+        vis.selectAll(".dss2").transition()
+            .attr("cx", function (d) { return d.x; })
+            .attr("cy", function (d) { return d.y; });
+    }
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = plotit;
+}
+if (typeof window !== 'undefined') {
+    window.plotit = plotit;
+}
