@@ -62,6 +62,27 @@
   };
 
   /**
+   * Configures TensorFlow.js environment for 3D volumetric convolutions.
+   * Disables WebGL texture packing so that simpler unpacked GLSL shaders are generated,
+   * preventing shader compilation failures on integrated GPUs (Intel UHD / Iris Xe / AMD APUs).
+   */
+  function configureTfEnvironment(tfInstance) {
+    const tf = tfInstance || globalScope.tf;
+    if (!tf || !tf.env) return;
+    try {
+      tf.env().set('WEBGL_PACK', false);
+      tf.env().set('WEBGL_FORCE_F16_TEXTURES', false);
+    } catch (e) {
+      console.warn('[tfjs] Could not configure WebGL flags:', e);
+    }
+  }
+
+  // Pre-configure if TensorFlow.js is already loaded
+  if (globalScope.tf) {
+    configureTfEnvironment(globalScope.tf);
+  }
+
+  /**
    * Ensures TensorFlow.js is loaded in the global scope.
    */
   function ensureTf(tfInstance) {
@@ -69,6 +90,7 @@
     if (!tf) {
       throw new Error("TensorFlow.js not found. Please include @tensorflow/tfjs before this script.");
     }
+    configureTfEnvironment(tf);
     return tf;
   }
 
@@ -830,7 +852,7 @@
   // =========================================================================
 
   /**
-   * Runs Model 04 forward pass on extracted cubes.
+   * Runs Model 04 forward pass on extracted cubes with sub-batching and automatic CPU fallback.
    * Input: [numTokens, 16, 16, 128, 2]
    * Output: [numTokens, 2] -> [phi_pred_deg, std_pred_deg]
    */
@@ -840,37 +862,73 @@
       return { phiPredDeg: [], stdPredDeg: [], weights: [] };
     }
 
-    const inputTensor = tf.tensor(ext.cubes, ext.cubesShape, "float32");
-    let predTensor;
-    try {
-      if (typeof model.execute === "function") {
-        predTensor = model.execute(inputTensor);
-      } else {
-        predTensor = model.predict(inputTensor);
-      }
+    const singleCubeFloats = 16 * 16 * 128 * 2;
+    const BATCH_SIZE = 4; // Sub-batching reduces peak WebGL texture allocations and register pressure
 
-      if (Array.isArray(predTensor)) {
-        predTensor = predTensor[0];
-      }
-
-      const preds = await predTensor.array();
-      const phiPredDeg = new Float64Array(numTokens);
-      const stdPredDeg = new Float64Array(numTokens);
-      const weights = new Float64Array(numTokens);
-
-      for (let k = 0; k < numTokens; k++) {
-        phiPredDeg[k] = preds[k][0];
-        stdPredDeg[k] = Math.max(preds[k][1], 0.1);
-        weights[k] = 1.0 / (stdPredDeg[k] * stdPredDeg[k] + 1e-8);
-      }
-
-      return { phiPredDeg, stdPredDeg, weights };
-    } finally {
-      inputTensor.dispose();
-      if (predTensor && typeof predTensor.dispose === "function") {
-        predTensor.dispose();
+    async function executeBatch(cubesSlice, batchCount) {
+      const tensor = tf.tensor(cubesSlice, [batchCount, 16, 16, 128, 2], "float32");
+      let pred;
+      try {
+        if (typeof model.execute === "function") {
+          pred = model.execute(tensor);
+        } else {
+          pred = model.predict(tensor);
+        }
+        if (Array.isArray(pred)) {
+          pred = pred[0];
+        }
+        return await pred.array();
+      } finally {
+        tensor.dispose();
+        if (pred && typeof pred.dispose === "function") {
+          pred.dispose();
+        }
       }
     }
+
+    async function runInference() {
+      const allPreds = [];
+      for (let i = 0; i < numTokens; i += BATCH_SIZE) {
+        const batchCount = Math.min(BATCH_SIZE, numTokens - i);
+        const slice = ext.cubes.subarray(i * singleCubeFloats, (i + batchCount) * singleCubeFloats);
+        const batchPreds = await executeBatch(slice, batchCount);
+        for (let b = 0; b < batchCount; b++) {
+          allPreds.push(batchPreds[b]);
+        }
+      }
+      return allPreds;
+    }
+
+    let preds;
+    try {
+      preds = await runInference();
+    } catch (err) {
+      const errMsg = (err && err.message) ? err.message : String(err);
+      const isShaderOrGpuError = /shader|compile|link|webgl|out of memory|context lost|gl/i.test(errMsg);
+      if (isShaderOrGpuError && tf.getBackend && tf.getBackend() !== "cpu") {
+        console.warn(`[tfjs] WebGL execution failed (${errMsg}). Falling back to CPU backend for Model 04...`);
+        logToHtml(`[tfjs] WebGL shader compilation failed on GPU. Switching to CPU backend for Model 04 auto-phasing...`);
+        await tf.setBackend("cpu");
+        if (typeof tf.ready === "function") {
+          await tf.ready();
+        }
+        preds = await runInference();
+      } else {
+        throw err;
+      }
+    }
+
+    const phiPredDeg = new Float64Array(numTokens);
+    const stdPredDeg = new Float64Array(numTokens);
+    const weights = new Float64Array(numTokens);
+
+    for (let k = 0; k < numTokens; k++) {
+      phiPredDeg[k] = preds[k][0];
+      stdPredDeg[k] = Math.max(preds[k][1], 0.1);
+      weights[k] = 1.0 / (stdPredDeg[k] * stdPredDeg[k] + 1e-8);
+    }
+
+    return { phiPredDeg, stdPredDeg, weights };
   }
 
   /**
@@ -1009,6 +1067,7 @@
 
   const api = {
     defaults: Object.assign({}, DEFAULTS),
+    configureTfEnvironment,
     parseFt3MetaFromArrayBuffer,
     readFt3AllFromArrayBuffer,
     loadExperimentFromFt3ArrayBuffer,
@@ -1020,7 +1079,21 @@
     loadModel: async function (tf, modelUrl) {
       const tfi = ensureTf(tf);
       const url = modelUrl || DEFAULTS.modelUrl;
-      return await tfi.loadGraphModel(url);
+      try {
+        return await tfi.loadGraphModel(url);
+      } catch (err) {
+        const errMsg = (err && err.message) ? err.message : String(err);
+        if (/shader|compile|link|webgl|out of memory|context lost|gl/i.test(errMsg) && tfi.getBackend && tfi.getBackend() !== "cpu") {
+          console.warn(`[tfjs] Failed to load model on WebGL (${errMsg}). Switching to CPU backend...`);
+          logToHtml(`[tfjs] WebGL initialization failed. Switching to CPU backend...`);
+          await tfi.setBackend("cpu");
+          if (typeof tfi.ready === "function") {
+            await tfi.ready();
+          }
+          return await tfi.loadGraphModel(url);
+        }
+        throw err;
+      }
     },
     // Backward compatibility stubs
     registerCustomLayers: function () {},
