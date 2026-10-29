@@ -82,7 +82,7 @@ var plot_padding = 20; //padding for the plot area
 var main_plot = null; //hsqc plot object
 var b_plot_initialized = false; //flag to indicate if the plot is initialized
 var tfjs_2d_normal_model = null;
-var tfjs_2d_large_model = null;
+
 var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
 var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
 var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
@@ -6622,8 +6622,7 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
     }
 
     const opts = options || {};
-    const numRounds = opts.numRounds !== undefined ? opts.numRounds : 5;
-    const useLargeModel = opts.useLargeModel !== undefined ? opts.useLargeModel : false;
+    const numRounds = opts.numRounds !== undefined ? opts.numRounds : 2;
 
     const original_console_log = console.log;
     const original_console_error = console.error;
@@ -6649,7 +6648,7 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
     console.error = redirect_error;
 
     try {
-        console.log(`Starting automatic 2D phase correction using ANN model (${numRounds} round(s))...`);
+        console.log(`Starting automatic 2D phase correction using ANN Model 17 (${numRounds} round(s))...`);
         let n_size = s.n_direct * s.n_indirect;
         if (s.datatype_direct === 0 && s.datatype_indirect === 0) {
             n_size *= 4;
@@ -6662,6 +6661,9 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
         data.set(s.header, current_position);
         data[55] = (s.datatype_indirect === 0) ? 0.0 : 1.0;
         data[56] = (s.datatype_direct === 0) ? 0.0 : 1.0;
+        data[99] = s.n_direct;
+        data[219] = (s.datatype_direct === 0 && s.datatype_indirect === 0) ? (s.n_indirect * 2) : s.n_indirect;
+        data[221] = 0.0;
         current_position += 512;
         for (let i = 0; i < s.n_indirect; i++) {
             data.set(s.raw_data.subarray(i * s.n_direct, (i + 1) * s.n_direct), current_position);
@@ -6689,24 +6691,18 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
             throw new Error("TensorFlow.js or NUS2DPhasePipeline not loaded.");
         }
 
-        const modelUrl = 'js/2D_model30_tfjs/model.json';
-        const largeModelUrl = 'js/2D_model30_large_tfjs/model.json';
+        const modelUrl = 'js/model17_tfjs/model.json';
 
-        pipeline.registerCustomLayers(tf);
         if (!tfjs_2d_normal_model) {
-            tfjs_2d_normal_model = await tf.loadGraphModel(modelUrl);
-        }
-        if (useLargeModel && !tfjs_2d_large_model) {
-            tfjs_2d_large_model = await tf.loadGraphModel(largeModelUrl);
+            tfjs_2d_normal_model = await pipeline.loadModel(tf, modelUrl);
         }
 
         const result = await pipeline.runFromFt2({
             tf: tf,
             ft2ArrayBuffer: ft2ArrayBuffer,
             model: tfjs_2d_normal_model,
-            largeModel: useLargeModel ? tfjs_2d_large_model : null,
+            modelUrl: modelUrl,
             numRounds: numRounds,
-            useTokenNorms: false,
         });
 
         const finalPhases = result.final_wls_phase_left_right ? result.final_wls_phase_left_right[0] : null;
@@ -6714,14 +6710,11 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
         let p1 = 0.0;
 
         if (finalPhases && Number.isFinite(finalPhases[0]) && Number.isFinite(finalPhases[1])) {
-            // finalPhases stores the estimated phase error present in the spectrum.
-            // To correct the spectrum, we must apply the negative of the predicted error (-left, -right).
-            const appliedLeft = -finalPhases[0];
-            const appliedRight = -finalPhases[1];
-            const nx = s.n_direct;
-            p0 = appliedLeft;
-            p1 = nx > 1 ? (appliedRight - appliedLeft) * nx / (nx - 1) : 0.0;
-            console.log(`[ANN Phase] Applied Total Correction: left=${appliedLeft.toFixed(2)}, right=${appliedRight.toFixed(2)} | p0=${p0.toFixed(2)}, p1=${p1.toFixed(2)}`);
+            const leftEdge = finalPhases[0];
+            const rightEdge = finalPhases[1];
+            p0 = leftEdge;
+            p1 = rightEdge - leftEdge;
+            console.log(`[ANN Phase] Applied Total Correction: left=${leftEdge.toFixed(2)}°, right=${rightEdge.toFixed(2)}° | NMRPipe P0=${p0.toFixed(2)}°, P1=${p1.toFixed(2)}°`);
         } else {
             console.warn("[ANN Reprocess] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.");
             if (log_div) {
