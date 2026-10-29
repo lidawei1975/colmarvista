@@ -5,18 +5,23 @@
  * Accepts input patches of shape [batch, 16, 128, 2] (Real, Imag channels)
  * and directly outputs [phi_pred_deg, std_pred_deg] in degrees.
  *
- * Pipeline Workflow (consistent with phase_2d/equivariance/model17/application_negative.py):
- * 1) Parse NMRPipe FT2 ArrayBuffer with complex direct channel (z = rr - 1j * ri).
- * 2) Estimate 2D noise level via 15th-percentile RMSD over 16x64 blocks.
- * 3) Segment direct dimension into 64-point tokens (skipping first & last boundary tokens),
+ * Pipeline Workflow (consistent with phase_2d/equivariance/model17/application_negative.py
+ * and phase_2d/water_belt/test_water_belt_with_robust_noise.py):
+ * 1) Parse NMRPipe FT2 ArrayBuffer with complex direct channel (z = rr - 1j * ri)
+ *    and direct-dimension chemical shift scale (ppm).
+ * 2) Detect residual water belt along direct 1H axis (4.60 - 4.85 ppm) using
+ *    2D Planar-detrended Patch-MAD Distribution Quantile (PPDQ) robust noise floor.
+ * 3) Estimate 2D noise level via 15th-percentile RMSD over 16x64 blocks.
+ * 4) Segment direct dimension into 64-point tokens (skipping first & last boundary tokens),
  *    extracting up to Top 2 16x128 signal patches per token (20x / 8x noise cutoffs,
- *    |r - r1| >= 8 separation, excluding middle 3 water carrier tokens by default).
- * 4) Normalize each 16x128 patch individually by max(|z|) + 1e-8.
- * 5) Run Model 17 TF.js GraphModel forward pass with sub-batching and automatic
+ *    |r - r1| >= 8 separation). If a water belt exists, dynamically exclude any patch
+ *    whose edge is within 32 data points of the detected water belt center.
+ * 5) Normalize each 16x128 patch individually by max(|z|) + 1e-8.
+ * 6) Run Model 17 TF.js GraphModel forward pass with sub-batching and automatic
  *    WebGL-to-CPU fallback for integrated GPUs.
- * 6) Fit P0 and P1 linear phase using Revised Weighted RANSAC (W-RANSAC) with discrete
+ * 7) Fit P0 and P1 linear phase using Revised Weighted RANSAC (W-RANSAC) with discrete
  *    n*pi (n*180 deg) adjustments for negative peaks and wrapped phase gradients.
- * 7) Run iteratively (default: 2 rounds in web environment) and accumulate total
+ * 8) Run iteratively (default: 2 rounds in web environment) and accumulate total
  *    [left, right] phase correction.
  */
 
@@ -37,12 +42,23 @@
   }
 
   const IDX = {
+    FDDIMORDER1: 24,    // 1-based dimension code stored in fast/direct file axis
+    FDDIMORDER2: 25,    // 1-based dimension code stored in second file axis
+    FDDIMORDER3: 26,
+    FDDIMORDER4: 27,
     FDPLANE: 221,       // tp (transpose flag)
     FDSPECNUM: 219,     // n1 (indirect row count; 2*n_ind when hypercomplex)
     FDSIZE: 99,         // n2 (direct point count)
     FDF1QUADFLAG: 55,   // quad_flag_1 (0 = complex, 1 = real)
     FDF2QUADFLAG: 56,   // quad_flag_2 (0 = complex, 1 = real)
   };
+
+  // Per-dimension NMRPipe header indices for FDF1, FDF2, FDF3, FDF4 (1-based dimCode -> index dimCode - 1)
+  const DIM_SW_IDX = [229, 100, 11, 29];
+  const DIM_ORIG_IDX = [249, 101, 12, 30];
+  const DIM_OBS_IDX = [218, 119, 10, 28];
+  const DIM_CAR_IDX = [67, 66, 68, 69];
+  const DIM_LABEL_WORD = [18, 16, 20, 22];
 
   const DEFAULTS = {
     tokenWidth: 64,
@@ -52,6 +68,8 @@
     peakSnrHigh: 20.0,
     peakSnrLow: 8.0,
     excludeWater: true,
+    minWaterEdgeDist: 32,
+    waterWindowPpm: [4.60, 4.85],
     useAll: false,
     isolatePeak: false,
     peakThresholdFactor: 5.5,
@@ -100,8 +118,114 @@
   }
 
   // =========================================================================
-  // 1. NMRPipe FT2 Header & Binary Parser
+  // 1. NMRPipe FT2 Header, Direct PPM Scale & Binary Parser
   // =========================================================================
+
+  function readAsciiLabel(arrayBuffer, wordIdx) {
+    const byteOffset = wordIdx * 4;
+    if (!arrayBuffer || byteOffset + 8 > arrayBuffer.byteLength) return "";
+    const bytes = new Uint8Array(arrayBuffer, byteOffset, 8);
+    let str = "";
+    for (let i = 0; i < 8; i += 1) {
+      if (bytes[i] === 0) break;
+      str += String.fromCharCode(bytes[i]);
+    }
+    return str.trim();
+  }
+
+  function isDirectAxisProton(label, obs, maxObs, ppmScale) {
+    const clean = (label || "").replace(/[\x00-\x1F\x7F-\x9F<>]/g, "").trim();
+    if (/^(13C|C13|C|CA|CB|CO|15N|N15|N|31P|P31|P|19F|F19|F|2H|H2)$/i.test(clean)) {
+      return false;
+    }
+    if (Number.isFinite(maxObs) && maxObs > 0 && Number.isFinite(obs) && obs > 0) {
+      if ((obs / maxObs) < 0.96) {
+        return false;
+      }
+    }
+    if (ppmScale && ppmScale.length > 0) {
+      const p0 = ppmScale[0];
+      const pEnd = ppmScale[ppmScale.length - 1];
+      const ppmMin = Math.min(p0, pEnd);
+      const ppmMax = Math.max(p0, pEnd);
+      const swPpm = Math.abs(p0 - pEnd);
+      if (swPpm > 50.0 || ppmMax > 40.0 || ppmMin < -25.0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Extracts direct-dimension NMRPipe metadata and chemical shift scale (ppm),
+   * matching nmrglue.pipe.make_uc(dic, data, dim=1).ppm_scale().
+   */
+  function extractDirectAxisInfoFt2(ft2ArrayBuffer, meta, nDirectArg) {
+    if (!(ft2ArrayBuffer instanceof ArrayBuffer) || ft2ArrayBuffer.byteLength < HEADER_BYTES) {
+      return null;
+    }
+    const header = new Float32Array(ft2ArrayBuffer, 0, HEADER_FLOAT_COUNT);
+    const rawD1 = Math.round(header[IDX.FDDIMORDER1]);
+    const rawD2 = Math.round(header[IDX.FDDIMORDER2]);
+    const d1 = (rawD1 >= 1 && rawD1 <= 4) ? rawD1 : 2;
+    const d2 = (rawD2 >= 1 && rawD2 <= 4) ? rawD2 : 1;
+    const tp = meta && meta.tp != null ? meta.tp : Math.round(header[IDX.FDPLANE]);
+    const directDimCode = tp === 1 ? d2 : d1;
+    let nDirect = nDirectArg;
+    if (!(nDirect > 0)) {
+      if (tp === 1) {
+        const rawN1 = meta && meta.n1 != null ? meta.n1 : Math.round(header[IDX.FDSPECNUM]);
+        const q1 = meta && meta.quadFlag1 != null ? meta.quadFlag1 : header[IDX.FDF1QUADFLAG];
+        const q2 = meta && meta.quadFlag2 != null ? meta.quadFlag2 : header[IDX.FDF2QUADFLAG];
+        nDirect = (q1 === 0.0 && q2 === 0.0) ? Math.floor(rawN1 / 2) : rawN1;
+      } else {
+        nDirect = meta && meta.n2 != null ? meta.n2 : Math.round(header[IDX.FDSIZE]);
+      }
+    }
+    const idx = directDimCode - 1;
+
+    const sw = header[DIM_SW_IDX[idx]];
+    const orig = header[DIM_ORIG_IDX[idx]];
+    const obs = header[DIM_OBS_IDX[idx]];
+    const car = header[DIM_CAR_IDX[idx]];
+    const label = readAsciiLabel(ft2ArrayBuffer, DIM_LABEL_WORD[idx]);
+
+    let maxObs = 0.0;
+    for (let k = 0; k < 4; k += 1) {
+      const o = header[DIM_OBS_IDX[k]];
+      const s = header[DIM_SW_IDX[k]];
+      if (Number.isFinite(o) && o > maxObs && Number.isFinite(s) && s > 0) {
+        maxObs = o;
+      }
+    }
+    if (Number.isFinite(obs) && obs > maxObs) {
+      maxObs = obs;
+    }
+
+    let ppmScale = null;
+    if (nDirect > 0 && Number.isFinite(sw) && sw > 0 && Number.isFinite(obs) && obs > 0 && Number.isFinite(orig)) {
+      ppmScale = new Float64Array(nDirect);
+      for (let c = 0; c < nDirect; c += 1) {
+        ppmScale[c] = (orig + sw * ((nDirect - 1 - c) / nDirect)) / obs;
+      }
+    }
+
+    const isProton = ppmScale ? isDirectAxisProton(label, obs, maxObs, ppmScale) : false;
+
+    return {
+      dimCode: directDimCode,
+      size: nDirect,
+      label,
+      sw,
+      orig,
+      obs,
+      car,
+      maxObs,
+      isProton,
+      ppmScale,
+      ppmRange: ppmScale && ppmScale.length > 0 ? [ppmScale[0], ppmScale[ppmScale.length - 1]] : null,
+    };
+  }
 
   function parseFt2MetaFromArrayBuffer(ft2ArrayBuffer) {
     if (!(ft2ArrayBuffer instanceof ArrayBuffer)) {
@@ -177,9 +301,10 @@
       }
     } else if (quadFlag1 === 0.0 && quadFlag2 === 1.0) {
       // Indirect is complex, direct is real (unless transposed with tp === 1)
-      rr = new Float32Array(n1 * n2);
+      n1Use = m.tp === 1 ? n1 : Math.floor(n1 / 2);
+      rr = new Float32Array(n1Use * n2);
       let cursor = dataStartFloat;
-      for (let i = 0; i < n1; i += 1) {
+      for (let i = 0; i < n1Use; i += 1) {
         rr.set(fileFloat32.subarray(cursor, cursor + n2), i * n2);
         cursor += 2 * n2; // Skip IR
       }
@@ -236,6 +361,7 @@
 
     const ny = arrays.ny;
     const nx = arrays.nx;
+    const directAxis = extractDirectAxisInfoFt2(ft2ArrayBuffer, meta, nx);
     const bsz = 1;
     const channels = 2;
     const spectra = new Float32Array(bsz * ny * nx * channels);
@@ -249,8 +375,14 @@
       spectra[out++] = flipRiSign ? -riIn[i] : riIn[i];
     }
 
+    const fullMeta = Object.assign({}, meta, {
+      nIndirect: ny,
+      nDirect: nx,
+      directAxis: directAxis,
+    });
+
     return {
-      meta: Object.assign({}, meta, { nIndirect: ny, nDirect: nx }),
+      meta: fullMeta,
       spectra,
       shape: [bsz, ny, nx, channels],
     };
@@ -263,8 +395,64 @@
   }
 
   // =========================================================================
-  // 2. 2D Noise Estimation & Token/Patch Extraction (Model 17)
+  // 2. Water Belt Detection (2D PPDQ Robust Noise) & Patch Filter
   // =========================================================================
+
+  /**
+   * O(N) in-place Quickselect returning the k-th smallest value in arr[0..n-1].
+   */
+  function quickselectInPlace(arr, k, n) {
+    let left = 0;
+    let right = n - 1;
+    while (left < right) {
+      const mid = (left + right) >> 1;
+      if (arr[mid] < arr[left]) {
+        const t = arr[left]; arr[left] = arr[mid]; arr[mid] = t;
+      }
+      if (arr[right] < arr[left]) {
+        const t = arr[left]; arr[left] = arr[right]; arr[right] = t;
+      }
+      if (arr[right] < arr[mid]) {
+        const t = arr[mid]; arr[mid] = arr[right]; arr[right] = t;
+      }
+      const pivot = arr[mid];
+
+      let i = left;
+      let j = right;
+      while (i <= j) {
+        while (arr[i] < pivot) i += 1;
+        while (arr[j] > pivot) j -= 1;
+        if (i <= j) {
+          const tmp = arr[i];
+          arr[i] = arr[j];
+          arr[j] = tmp;
+          i += 1;
+          j -= 1;
+        }
+      }
+      if (k <= j) right = j;
+      else if (k >= i) left = i;
+      else return arr[k];
+    }
+    return arr[k];
+  }
+
+  /**
+   * Exact median of buf[0..n-1] matching numpy.median (mutates buf[0..n-1]).
+   */
+  function medianInPlace(buf, n) {
+    if (n <= 0) return 0.0;
+    const mid = n >> 1;
+    if ((n & 1) === 1) {
+      return quickselectInPlace(buf, mid, n);
+    }
+    const hi = quickselectInPlace(buf, mid, n);
+    let lo = buf[0];
+    for (let i = 1; i < mid; i += 1) {
+      if (buf[i] > lo) lo = buf[i];
+    }
+    return 0.5 * (lo + hi);
+  }
 
   /**
    * Computes exact linear-interpolated percentile matching numpy.percentile(..., q).
@@ -279,6 +467,255 @@
     const frac = pos - lo;
     return sortedArr[lo] * (1.0 - frac) + sortedArr[hi] * frac;
   }
+
+  /**
+   * Robust 2D Noise Floor Estimator (PPDQ) matching estimate_noise_robust in
+   * phase_2d/water_belt/test_water_belt_with_robust_noise.py:
+   * - Grids real 2D spectrum into 16x32 tiles.
+   * - Fits and subtracts a 2D linear plane I(r, c) ~ a*r + b*c + d per tile.
+   * - Computes local tile MAD = 1.4826 * median(|res - median(res)|).
+   * - Returns targetPercentile (default 15th) across all tile MADs.
+   */
+  function estimateNoiseRobust2D(spectraObj, patchH, patchW, targetPercentile) {
+    const { spectra, shape } = spectraObj;
+    const H = shape[1];
+    const W = shape[2];
+    const ph = Math.min(patchH || 16, H);
+    const pw = Math.min(patchW || 32, W);
+    const pct = targetPercentile != null ? targetPercentile : 15.0;
+    const numPts = ph * pw;
+    if (numPts <= 0) return 1.0;
+
+    // Centered grid coordinates are mutually orthogonal: A^T A = diag(sumR2, sumC2, numPts)
+    const rMean = (ph - 1) / 2.0;
+    const cMean = (pw - 1) / 2.0;
+    const rFlat = new Float64Array(numPts);
+    const cFlat = new Float64Array(numPts);
+    let sumR2 = 0.0;
+    let sumC2 = 0.0;
+    let ptr = 0;
+    for (let r = 0; r < ph; r += 1) {
+      const rv = r - rMean;
+      for (let c = 0; c < pw; c += 1) {
+        const cv = c - cMean;
+        rFlat[ptr] = rv;
+        cFlat[ptr] = cv;
+        sumR2 += rv * rv;
+        sumC2 += cv * cv;
+        ptr += 1;
+      }
+    }
+
+    const tileSigmas = [];
+    const tile = new Float64Array(numPts);
+    const residuals = new Float64Array(numPts);
+    const scratch = new Float64Array(numPts);
+
+    for (let r0 = 0; r0 <= H - ph; r0 += ph) {
+      for (let c0 = 0; c0 <= W - pw; c0 += pw) {
+        let k = 0;
+        let sumV = 0.0;
+        let dotR = 0.0;
+        let dotC = 0.0;
+        for (let dr = 0; dr < ph; dr += 1) {
+          const rowBase = ((r0 + dr) * W + c0) * 2;
+          for (let dc = 0; dc < pw; dc += 1) {
+            const v = spectra[rowBase + dc * 2]; // Real channel
+            tile[k] = v;
+            sumV += v;
+            dotR += rFlat[k] * v;
+            dotC += cFlat[k] * v;
+            k += 1;
+          }
+        }
+
+        const a = sumR2 > 0.0 ? (dotR / sumR2) : 0.0;
+        const b = sumC2 > 0.0 ? (dotC / sumC2) : 0.0;
+        const d = sumV / numPts;
+
+        for (let i = 0; i < numPts; i += 1) {
+          const res = tile[i] - (a * rFlat[i] + b * cFlat[i] + d);
+          residuals[i] = res;
+          scratch[i] = res;
+        }
+        const med = medianInPlace(scratch, numPts);
+        for (let i = 0; i < numPts; i += 1) {
+          scratch[i] = Math.abs(residuals[i] - med);
+        }
+        tileSigmas.push(1.4826 * medianInPlace(scratch, numPts));
+      }
+    }
+
+    if (tileSigmas.length === 0) return 1.0;
+    const sorted = Float64Array.from(tileSigmas);
+    sorted.sort();
+    return percentileLinear(sorted, pct) || 1.0;
+  }
+
+  /**
+   * Detects and classifies residual water belt along the direct 1H dimension,
+   * matching phase_2d/water_belt/test_water_belt_with_robust_noise.py.
+   */
+  function detectWaterBelt2D(spectraObj, directAxisOrPpm, options) {
+    const opts = options || {};
+    const { spectra, shape } = spectraObj;
+    const H = shape[1];
+    const W = shape[2];
+    const waterWin = opts.waterWindowPpm || DEFAULTS.waterWindowPpm;
+    const wMin = Math.min(waterWin[0], waterWin[1]);
+    const wMax = Math.max(waterWin[0], waterWin[1]);
+    const targetPct = opts.waterNoisePercentile != null ? opts.waterNoisePercentile : 15.0;
+
+    let ppmScale = null;
+    let isProton = true;
+    const axisSource = directAxisOrPpm || (spectraObj.meta && spectraObj.meta.directAxis) || null;
+    if (axisSource) {
+      if (ArrayBuffer.isView(axisSource) || Array.isArray(axisSource)) {
+        ppmScale = axisSource;
+      } else if (axisSource.ppmScale) {
+        ppmScale = axisSource.ppmScale;
+        if (axisSource.isProton === false) {
+          isProton = false;
+        }
+      }
+    }
+
+    if (!ppmScale || ppmScale.length !== W) {
+      return {
+        status: "no_ppm",
+        hasWaterBelt: false,
+        classification: "No PPM Scale",
+        waterIndex: null,
+        waterPpm: null,
+      };
+    }
+
+    const ppmRange = [ppmScale[0], ppmScale[W - 1]];
+
+    if (!isProton) {
+      return {
+        status: "not_1h",
+        hasWaterBelt: false,
+        classification: "Not 1H Direct Axis",
+        waterIndex: null,
+        waterPpm: null,
+        ppmRange,
+      };
+    }
+
+    const wIndices = [];
+    for (let c = 0; c < W; c += 1) {
+      const p = ppmScale[c];
+      if (p >= wMin && p <= wMax) {
+        wIndices.push(c);
+      }
+    }
+
+    if (wIndices.length === 0) {
+      return {
+        status: "out_of_range",
+        hasWaterBelt: false,
+        classification: "Window Not In Spectrum",
+        waterIndex: null,
+        waterPpm: null,
+        ppmRange,
+      };
+    }
+
+    const sigmaRobust = estimateNoiseRobust2D(spectraObj, 16, 32, targetPct);
+    const baselineMedian = 0.6745 * sigmaRobust;
+
+    // Locate direct index inside [4.60, 4.85] ppm with maximum column std across F1
+    let bestW = wIndices[0];
+    let bestStd = -1.0;
+    for (let idx = 0; idx < wIndices.length; idx += 1) {
+      const c = wIndices[idx];
+      let mean = 0.0;
+      for (let r = 0; r < H; r += 1) {
+        mean += spectra[(r * W + c) * 2];
+      }
+      mean /= H;
+      let varSum = 0.0;
+      for (let r = 0; r < H; r += 1) {
+        const diff = spectra[(r * W + c) * 2] - mean;
+        varSum += diff * diff;
+      }
+      const std = Math.sqrt(varSum / H);
+      if (std > bestStd) {
+        bestStd = std;
+        bestW = c;
+      }
+    }
+
+    const colTrace = new Float64Array(H);
+    const scratch = new Float64Array(H);
+    for (let r = 0; r < H; r += 1) {
+      const v = spectra[(r * W + bestW) * 2];
+      colTrace[r] = v;
+      scratch[r] = v;
+    }
+    const colMedRaw = medianInPlace(scratch, H);
+
+    let count5s = 0;
+    const thresh5s = 5.0 * sigmaRobust;
+    for (let r = 0; r < H; r += 1) {
+      const det = Math.abs(colTrace[r] - colMedRaw);
+      scratch[r] = det;
+      if (det > thresh5s) count5s += 1;
+    }
+
+    const colMed = medianInPlace(scratch, H);
+    const medRatio = baselineMedian > 0.0 ? (colMed / baselineMedian) : 0.0;
+    const occ5s = (count5s / H) * 100.0;
+
+    let classification = "No Water Belt";
+    let hasWaterBelt = false;
+    if (medRatio >= 10.0 && occ5s >= 80.0) {
+      classification = "Strong Water Belt";
+      hasWaterBelt = true;
+    } else if (medRatio >= 3.0 && occ5s >= 25.0) {
+      classification = "Moderate Water Belt";
+      hasWaterBelt = true;
+    }
+
+    return {
+      status: "success",
+      hasWaterBelt,
+      classification,
+      waterIndex: bestW,
+      waterPpm: ppmScale[bestW],
+      sigmaRobust,
+      baselineMedian,
+      medRatio,
+      occ5s,
+      ppmRange,
+    };
+  }
+
+  /**
+   * Computes distance in data points from nearest edge of patch [patchStart, patchStart + patchLen)
+   * to waterCenterIdx (0 if waterCenterIdx lies inside the patch).
+   * Matches patch_touches_water(..., mode='edge_distance') in phase_2d/water_belt/patch_water_filter.py.
+   */
+  function getPatchWaterEdgeDistance(patchStart, patchLen, waterCenterIdx) {
+    const patchEnd = patchStart + patchLen;
+    if (patchStart <= waterCenterIdx && waterCenterIdx < patchEnd) {
+      return 0;
+    }
+    if (patchStart > waterCenterIdx) {
+      return patchStart - waterCenterIdx;
+    }
+    return waterCenterIdx - (patchEnd - 1);
+  }
+
+  function patchTouchesWaterEdge(patchStart, patchLen, waterCenterIdx, minEdgeDistance) {
+    const minDist = minEdgeDistance != null ? minEdgeDistance : DEFAULTS.minWaterEdgeDist;
+    return getPatchWaterEdgeDistance(patchStart, patchLen, waterCenterIdx) < minDist;
+  }
+
+  // =========================================================================
+  // 3. 2D Noise Estimation & Token/Patch Extraction (Model 17)
+  // =========================================================================
 
   /**
    * Estimates 2D noise level using non-overlapping 16x64 blocks (15th percentile RMSD),
@@ -447,9 +884,11 @@
 
   /**
    * Extracts 16x128 patches per 64-point direct token for Model 17, matching
-   * extract_tokens_from_nmrpipe + water exclusion & candidate selection in application_negative.py.
+   * extract_tokens_from_nmrpipe in application_negative.py with dynamic water belt
+   * detection and 32-point edge clearance filtering.
    */
   function extractTokensModel17(spectraObj, cfg) {
+    const opts = cfg || {};
     const { spectra, shape } = spectraObj;
     const ny = shape[1]; // n_ind
     const nx = shape[2]; // n_dir
@@ -472,27 +911,46 @@
 
     const noiseLevel = estimate2DNoiseLevel(specMag, ny, nx);
     const noiseSigma = noiseLevel / Math.SQRT2;
-    const peakSnrHigh = cfg.peakSnrHigh != null ? cfg.peakSnrHigh : DEFAULTS.peakSnrHigh;
-    const peakSnrLow = cfg.peakSnrLow != null ? cfg.peakSnrLow : DEFAULTS.peakSnrLow;
-    const excludeWater = cfg.excludeWater != null ? !!cfg.excludeWater : DEFAULTS.excludeWater;
-    const useAll = cfg.useAll != null ? !!cfg.useAll : DEFAULTS.useAll;
-    const isolatePeak = cfg.isolatePeak != null ? !!cfg.isolatePeak : DEFAULTS.isolatePeak;
-    const peakThresholdFactor = cfg.peakThresholdFactor != null ? cfg.peakThresholdFactor : DEFAULTS.peakThresholdFactor;
-    const feather = cfg.feather != null ? !!cfg.feather : DEFAULTS.feather;
+    const peakSnrHigh = opts.peakSnrHigh != null ? opts.peakSnrHigh : DEFAULTS.peakSnrHigh;
+    const peakSnrLow = opts.peakSnrLow != null ? opts.peakSnrLow : DEFAULTS.peakSnrLow;
+    const excludeWater = opts.excludeWater != null ? !!opts.excludeWater : DEFAULTS.excludeWater;
+    const minWaterEdgeDist = opts.minWaterEdgeDist != null ? opts.minWaterEdgeDist : DEFAULTS.minWaterEdgeDist;
+    const useAll = opts.useAll != null ? !!opts.useAll : DEFAULTS.useAll;
+    const isolatePeak = opts.isolatePeak != null ? !!opts.isolatePeak : DEFAULTS.isolatePeak;
+    const peakThresholdFactor = opts.peakThresholdFactor != null ? opts.peakThresholdFactor : DEFAULTS.peakThresholdFactor;
+    const feather = opts.feather != null ? !!opts.feather : DEFAULTS.feather;
+
+    let waterBelt = opts.waterBelt || null;
+    if (!waterBelt && excludeWater) {
+      if (Number.isInteger(opts.waterCenterIdx)) {
+        waterBelt = {
+          status: "explicit",
+          hasWaterBelt: true,
+          classification: "Explicit Water Center",
+          waterIndex: opts.waterCenterIdx,
+          waterPpm: null,
+        };
+      } else {
+        waterBelt = detectWaterBelt2D(
+          spectraObj,
+          opts.ppmScale || opts.directAxis || (spectraObj.meta && spectraObj.meta.directAxis),
+          opts
+        );
+      }
+    }
+
+    const shouldExcludeWater = !!(
+      excludeWater &&
+      waterBelt &&
+      waterBelt.hasWaterBelt &&
+      Number.isInteger(waterBelt.waterIndex)
+    );
 
     const numTotalTokens = Math.floor(nx / 64);
-    const midTokenIdx = Math.floor(numTotalTokens / 2);
 
     function scanTokens(highSnr, lowSnr, applyWaterExclusion, includeBaselinePatches) {
       const peakCutoff = highSnr * noiseLevel;
       const peakCutoffLow = lowSnr * noiseLevel;
-
-      const excludedSet = new Set();
-      if (applyWaterExclusion && numTotalTokens >= 3) {
-        excludedSet.add(midTokenIdx - 1);
-        excludedSet.add(midTokenIdx);
-        excludedSet.add(midTokenIdx + 1);
-      }
 
       const tokenSpecs = [];
       if (numTotalTokens >= 3) {
@@ -519,10 +977,15 @@
 
       const patchesList = [];
       const detailsList = [];
+      const excludedTokenIndices = [];
 
       for (const tSpec of tokenSpecs) {
         const { tokenIdx, colStartF2, colEndF2, startF2, endF2 } = tSpec;
-        if (excludedSet.has(tokenIdx)) {
+        if (
+          applyWaterExclusion &&
+          patchTouchesWaterEdge(startF2, endF2 - startF2, waterBelt.waterIndex, minWaterEdgeDist)
+        ) {
+          excludedTokenIndices.push(tokenIdx);
           continue;
         }
 
@@ -687,18 +1150,19 @@
         }
       }
 
-      return { patchesList, detailsList };
+      return { patchesList, detailsList, excludedTokenIndices };
     }
 
-    let scan = scanTokens(peakSnrHigh, peakSnrLow, excludeWater, useAll);
+    let scan = scanTokens(peakSnrHigh, peakSnrLow, shouldExcludeWater, useAll);
 
-    // Graceful fallbacks if < 2 candidate patches were found (e.g., narrow extracted region or very low SNR)
-    if (scan.patchesList.length < 2 && excludeWater) {
-      console.log(`[tfjs] Found ${scan.patchesList.length} signal patch(es) with water exclusion. Retrying including middle tokens...`);
-      scan = scanTokens(peakSnrHigh, peakSnrLow, false, useAll);
-    }
+    // Graceful fallbacks if < 2 candidate patches were found:
+    // First relax SNR cutoff while keeping water belt exclusion active so dilute solute peaks are preferred over water artifacts.
     if (scan.patchesList.length < 2) {
       console.log(`[tfjs] Found ${scan.patchesList.length} signal patch(es) at SNR ${peakSnrLow}. Relaxing cutoff to SNR 3.0...`);
+      scan = scanTokens(8.0, 3.0, shouldExcludeWater, useAll);
+    }
+    if (scan.patchesList.length < 2 && shouldExcludeWater) {
+      console.log(`[tfjs] Found ${scan.patchesList.length} signal patch(es) outside water guard band. Retrying without water exclusion...`);
       scan = scanTokens(8.0, 3.0, false, useAll);
     }
     if (scan.patchesList.length < 2) {
@@ -720,12 +1184,13 @@
       noiseLevel: noiseLevel,
       numPatches: numPatches,
       numTotalTokens: numTotalTokens,
-      midTokenIdx: midTokenIdx,
+      waterBelt: waterBelt,
+      excludedTokenIndices: scan.excludedTokenIndices,
     };
   }
 
   // =========================================================================
-  // 3. Revised Weighted RANSAC (W-RANSAC) with n*pi Phase Adjustment
+  // 4. Revised Weighted RANSAC (W-RANSAC) with n*pi Phase Adjustment
   // =========================================================================
 
   /**
@@ -959,7 +1424,7 @@
   }
 
   // =========================================================================
-  // 4. Spectrum Phase Application & Combination
+  // 5. Spectrum Phase Application & Combination
   // =========================================================================
 
   /**
@@ -1009,7 +1474,7 @@
   }
 
   // =========================================================================
-  // 5. Model 17 Forward Pass & Iterative Pipeline (Default: 2 Rounds)
+  // 6. Model 17 Forward Pass & Iterative Pipeline (Default: 2 Rounds)
   // =========================================================================
 
   /**
@@ -1118,6 +1583,30 @@
     }
   }
 
+  function formatWaterBeltLog2D(waterBelt, minWaterEdgeDist) {
+    if (!waterBelt) return null;
+    if (waterBelt.status === "out_of_range" && waterBelt.ppmRange) {
+      return `[tfjs][Water Belt] Water window (4.60–4.85 ppm) outside direct spectrum (${waterBelt.ppmRange[0].toFixed(2)} to ${waterBelt.ppmRange[1].toFixed(2)} ppm) — keeping all patches`;
+    }
+    if (waterBelt.status === "not_1h") {
+      return `[tfjs][Water Belt] Direct axis is not 1H — keeping all patches`;
+    }
+    if (waterBelt.status === "no_ppm") {
+      return `[tfjs][Water Belt] No direct chemical shift scale in header — keeping all patches`;
+    }
+    if (waterBelt.hasWaterBelt) {
+      const ppmStr = waterBelt.waterPpm != null ? `${waterBelt.waterPpm.toFixed(3)} ppm, ` : "";
+      const metricStr = waterBelt.medRatio != null
+        ? ` | medRatio=${waterBelt.medRatio.toFixed(2)}x, occ5s=${waterBelt.occ5s.toFixed(1)}%`
+        : "";
+      return `[tfjs][Water Belt] ${waterBelt.classification} detected at index ${waterBelt.waterIndex} (${ppmStr}min edge clearance=${minWaterEdgeDist} pts${metricStr})`;
+    }
+    const ppmInfoStr = waterBelt.waterPpm != null
+      ? ` (${waterBelt.waterPpm.toFixed(3)} ppm | medRatio=${waterBelt.medRatio.toFixed(2)}x, occ5s=${waterBelt.occ5s.toFixed(1)}%)`
+      : "";
+    return `[tfjs][Water Belt] No Water Belt detected${ppmInfoStr} — keeping all patches`;
+  }
+
   /**
    * Single-round inference helper on an already-loaded [1, ny, nx, 2] spectra object.
    */
@@ -1131,6 +1620,7 @@
     const spectraObj = {
       spectra: params.spectra,
       shape: params.shape,
+      meta: params.meta || null,
     };
     const nx = params.shape[2];
     const xRef = nx / 2.0;
@@ -1156,6 +1646,8 @@
 
     return {
       tokens: ext.tokenDetails,
+      waterBelt: ext.waterBelt,
+      excludedTokenIndices: ext.excludedTokenIndices,
       noiseLevel: ext.noiseLevel,
       phiPredDeg: out.phiPredDeg,
       stdPredDeg: out.stdPredDeg,
@@ -1191,6 +1683,7 @@
     const spectraWorking = {
       spectra: exp.spectra.slice(0),
       shape: exp.shape,
+      meta: exp.meta,
     };
 
     const nx = exp.shape[2];
@@ -1202,6 +1695,8 @@
       peakSnrHigh: params.peakSnrHigh != null ? params.peakSnrHigh : DEFAULTS.peakSnrHigh,
       peakSnrLow: params.peakSnrLow != null ? params.peakSnrLow : DEFAULTS.peakSnrLow,
       excludeWater: params.excludeWater != null ? !!params.excludeWater : DEFAULTS.excludeWater,
+      minWaterEdgeDist: params.minWaterEdgeDist != null ? params.minWaterEdgeDist : DEFAULTS.minWaterEdgeDist,
+      waterWindowPpm: params.waterWindowPpm || DEFAULTS.waterWindowPpm,
       useAll: params.useAll != null ? !!params.useAll : DEFAULTS.useAll,
       isolatePeak: params.isolatePeak != null ? !!params.isolatePeak : DEFAULTS.isolatePeak,
       peakThresholdFactor: params.peakThresholdFactor != null ? params.peakThresholdFactor : DEFAULTS.peakThresholdFactor,
@@ -1217,6 +1712,32 @@
     console.log(startMsg);
     logToHtml(startMsg);
 
+    // Detect water belt once on the spectrum so water exclusion is dynamic and consistent across rounds
+    let waterBelt = null;
+    if (cfg.excludeWater) {
+      if (Number.isInteger(params.waterCenterIdx)) {
+        waterBelt = {
+          status: "explicit",
+          hasWaterBelt: true,
+          classification: "Explicit Water Center",
+          waterIndex: params.waterCenterIdx,
+          waterPpm: null,
+        };
+      } else {
+        waterBelt = detectWaterBelt2D(
+          spectraWorking,
+          params.ppmScale || exp.meta.directAxis,
+          cfg
+        );
+      }
+      cfg.waterBelt = waterBelt;
+      const wbMsg = formatWaterBeltLog2D(waterBelt, cfg.minWaterEdgeDist);
+      if (wbMsg) {
+        console.log(wbMsg);
+        logToHtml(wbMsg);
+      }
+    }
+
     let totalLeft = 0.0;
     let totalRight = 0.0;
     const rounds = [];
@@ -1228,7 +1749,10 @@
         firstPatchesShape = ext.patchesShape;
       }
 
-      const extMsg = `[tfjs][Round ${r}] Extracted ${ext.numPatches} candidate patch(es) (Estimated Noise: ${ext.noiseLevel.toExponential(2)})`;
+      const exclNote = (ext.excludedTokenIndices && ext.excludedTokenIndices.length > 0)
+        ? `, Excluded water tokens: [${ext.excludedTokenIndices.join(", ")}]`
+        : "";
+      const extMsg = `[tfjs][Round ${r}] Extracted ${ext.numPatches} candidate patch(es) (Estimated Noise: ${ext.noiseLevel.toExponential(2)}${exclNote})`;
       console.log(extMsg);
       logToHtml(extMsg);
 
@@ -1266,6 +1790,7 @@
       rounds.push({
         round: r,
         tokens: ext.tokenDetails,
+        excludedTokenIndices: ext.excludedTokenIndices,
         noiseLevel: ext.noiseLevel,
         phiPredDeg: out.phiPredDeg,
         stdPredDeg: out.stdPredDeg,
@@ -1283,6 +1808,7 @@
 
     return {
       ft2Meta: exp.meta,
+      waterBelt: waterBelt,
       config: cfg,
       shapes: {
         spectra: exp.shape,
@@ -1296,15 +1822,20 @@
   }
 
   // =========================================================================
-  // 6. Public API Export
+  // 7. Public API Export
   // =========================================================================
 
   const api = {
     defaults: Object.assign({}, DEFAULTS),
     configureTfEnvironment,
     parseFt2MetaFromArrayBuffer,
+    extractDirectAxisInfoFt2,
     readFt2AllFromArrayBuffer,
     loadExperimentFromFt2ArrayBuffer,
+    estimateNoiseRobust2D,
+    detectWaterBelt2D,
+    getPatchWaterEdgeDistance,
+    patchTouchesWaterEdge,
     extractTokensModel17,
     weightedRansacFit,
     applyLeftRightToSpectra,

@@ -6,12 +6,17 @@
  * and directly outputs [phi_pred_deg, std_pred_deg] in degrees.
  *
  * Pipeline Workflow:
- * 1) Parse NMRPipe FT3 ArrayBuffer with complex direct channel (rr, ri).
- * 2) Extract 16x16x128 signal cubes using core-direct SNR peak picking (Signal-Only).
- * 3) Execute Model 04 TF.js GraphModel forward pass to get phase and uncertainty sigma.
- * 4) Fit optimal P0 and P1 linear phase using revised Weighted RANSAC (W-RANSAC),
+ * 1) Parse NMRPipe FT3 ArrayBuffer with complex direct channel (rr, ri) and direct PPM scale.
+ * 2) Detect 3D residual water belt / water wall along direct 1H axis (4.60 - 4.85 ppm)
+ *    using 3D Planar-detrended Patch-MAD Distribution Quantile (3D PPDQ) robust noise floor
+ *    (matching phase_2d/water_belt/detect_water_belt_3d.py & test_water_belt_3d.py).
+ * 3) Extract 16x16x128 signal cubes using core-direct SNR peak picking (Signal-Only),
+ *    dynamically excluding direct windows whose edge is within 32 data points of the
+ *    detected water belt center when a water belt exists.
+ * 4) Execute Model 04 TF.js GraphModel forward pass to get phase and uncertainty sigma.
+ * 5) Fit optimal P0 and P1 linear phase using revised Weighted RANSAC (W-RANSAC),
  *    accommodating negative peaks and phase wrapping via discrete n*pi adjustments.
- * 5) Execute in 2 iterative rounds and accumulate total [left, right] phase correction.
+ * 6) Execute in 2 iterative rounds and accumulate total [left, right] phase correction.
  */
 
 (function (globalScope) {
@@ -44,6 +49,13 @@
     FDSPECNUM: 219,
   };
 
+  // Per-dimension NMRPipe header indices for FDF1, FDF2, FDF3, FDF4 (1-based dimCode -> index dimCode - 1)
+  const DIM_SW_IDX = [229, 100, 11, 29];
+  const DIM_ORIG_IDX = [249, 101, 12, 30];
+  const DIM_OBS_IDX = [218, 119, 10, 28];
+  const DIM_CAR_IDX = [67, 66, 68, 69];
+  const DIM_LABEL_WORD = [18, 16, 20, 22];
+
   const DEFAULTS = {
     stride: 32,
     windowSize: 128,
@@ -51,6 +63,9 @@
     cubeXY: 16,
     peakSnrCutoff: 8.0,
     topK: 1,
+    excludeWater: true,
+    minWaterEdgeDist: 32,
+    waterWindowPpm: [4.60, 4.85],
     spilloverCheck: false,
     spilloverCutoff: 0.75,
     flipRiSign: true,
@@ -95,7 +110,7 @@
   }
 
   // =========================================================================
-  // 1. NMRPipe FT3 Header & Binary Parser
+  // 1. NMRPipe FT3 Header, Direct PPM Scale & Binary Parser
   // =========================================================================
 
   function intField(header, index, name) {
@@ -104,6 +119,98 @@
       throw new Error("Invalid FT3 header field " + name + ": " + String(v));
     }
     return Math.round(v);
+  }
+
+  function readAsciiLabel(arrayBuffer, wordIdx) {
+    const byteOffset = wordIdx * 4;
+    if (!arrayBuffer || byteOffset + 8 > arrayBuffer.byteLength) return "";
+    const bytes = new Uint8Array(arrayBuffer, byteOffset, 8);
+    let str = "";
+    for (let i = 0; i < 8; i += 1) {
+      if (bytes[i] === 0) break;
+      str += String.fromCharCode(bytes[i]);
+    }
+    return str.trim();
+  }
+
+  function isDirectAxisProton(label, obs, maxObs, ppmScale) {
+    const clean = (label || "").replace(/[\x00-\x1F\x7F-\x9F<>]/g, "").trim();
+    if (/^(13C|C13|C|CA|CB|CO|15N|N15|N|31P|P31|P|19F|F19|F|2H|H2)$/i.test(clean)) {
+      return false;
+    }
+    if (Number.isFinite(maxObs) && maxObs > 0 && Number.isFinite(obs) && obs > 0) {
+      if ((obs / maxObs) < 0.96) {
+        return false;
+      }
+    }
+    if (ppmScale && ppmScale.length > 0) {
+      const p0 = ppmScale[0];
+      const pEnd = ppmScale[ppmScale.length - 1];
+      const ppmMin = Math.min(p0, pEnd);
+      const ppmMax = Math.max(p0, pEnd);
+      const swPpm = Math.abs(p0 - pEnd);
+      if (swPpm > 50.0 || ppmMax > 40.0 || ppmMin < -25.0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Extracts direct-dimension NMRPipe metadata and chemical shift scale (ppm)
+   * matching nmrglue.pipe.make_uc(dic, data, dim=2).ppm_scale().
+   */
+  function extractDirectAxisInfoFt3(ft3ArrayBuffer, meta) {
+    if (!(ft3ArrayBuffer instanceof ArrayBuffer) || ft3ArrayBuffer.byteLength < HEADER_BYTES) {
+      return null;
+    }
+    const header = new Float32Array(ft3ArrayBuffer, 0, HEADER_FLOAT_COUNT);
+    const rawD1 = meta && meta.dimorder1 != null ? meta.dimorder1 : Math.round(header[IDX.FDDIMORDER1]);
+    const directDimCode = (rawD1 >= 1 && rawD1 <= 4) ? rawD1 : 2;
+    const nDirect = meta && meta.nDirect != null ? meta.nDirect : Math.round(header[IDX.FDSIZE]);
+    const idx = directDimCode - 1;
+
+    const sw = header[DIM_SW_IDX[idx]];
+    const orig = header[DIM_ORIG_IDX[idx]];
+    const obs = header[DIM_OBS_IDX[idx]];
+    const car = header[DIM_CAR_IDX[idx]];
+    const label = readAsciiLabel(ft3ArrayBuffer, DIM_LABEL_WORD[idx]);
+
+    let maxObs = 0.0;
+    for (let k = 0; k < 4; k += 1) {
+      const o = header[DIM_OBS_IDX[k]];
+      const s = header[DIM_SW_IDX[k]];
+      if (Number.isFinite(o) && o > maxObs && Number.isFinite(s) && s > 0) {
+        maxObs = o;
+      }
+    }
+    if (Number.isFinite(obs) && obs > maxObs) {
+      maxObs = obs;
+    }
+
+    let ppmScale = null;
+    if (nDirect > 0 && Number.isFinite(sw) && sw > 0 && Number.isFinite(obs) && obs > 0 && Number.isFinite(orig)) {
+      ppmScale = new Float64Array(nDirect);
+      for (let c = 0; c < nDirect; c += 1) {
+        ppmScale[c] = (orig + sw * ((nDirect - 1 - c) / nDirect)) / obs;
+      }
+    }
+
+    const isProton = ppmScale ? isDirectAxisProton(label, obs, maxObs, ppmScale) : false;
+
+    return {
+      dimCode: directDimCode,
+      size: nDirect,
+      label,
+      sw,
+      orig,
+      obs,
+      car,
+      maxObs,
+      isProton,
+      ppmScale,
+      ppmRange: ppmScale && ppmScale.length > 0 ? [ppmScale[0], ppmScale[ppmScale.length - 1]] : null,
+    };
   }
 
   function parseFt3MetaFromArrayBuffer(ft3ArrayBuffer) {
@@ -258,6 +365,8 @@
       throw new Error("FT3 does not contain direct imaginary channel (ri). Model 04 strictly requires complex direct data.");
     }
 
+    const directAxis = extractDirectAxisInfoFt3(ft3ArrayBuffer, meta);
+
     // FT3 stacked layout is [planes, indirect_loops, direct].
     // Transpose to [indirect1, indirect2, direct] where indirect1=loops, indirect2=planes.
     const ni1 = meta.nIndirectLoops;
@@ -302,8 +411,14 @@
       }
     }
 
+    const fullMeta = Object.assign({}, meta, {
+      directAxis: directAxis,
+      maxAbs: maxAbs,
+    });
+
     return {
-      meta,
+      meta: fullMeta,
+      maxAbs: maxAbs,
       spectra,
       shape: [bsz, ni1, ni2, nd, channels],
     };
@@ -317,7 +432,397 @@
   }
 
   // =========================================================================
-  // 2. 3D Noise Estimation & Signal-Only Cube Extraction (Model 04)
+  // 2. 3D Water Belt / Water Wall Detection (3D PPDQ) & Window Filter
+  // =========================================================================
+
+  /**
+   * O(N) in-place Quickselect returning the k-th smallest value in arr[0..n-1].
+   */
+  function quickselectInPlace(arr, k, n) {
+    let left = 0;
+    let right = n - 1;
+    while (left < right) {
+      const mid = (left + right) >> 1;
+      if (arr[mid] < arr[left]) {
+        const t = arr[left]; arr[left] = arr[mid]; arr[mid] = t;
+      }
+      if (arr[right] < arr[left]) {
+        const t = arr[left]; arr[left] = arr[right]; arr[right] = t;
+      }
+      if (arr[right] < arr[mid]) {
+        const t = arr[mid]; arr[mid] = arr[right]; arr[right] = t;
+      }
+      const pivot = arr[mid];
+
+      let i = left;
+      let j = right;
+      while (i <= j) {
+        while (arr[i] < pivot) i += 1;
+        while (arr[j] > pivot) j -= 1;
+        if (i <= j) {
+          const tmp = arr[i];
+          arr[i] = arr[j];
+          arr[j] = tmp;
+          i += 1;
+          j -= 1;
+        }
+      }
+      if (k <= j) right = j;
+      else if (k >= i) left = i;
+      else return arr[k];
+    }
+    return arr[k];
+  }
+
+  /**
+   * Exact median of buf[0..n-1] matching numpy.median (mutates buf[0..n-1]).
+   */
+  function medianInPlace(buf, n) {
+    if (n <= 0) return 0.0;
+    const mid = n >> 1;
+    if ((n & 1) === 1) {
+      return quickselectInPlace(buf, mid, n);
+    }
+    const hi = quickselectInPlace(buf, mid, n);
+    let lo = buf[0];
+    for (let i = 1; i < mid; i += 1) {
+      if (buf[i] > lo) lo = buf[i];
+    }
+    return 0.5 * (lo + hi);
+  }
+
+  /**
+   * Exact linear-interpolated percentile matching numpy.percentile(..., q).
+   */
+  function percentileLinear(sortedArr, q) {
+    const n = sortedArr.length;
+    if (n === 0) return 1e-4;
+    if (n === 1) return sortedArr[0];
+    const pos = (q / 100.0) * (n - 1);
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    const frac = pos - lo;
+    return sortedArr[lo] * (1.0 - frac) + sortedArr[hi] * frac;
+  }
+
+  /**
+   * Robust 3D Noise Floor Estimator (3D PPDQ) matching estimate_noise_robust_3d
+   * in phase_2d/water_belt/detect_water_belt_3d.py:
+   * - Grids 3D volume into 16x16x32 cuboid tiles (subsampled uniformly up to maxPatches=4096).
+   * - Fits and subtracts a 3D linear hyperplane I(z, y, x) ~ c0*z + c1*y + c2*x + c3 per tile.
+   * - Computes local tile MAD = 1.4826 * median(|res - median(res)|).
+   * - Returns targetPercentile (default 15th) across all tile MADs.
+   */
+  function estimateNoiseRobust3D(spectraObj, patchShape, targetPercentile, maxPatches) {
+    const { spectra, shape } = spectraObj;
+    const ni1 = shape[1]; // loops (y in file layout)
+    const ni2 = shape[2]; // planes (z in file layout)
+    const nd = shape[3];  // direct (x in file layout)
+    const channels = shape[4] || 2;
+
+    const pShape = patchShape || [16, 16, 32];
+    const pct = targetPercentile != null ? targetPercentile : 15.0;
+    const maxP = maxPatches != null ? maxPatches : 4096;
+
+    const pz = Math.min(pShape[0], ni2);
+    const py = Math.min(pShape[1], ni1);
+    const px = Math.min(pShape[2], nd);
+    const numPts = pz * py * px;
+    if (numPts <= 0) return 1e-4;
+
+    // Orthogonal centered grid coordinates: A^T A = diag(sumZ2, sumY2, sumX2, numPts)
+    const zMean = (pz - 1) / 2.0;
+    const yMean = (py - 1) / 2.0;
+    const xMean = (px - 1) / 2.0;
+    const zFlat = new Float64Array(numPts);
+    const yFlat = new Float64Array(numPts);
+    const xFlat = new Float64Array(numPts);
+    let sumZ2 = 0.0;
+    let sumY2 = 0.0;
+    let sumX2 = 0.0;
+    let ptr = 0;
+
+    for (let dz = 0; dz < pz; dz += 1) {
+      const zv = dz - zMean;
+      for (let dy = 0; dy < py; dy += 1) {
+        const yv = dy - yMean;
+        for (let dx = 0; dx < px; dx += 1) {
+          const xv = dx - xMean;
+          zFlat[ptr] = zv;
+          yFlat[ptr] = yv;
+          xFlat[ptr] = xv;
+          sumZ2 += zv * zv;
+          sumY2 += yv * yv;
+          sumX2 += xv * xv;
+          ptr += 1;
+        }
+      }
+    }
+
+    const nzTiles = Math.max(1, Math.floor((ni2 - pz) / pz) + 1);
+    const nyTiles = Math.max(1, Math.floor((ni1 - py) / py) + 1);
+    const nxTiles = Math.max(1, Math.floor((nd - px) / px) + 1);
+    const totalAvail = nzTiles * nyTiles * nxTiles;
+
+    let stepFactor = 1;
+    if (totalAvail > maxP) {
+      stepFactor = Math.ceil(Math.pow(totalAvail / maxP, 1.0 / 3.0));
+    }
+
+    const strideZ = Math.max(pz, pz * stepFactor);
+    const strideY = Math.max(py, py * stepFactor);
+    const strideX = Math.max(px, px * stepFactor);
+
+    const mads = [];
+    const tile = new Float64Array(numPts);
+    const residuals = new Float64Array(numPts);
+    const scratch = new Float64Array(numPts);
+
+    for (let z0 = 0; z0 <= ni2 - pz; z0 += strideZ) {
+      for (let y0 = 0; y0 <= ni1 - py; y0 += strideY) {
+        for (let x0 = 0; x0 <= nd - px; x0 += strideX) {
+          let k = 0;
+          let sumV = 0.0;
+          let dotZ = 0.0;
+          let dotY = 0.0;
+          let dotX = 0.0;
+
+          for (let dz = 0; dz < pz; dz += 1) {
+            const i2 = z0 + dz;
+            for (let dy = 0; dy < py; dy += 1) {
+              const i1 = y0 + dy;
+              const rowBase = ((i1 * ni2 + i2) * nd + x0) * channels;
+              for (let dx = 0; dx < px; dx += 1) {
+                const v = spectra[rowBase + dx * channels]; // Real channel
+                tile[k] = v;
+                sumV += v;
+                dotZ += zFlat[k] * v;
+                dotY += yFlat[k] * v;
+                dotX += xFlat[k] * v;
+                k += 1;
+              }
+            }
+          }
+
+          const c0 = sumZ2 > 0.0 ? (dotZ / sumZ2) : 0.0;
+          const c1 = sumY2 > 0.0 ? (dotY / sumY2) : 0.0;
+          const c2 = sumX2 > 0.0 ? (dotX / sumX2) : 0.0;
+          const c3 = sumV / numPts;
+
+          for (let i = 0; i < numPts; i += 1) {
+            const res = tile[i] - (c0 * zFlat[i] + c1 * yFlat[i] + c2 * xFlat[i] + c3);
+            residuals[i] = res;
+            scratch[i] = res;
+          }
+          const med = medianInPlace(scratch, numPts);
+          for (let i = 0; i < numPts; i += 1) {
+            scratch[i] = Math.abs(residuals[i] - med);
+          }
+          mads.push(1.4826 * medianInPlace(scratch, numPts));
+        }
+      }
+    }
+
+    if (mads.length === 0) return 1e-4;
+    const sorted = Float64Array.from(mads);
+    sorted.sort();
+    return percentileLinear(sorted, pct) || 1e-4;
+  }
+
+  /**
+   * Detects, quantifies, and classifies 3D water belt / water wall artifacts along
+   * the direct 1H axis, matching phase_2d/water_belt/detect_water_belt_3d.py and test_water_belt_3d.py.
+   */
+  function detectWaterBelt3D(spectraObj, directAxisOrPpm, options) {
+    const opts = options || {};
+    const { spectra, shape } = spectraObj;
+    const ni1 = shape[1];
+    const ni2 = shape[2];
+    const nd = shape[3];
+    const channels = shape[4] || 2;
+    const planePts = ni1 * ni2;
+
+    const waterWin = opts.waterWindowPpm || DEFAULTS.waterWindowPpm;
+    const wMin = Math.min(waterWin[0], waterWin[1]);
+    const wMax = Math.max(waterWin[0], waterWin[1]);
+    const targetPct = opts.waterNoisePercentile != null ? opts.waterNoisePercentile : 15.0;
+
+    let ppmScale = null;
+    let isProton = true;
+    const axisSource = directAxisOrPpm || (spectraObj.meta && spectraObj.meta.directAxis) || null;
+    if (axisSource) {
+      if (ArrayBuffer.isView(axisSource) || Array.isArray(axisSource)) {
+        ppmScale = axisSource;
+      } else if (axisSource.ppmScale) {
+        ppmScale = axisSource.ppmScale;
+        if (axisSource.isProton === false) {
+          isProton = false;
+        }
+      }
+    }
+
+    if (!ppmScale || ppmScale.length !== nd) {
+      return {
+        status: "no_ppm",
+        hasWaterBelt: false,
+        classification: "No PPM Scale",
+        waterIndex: null,
+        waterPpm: null,
+      };
+    }
+
+    const ppmRange = [ppmScale[0], ppmScale[nd - 1]];
+
+    if (!isProton) {
+      return {
+        status: "not_1h",
+        hasWaterBelt: false,
+        classification: "Not 1H Direct Axis",
+        waterIndex: null,
+        waterPpm: null,
+        ppmRange,
+      };
+    }
+
+    const wIndices = [];
+    for (let c = 0; c < nd; c += 1) {
+      const p = ppmScale[c];
+      if (p >= wMin && p <= wMax) {
+        wIndices.push(c);
+      }
+    }
+
+    if (wIndices.length === 0) {
+      return {
+        status: "out_of_range",
+        hasWaterBelt: false,
+        classification: "Window Not In Spectrum",
+        waterIndex: null,
+        waterPpm: null,
+        ppmRange,
+      };
+    }
+
+    const sigmaRobust = estimateNoiseRobust3D(spectraObj, [16, 16, 32], targetPct, 4096);
+    const baselineMedian = 0.6745 * sigmaRobust;
+    const maxAbsScale = (spectraObj.maxAbs || (spectraObj.meta && spectraObj.meta.maxAbs) || 1.0);
+
+    // Find candidate 2D water plane with maximum standard deviation within [4.60, 4.85] ppm
+    let bestW = wIndices[0];
+    let bestStd = -1.0;
+    for (let idx = 0; idx < wIndices.length; idx += 1) {
+      const c = wIndices[idx];
+      let mean = 0.0;
+      for (let i1 = 0; i1 < ni1; i1 += 1) {
+        const base1 = i1 * ni2;
+        for (let i2 = 0; i2 < ni2; i2 += 1) {
+          mean += spectra[((base1 + i2) * nd + c) * channels];
+        }
+      }
+      mean /= planePts;
+
+      let varSum = 0.0;
+      for (let i1 = 0; i1 < ni1; i1 += 1) {
+        const base1 = i1 * ni2;
+        for (let i2 = 0; i2 < ni2; i2 += 1) {
+          const diff = spectra[((base1 + i2) * nd + c) * channels] - mean;
+          varSum += diff * diff;
+        }
+      }
+      const std = Math.sqrt(varSum / planePts);
+      if (std > bestStd) {
+        bestStd = std;
+        bestW = c;
+      }
+    }
+
+    const waterPlane = new Float64Array(planePts);
+    const scratch = new Float64Array(planePts);
+    let ptr = 0;
+    for (let i1 = 0; i1 < ni1; i1 += 1) {
+      const base1 = i1 * ni2;
+      for (let i2 = 0; i2 < ni2; i2 += 1) {
+        const v = spectra[((base1 + i2) * nd + bestW) * channels];
+        waterPlane[ptr] = v;
+        scratch[ptr] = v;
+        ptr += 1;
+      }
+    }
+
+    const planeMedRaw = medianInPlace(scratch, planePts);
+    let count3s = 0;
+    let count5s = 0;
+    const thresh3s = 3.0 * sigmaRobust;
+    const thresh5s = 5.0 * sigmaRobust;
+    let maxDetrended = 0.0;
+
+    for (let i = 0; i < planePts; i += 1) {
+      const det = Math.abs(waterPlane[i] - planeMedRaw);
+      scratch[i] = det;
+      if (det > maxDetrended) maxDetrended = det;
+      if (det > thresh3s) count3s += 1;
+      if (det > thresh5s) count5s += 1;
+    }
+
+    const planeMed = medianInPlace(scratch, planePts);
+    const medRatio = baselineMedian > 0.0 ? (planeMed / baselineMedian) : 0.0;
+    const occ3s = (count3s / planePts) * 100.0;
+    const occ5s = (count5s / planePts) * 100.0;
+    const planeStdRatio = sigmaRobust > 0.0 ? (bestStd / sigmaRobust) : 0.0;
+    const planeMaxRatio = sigmaRobust > 0.0 ? (maxDetrended / sigmaRobust) : 0.0;
+
+    let classification = "No Water Belt";
+    let hasWaterBelt = false;
+    if (medRatio >= 10.0 && occ5s >= 80.0) {
+      classification = "Strong Water Belt";
+      hasWaterBelt = true;
+    } else if (medRatio >= 3.0 && occ5s >= 25.0) {
+      classification = "Moderate Water Belt";
+      hasWaterBelt = true;
+    }
+
+    return {
+      status: "success",
+      hasWaterBelt,
+      classification,
+      waterIndex: bestW,
+      waterPpm: ppmScale[bestW],
+      sigmaRobust,
+      sigmaRobustRaw: sigmaRobust * maxAbsScale,
+      baselineMedian,
+      planeMedian: planeMed,
+      medRatio,
+      planeStdRatio,
+      planeMaxRatio,
+      occ3s,
+      occ5s,
+      ppmRange,
+    };
+  }
+
+  /**
+   * Computes distance in data points from nearest edge of direct window [patchStart, patchStart + patchLen)
+   * to waterCenterIdx (0 if waterCenterIdx lies inside the window).
+   * Matches patch_touches_water(..., mode='edge_distance') in phase_2d/water_belt/patch_water_filter.py.
+   */
+  function getPatchWaterEdgeDistance(patchStart, patchLen, waterCenterIdx) {
+    const patchEnd = patchStart + patchLen;
+    if (patchStart <= waterCenterIdx && waterCenterIdx < patchEnd) {
+      return 0;
+    }
+    if (patchStart > waterCenterIdx) {
+      return patchStart - waterCenterIdx;
+    }
+    return waterCenterIdx - (patchEnd - 1);
+  }
+
+  function patchTouchesWaterEdge(patchStart, patchLen, waterCenterIdx, minEdgeDistance) {
+    const minDist = minEdgeDistance != null ? minEdgeDistance : DEFAULTS.minWaterEdgeDist;
+    return getPatchWaterEdgeDistance(patchStart, patchLen, waterCenterIdx) < minDist;
+  }
+
+  // =========================================================================
+  // 3. 3D Noise Estimation & Signal-Only Cube Extraction (Model 04)
   // =========================================================================
 
   /**
@@ -373,27 +878,58 @@
   /**
    * Extracts Signal-Only 16x16x128 cubes for Model 04.
    * Slides a 128-pt direct window advancing by `stride` points (default: 32).
+   * Dynamically skips direct windows whose edge is within `minWaterEdgeDist` (default: 32)
+   * data points of the detected water belt center when a water belt exists.
    * Identifies candidate signal peaks on the central 64-point core projection score map.
    * If total signal tokens < 2, gracefully relaxes cutoff to capture top spectral features.
    */
   function extractSignalTokensModel04(spectraObj, cfg) {
+    const opts = cfg || {};
     const { spectra, shape } = spectraObj;
     const ni1 = shape[1];
     const ni2 = shape[2];
     const nd = shape[3];
 
-    const stride = cfg.stride || DEFAULTS.stride;
-    const windowSize = cfg.windowSize || DEFAULTS.windowSize;
-    const topK = cfg.topK || DEFAULTS.topK;
-    const spilloverCheck = !!cfg.spilloverCheck;
-    const spilloverCutoff = cfg.spilloverCutoff || DEFAULTS.spilloverCutoff;
+    const stride = opts.stride || DEFAULTS.stride;
+    const windowSize = opts.windowSize || DEFAULTS.windowSize;
+    const topK = opts.topK || DEFAULTS.topK;
+    const excludeWater = opts.excludeWater != null ? !!opts.excludeWater : DEFAULTS.excludeWater;
+    const minWaterEdgeDist = opts.minWaterEdgeDist != null ? opts.minWaterEdgeDist : DEFAULTS.minWaterEdgeDist;
+    const spilloverCheck = !!opts.spilloverCheck;
+    const spilloverCutoff = opts.spilloverCutoff || DEFAULTS.spilloverCutoff;
 
     if (nd < windowSize) {
       throw new Error(`Direct dimension size (${nd}) is smaller than Model 04 window size (${windowSize}).`);
     }
 
+    let waterBelt = opts.waterBelt || null;
+    if (!waterBelt && excludeWater) {
+      if (Number.isInteger(opts.waterCenterIdx)) {
+        waterBelt = {
+          status: "explicit",
+          hasWaterBelt: true,
+          classification: "Explicit Water Center",
+          waterIndex: opts.waterCenterIdx,
+          waterPpm: null,
+        };
+      } else {
+        waterBelt = detectWaterBelt3D(
+          spectraObj,
+          opts.ppmScale || opts.directAxis || (spectraObj.meta && spectraObj.meta.directAxis),
+          opts
+        );
+      }
+    }
+
+    const shouldExcludeWater = !!(
+      excludeWater &&
+      waterBelt &&
+      waterBelt.hasWaterBelt &&
+      Number.isInteger(waterBelt.waterIndex)
+    );
+
     const noiseLevel = estimate3DNoiseLevel(spectraObj);
-    let peakSnrCutoff = cfg.peakSnrCutoff || DEFAULTS.peakSnrCutoff;
+    let peakSnrCutoff = opts.peakSnrCutoff || DEFAULTS.peakSnrCutoff;
     let peakCutoff = peakSnrCutoff * noiseLevel;
 
     const windowStarts = [];
@@ -404,13 +940,23 @@
       windowStarts.push(0);
     }
 
-    function scanTokensWithCutoff(currentCutoff) {
+    function scanTokensWithCutoff(currentCutoff, applyWaterExclusion) {
       const tokens = [];
       const details = [];
+      const excludedWindows = [];
 
       for (let wIdx = 0; wIdx < windowStarts.length; wIdx++) {
         const startF3 = windowStarts[wIdx];
         const endF3 = startF3 + windowSize;
+
+        if (
+          applyWaterExclusion &&
+          patchTouchesWaterEdge(startF3, windowSize, waterBelt.waterIndex, minWaterEdgeDist)
+        ) {
+          excludedWindows.push(wIdx + 1);
+          continue;
+        }
+
         const coreStartF3 = startF3 + 32;
         const coreEndF3 = startF3 + 96;
 
@@ -547,22 +1093,29 @@
           });
         }
       }
-      return { tokens, details };
+      return { tokens, details, excludedWindows };
     }
 
-    let scanResult = scanTokensWithCutoff(peakCutoff);
+    let scanResult = scanTokensWithCutoff(peakCutoff, shouldExcludeWater);
 
-    // Safety fallback: if < 2 signal peaks found, relax cutoff so W-RANSAC has enough points
+    // Safety fallback: first relax SNR cutoff while keeping water exclusion active
     if (scanResult.tokens.length < 2) {
       const relaxedCutoff = 3.0 * noiseLevel;
       console.log(`[tfjs] Found ${scanResult.tokens.length} signal tokens at SNR ${peakSnrCutoff}. Relaxing cutoff to SNR 3.0...`);
-      scanResult = scanTokensWithCutoff(relaxedCutoff);
+      scanResult = scanTokensWithCutoff(relaxedCutoff, shouldExcludeWater);
+    }
+
+    // Only if < 2 tokens exist outside water guard band, retry without water exclusion
+    if (scanResult.tokens.length < 2 && shouldExcludeWater) {
+      const relaxedCutoff = 3.0 * noiseLevel;
+      console.log(`[tfjs] Found ${scanResult.tokens.length} signal tokens outside water guard band. Retrying without water exclusion...`);
+      scanResult = scanTokensWithCutoff(relaxedCutoff, false);
     }
 
     // Absolute fallback: take global top 2 peaks across direct spectrum if still < 2
     if (scanResult.tokens.length < 2) {
       console.log(`[tfjs] Relaxed search yielded ${scanResult.tokens.length} tokens. Extracting global peak fallback...`);
-      scanResult = scanTokensWithCutoff(0.0);
+      scanResult = scanTokensWithCutoff(0.0, false);
       if (scanResult.tokens.length > 2) {
         scanResult.tokens = scanResult.tokens.slice(0, 2);
         scanResult.details = scanResult.details.slice(0, 2);
@@ -580,12 +1133,14 @@
       cubesShape: [numTokens, 16, 16, 128, 2],
       tokenDetails: scanResult.details,
       noiseLevel: noiseLevel,
-      numTokens: numTokens
+      numTokens: numTokens,
+      waterBelt: waterBelt,
+      excludedWindows: scanResult.excludedWindows,
     };
   }
 
   // =========================================================================
-  // 3. Revised Weighted RANSAC (W-RANSAC) with n*pi Phase Adjustment
+  // 4. Revised Weighted RANSAC (W-RANSAC) with n*pi Phase Adjustment
   // =========================================================================
 
   /**
@@ -799,7 +1354,7 @@
   }
 
   // =========================================================================
-  // 4. Spectrum Phase Application & Combination
+  // 5. Spectrum Phase Application & Combination
   // =========================================================================
 
   /**
@@ -848,8 +1403,28 @@
   }
 
   // =========================================================================
-  // 5. Model 04 Forward Execution & 2-Round Pipeline
+  // 6. Model 04 Forward Execution & 2-Round Pipeline
   // =========================================================================
+
+  async function loadModel(tf, modelUrl) {
+    const tfi = ensureTf(tf);
+    const url = modelUrl || DEFAULTS.modelUrl;
+    try {
+      return await tfi.loadGraphModel(url);
+    } catch (err) {
+      const errMsg = (err && err.message) ? err.message : String(err);
+      if (/shader|compile|link|webgl|out of memory|context lost|gl/i.test(errMsg) && tfi.getBackend && tfi.getBackend() !== "cpu") {
+        console.warn(`[tfjs] Failed to load model on WebGL (${errMsg}). Switching to CPU backend...`);
+        logToHtml(`[tfjs] WebGL initialization failed. Switching to CPU backend...`);
+        await tfi.setBackend("cpu");
+        if (typeof tfi.ready === "function") {
+          await tfi.ready();
+        }
+        return await tfi.loadGraphModel(url);
+      }
+      throw err;
+    }
+  }
 
   /**
    * Runs Model 04 forward pass on extracted cubes with sub-batching and automatic CPU fallback.
@@ -931,6 +1506,30 @@
     return { phiPredDeg, stdPredDeg, weights };
   }
 
+  function formatWaterBeltLog3D(waterBelt, minWaterEdgeDist) {
+    if (!waterBelt) return null;
+    if (waterBelt.status === "out_of_range" && waterBelt.ppmRange) {
+      return `[tfjs][Water Belt] Water window (4.60–4.85 ppm) outside direct spectrum (${waterBelt.ppmRange[0].toFixed(2)} to ${waterBelt.ppmRange[1].toFixed(2)} ppm) — keeping all direct windows`;
+    }
+    if (waterBelt.status === "not_1h") {
+      return `[tfjs][Water Belt] Direct axis is not 1H — keeping all direct windows`;
+    }
+    if (waterBelt.status === "no_ppm") {
+      return `[tfjs][Water Belt] No direct chemical shift scale in header — keeping all direct windows`;
+    }
+    if (waterBelt.hasWaterBelt) {
+      const ppmStr = waterBelt.waterPpm != null ? `${waterBelt.waterPpm.toFixed(3)} ppm, ` : "";
+      const metricStr = waterBelt.medRatio != null
+        ? ` | medRatio=${waterBelt.medRatio.toFixed(2)}x, occ5s=${waterBelt.occ5s.toFixed(1)}%`
+        : "";
+      return `[tfjs][Water Belt] ${waterBelt.classification} detected at plane index ${waterBelt.waterIndex} (${ppmStr}min edge clearance=${minWaterEdgeDist} pts${metricStr})`;
+    }
+    const ppmInfoStr = waterBelt.waterPpm != null
+      ? ` (${waterBelt.waterPpm.toFixed(3)} ppm | medRatio=${waterBelt.medRatio.toFixed(2)}x, occ5s=${waterBelt.occ5s.toFixed(1)}%)`
+      : "";
+    return `[tfjs][Water Belt] No Water Belt detected${ppmInfoStr} — keeping all direct windows`;
+  }
+
   /**
    * Main 2-Round 3D Model 04 Auto-Phase Execution.
    */
@@ -945,7 +1544,7 @@
     if (!model) {
       const url = params.modelUrl || DEFAULTS.modelUrl;
       console.log(`[tfjs] Loading 3D Model 04 from ${url}...`);
-      model = await tf.loadGraphModel(url);
+      model = await loadModel(tf, url);
     }
 
     const exp = loadExperimentFromFt3ArrayBuffer(ft3ArrayBuffer, {
@@ -955,6 +1554,8 @@
     const spectraWorking = {
       spectra: exp.spectra.slice(0),
       shape: exp.shape,
+      meta: exp.meta,
+      maxAbs: exp.maxAbs,
     };
 
     const nd = exp.shape[3];
@@ -966,6 +1567,9 @@
       windowSize: params.windowSize || DEFAULTS.windowSize,
       topK: params.topK || DEFAULTS.topK,
       peakSnrCutoff: params.peakSnrCutoff || DEFAULTS.peakSnrCutoff,
+      excludeWater: params.excludeWater != null ? !!params.excludeWater : DEFAULTS.excludeWater,
+      minWaterEdgeDist: params.minWaterEdgeDist != null ? params.minWaterEdgeDist : DEFAULTS.minWaterEdgeDist,
+      waterWindowPpm: params.waterWindowPpm || DEFAULTS.waterWindowPpm,
       spilloverCheck: !!params.spilloverCheck,
       spilloverCutoff: params.spilloverCutoff || DEFAULTS.spilloverCutoff,
       ransacCutoffDeg: params.ransacCutoffDeg || DEFAULTS.ransacCutoffDeg,
@@ -976,11 +1580,40 @@
     console.log(`[tfjs] Starting Model 04 3D Auto-Phase (Signal-Only, 2 Rounds)...`);
     logToHtml(`[tfjs] Starting Model 04 Auto-Phase (Signal-Only, 2 Rounds)...`);
 
+    // Detect 3D water belt / water wall once on the loaded volume so window exclusion is consistent across rounds
+    let waterBelt = null;
+    if (cfg.excludeWater) {
+      if (Number.isInteger(params.waterCenterIdx)) {
+        waterBelt = {
+          status: "explicit",
+          hasWaterBelt: true,
+          classification: "Explicit Water Center",
+          waterIndex: params.waterCenterIdx,
+          waterPpm: null,
+        };
+      } else {
+        waterBelt = detectWaterBelt3D(
+          spectraWorking,
+          params.ppmScale || exp.meta.directAxis,
+          cfg
+        );
+      }
+      cfg.waterBelt = waterBelt;
+      const wbMsg = formatWaterBeltLog3D(waterBelt, cfg.minWaterEdgeDist);
+      if (wbMsg) {
+        console.log(wbMsg);
+        logToHtml(wbMsg);
+      }
+    }
+
     // =========================================================================
     // ROUND 1: Initial Spectrum Phasing
     // =========================================================================
     const ext1 = extractSignalTokensModel04(spectraWorking, cfg);
-    logToHtml(`[tfjs][Round 1] Extracted ${ext1.numTokens} signal cubes (Estimated Noise: ${ext1.noiseLevel.toExponential(2)})`);
+    const exclNote1 = (ext1.excludedWindows && ext1.excludedWindows.length > 0)
+      ? `, Excluded ${ext1.excludedWindows.length} water-adjacent direct window(s)`
+      : "";
+    logToHtml(`[tfjs][Round 1] Extracted ${ext1.numTokens} signal cubes (Estimated Noise: ${ext1.noiseLevel.toExponential(2)}${exclNote1})`);
 
     const out1 = await runModel04OnCubes(tf, model, ext1);
 
@@ -1009,7 +1642,10 @@
     // ROUND 2: Residual Phase Fine-Tuning
     // =========================================================================
     const ext2 = extractSignalTokensModel04(spectraWorking, cfg);
-    logToHtml(`[tfjs][Round 2] Re-extracted ${ext2.numTokens} signal cubes for residual correction`);
+    const exclNote2 = (ext2.excludedWindows && ext2.excludedWindows.length > 0)
+      ? `, Excluded ${ext2.excludedWindows.length} water-adjacent direct window(s)`
+      : "";
+    logToHtml(`[tfjs][Round 2] Re-extracted ${ext2.numTokens} signal cubes for residual correction${exclNote2}`);
 
     const out2 = await runModel04OnCubes(tf, model, ext2);
 
@@ -1044,15 +1680,18 @@
 
     return {
       ft3Meta: exp.meta,
+      waterBelt: waterBelt,
       config: cfg,
       round1: {
         tokens: ext1.tokenDetails,
+        excludedWindows: ext1.excludedWindows,
         fit: fit1,
         left: left1,
         right: right1,
       },
       round2: {
         tokens: ext2.tokenDetails,
+        excludedWindows: ext2.excludedWindows,
         fit: fit2,
         left: left2,
         right: right2,
@@ -1062,39 +1701,26 @@
   }
 
   // =========================================================================
-  // 6. Public API Export
+  // 7. Public API Export
   // =========================================================================
 
   const api = {
     defaults: Object.assign({}, DEFAULTS),
     configureTfEnvironment,
     parseFt3MetaFromArrayBuffer,
+    extractDirectAxisInfoFt3,
     readFt3AllFromArrayBuffer,
     loadExperimentFromFt3ArrayBuffer,
+    estimateNoiseRobust3D,
+    detectWaterBelt3D,
+    getPatchWaterEdgeDistance,
+    patchTouchesWaterEdge,
     extractSignalTokensModel04,
     weightedRansacFit,
     runFromFt3,
     applyLeftRightToSpectra,
     addLeftRightArrays,
-    loadModel: async function (tf, modelUrl) {
-      const tfi = ensureTf(tf);
-      const url = modelUrl || DEFAULTS.modelUrl;
-      try {
-        return await tfi.loadGraphModel(url);
-      } catch (err) {
-        const errMsg = (err && err.message) ? err.message : String(err);
-        if (/shader|compile|link|webgl|out of memory|context lost|gl/i.test(errMsg) && tfi.getBackend && tfi.getBackend() !== "cpu") {
-          console.warn(`[tfjs] Failed to load model on WebGL (${errMsg}). Switching to CPU backend...`);
-          logToHtml(`[tfjs] WebGL initialization failed. Switching to CPU backend...`);
-          await tfi.setBackend("cpu");
-          if (typeof tfi.ready === "function") {
-            await tfi.ready();
-          }
-          return await tfi.loadGraphModel(url);
-        }
-        throw err;
-      }
-    },
+    loadModel,
     // Backward compatibility stubs
     registerCustomLayers: function () {},
     getCustomObjects: function () { return {}; },

@@ -6658,7 +6658,24 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
 
         const data = new Float32Array(512 + n_size);
         let current_position = 0;
-        data.set(s.header, current_position);
+        if (s.header && s.header.length > 0) {
+            data.set(s.header.subarray(0, Math.min(512, s.header.length)), current_position);
+        }
+        if (!(data[24] >= 1 && data[24] <= 4)) data[24] = 2;
+        if (!(data[25] >= 1 && data[25] <= 4)) data[25] = 1;
+        if (Math.round(data[24]) === 2 && (!(data[100] > 0) || !(data[119] > 0)) && s.frq1 > 0 && s.x_ppm_width > 0 && s.x_ppm_step < 0) {
+            data[119] = s.frq1;
+            data[100] = s.x_ppm_width * s.frq1;
+            data[101] = ((s.x_ppm_start + (s.x_ppm_ref || 0)) - s.x_ppm_width - s.x_ppm_step) * s.frq1;
+            if (!(data[218] > 0) && s.frq2 > 0) {
+                data[218] = s.frq2;
+                if (s.y_ppm_width > 0) data[229] = s.y_ppm_width * s.frq2;
+            }
+            if (data[16] === 0 && s.nucleus_direct) {
+                const labelBytes = new TextEncoder().encode(String(s.nucleus_direct).slice(0, 8));
+                new Uint8Array(data.buffer, 16 * 4, 8).set(labelBytes);
+            }
+        }
         data[55] = (s.datatype_indirect === 0) ? 0.0 : 1.0;
         data[56] = (s.datatype_direct === 0) ? 0.0 : 1.0;
         data[99] = s.n_direct;

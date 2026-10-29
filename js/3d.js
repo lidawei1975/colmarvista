@@ -565,7 +565,29 @@ function create_ft3_buffer() {
 
     floatView[15] = nz;
     floatView[99] = nx;
-    floatView[219] = ny;
+    floatView[219] = (has_ri && has_ir) ? (ny * 2) : ny;
+
+    if (!(floatView[24] >= 1 && floatView[24] <= 4)) floatView[24] = 2;
+    if (!(floatView[25] >= 1 && floatView[25] <= 4)) floatView[25] = 1;
+    if (!(floatView[26] >= 1 && floatView[26] <= 4)) floatView[26] = 3;
+    if (!(floatView[27] >= 1 && floatView[27] <= 4)) floatView[27] = 4;
+    if (Math.round(floatView[24]) === 2 && (!(floatView[100] > 0) || !(floatView[119] > 0)) && s0.frq1 > 0 && s0.x_ppm_width > 0 && s0.x_ppm_step < 0) {
+        floatView[119] = s0.frq1;
+        floatView[100] = s0.x_ppm_width * s0.frq1;
+        floatView[101] = ((s0.x_ppm_start + (s0.x_ppm_ref || 0)) - s0.x_ppm_width - s0.x_ppm_step) * s0.frq1;
+        if (!(floatView[218] > 0) && s0.frq2 > 0) {
+            floatView[218] = s0.frq2;
+            if (s0.y_ppm_width > 0) floatView[229] = s0.y_ppm_width * s0.frq2;
+        }
+        if (!(floatView[10] > 0) && s0.frq3 > 0) {
+            floatView[10] = s0.frq3;
+            if (s0.z_ppm_width > 0) floatView[11] = s0.z_ppm_width * s0.frq3;
+        }
+        if (floatView[16] === 0 && s0.nucleus_direct) {
+            const labelBytes = new TextEncoder().encode(String(s0.nucleus_direct).slice(0, 8));
+            new Uint8Array(buffer, 16 * 4, 8).set(labelBytes);
+        }
+    }
 
     floatView[56] = has_ri ? 0 : 1;
     floatView[55] = has_ir ? 0 : 1;
