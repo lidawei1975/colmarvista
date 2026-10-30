@@ -553,8 +553,8 @@ self.onmessage = async function (event) {
         try {
             let ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
             const noiseLevel = typeof event.data.noiseLevel !== 'undefined' ? parseFloat(event.data.noiseLevel) : 0.0;
-            const scale1 = typeof event.data.scale1 !== 'undefined' ? parseFloat(event.data.scale1) : 6.0;
-            const scale2 = typeof event.data.scale2 !== 'undefined' ? parseFloat(event.data.scale2) : 3.5;
+            const scale1 = typeof event.data.scale1 !== 'undefined' ? parseFloat(event.data.scale1) : 5.5;
+            const scale2 = typeof event.data.scale2 !== 'undefined' ? parseFloat(event.data.scale2) : 3.0;
             const newPeakCutoff = typeof event.data.newPeakCutoff !== 'undefined' ? parseFloat(event.data.newPeakCutoff) : 0.4;
 
             if (ft3Bytes.length === 0) {

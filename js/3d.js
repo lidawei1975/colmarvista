@@ -751,12 +751,12 @@ async function run_peak_fit_3d_workflow() {
 
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
-        let scale2 = 6.0;
-        let multiplier_input = document.getElementById("contour_start_multiplier");
-        if (multiplier_input) {
-            scale2 = parseFloat(multiplier_input.value) || 6.0;
+        let scale1 = 5.5;
+        let scale2 = 3.0;
+        if (noiseLevel > 0 && s0 && s0.levels && s0.levels.length >= 2) {
+            scale1 = Math.max(5.5, s0.levels[1] / noiseLevel);
+            scale2 = Math.max(3.0, s0.levels[0] / noiseLevel / 2.0);
         }
-        let scale1 = 1.5 * scale2;
 
         let newPeakCutoff = 0.4;
         let cutoff_input = document.getElementById("input_new_peak_cutoff");
@@ -2911,7 +2911,7 @@ function generate_theoretical_volume(peaks) {
         s.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
         s.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
-        s.negative_levels = [];
+        s.negative_levels = calculate_negative_levels(s0.noise_level, 1.5, 30);
 
         theoretical_spectra_3d.push(s);
     }
@@ -3136,6 +3136,8 @@ function draw_slice(index, update_ortho_views = true) {
             // The worker message passes 'spectrum_index'.
             // Let's rely on a custom property in the request.
             request_contour_calculation(st, index, 0, "theoretical");
+            // Negative theoretical peaks (fitted dips)
+            request_contour_calculation(st, index, 1, "theoretical");
         }
     }
 
@@ -4685,7 +4687,6 @@ function refresh_current_view(spectrum_in) {
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
 function sync_sliders_to_center(is_end = true) {
-    console.log("sync_sliders_to_center called");
     if (!main_plot || !spectra_3d || spectra_3d.length === 0) return;
 
     let s = spectra_3d[0]; // Reference spectrum for PPM calculations
@@ -8275,7 +8276,6 @@ async function load_fid_3d_file() {
  * @returns {Promise<void>}
  */
 async function handle_webass_3d_message(e) {
-    console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
@@ -8346,7 +8346,6 @@ async function handle_webass_3d_message(e) {
             if (dl_btn) dl_btn.disabled = false;
             let toggle_btn = document.getElementById("button_toggle_peak_symbols");
             if (toggle_btn) toggle_btn.disabled = false;
-            console.log("Fitted Peaks Output:\n", resultString);
 
             try {
                 let peaks = parse_peaks_text(resultString);
