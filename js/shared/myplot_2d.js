@@ -61,12 +61,23 @@ function plotit(input) {
     this.shapes = (Array.isArray(input.shapes) && input.shapes.length > 0) ? input.shapes : defaultShapes;
     this.brushend_time = 0.0;
     this.levels = input.levels || [];
+    this.negative_levels = input.negative_levels || [];
     this.colors = input.colors || [[0.7, 0.7, 0.7, 1.0]];
+    this.colors_negative = input.colors_negative || [];
     this.overlays = [];
     this.polygon_length = [];
+    this.polygon_length_negative = [];
     this.levels_length = [];
+    this.levels_length_negative = [];
+    this.points_start = [];
+    this.points_start_negative = [];
+    this.contour_lbs = [];
+    this.contour_lbs_negative = [];
     this.points = new Float32Array(0);
     this.cutoff = (this.levels && this.levels.length > 0) ? this.levels[0] * 0.99 : 0;
+    this.cutoff_negative = (this.negative_levels && this.negative_levels.length > 0)
+        ? (this.negative_levels[0] < 0 ? this.negative_levels[0] * 0.99 : -this.negative_levels[0] * 0.99)
+        : (this.cutoff ? -Math.abs(this.cutoff) : 0);
     this.realdata = [];
 
     // Encapsulated data, tooltip, and configuration properties
@@ -2017,7 +2028,40 @@ plotit.prototype.set_peak_level = function (level) {
  */
 plotit.prototype.set_peak_level_negative = function (level) {
     this.peak_level_negative = level;
-}
+};
+
+/**
+ * Determines whether a peak is visible according to positive and negative cutoffs / peak levels.
+ * Supports both SPIN format (peak.index, this.cutoff, this.cutoff_negative)
+ * and COLMARvista format (peak.HEIGHT, this.peak_level, this.peak_level_negative).
+ *
+ * @param {object|number} peak_or_index - Peak object or index value
+ * @returns {boolean}
+ */
+plotit.prototype.is_peak_visible = function (peak_or_index) {
+    let val = (typeof peak_or_index === 'object' && peak_or_index !== null)
+        ? (typeof peak_or_index.index !== 'undefined' ? peak_or_index.index : (typeof peak_or_index.HEIGHT !== 'undefined' ? peak_or_index.HEIGHT : peak_or_index.height))
+        : peak_or_index;
+    if (typeof val === 'undefined' || isNaN(val)) return true;
+
+    let pos_cut = (this.cutoff > 0) ? this.cutoff : ((typeof this.peak_level !== 'undefined' && this.peak_level > 0) ? this.peak_level : 0);
+    let neg_cut = (typeof this.cutoff_negative !== 'undefined' && this.cutoff_negative < 0)
+        ? this.cutoff_negative
+        : ((typeof this.peak_level_negative !== 'undefined' && this.peak_level_negative < 0)
+            ? this.peak_level_negative
+            : (pos_cut > 0 ? -pos_cut : 0));
+
+    if (pos_cut > 0) {
+        if (val > pos_cut) return true;
+        if (val < neg_cut) return true;
+        return false;
+    }
+    if (neg_cut < 0) {
+        if (val < neg_cut || val > 0) return true;
+        return false;
+    }
+    return true;
+};
 
 /**
  * Set peaks for the plot
@@ -2577,7 +2621,7 @@ plotit.prototype.draw_peaks = function () {
     this.realdata = [];
     if (this.PointData) {
         for (var i = 0; i < this.PointData.length; i++) {
-            if (this.PointData[i].index > this.cutoff)
+            if (this.is_peak_visible(this.PointData[i]))
                 this.realdata.push(this.PointData[i]);
         }
     }
@@ -4019,7 +4063,7 @@ plotit.prototype.brushend_remove = function (selection) {
     self.realdata = [];
     if (self.PointData) {
         for (var i = 0; i < self.PointData.length; i++) {
-            if (self.PointData[i].index > self.cutoff) self.realdata.push(self.PointData[i]);
+            if (self.is_peak_visible(self.PointData[i])) self.realdata.push(self.PointData[i]);
         }
     }
 
@@ -4092,7 +4136,7 @@ plotit.prototype.removepeaks = function () {
     this.realdata = [];
     if (this.PointData) {
         for (var i = 0; i < this.PointData.length; i++) {
-            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+            if (this.is_peak_visible(this.PointData[i])) this.realdata.push(this.PointData[i]);
         }
     }
 
@@ -4353,13 +4397,37 @@ plotit.prototype.update_contour = function (value) {
     if (this.contour_plot && this.contour_plot.set_level_lb) {
         this.contour_plot.set_level_lb(value - 1);
     }
+    if (this.contour_lbs && this.contour_lbs.length > 0) {
+        this.contour_lbs[0] = value - 1;
+    }
     if (this.levels && this.levels[value - 1]) {
         this.cutoff = this.levels[value - 1] * 0.99;
     }
     this.realdata = [];
     if (this.PointData) {
         for (var i = 0; i < this.PointData.length; i++) {
-            if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+            if (this.is_peak_visible(this.PointData[i])) this.realdata.push(this.PointData[i]);
+        }
+    }
+    this.preparedata();
+    this.update_picked_peaks();
+};
+
+plotit.prototype.update_contour_negative = function (value) {
+    if (this.contour_plot && this.contour_plot.contour_lbs_negative && this.contour_plot.contour_lbs_negative.length > 0) {
+        this.contour_plot.contour_lbs_negative[0] = value - 1;
+        if (this.contour_plot.drawScene) this.contour_plot.drawScene();
+    }
+    if (this.contour_lbs_negative && this.contour_lbs_negative.length > 0) {
+        this.contour_lbs_negative[0] = value - 1;
+    }
+    if (this.negative_levels && this.negative_levels[value - 1]) {
+        this.cutoff_negative = this.negative_levels[value - 1] * 0.99;
+    }
+    this.realdata = [];
+    if (this.PointData) {
+        for (var i = 0; i < this.PointData.length; i++) {
+            if (this.is_peak_visible(this.PointData[i])) this.realdata.push(this.PointData[i]);
         }
     }
     this.preparedata();
@@ -4370,7 +4438,7 @@ plotit.prototype.update_pointdata = function (input) {
     this.PointData = input || [];
     this.realdata = [];
     for (var i = 0; i < this.PointData.length; i++) {
-        if (this.PointData[i].index > this.cutoff) this.realdata.push(this.PointData[i]);
+        if (this.is_peak_visible(this.PointData[i])) this.realdata.push(this.PointData[i]);
     }
     this.preparedata();
 
