@@ -52,7 +52,7 @@ describe('Reprocess Memory Leak Test', () => {
         measureMemory('initial_processing');
 
         // Click Reprocess on the spectrum list item once to enter reprocess mode
-        cy.get('#spectra_list_ol li').first().find('button').contains('Reprocess').click({ force: true });
+        cy.get('#spectra_list_ol li').first().find('button').contains('Edit FID processing').click({ force: true });
         cy.get('#button_fid_process').should('have.value', 'Reprocess');
 
         // Reprocess 3 times with ANN re-enabled

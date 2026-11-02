@@ -109,191 +109,227 @@ class file_drop_processor {
         });
     }
 
-    async process_file_attachment(entry) {
-        let file;
-
-        if (!entry) return;
+    async get_files_from_entry(entry) {
+        if (!entry) return [];
+        let files = [];
 
         if (entry instanceof File) {
-            file = entry;
-        }
-        else if (typeof entry.getFile === 'function') {
-            file = await entry.getFile();
-        }
-        else if (typeof entry.file === 'function') {
-            file = await new Promise((resolve, reject) => {
-                entry.file(resolve, reject);
-            });
-        }
-        else {
-            return;
+            return [entry];
         }
 
-        if (!file) return;
-
-        /**
-         * Only if the dropped file is in the list
-         */
-        if (this.files_name.includes(file.name)) {
-            let container = new DataTransfer();
-            container.items.add(file);
-            let file_id = this.files_id[this.files_name.indexOf(file.name)];
-
-            if (file_id === "nuslist_file") {
-                document.getElementById(file_id).files = container.files;
-                /**
-                 * Special case for nuslist file. 
-                 * Disable the auto_indirect checkboxes. 
-                 * User has to manually set the phase correction values for indirect dimension for NUS experiments
-                 */
-                document.getElementById("auto_indirect").checked = false;
-                document.getElementById("auto_indirect").disabled = true;
-                // Keep extract controls editable for class-based NUS processing.
+        if (typeof entry.kind === 'string') {
+            if (entry.kind === 'file') {
+                try {
+                    const f = await entry.getFile();
+                    if (f) files.push(f);
+                } catch (err) {
+                    console.warn("Failed to get file from FileSystemFileHandle:", err);
+                }
+                return files;
+            } else if (entry.kind === 'directory') {
+                try {
+                    for await (const child of entry.values()) {
+                        const childFiles = await this.get_files_from_entry(child);
+                        files.push(...childFiles);
+                    }
+                } catch (err) {
+                    console.warn("Failed to read directory from FileSystemDirectoryHandle:", err);
+                }
+                return files;
             }
-            else {
-                document.getElementById(file_id).files = container.files;
-                document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        if (entry.isFile && typeof entry.file === 'function') {
+            try {
+                const f = await new Promise((resolve, reject) => entry.file(resolve, reject));
+                if (f) files.push(f);
+            } catch (err) {
+                console.warn("Failed to read file from FileSystemFileEntry:", err);
+            }
+            return files;
+        }
+
+        if (entry.isDirectory && typeof entry.createReader === 'function') {
+            try {
+                const reader = entry.createReader();
+                let allEntries = [];
+                while (true) {
+                    const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+                    if (!batch || batch.length === 0) break;
+                    allEntries.push(...batch);
+                }
+                for (const child of allEntries) {
+                    const childFiles = await this.get_files_from_entry(child);
+                    files.push(...childFiles);
+                }
+            } catch (err) {
+                console.warn("Failed to read directory from FileSystemDirectoryEntry:", err);
+            }
+            return files;
+        }
+
+        return files;
+    }
+
+    async attach_files(allFiles) {
+        if (!allFiles || allFiles.length === 0) return;
+
+        // 1. Process files matching specific names (e.g. FID files)
+        if (this.files_name && this.files_name.length > 0) {
+            for (const file of allFiles) {
+                if (this.files_name.includes(file.name)) {
+                    let container = new DataTransfer();
+                    container.items.add(file);
+                    let file_id = this.files_id[this.files_name.indexOf(file.name)];
+
+                    let elem = document.getElementById(file_id);
+                    if (elem) {
+                        if (file_id === "nuslist_file") {
+                            elem.files = container.files;
+                            let autoInd = document.getElementById("auto_indirect");
+                            if (autoInd) {
+                                autoInd.checked = false;
+                                autoInd.disabled = true;
+                            }
+                        } else {
+                            elem.files = container.files;
+                            elem.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                }
             }
 
-            /**
-             * If this.drop_area_id === "input_files" and we have 
-             * at least 3 of all files_id filled, we will highlight the processing div
-             */
-            if (this.drop_area_id === "input_files") {
+            if (this.drop_area_id === "input_files" && this.required_files) {
                 let filled = 0;
                 for (let i = 0; i < this.required_files.length; i++) {
-                    if (document.getElementById(this.files_id[this.required_files[i]]).files.length > 0) {
+                    let elem = document.getElementById(this.files_id[this.required_files[i]]);
+                    if (elem && elem.files && elem.files.length > 0) {
                         filled++;
                     }
                 }
                 if (filled >= this.required_files.length) {
-                    document.getElementById("input_options").style.backgroundColor = "lightgreen";
+                    let inOpts = document.getElementById("input_options");
+                    if (inOpts) inOpts.style.backgroundColor = "lightgreen";
+                }
+            }
+        }
+
+        // 2. Match by file extension (e.g. Frequency domain spectra .ft2, .ucsf, .txt, etc.)
+        if (this.file_extension && this.file_extension.length > 0) {
+            let matchedFilesByInputId = {};
+
+            for (const file of allFiles) {
+                // If it already matched a specific file name above, skip extension matching
+                if (this.files_name && this.files_name.includes(file.name)) {
+                    continue;
+                }
+
+                let ext = file.name.split('.').pop().toLowerCase();
+                let file_id = null;
+
+                if (this.file_extension.includes(ext)) {
+                    let idx = this.file_extension.indexOf(ext);
+                    file_id = (this.extension_files_id && this.extension_files_id[idx])
+                        || (this.files_id && this.files_id[idx])
+                        || (this.files_id && this.files_id[0]);
+                } else if (this.file_extension.includes('*')) {
+                    let idx = this.file_extension.indexOf('*');
+                    file_id = (this.files_id && this.files_id[idx]) || (this.files_id && this.files_id[0]);
+                }
+
+                if (file_id) {
+                    if (!matchedFilesByInputId[file_id]) {
+                        matchedFilesByInputId[file_id] = [];
+                    }
+                    matchedFilesByInputId[file_id].push(file);
                 }
             }
 
-            /**
-             * If we can match file, will not try to match extension
-             */
-            return;
+            for (const [file_id, filesArray] of Object.entries(matchedFilesByInputId)) {
+                let elem = document.getElementById(file_id);
+                if (elem) {
+                    let container = new DataTransfer();
+                    for (const f of filesArray) {
+                        container.items.add(f);
+                    }
+                    elem.files = container.files;
+                    this.container = container;
+                    elem.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
         }
+    }
 
-        /**
-         * Only if the dropped file's extension is as predefined, we will attach it to the corresponding file input
-         * this.file_extension is an array of file extensions
-         */
-        let file_extension = file.name.split('.').pop().toLowerCase();
-        if (this.file_extension.includes(file_extension)) {
-            this.container.items.add(file);
-            let file_id = (this.extension_files_id && this.extension_files_id[this.file_extension.indexOf(file_extension)])
-                || this.files_id[this.file_extension.indexOf(file_extension)]
-                || this.files_id[0];
-            document.getElementById(file_id).files = this.container.files;
-            /**
-             * Simulate the change event
-             */
-            document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        else if (this.file_extension.includes('*')) {
-            this.container.items.add(file);
-            let file_id = this.files_id[this.file_extension.indexOf('*')];
-            document.getElementById(file_id).files = this.container.files;
-            /**
-             * Simulate the change event
-             */
-            document.getElementById(file_id).dispatchEvent(new Event('change', { bubbles: true }));
-        }
-
+    async process_file_attachment(entry) {
+        const files = await this.get_files_from_entry(entry);
+        await this.attach_files(files);
     }
 
     async drop_handler(e) {
         e.preventDefault();
-
-        if (!this.supportsFileSystemAccessAPI && !this.supportsWebkitGetAsEntry) {
-            // Cannot handle directories.
-            return;
-        }
-        // Un-highlight the drop zone.
         this.elem.style.outline = '';
 
-        // Prepare an array of handles
-        let fileHandlesPromises = [];
+        // Reset container for this drop operation
+        this.container = new DataTransfer();
 
-        if (e.dataTransfer.items) {
-            for (const item of [...e.dataTransfer.items]) {
-                if (item.kind !== 'file') continue;
+        const items = e.dataTransfer && e.dataTransfer.items
+            ? Array.from(e.dataTransfer.items).filter(item => item.kind === 'file')
+            : [];
+        const rawFiles = e.dataTransfer && e.dataTransfer.files
+            ? Array.from(e.dataTransfer.files)
+            : [];
 
-                let handle = null;
-                if (this.supportsFileSystemAccessAPI) {
-                    try {
-                        handle = await item.getAsFileSystemHandle();
-                    } catch (err) {
-                        console.warn("Failed to get file handle via FileSystemAccessAPI:", err);
-                    }
-                }
-                if (!handle && this.supportsWebkitGetAsEntry) {
-                    try {
-                        handle = item.webkitGetAsEntry();
-                    } catch (err) {
-                        console.warn("Failed to get file handle via webkitGetAsEntry:", err);
-                    }
-                }
-
-                if (handle) {
-                    fileHandlesPromises.push(handle);
-                } else {
-                    console.warn("Total fallback to standard File API");
-                    const file = item.getAsFile();
-                    if (file) {
-                        this.process_file_attachment(file);
-                    }
-                }
-            }
-        }
-
-        // Loop over the array of promises.
-        for await (const handle of fileHandlesPromises) {
-            // This is where we can actually exclusively act on the directories.
-            if (handle.kind === 'directory' || handle.isDirectory) {
-                console.log(`Directory: ${handle.name}`);
-
-                /**
-                 * Get all files in the directory
-                 */
-                if (typeof handle.values === 'function') {
-                    for await (const entry of handle.values()) {
-                        if (entry.kind === 'file' || entry.isFile) {
-                            /**
-                             * If the dropped file is in the list, attach it to the corresponding file input
-                             */
-                            this.process_file_attachment(entry);
-                        }
-                    }
-                }
-                else if (typeof handle.createReader === 'function') {
-                    /**
-                     * Read all files in the directory
-                     */
-                    let reader = handle.createReader();
-                    let entries = await new Promise((resolve, reject) => {
-                        reader.readEntries(resolve, reject);
+        // Synchronously extract handles and entries before yielding the event loop
+        const fsHandlePromises = items.map(item => {
+            if (this.supportsFileSystemAccessAPI && typeof item.getAsFileSystemHandle === 'function') {
+                try {
+                    return item.getAsFileSystemHandle().catch(err => {
+                        console.warn("Failed getAsFileSystemHandle:", err);
+                        return null;
                     });
-                    for (let entry of entries) {
-                        if (entry.kind === 'file' || entry.isFile) {
-                            /**
-                             * If the dropped file is in the list, attach it to the corresponding file input
-                             */
-                            this.process_file_attachment(entry);
-                        }
-                    }
+                } catch (err) {
+                    return Promise.resolve(null);
                 }
             }
-            /**
-             * If the dropped item is a file, we will try to attach it to the corresponding file input if it is in the list
-             */
-            else if (handle.kind === 'file' || handle.isFile) {
-                this.process_file_attachment(handle);
+            return Promise.resolve(null);
+        });
+
+        const webkitEntries = items.map(item => {
+            if (this.supportsWebkitGetAsEntry && typeof item.webkitGetAsEntry === 'function') {
+                try {
+                    return item.webkitGetAsEntry();
+                } catch (err) {
+                    return null;
+                }
             }
+            return null;
+        });
+
+        const standardFiles = items.map(item => {
+            try {
+                return typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+            } catch (err) {
+                return null;
+            }
+        });
+
+        const fsHandles = await Promise.all(fsHandlePromises);
+
+        let allFiles = [];
+
+        if (items.length > 0) {
+            for (let i = 0; i < items.length; i++) {
+                let entry = fsHandles[i] || webkitEntries[i] || standardFiles[i] || (rawFiles[i] || null);
+                if (entry) {
+                    const extracted = await this.get_files_from_entry(entry);
+                    allFiles.push(...extracted);
+                }
+            }
+        } else if (rawFiles.length > 0) {
+            allFiles = rawFiles;
         }
+
+        await this.attach_files(allFiles);
     }
 
     async click_handler(e) {
@@ -311,11 +347,8 @@ class file_drop_processor {
                 const directoryHandle = await window.showDirectoryPicker();
                 console.log(`Directory selected manually: ${directoryHandle.name}`);
 
-                for await (const entry of directoryHandle.values()) {
-                    if (entry.kind === 'file' || entry.isFile) {
-                        this.process_file_attachment(entry);
-                    }
-                }
+                const allFiles = await this.get_files_from_entry(directoryHandle);
+                await this.attach_files(allFiles);
                 return; // Success
             } catch (err) {
                 // User may have cancelled the dialog or the API is restricted, fall through to fallback
@@ -334,14 +367,12 @@ class file_drop_processor {
         dirInput.directory = true; // For Firefox
         dirInput.multiple = true;
 
-        dirInput.addEventListener('change', (evt) => {
-            const files = evt.target.files;
-            if (!files || files.length === 0) return;
+        dirInput.addEventListener('change', async (evt) => {
+            const files = evt.target.files ? Array.from(evt.target.files) : [];
+            if (files.length === 0) return;
 
             console.log(`Fallback picked ${files.length} flat files from directory`);
-            for (let i = 0; i < files.length; i++) {
-                this.process_file_attachment(files[i]);
-            }
+            await this.attach_files(files);
         });
 
         dirInput.click();

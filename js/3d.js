@@ -146,6 +146,90 @@ var zoom_on_call_function = null;
 var iso_renderer = null;
 var iso_renderer_recon = null;
 var ui_status_timers = {};
+
+// LRU Cache for contour vertex data
+const MAX_CACHED_CONTOUR_SLICES = 20;
+var lru_contour_slices = [];
+
+function touch_contour_lru(slice_idx) {
+    if (slice_idx === undefined || slice_idx === null || slice_idx < 0) return;
+    const idxInLru = lru_contour_slices.indexOf(slice_idx);
+    if (idxInLru !== -1) {
+        lru_contour_slices.splice(idxInLru, 1);
+    }
+    lru_contour_slices.push(slice_idx);
+
+    while (lru_contour_slices.length > MAX_CACHED_CONTOUR_SLICES) {
+        const evictIdx = lru_contour_slices.shift();
+        if (evictIdx === current_slice_index) {
+            lru_contour_slices.push(evictIdx);
+            if (lru_contour_slices.length <= MAX_CACHED_CONTOUR_SLICES) break;
+            continue;
+        }
+        if (spectra_3d && spectra_3d[evictIdx]) {
+            spectra_3d[evictIdx].cached_contour_pos = null;
+            spectra_3d[evictIdx].cached_contour_neg = null;
+            spectra_3d[evictIdx].cached_contour = null;
+        }
+        if (theoretical_spectra_3d && theoretical_spectra_3d[evictIdx]) {
+            theoretical_spectra_3d[evictIdx].cached_contour_pos = null;
+            theoretical_spectra_3d[evictIdx].cached_contour_neg = null;
+            theoretical_spectra_3d[evictIdx].cached_contour = null;
+        }
+    }
+}
+
+function create_plane_spectrum_from_template(s0, buffer, byteOffset, plane_name, z_index) {
+    let s = new spectrum();
+    s.spectrum_format = s0.spectrum_format;
+    s.spectrum_origin = -1;
+    s.header = s0.header;
+    s.dimorder1 = s0.dimorder1;
+    s.dimorder2 = s0.dimorder2;
+    s.dimorder3 = s0.dimorder3;
+    s.dimorder4 = s0.dimorder4;
+    s.n_inner_dimension = s0.n_inner_dimension;
+    s.n_outer_dimension = s0.n_outer_dimension;
+    s.n_outer2_dimension = s0.n_outer2_dimension;
+    s.n_outer3_dimension = s0.n_outer3_dimension;
+    s.n_direct = s0.n_direct;
+    s.n_indirect = s0.n_indirect;
+    s.n_indirect2 = s0.n_indirect2;
+    s.data_types = s0.data_types;
+    s.datatype_direct = s0.datatype_direct;
+    s.datatype_indirect = s0.datatype_indirect;
+    s.datatype_indirect2 = s0.datatype_indirect2;
+    s.direct_ndx = s0.direct_ndx;
+    s.indirect_ndx = s0.indirect_ndx;
+    s.indirect_ndx2 = s0.indirect_ndx2;
+    s.sw = s0.sw;
+    s.frq = s0.frq;
+    s.ref = s0.ref;
+    s.x_ppm_start = s0.x_ppm_start;
+    s.x_ppm_step = s0.x_ppm_step;
+    s.x_ppm_width = s0.x_ppm_width;
+    s.x_ppm_ref = s0.x_ppm_ref;
+    s.y_ppm_start = s0.y_ppm_start;
+    s.y_ppm_step = s0.y_ppm_step;
+    s.y_ppm_width = s0.y_ppm_width;
+    s.y_ppm_ref = s0.y_ppm_ref;
+    s.z_ppm_start = s0.z_ppm_start;
+    s.z_ppm_step = s0.z_ppm_step;
+    s.z_ppm_width = s0.z_ppm_width;
+    s.z_ppm_ref = s0.z_ppm_ref;
+    s.nuc1 = s0.nuc1;
+    s.nuc2 = s0.nuc2;
+    s.nuc3 = s0.nuc3;
+    s.filename = plane_name;
+    s.raw_data = new Float32Array(buffer, byteOffset, s0.n_direct * s0.n_indirect);
+    s.process_spectrum_common_task();
+    s.levels = calculate_levels(s.noise_level, 1.5, 30);
+    s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+    s.spectrum_color = s0.spectrum_color;
+    s.spectrum_color_negative = s0.spectrum_color_negative;
+    s.visible = true;
+    return s;
+}
 var trace_plot_margins_3d = { left: 52, right: 12, top: 8, bottom: 22 };
 var trace_zoom_domains = {
     'trace_x_svg': null,
@@ -247,7 +331,7 @@ var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
 var trace_x_pivot = null;
 
-var tfjs_normal_model = null;
+var tfjs_normal_model = null; // Holds 3D Model 04 GraphModel
 var tfjs_large_model = null;
 var current_fid_config = null;
 var auto_p0_3d = null;
@@ -273,12 +357,46 @@ window.last_fid_nuclei = { x: '', y: '', z: '' };
  * @param {boolean} [keepNuclei] - Keep nuclei Default is false.
  */
 function reset_3d_dataset_state(keepNuclei = false) {
+    if (iso_renderer && typeof iso_renderer.clearGeometry === 'function') {
+        iso_renderer.clearGeometry();
+    }
+    if (iso_renderer_recon && typeof iso_renderer_recon.clearGeometry === 'function') {
+        iso_renderer_recon.clearGeometry();
+    }
+    lru_contour_slices = [];
+    if (spectra_3d && spectra_3d.length > 0) {
+        for (let s of spectra_3d) {
+            if (s) {
+                s.raw_data = null;
+                s.raw_data_ri = null;
+                s.cached_contour = null;
+                s.cached_contour_pos = null;
+                s.cached_contour_neg = null;
+                s.header = null;
+            }
+        }
+    }
+    if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
+        for (let s of theoretical_spectra_3d) {
+            if (s) {
+                s.raw_data = null;
+                s.raw_data_ri = null;
+                s.cached_contour = null;
+                s.cached_contour_pos = null;
+                s.cached_contour_neg = null;
+                s.header = null;
+            }
+        }
+    }
     spectra_3d = [];
     hsqc_spectra = [];
     current_slice_index = -1;
     theoretical_peaks_data = [];
     update_peaks_table_3d();
     theoretical_spectra_3d = [];
+    window.master_3d_buffer = null;
+    release_web_worker_3d();
+    release_web_worker_smile_3d();
     let toggle_btn = document.getElementById("button_toggle_peak_symbols");
     if (toggle_btn) {
         toggle_btn.disabled = true;
@@ -423,6 +541,17 @@ function create_ft3_buffer() {
     const plane_data_byte_size = ny * nx * parts_per_trace * 4;
     const total_byte_size = header_byte_size + nz * plane_data_byte_size;
 
+    // Fast Option A: if master buffer is valid real data, clone directly via single memory copy
+    if (window.master_3d_buffer && !has_ri && !has_ir && !has_ii &&
+        s0.raw_data && s0.raw_data.buffer === window.master_3d_buffer &&
+        window.master_3d_buffer.byteLength >= total_byte_size) {
+        const cloned = window.master_3d_buffer.slice(0, total_byte_size);
+        if (s0.header && s0.header.length >= 512) {
+            new Float32Array(cloned, 0, 512).set(s0.header.subarray(0, 512));
+        }
+        return cloned;
+    }
+
     const buffer = new ArrayBuffer(total_byte_size);
     const floatView = new Float32Array(buffer);
 
@@ -436,7 +565,29 @@ function create_ft3_buffer() {
 
     floatView[15] = nz;
     floatView[99] = nx;
-    floatView[219] = ny;
+    floatView[219] = (has_ri && has_ir) ? (ny * 2) : ny;
+
+    if (!(floatView[24] >= 1 && floatView[24] <= 4)) floatView[24] = 2;
+    if (!(floatView[25] >= 1 && floatView[25] <= 4)) floatView[25] = 1;
+    if (!(floatView[26] >= 1 && floatView[26] <= 4)) floatView[26] = 3;
+    if (!(floatView[27] >= 1 && floatView[27] <= 4)) floatView[27] = 4;
+    if (Math.round(floatView[24]) === 2 && (!(floatView[100] > 0) || !(floatView[119] > 0)) && s0.frq1 > 0 && s0.x_ppm_width > 0 && s0.x_ppm_step < 0) {
+        floatView[119] = s0.frq1;
+        floatView[100] = s0.x_ppm_width * s0.frq1;
+        floatView[101] = ((s0.x_ppm_start + (s0.x_ppm_ref || 0)) - s0.x_ppm_width - s0.x_ppm_step) * s0.frq1;
+        if (!(floatView[218] > 0) && s0.frq2 > 0) {
+            floatView[218] = s0.frq2;
+            if (s0.y_ppm_width > 0) floatView[229] = s0.y_ppm_width * s0.frq2;
+        }
+        if (!(floatView[10] > 0) && s0.frq3 > 0) {
+            floatView[10] = s0.frq3;
+            if (s0.z_ppm_width > 0) floatView[11] = s0.z_ppm_width * s0.frq3;
+        }
+        if (floatView[16] === 0 && s0.nucleus_direct) {
+            const labelBytes = new TextEncoder().encode(String(s0.nucleus_direct).slice(0, 8));
+            new Uint8Array(buffer, 16 * 4, 8).set(labelBytes);
+        }
+    }
 
     floatView[56] = has_ri ? 0 : 1;
     floatView[55] = has_ir ? 0 : 1;
@@ -517,10 +668,10 @@ async function run_auto_phase_on_loaded_spectrum() {
 
     append_3d_log("[tfjs] Running manual auto phase correction...");
     try {
-        if (!tfjs_normal_model || !tfjs_large_model) {
-            append_3d_log("[tfjs] Pre-loading models...");
-            if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
+        if (!tfjs_normal_model) {
+            append_3d_log("[tfjs] Loading 3D Model 04...");
+            tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+            append_3d_log("[tfjs] Model 04 loaded successfully.");
         }
 
         const buffer = create_ft3_buffer();
@@ -530,7 +681,7 @@ async function run_auto_phase_on_loaded_spectrum() {
             tf: window.tf,
             ft3ArrayBuffer: buffer,
             model: tfjs_normal_model,
-            largeModel: tfjs_large_model,
+            modelUrl: 'js/model04_tfjs/model.json'
         });
 
         const lr = result.final_wls_phase_left_right[0];
@@ -540,14 +691,32 @@ async function run_auto_phase_on_loaded_spectrum() {
         const s = spectra_3d[0];
         const nx = result.ft3Meta.nDirect;
 
-        // Use local parameters for immediate application to the loaded spectrum
-        const local_p0 = leftEdge;
+        // NMRPipe phase parameters for extracted region
+        const p0_extract = leftEdge;
+        const p1_extract = rightEdge - leftEdge;
         const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
 
-        append_3d_log(`[tfjs] Auto phase result: local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
+        // Extrapolate to full spectrum if spectral metadata available
+        let p0_full = p0_extract;
+        let p1_full = p1_extract;
+        if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+            const phaseMeta = get_full_spectrum_phase_correction(p0_extract, p0_extract + p1_extract, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+            p0_full = phaseMeta.p0;
+            p1_full = phaseMeta.p1;
+        }
+
+        append_3d_log(`[tfjs] Model 04 Phase Results (NMRPipe format):`);
+        append_3d_log(`       • Extracted region: P0 (left edge) = ${p0_extract.toFixed(2)}°, P1 (total change) = ${p1_extract.toFixed(2)}°`);
+        append_3d_log(`       • Full spectrum (extrapolated): P0 = ${p0_full.toFixed(2)}°, P1 = ${p1_full.toFixed(2)}°`);
+
+        // Fill extrapolated values into edit boxes
+        const box0 = document.getElementById('phase_correction_direct_p0');
+        const box1 = document.getElementById('phase_correction_direct_p1');
+        if (box0) box0.value = p0_full.toFixed(2);
+        if (box1) box1.value = p1_full.toFixed(2);
 
         append_3d_log("[tfjs] Applying correction to all planes...");
-        apply_trace_x_phase(local_p0, local_p1, s.x_ppm_start);
+        apply_trace_x_phase(p0_extract, local_p1, s.x_ppm_start, false);
 
     } catch (err) {
         console.error(err);
@@ -596,7 +765,7 @@ async function run_peak_fit_3d_workflow() {
             if (isNaN(newPeakCutoff)) newPeakCutoff = 0.4;
         }
 
-        web_worker_3d.postMessage({
+        get_or_create_web_worker_3d().postMessage({
             "#sym:webassembly_job ": "pick_and_fit_3d",
             ft3Bytes: ft3Bytes,
             noiseLevel: noiseLevel,
@@ -641,19 +810,44 @@ function append_3d_log(message) {
  * @param {number[]} extractPpmRange - [start, end] PPM of the extract.
  */
 function get_full_spectrum_phase_correction(leftEdge, rightEdge, fullPpmRange, extractPpmRange) {
-    const ppm_full_start = fullPpmRange[0];
-    const ppm_full_end = fullPpmRange[1];
-    const ppm_extract_start = extractPpmRange[0];
-    const ppm_extract_end = extractPpmRange[1];
+    if (!fullPpmRange || !extractPpmRange || fullPpmRange.length < 2 || extractPpmRange.length < 2) {
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
+    let ppm_full_start = fullPpmRange[0];
+    let ppm_full_end = fullPpmRange[1];
+    let ppm_extract_start = extractPpmRange[0];
+    let ppm_extract_end = extractPpmRange[1];
+
+    let extSpan = ppm_extract_end - ppm_extract_start;
+    let fullSpan = ppm_full_end - ppm_full_start;
+
+    // Ensure both spans are directed the same way
+    if (extSpan * fullSpan < 0) {
+        const tmp = ppm_full_start;
+        ppm_full_start = ppm_full_end;
+        ppm_full_end = tmp;
+        fullSpan = ppm_full_end - ppm_full_start;
+    }
+
+    // Safety checks: avoid division by zero or unrealistic extrapolation factors
+    if (Math.abs(extSpan) < 1e-4) {
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
+
+    const scaleFactor = Math.abs(fullSpan / extSpan);
+    if (!Number.isFinite(scaleFactor) || scaleFactor > 15.0 || scaleFactor < 0.1) {
+        console.warn('[3D] Extrapolation ratio out of plausible bounds (' + scaleFactor.toFixed(2) + '). Falling back to local phase.');
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
 
     // Slope in degrees per PPM
-    const slope = (rightEdge - leftEdge) / (ppm_extract_end - ppm_extract_start);
+    const slope = (rightEdge - leftEdge) / extSpan;
 
-    // p0 is at d=0 of the full spectrum
+    // p0 is at ppm_full_start (left edge of the full spectrum)
     const p0 = leftEdge + slope * (ppm_full_start - ppm_extract_start);
 
     // p1 is the total phase change across the full spectrum
-    const p1 = slope * (ppm_full_end - ppm_full_start);
+    const p1 = slope * fullSpan;
 
     return {
         p0: p0,
@@ -2380,7 +2574,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initialize Worker
     if (window.Worker) {
-        my_contour_worker = new Worker('./js/contour.js');
+        my_contour_worker = new Worker('js/shared/contour_worker_2d.js');
 
         my_contour_worker.onmessage = function (e) {
             handle_worker_message(e);
@@ -2879,6 +3073,7 @@ function handle_worker_message(e) {
         } else {
             spec.cached_contour_neg = e.data;
         }
+        touch_contour_lru(slice_idx);
 
         // Check if this is the currently displayed slice
         if (slice_idx === current_slice_index) {
@@ -2899,6 +3094,7 @@ function handle_worker_message(e) {
  */
 function draw_slice(index, update_ortho_views = true) {
     current_slice_index = index;
+    touch_contour_lru(index);
     let s = spectra_3d[index];
 
     // Update the global hsqc_spectra for the main plot
@@ -3600,45 +3796,46 @@ async function load_ft3_file_impl(file) {
             console.warn("Detected extra 2048-byte block before FT3 plane data; adjusting data start offset.");
         }
 
-        document.getElementById("webassembly_message").innerText = "Processing " + num_planes + " planes from .ft3 file...";
+        document.getElementById("webassembly_message").innerText = "Reading " + file.name + "...";
+        const masterBuffer = await read_file_as_buffer(file);
+        window.master_3d_buffer = masterBuffer;
 
-        let headerUint8 = new Uint8Array(headerBuffer);
+        let headerUint8 = new Uint8Array(masterBuffer, 0, 2048);
+        let isRealOnly = (datatype_direct !== 0 && datatype_indirect !== 0);
+        let s0 = null;
 
         for (let i = 0; i < num_planes; i++) {
             try {
-                let msgElem = document.getElementById("webassembly_message");
-                if (msgElem) {
-                    msgElem.innerText = "Loading plane " + (i + 1) + " of " + num_planes + " from " + file.name + "...";
-                }
                 let start_offset = data_start_offset + i * plane_byte_size;
-                let planeBlob = file.slice(start_offset, start_offset + plane_byte_size);
-                let planeDataBuffer = await read_file_as_buffer(planeBlob);
-
-                if (planeDataBuffer.byteLength < plane_byte_size) {
-                    console.warn("Skipping incomplete FT3 plane " + i + ": expected " + plane_byte_size + " bytes, got " + planeDataBuffer.byteLength + ".");
+                if (start_offset + plane_byte_size > masterBuffer.byteLength) {
+                    console.warn("Skipping incomplete FT3 plane " + i + ": offset " + start_offset + " exceeds buffer length " + masterBuffer.byteLength);
                     continue;
                 }
-
-                let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
-                let dst = new Uint8Array(plane_buffer);
-
-                // Header
-                dst.set(headerUint8, 0);
-
-                // Data
-                dst.set(new Uint8Array(planeDataBuffer), 2048);
-
-                let s = new spectrum();
                 let plane_name = "plane_" + String(i + 1).padStart(3, '0');
-                s.process_ft_file(plane_buffer, plane_name, -1);
 
-                s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-                s.visible = true;
+                if (i === 0 || !isRealOnly || !s0) {
+                    let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+                    let dst = new Uint8Array(plane_buffer);
+                    dst.set(headerUint8, 0);
+                    dst.set(new Uint8Array(masterBuffer, start_offset, plane_byte_size), 2048);
 
-                spectra_3d.push(s);
+                    let s = new spectrum();
+                    s.process_ft_file(plane_buffer, plane_name, -1);
+                    if (isRealOnly) {
+                        s.raw_data = new Float32Array(masterBuffer, start_offset, n_indirect_loops * n_direct);
+                    }
+                    s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                    s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+                    s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                    s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+                    s.visible = true;
+
+                    spectra_3d.push(s);
+                    if (i === 0) s0 = s;
+                } else {
+                    let s = create_plane_spectrum_from_template(s0, masterBuffer, start_offset, plane_name, i);
+                    spectra_3d.push(s);
+                }
             } catch (err) {
                 console.error("Error creating plane " + i, err);
             }
@@ -4021,6 +4218,7 @@ function update_contour_levels() {
     let color_theo_pos = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
     let color_theo_neg = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
 
+    lru_contour_slices = [];
     // Update all slices
     for (let s of spectra_3d) {
         s.spectrum_color = color_exp_pos;
@@ -4271,7 +4469,9 @@ function init_main_plot(first_spectrum) {
         drawto_infor: "infor",
         size: [cr.width, cr.height],
         PointData: [],
-        inter_window_channel: null
+        inter_window_channel: null,
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
 
     main_plot = new plotit(input);
@@ -4449,6 +4649,9 @@ function refresh_current_view(spectrum_in) {
     }
 
     // Set the data
+    if (typeof main_plot.set_spectra === 'function') {
+        main_plot.set_spectra(spectra_list);
+    }
     main_plot.contour_plot.spectral_order = spectral_order_list;
 
     main_plot.contour_plot.set_data(
@@ -4853,7 +5056,9 @@ function init_ortho_plots(s) {
             drawto: "#visualization_xz",
             drawto_contour: "canvas_xz",
             drawto_infor: "infor_xz",
-            size: [cr.width, cr.height]
+            size: [cr.width, cr.height],
+            tooldiv: tooldiv,
+            on_sync_views: sync_3d_views
         };
         main_plot_xz = new plotit(input_xz);
         main_plot_xz.draw();
@@ -4905,7 +5110,9 @@ function init_ortho_plots(s) {
             drawto: "#visualization_yz",
             drawto_contour: "canvas_yz",
             drawto_infor: "infor_yz",
-            size: [cr.width, cr.height]
+            size: [cr.width, cr.height],
+            tooldiv: tooldiv,
+            on_sync_views: sync_3d_views
         };
         main_plot_yz = new plotit(input_yz);
         main_plot_yz.draw();
@@ -5410,6 +5617,9 @@ function refresh_ortho_plot(type) {
         offset += points_neg_list[i].length;
     }
 
+    if (typeof plot.set_spectra === 'function') {
+        plot.set_spectra(spectra_list);
+    }
     plot.contour_plot.spectral_order = spectral_order_list;
 
     plot.contour_plot.set_data(
@@ -6433,6 +6643,13 @@ function toggle_visualize_3d(show) {
         }
     } else {
         container.style.display = 'none';
+        current_volume_data = null;
+        if (iso_renderer && typeof iso_renderer.clearGeometry === 'function') {
+            iso_renderer.clearGeometry();
+        }
+        if (iso_renderer_recon && typeof iso_renderer_recon.clearGeometry === 'function') {
+            iso_renderer_recon.clearGeometry();
+        }
     }
 }
 
@@ -6553,39 +6770,77 @@ function extract_3d_data() {
         console.log(`Extracting 3D Region: ${dx}x${dy}x${dz} (Vol: ${dx * dy * dz})`);
 
         const size = dx * dy * dz;
-        const volumeData = new Float32Array(size);
+        let volumeData;
+        const s0 = spectra_3d[0];
+        const isMasterContiguous = (
+            window.master_3d_buffer &&
+            s0 && s0.raw_data &&
+            s0.raw_data.buffer === window.master_3d_buffer &&
+            ix_min === 0 && ix_max === s0.n_direct - 1 &&
+            iy_min === 0 && iy_max === s0.n_indirect - 1 &&
+            iz_min === 0 && iz_max === spectra_3d.length - 1 &&
+            (window.master_3d_buffer.byteLength >= s0.raw_data.byteOffset + size * 4)
+        );
 
-        let ptr = 0;
-        // Loop Order: Z, Y, X
-        for (let z = 0; z < dz; z++) {
-            let slice_idx = iz_min + z;
-            let s = spectra_3d[slice_idx];
-
-            if (s && s.raw_data) {
-                for (let y = 0; y < dy; y++) {
-                    let gy = iy_min + y;
-                    let row_offset = gy * s.n_direct;
-                    for (let x = 0; x < dx; x++) {
-                        let gx = ix_min + x;
-                        if (gx >= 0 && gx < s.n_direct && gy >= 0 && gy < s.n_indirect) {
-                            volumeData[ptr++] = s.raw_data[row_offset + gx];
-                        } else {
-                            volumeData[ptr++] = 0;
+        if (isMasterContiguous) {
+            console.log(`[3D] Establishing zero-copy Float32Array view directly on master_3d_buffer for volume data (${size} floats)`);
+            volumeData = new Float32Array(window.master_3d_buffer, s0.raw_data.byteOffset, size);
+        } else {
+            console.log(`[3D] Extracting volume data via fast slice-chunked copy (${size} floats)`);
+            volumeData = new Float32Array(size);
+            const planePoints = dx * dy;
+            let ptr = 0;
+            for (let z = 0; z < dz; z++) {
+                let slice_idx = iz_min + z;
+                let s = spectra_3d[slice_idx];
+                if (s && s.raw_data) {
+                    if (ix_min === 0 && dx === s.n_direct && iy_min === 0 && dy === s.n_indirect && s.raw_data.length >= planePoints) {
+                        volumeData.set(s.raw_data.subarray(0, planePoints), ptr);
+                        ptr += planePoints;
+                    } else {
+                        for (let y = 0; y < dy; y++) {
+                            let gy = iy_min + y;
+                            let row_offset = gy * s.n_direct;
+                            for (let x = 0; x < dx; x++) {
+                                let gx = ix_min + x;
+                                if (gx >= 0 && gx < s.n_direct && gy >= 0 && gy < s.n_indirect) {
+                                    volumeData[ptr++] = s.raw_data[row_offset + gx];
+                                } else {
+                                    volumeData[ptr++] = 0;
+                                }
+                            }
                         }
                     }
+                } else {
+                    ptr += planePoints;
                 }
-            } else {
-                for (let i = 0; i < dx * dy; i++) volumeData[ptr++] = 0;
             }
         }
 
-        // Stats
+        // Fast Stats: inspect precomputed slice min/max
         let minVal = Infinity, maxVal = -Infinity;
-        for (let i = 0; i < volumeData.length; i++) {
-            const v = volumeData[i];
-            if (isFinite(v)) {
-                if (v < minVal) minVal = v;
-                if (v > maxVal) maxVal = v;
+        let hasSliceMinMax = false;
+        if (spectra_3d && spectra_3d.length > 0) {
+            hasSliceMinMax = true;
+            for (let z = 0; z < dz; z++) {
+                let s = spectra_3d[iz_min + z];
+                if (s && typeof s.spectral_min === 'number' && typeof s.spectral_max === 'number') {
+                    if (s.spectral_min < minVal) minVal = s.spectral_min;
+                    if (s.spectral_max > maxVal) maxVal = s.spectral_max;
+                } else {
+                    hasSliceMinMax = false;
+                    break;
+                }
+            }
+        }
+        if (!hasSliceMinMax || !isFinite(minVal) || !isFinite(maxVal)) {
+            minVal = Infinity; maxVal = -Infinity;
+            for (let i = 0; i < volumeData.length; i++) {
+                const v = volumeData[i];
+                if (isFinite(v)) {
+                    if (v < minVal) minVal = v;
+                    if (v > maxVal) maxVal = v;
+                }
             }
         }
 
@@ -7467,6 +7722,57 @@ function createPyramid(size) {
 
 var web_worker_3d = null;
 var web_worker_smile_3d = null;
+
+function release_web_worker_3d() {
+    if (web_worker_3d) {
+        web_worker_3d.onmessage = null;
+        web_worker_3d.onerror = null;
+        web_worker_3d.terminate();
+        web_worker_3d = null;
+        console.log('[3D] web_worker_3d terminated and linear memory released.');
+    }
+}
+
+function get_or_create_web_worker_3d() {
+    if (web_worker_3d) return web_worker_3d;
+    web_worker_3d = new Worker('./js/webass_3d.js');
+    web_worker_3d.onmessage = handle_webass_3d_message;
+    web_worker_3d.onerror = function (err) {
+        console.error('[3D][worker] error', err);
+        append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
+        set_loading_buttons_state(false);
+        release_web_worker_3d();
+    };
+    return web_worker_3d;
+}
+
+function release_web_worker_smile_3d() {
+    if (web_worker_smile_3d) {
+        web_worker_smile_3d.onmessage = null;
+        web_worker_smile_3d.onerror = null;
+        web_worker_smile_3d.terminate();
+        web_worker_smile_3d = null;
+        console.log('[3D] web_worker_smile_3d terminated and linear memory released.');
+    }
+}
+
+function get_or_create_web_worker_smile_3d() {
+    if (web_worker_smile_3d) return web_worker_smile_3d;
+    web_worker_smile_3d = new Worker('./js/webass_smile.js');
+    web_worker_smile_3d.onmessage = handle_webass_smile_3d_message;
+    web_worker_smile_3d.onerror = function (err) {
+        console.error('[3D][smile-worker] error', err);
+        const msg = (err && (err.message || (err.error && err.error.message))) || String(err);
+        append_3d_log('[smile-worker-error] ' + msg);
+        const msgEl = document.getElementById('webassembly_message');
+        if (msgEl) {
+            msgEl.innerText = 'SMILE worker error: ' + msg;
+        }
+        set_loading_buttons_state(false);
+        release_web_worker_smile_3d();
+    };
+    return web_worker_smile_3d;
+}
 var fid_drop_process_3d = null;
 var ft3_drop_process_3d = null;
 var pending_nus_cfg_3d = null;
@@ -7493,24 +7799,7 @@ function download_binary_file(dataBytes, filename) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    if (window.Worker) {
-        web_worker_3d = new Worker('./js/webass_3d.js');
-        web_worker_3d.onmessage = handle_webass_3d_message;
-        web_worker_3d.onerror = function (err) {
-            console.error('[3D][worker] error', err);
-            append_3d_log('[worker-error] ' + (err && err.message ? err.message : String(err)));
-            set_loading_buttons_state(false);
-        };
-
-        web_worker_smile_3d = new Worker('./js/webass_smile.js');
-        web_worker_smile_3d.onmessage = handle_webass_smile_3d_message;
-        web_worker_smile_3d.onerror = function (err) {
-            console.error('[3D][smile-worker] error', err);
-            append_3d_log('[smile-worker-error] ' + (err && err.message ? err.message : String(err)));
-            document.getElementById("webassembly_message").innerText = 'SMILE worker error: ' + (err && err.message ? err.message : String(err));
-            set_loading_buttons_state(false);
-        };
-    }
+    // Workers are now instantiated on-demand and terminated after jobs to release WebAssembly memory
 
     const clearLogBtn = document.getElementById('button_clear_log_3d');
     if (clearLogBtn) {
@@ -7937,6 +8226,9 @@ async function load_fid_3d_file() {
 
         const showArtifactChecked = !!(document.getElementById('show_spectrum_artifact_3d') && document.getElementById('show_spectrum_artifact_3d').checked);
         cfg.showArtifact = showArtifactChecked;
+        if (showArtifactChecked) {
+            cfg.debugNusRunFullProcess = true;
+        }
 
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
@@ -7962,7 +8254,7 @@ async function load_fid_3d_file() {
                 : "Processing 3D NUS: direct-only -> SMILE -> indirect-only...")
             : "Processing 3D FID using WebAssembly...";
 
-        web_worker_3d.postMessage({
+        get_or_create_web_worker_3d().postMessage({
             "#sym:webassembly_job ": "process_fid_3d",
             cfg: cfg,
             textInputs: textInputs,
@@ -8013,7 +8305,7 @@ async function handle_webass_3d_message(e) {
             append_3d_log("[tfjs] NUS Auto-phase enabled: Bypassing SMILE for fast phase verification...");
             append_3d_log("[tfjs] Running indirect-only processing on NUS data (treating as fully sampled)...");
             document.getElementById("webassembly_message").innerText = 'Bypassing SMILE: Running indirect processing...';
-            web_worker_3d.postMessage({
+            get_or_create_web_worker_3d().postMessage({
                 "#sym:webassembly_job ": 'process_fid_3d_nus_step3',
                 cfg: pending_nus_cfg_3d,
                 smileFt3Bytes: halfBytes
@@ -8026,7 +8318,7 @@ async function handle_webass_3d_message(e) {
         append_3d_log('[main] Sending half.ft3 to SMILE worker');
         append_3d_log('[main] SMILE command: ' + smileCommand);
         document.getElementById("webassembly_message").innerText = 'Running SMILE on half.ft3...';
-        web_worker_smile_3d.postMessage({
+        get_or_create_web_worker_smile_3d().postMessage({
             smile_mode: 'nus_3d',
             spectrum_data: halfBytes,
             nuslist_as_string: e.data.nuslistText || '',
@@ -8038,6 +8330,7 @@ async function handle_webass_3d_message(e) {
     }
     if (e.data["#sym:webassembly_job "] === 'pick_and_fit_3d') {
         append_3d_log('[main] Received pick_and_fit_3d result');
+        release_web_worker_3d();
         document.getElementById("webassembly_message").innerText = "Peak picking & fitting complete.";
         setTimeout(() => {
             if (document.getElementById("webassembly_message").innerText === "Peak picking & fitting complete.") {
@@ -8147,24 +8440,17 @@ async function handle_webass_3d_message(e) {
 
             // Auto phase correction for normal workflow (or NUS phase check mode)
             if (e.data["#sym:webassembly_job "] !== "postprocess_ft3" && current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
-                append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
+                append_3d_log("[tfjs] Starting auto phase correction on direct dimension (Model 04, 2 rounds)...");
                 try {
+                    if (!tfjs_normal_model) {
+                        tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+                    }
                     const result = await NUS3DPhasePipeline.runFromFt3({
                         tf: window.tf,
                         ft3ArrayBuffer: ft3Data.buffer,
                         model: tfjs_normal_model,
-                        largeModel: tfjs_large_model,
-                        modelUrl: 'js/model22_tfjs/model.json',
-                        largeModelUrl: 'js/model22_large_tfjs/model.json'
+                        modelUrl: 'js/model04_tfjs/model.json'
                     });
-
-                    // Cache models if they were loaded inside the pipeline
-                    if (!tfjs_normal_model && result.stage_normal_1 && result.stage_normal_1.model) {
-                        // Wait, looking at tfjs_infer_full_pipeline.js, it doesn't return the model in stage_normal_1.
-                        // I'll have to load them manually if I want to cache them easily, or modify the pipeline.
-                        // But let's check if they are returned. Stage_normal_1 is the result of runModelOnCubes.
-                        // runModelOnCubes returns { pred_local_phase, pred_local_w, wls_phase_left_right }. No model.
-                    }
 
                     const lr = result.final_wls_phase_left_right[0]; // Batch 0
                     const leftEdge = lr[0];
@@ -8183,38 +8469,42 @@ async function handle_webass_3d_message(e) {
                     const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
                     const local_pivot = x_ppm_start_val;
 
-                    // Extrapolate to global parameters ONLY for UI box display
-                    let ui_p0 = local_p0;
-                    let ui_p1 = local_p1;
+                    // NMRPipe phase parameters for extracted region
+                    const p0_extract = leftEdge;
+                    const p1_extract = rightEdge - leftEdge;
 
+                    // Extrapolate to full spectrum if spectral metadata available
+                    let p0_full = p0_extract;
+                    let p1_full = p1_extract;
                     if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
-                        const phaseMeta = get_full_spectrum_phase_correction(leftEdge, rightEdge, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
-                        ui_p0 = phaseMeta.p0;
-                        ui_p1 = phaseMeta.p1;
-                        append_3d_log(`[tfjs] Extrapolated phase for UI display: p0=${ui_p0.toFixed(2)}, p1=${ui_p1.toFixed(2)}`);
-                    } else {
-                        append_3d_log(`[tfjs] Auto phase result (local): p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
-                        console.warn('[3D] Missing spectral metadata for extrapolation. Falling back to local values.', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                        const phaseMeta = get_full_spectrum_phase_correction(p0_extract, p0_extract + p1_extract, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                        p0_full = phaseMeta.p0;
+                        p1_full = phaseMeta.p1;
                     }
 
-                    append_3d_log(`[tfjs] Auto phase calculated. UI update will follow application.`);
+                    append_3d_log(`[tfjs] Model 04 Phase Results (NMRPipe format):`);
+                    append_3d_log(`       • Extracted region: P0 (left edge) = ${p0_extract.toFixed(2)}°, P1 (total change) = ${p1_extract.toFixed(2)}°`);
+                    append_3d_log(`       • Full spectrum (extrapolated): P0 = ${p0_full.toFixed(2)}°, P1 = ${p1_full.toFixed(2)}°`);
+
+                    // Fill extrapolated values into edit boxes
+                    const box0 = document.getElementById('phase_correction_direct_p0');
+                    const box1 = document.getElementById('phase_correction_direct_p1');
+                    if (box0) box0.value = p0_full.toFixed(2);
+                    if (box1) box1.value = p1_full.toFixed(2);
+
+                    append_3d_log(`[tfjs] Filled full spectrum P0=${p0_full.toFixed(2)}° and P1=${p1_full.toFixed(2)}° into edit boxes.`);
 
                     // Internally, ALWAYS use the local parameters for the current extraction
-                    trace_x_ph0 = local_p0;
+                    trace_x_ph0 = p0_extract;
                     trace_x_ph1 = local_p1;
                     trace_x_pivot = local_pivot;
 
                     // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
-                    auto_p0_3d = local_p0;
+                    auto_p0_3d = p0_extract;
                     auto_p1_3d = local_p1;
 
                     if (current_fid_config && !current_fid_config.isNus && current_fid_config.normalDirectDimAutoPhase) {
                         append_3d_log("[main] Automatically running final baseline correction and phase correction in C++ post-processing...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
 
                         const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
                         if (autoCheckbox) {
@@ -8229,21 +8519,21 @@ async function handle_webass_3d_message(e) {
                         trace_x_ph1 = 0.0;
                         trace_x_pivot = null;
 
-                        // Phase text to send: construct using calculated local_p0, local_p1 and current UI values for indirect dimensions
+                        // Phase text to send: construct using calculated p0_full, p1_full and current UI values for indirect dimensions
                         const ind1_p0 = document.getElementById('phase_correction_indirect1_p0').value || "0.0";
                         const ind1_p1 = document.getElementById('phase_correction_indirect1_p1').value || "0.0";
                         const ind2_p0 = document.getElementById('phase_correction_indirect2_p0').value || "0.0";
                         const ind2_p1 = document.getElementById('phase_correction_indirect2_p1').value || "0.0";
-                        const phaseTextToUse = `${local_p0} ${local_p1} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
+                        const phaseTextToUse = `${p0_full} ${p1_full} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
 
-                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
+                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases p0=${p0_full.toFixed(2)}, p1=${p1_full.toFixed(2)}`);
 
                         document.getElementById("webassembly_message").innerText = "Running final baseline correction and phase application in C++...";
 
                         // Disable auto phase in config so it isn't run on final response
                         current_fid_config.normalDirectDimAutoPhase = false;
 
-                        web_worker_3d.postMessage({
+                        get_or_create_web_worker_3d().postMessage({
                             "#sym:webassembly_job ": "postprocess_ft3",
                             cfg: current_fid_config,
                             phaseTextToUse: phaseTextToUse,
@@ -8257,11 +8547,6 @@ async function handle_webass_3d_message(e) {
 
                     if (current_fid_config && current_fid_config.nusDirectDimAutoPhase && !current_fid_config.showArtifact) {
                         append_3d_log("[main] Automatically re-running NUS processing with calculated phase values...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
 
                         const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
                         if (autoCheckbox) {
@@ -8324,33 +8609,39 @@ async function handle_webass_3d_message(e) {
                 data_start_offset += 2048;
             }
 
+            window.master_3d_buffer = ft3Data.buffer;
             let headerUint8 = new Uint8Array(ft3Data.buffer, ft3Data.byteOffset, 2048);
+            let isRealOnly = (datatype_direct !== 0 && datatype_indirect !== 0);
+            let s0 = null;
 
             for (let i = 0; i < num_planes; i++) {
                 try {
                     let start_offset = data_start_offset + i * plane_byte_size;
-                    let planeDataArray = ft3Data.subarray(start_offset, start_offset + plane_byte_size);
-
-                    let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
-                    let dst = new Uint8Array(plane_buffer);
-
-                    // Copy header
-                    dst.set(headerUint8, 0);
-
-                    // Copy data
-                    dst.set(planeDataArray, 2048);
-
-                    let s = new spectrum();
                     let plane_name = "plane_" + String(i + 1).padStart(3, '0');
-                    s.process_ft_file(plane_buffer, plane_name, -1);
 
-                    s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
-                    s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
-                    s.levels = calculate_levels(s.noise_level, 1.5, 30);
-                    s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
-                    s.visible = true;
+                    if (i === 0 || !isRealOnly || !s0) {
+                        let plane_buffer = new ArrayBuffer(2048 + plane_byte_size);
+                        let dst = new Uint8Array(plane_buffer);
+                        dst.set(headerUint8, 0);
+                        dst.set(new Uint8Array(window.master_3d_buffer, start_offset, plane_byte_size), 2048);
 
-                    spectra_3d.push(s);
+                        let s = new spectrum();
+                        s.process_ft_file(plane_buffer, plane_name, -1);
+                        if (isRealOnly) {
+                            s.raw_data = new Float32Array(window.master_3d_buffer, start_offset, n_indirect_loops * n_direct);
+                        }
+                        s.spectrum_color = document.getElementById('color_exp_pos') ? document.getElementById('color_exp_pos').value : "#0000ff";
+                        s.spectrum_color_negative = document.getElementById('color_exp_neg') ? document.getElementById('color_exp_neg').value : "#00ff00";
+                        s.levels = calculate_levels(s.noise_level, 1.5, 30);
+                        s.negative_levels = calculate_negative_levels(s.noise_level, 1.5, 30);
+                        s.visible = true;
+
+                        spectra_3d.push(s);
+                        if (i === 0) s0 = s;
+                    } else {
+                        let s = create_plane_spectrum_from_template(s0, window.master_3d_buffer, start_offset, plane_name, i);
+                        spectra_3d.push(s);
+                    }
                 } catch (err) {
                     console.error("Error creating plane " + i, err);
                     append_3d_log('[main-error] plane ' + i + ' creation failed: ' + (err && err.message ? err.message : String(err)));
@@ -8398,6 +8689,7 @@ async function handle_webass_3d_message(e) {
             document.getElementById("webassembly_message").innerText = "No planes were generated.";
         }
         set_loading_buttons_state(false);
+        release_web_worker_3d();
     }
 }
 
@@ -8413,7 +8705,7 @@ function handle_webass_smile_3d_message(e) {
     }
 
     if (e.data && e.data.spectrum_data && e.data.file_type === 'smile_3d') {
-        const smileBytes = e.data.spectrum_data instanceof Uint8Array
+        let smileBytes = e.data.spectrum_data instanceof Uint8Array
             ? e.data.spectrum_data
             : new Uint8Array(e.data.spectrum_data);
         append_3d_log('[main] Received smile.ft3 from SMILE worker, bytes=' + smileBytes.length);
@@ -8427,13 +8719,14 @@ function handle_webass_smile_3d_message(e) {
         // }
 
         document.getElementById("webassembly_message").innerText = 'Running indirect-only processing from smile.ft3...';
-        web_worker_3d.postMessage({
+        get_or_create_web_worker_3d().postMessage({
             "#sym:webassembly_job ": 'process_fid_3d_nus_step3',
             cfg: pending_nus_cfg_3d,
             smileFt3Bytes: smileBytes
         }, [smileBytes.buffer]);
         smileBytes = null;
         e.data.spectrum_data = null;
+        release_web_worker_smile_3d();
         return;
     }
 
@@ -8453,49 +8746,42 @@ function handle_webass_smile_3d_message(e) {
  * @param {any} p1 - P1
  * @param {any} pivot - Pivot
  */
-function apply_trace_x_phase(p0, p1, pivot) {
+function apply_trace_x_phase(p0, p1, pivot, updateBoxes) {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
         alert("Imaginary data (raw_data_ri) not available for phase correction.");
         return;
     }
 
-    // Determine the 'delta' phase to be applied.
-    // If called from the UI button, p0/p1 are undefined, so we use the slider values (trace_x_ph0/ph1).
-    let add_p0 = p0 !== undefined ? p0 : trace_x_ph0;
-    let add_p1 = p1 !== undefined ? p1 : trace_x_ph1;
-    let apply_pivot = pivot !== undefined ? pivot : trace_x_pivot;
+    const isExplicit = (typeof p0 === 'number');
+    let add_p0 = isExplicit ? p0 : trace_x_ph0;
+    let add_p1 = (typeof p1 === 'number') ? p1 : trace_x_ph1;
+    let apply_pivot = (typeof pivot === 'number') ? pivot : trace_x_pivot;
+    let shouldUpdateBoxes = (updateBoxes !== undefined) ? !!updateBoxes : !isExplicit;
 
     if (add_p0 === 0 && add_p1 === 0) return;
 
-    // 1. Calculate global extrapolation of this 'delta' phase and add to the total boxes
-    const s0 = spectra_3d[0];
-    const h = s0.header;
-    if (h && h.length >= 512 && typeof get_full_spectrum_phase_correction === 'function') {
-        let full_ppm_range, extract_ppm_range;
+    if (shouldUpdateBoxes) {
+        const s0 = spectra_3d[0];
+        const h = s0.header;
+        if (h && h.length >= 512 && typeof get_full_spectrum_phase_correction === 'function') {
+            let full_ppm_range, extract_ppm_range;
 
-        // Prefer worker-captured ranges for FID route (especially important for NUS)
-        if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
-            full_ppm_range = window.last_fid_full_ppm_range;
-            extract_ppm_range = window.last_fid_extract_ppm_range;
-        } else {
-            const swDirect = h[100];
-            const obsDirect = h[119];
-            const originDirect = h[257];
-            const full_ppm_width = swDirect / obsDirect;
-            full_ppm_range = [originDirect, originDirect - full_ppm_width];
-            extract_ppm_range = [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+            if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+                full_ppm_range = window.last_fid_full_ppm_range;
+                extract_ppm_range = window.last_fid_extract_ppm_range;
+            } else {
+                full_ppm_range = [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+                extract_ppm_range = full_ppm_range;
+            }
+
+            const phaseMeta = get_full_spectrum_phase_correction(add_p0, add_p0 + add_p1, full_ppm_range, extract_ppm_range);
+            const box0 = document.getElementById('phase_correction_direct_p0');
+            const box1 = document.getElementById('phase_correction_direct_p1');
+            if (box0) box0.value = (parseFloat(box0.value || 0) + phaseMeta.p0).toFixed(2);
+            if (box1) box1.value = (parseFloat(box1.value || 0) + phaseMeta.p1).toFixed(2);
+            append_3d_log(`[phase] Applied delta: local_p0=${add_p0.toFixed(2)}°, local_p1=${add_p1.toFixed(2)}° (Extrapolated for full FID: p0=${phaseMeta.p0.toFixed(2)}°, p1=${phaseMeta.p1.toFixed(2)}°)`);
         }
-
-        // We assume add_p1 is for the current extracted width (local)
-        const phaseMeta = get_full_spectrum_phase_correction(add_p0, add_p0 + add_p1, full_ppm_range, extract_ppm_range);
-
-        const box0 = document.getElementById('phase_correction_direct_p0');
-        const box1 = document.getElementById('phase_correction_direct_p1');
-        if (box0) box0.value = (parseFloat(box0.value || 0) + phaseMeta.p0).toFixed(2);
-        if (box1) box1.value = (parseFloat(box1.value || 0) + phaseMeta.p1).toFixed(2);
-
-        append_3d_log(`[phase] Applied delta: local_p0=${add_p0.toFixed(2)}, local_p1=${add_p1.toFixed(2)}`);
     }
 
     let p0_rad = add_p0 * Math.PI / 180.0;
@@ -8603,37 +8889,19 @@ window.addEventListener('DOMContentLoaded', () => {
     if (autoDirectNormal) {
         autoDirectNormal.addEventListener('change', async function () {
             if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
-                if (!tfjs_normal_model || !tfjs_large_model) {
-                    append_3d_log("[tfjs] Pre-loading models...");
+                if (!tfjs_normal_model) {
+                    append_3d_log("[tfjs] Pre-loading Model 04...");
                     try {
-                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
-                        append_3d_log("[tfjs] Models loaded successfully.");
+                        tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+                        append_3d_log("[tfjs] Model 04 loaded successfully.");
                     } catch (err) {
-                        append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
+                        append_3d_log("[tfjs-error] Failed to pre-load Model 04: " + err.message);
                     }
                 }
             }
         });
 
-        // Handle grey out for "show spectrum with artifact" based on auto phase correction
-        autoDirectNormal.addEventListener('change', function () {
-            const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
-            const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
-            if (artifactCheckbox && artifactLabel) {
-                if (this.checked) {
-                    artifactCheckbox.disabled = false;
-                    artifactLabel.style.color = '';
-                } else {
-                    artifactCheckbox.disabled = true;
-                    artifactCheckbox.checked = false; // Reset to unchecked when disabled
-                    artifactLabel.style.color = 'gray';
-                }
-            }
-        });
-
-        // Trigger initial state
-        autoDirectNormal.dispatchEvent(new Event('change'));
+        // "Show spectrum with artifact" remains independently selectable for manual phase correction
     }
 
 });
@@ -8770,7 +9038,9 @@ function init_proj_plot(s) {
         drawto: "#visualization_proj",
         drawto_contour: "canvas_proj",
         drawto_infor: "infor_proj",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj = new plotit(input_proj);
     main_plot_proj.draw();
@@ -8824,7 +9094,11 @@ function refresh_proj_plot() {
 function render_to_plot(plot, spectra_list) {
     if (!plot) return;
 
-    plot.local_spectra = spectra_list;
+    if (typeof plot.set_spectra === 'function') {
+        plot.set_spectra(spectra_list);
+    } else {
+        plot.local_spectra = spectra_list;
+    }
 
     let points_pos_list = [];
     let len_pos_list = [];
@@ -9265,7 +9539,9 @@ function init_proj_y_plot(s) {
         drawto: "#visualization_proj_y",
         drawto_contour: "canvas_proj_y",
         drawto_infor: "infor_proj_y",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
@@ -9414,7 +9690,9 @@ function init_proj_x_plot(s) {
         drawto: "#visualization_proj_x",
         drawto_contour: "canvas_proj_x",
         drawto_infor: "infor_proj_x",
-        size: [cr.width, cr.height]
+        size: [cr.width, cr.height],
+        tooldiv: tooldiv,
+        on_sync_views: sync_3d_views
     };
     main_plot_proj_x = new plotit(input_proj);
     main_plot_proj_x.draw();

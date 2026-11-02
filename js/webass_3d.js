@@ -176,7 +176,7 @@ self.onmessage = async function (event) {
             const textInputs = event.data.textInputs;
             let fidBytes = new Uint8Array(event.data.fidBytes);
             const isNus = !!(textInputs && textInputs.nuslist && textInputs.nuslist.trim().length > 0);
-            const forceNusFullProcess = !!(cfg && (cfg.debugNusRunFullProcess || cfg.nusDirectDimAutoPhase));
+            const forceNusFullProcess = !!(cfg && (cfg.debugNusRunFullProcess || cfg.nusDirectDimAutoPhase || cfg.showArtifact));
             const useNusStepPipeline = isNus && !forceNusFullProcess;
 
             console.log('[webass_3d] process_fid_3d config:', cfg);
