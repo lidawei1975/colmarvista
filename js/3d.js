@@ -716,7 +716,21 @@ async function run_auto_phase_on_loaded_spectrum() {
         if (box1) box1.value = p1_full.toFixed(2);
 
         append_3d_log("[tfjs] Applying correction to all planes...");
+        if (result && result.applied180Flip) {
+            append_3d_log("[tfjs] Notice: Spectrum polarity flipped by 180° along direct dimension (majority negative peaks detected).");
+        }
+
         apply_trace_x_phase(p0_extract, local_p1, s.x_ppm_start, false);
+
+        // Check in JS if the resulting phased spectrum has majority negative peaks and automatically flip if required
+        if (is_spectra_3d_majority_negative()) {
+            append_3d_log("[auto-phase] Notice: Majority negative peaks detected after auto-phase. Automatically applying 180° phase flip...");
+            flip_direct_phase_180();
+        } else {
+            update_global_noise_level();
+            update_contour_levels();
+            draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+        }
 
     } catch (err) {
         console.error(err);
@@ -728,6 +742,221 @@ async function run_auto_phase_on_loaded_spectrum() {
  * Runs 3D peak picking and fitting workflow on the currently loaded spectrum.
  * @returns {Promise<void>}
  */
+/**
+ * Applies an additional 180-degree phase shift along the direct dimension to flip real part sign.
+ */
+function flip_direct_phase_180() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectra loaded.");
+        return;
+    }
+
+    append_3d_log("[phase] Applying additional 180° phase flip along direct dimension (flipping real part)...");
+
+    for (let z = 0; z < spectra_3d.length; z++) {
+        const s = spectra_3d[z];
+        if (!s.raw_data) continue;
+
+        let maxVal = -Infinity;
+        let minVal = Infinity;
+        const len = s.raw_data.length;
+        for (let i = 0; i < len; i++) {
+            s.raw_data[i] = -s.raw_data[i];
+            if (s.raw_data[i] > maxVal) maxVal = s.raw_data[i];
+            if (s.raw_data[i] < minVal) minVal = s.raw_data[i];
+        }
+        s.spectral_max = maxVal;
+        s.spectral_min = minVal;
+
+        if (s.raw_data_ri && s.raw_data_ri.length === len) {
+            for (let i = 0; i < len; i++) {
+                s.raw_data_ri[i] = -s.raw_data_ri[i];
+            }
+        }
+
+        s.cached_contour_pos = null;
+        s.cached_contour_neg = null;
+    }
+
+    // Update direct dimension P0 edit box if present
+    const box0 = document.getElementById('phase_correction_direct_p0');
+    if (box0) {
+        let cur = parseFloat(box0.value || 0);
+        let next = cur + 180.0;
+        while (next > 180.0) next -= 360.0;
+        while (next <= -180.0) next += 360.0;
+        box0.value = next.toFixed(2);
+    }
+
+    update_global_noise_level();
+    update_contour_levels();
+    generate_projection_spectrum();
+    visualize_3d();
+    draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+
+    if (typeof main_plot_xz !== 'undefined' && main_plot_xz && typeof refresh_xz_view === 'function') refresh_xz_view();
+    if (typeof main_plot_yz !== 'undefined' && main_plot_yz && typeof refresh_yz_view === 'function') refresh_yz_view();
+    if (typeof refresh_proj_plot === 'function') refresh_proj_plot();
+    if (typeof refresh_proj_y_plot === 'function') refresh_proj_y_plot();
+    if (typeof refresh_proj_x_plot === 'function') refresh_proj_x_plot();
+
+    append_3d_log("[phase] Flipped 180° along direct dimension (real part inverted).");
+}
+
+/**
+ * Checks whether the current spectra_3d dataset has majority negative peaks along the direct dimension.
+ * Excludes the water band (~4.4 - 5.0 ppm) if chemical shift scale is present.
+ * @returns {boolean} true if peaks are majority negative, false if positive or cannot be determined.
+ */
+function is_spectra_3d_majority_negative() {
+    if (!spectra_3d || spectra_3d.length === 0) return false;
+
+    const s0 = spectra_3d[0];
+    if (!s0.raw_data || s0.raw_data.length === 0) return false;
+
+    const nx = s0.n_direct;
+    const ny = s0.n_indirect;
+    const nz = spectra_3d.length;
+
+    // Direct dimension ppm scale check
+    const hasPpm = (typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number' && s0.x_ppm_step !== 0);
+    const isWater = function (xIdx) {
+        if (!hasPpm) return false;
+        const ppm = s0.x_ppm_start + xIdx * s0.x_ppm_step;
+        return (ppm >= 4.4 && ppm <= 5.0);
+    };
+
+    // Determine noise threshold across available planes
+    let noise = s0.noise_level;
+    if (!noise || noise <= 0) {
+        let sumSq = 0;
+        let count = 0;
+        const nSample = Math.min(nx, 32);
+        for (let i = 0; i < nSample; i++) {
+            sumSq += s0.raw_data[i] * s0.raw_data[i];
+            count++;
+        }
+        noise = Math.sqrt(sumSq / Math.max(count, 1)) || 1.0;
+    }
+    const peakThresh = 4.0 * noise;
+
+    // Collect candidate peak extrema across sampled planes
+    const peakCandidates = [];
+    let volPosSum = 0.0;
+    let volNegSum = 0.0;
+    let volPosCount = 0;
+    let volNegCount = 0;
+
+    const zStep = nz <= 32 ? 1 : Math.max(1, Math.floor(nz / 16));
+
+    for (let z = 0; z < nz; z += zStep) {
+        const s = spectra_3d[z];
+        const data = s.raw_data;
+        if (!data) continue;
+
+        const curNy = s.n_indirect || ny;
+        const curNx = s.n_direct || nx;
+        const yStep = curNy <= 128 ? 1 : Math.max(1, Math.floor(curNy / 64));
+
+        for (let y = 0; y < curNy; y += yStep) {
+            const rowOffset = y * curNx;
+            for (let x = 1; x < curNx - 1; x++) {
+                if (isWater(x)) continue;
+
+                const val = data[rowOffset + x];
+                const absVal = Math.abs(val);
+
+                // Volume integral of points outside water
+                if (absVal >= peakThresh) {
+                    if (val > 0) {
+                        volPosCount++;
+                        volPosSum += val;
+                    } else {
+                        volNegCount++;
+                        volNegSum += -val;
+                    }
+                }
+
+                // 1D local extremum along direct dimension
+                if (absVal >= peakThresh) {
+                    const left = Math.abs(data[rowOffset + x - 1]);
+                    const right = Math.abs(data[rowOffset + x + 1]);
+                    if (absVal >= left && absVal >= right) {
+                        peakCandidates.push({ val: val, absVal: absVal });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort candidate peaks by absolute intensity descending and inspect top 50
+    peakCandidates.sort((a, b) => b.absVal - a.absVal);
+    const topPeaks = peakCandidates.slice(0, 50);
+
+    let numPos = 0;
+    let numNeg = 0;
+    let sumPos = 0.0;
+    let sumNeg = 0.0;
+
+    for (const p of topPeaks) {
+        if (p.val > 0) {
+            numPos++;
+            sumPos += p.val;
+        } else if (p.val < 0) {
+            numNeg++;
+            sumNeg += -p.val;
+        }
+    }
+
+    append_3d_log(`[phase-check] Polarity check (top ${topPeaks.length} peaks): ${numPos} pos (sum=${sumPos.toExponential(2)}), ${numNeg} neg (sum=${sumNeg.toExponential(2)}) | Volume: pos=${volPosCount}, neg=${volNegCount}`);
+
+    // Rule 1: Evaluated on top peaks
+    if (topPeaks.length >= 3) {
+        if (numNeg > numPos) return true;
+        if (numNeg === numPos && sumNeg > sumPos) return true;
+        if (sumNeg > 1.3 * sumPos && numNeg >= 2) return true;
+        return false;
+    }
+
+    if (topPeaks.length > 0) {
+        if (numNeg > numPos) return true;
+        if (sumNeg > sumPos) return true;
+        return false;
+    }
+
+    // Rule 2: Fallback on volume integral outside water
+    if (volNegCount > 0 || volPosCount > 0) {
+        if (volNegCount > volPosCount && volNegSum > volPosSum) return true;
+        if (volNegSum > 1.5 * volPosSum) return true;
+    }
+
+    // Rule 3: Fallback on global spectral min vs max outside water
+    let globalMax = -Infinity;
+    let globalMin = Infinity;
+    for (let z = 0; z < Math.min(nz, 4); z++) {
+        const s = spectra_3d[z];
+        if (!s.raw_data) continue;
+        const curNx = s.n_direct || nx;
+        const curNy = s.n_indirect || ny;
+        for (let y = 0; y < curNy; y++) {
+            const rowOffset = y * curNx;
+            for (let x = 0; x < curNx; x++) {
+                if (isWater(x)) continue;
+                const v = s.raw_data[rowOffset + x];
+                if (v > globalMax) globalMax = v;
+                if (v < globalMin) globalMin = v;
+            }
+        }
+    }
+
+    if (Math.abs(globalMin) > 1.5 * Math.abs(globalMax) && Math.abs(globalMin) > peakThresh) {
+        return true;
+    }
+
+    return false;
+}
+window.is_spectra_3d_majority_negative = is_spectra_3d_majority_negative;
+
 async function run_peak_fit_3d_workflow() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectrum loaded to run peak picking/fitting.");
@@ -751,12 +980,12 @@ async function run_peak_fit_3d_workflow() {
 
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
-        let scale2 = 6.0;
-        let multiplier_input = document.getElementById("contour_start_multiplier");
-        if (multiplier_input) {
-            scale2 = parseFloat(multiplier_input.value) || 6.0;
+        let scale1 = 5.5;
+        let scale2 = 3.0;
+        if (noiseLevel > 0 && s0 && s0.levels && s0.levels.length >= 2) {
+            scale1 = Math.max(5.5, s0.levels[1] / noiseLevel);
+            scale2 = Math.max(3.0, s0.levels[0] / noiseLevel / 2.0);
         }
-        let scale1 = 1.5 * scale2;
 
         let newPeakCutoff = 0.4;
         let cutoff_input = document.getElementById("input_new_peak_cutoff");
@@ -2911,7 +3140,7 @@ function generate_theoretical_volume(peaks) {
         s.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
         s.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
-        s.negative_levels = [];
+        s.negative_levels = calculate_negative_levels(s0.noise_level, 1.5, 30);
 
         theoretical_spectra_3d.push(s);
     }
@@ -3136,6 +3365,8 @@ function draw_slice(index, update_ortho_views = true) {
             // The worker message passes 'spectrum_index'.
             // Let's rely on a custom property in the request.
             request_contour_calculation(st, index, 0, "theoretical");
+            // Negative theoretical peaks (fitted dips)
+            request_contour_calculation(st, index, 1, "theoretical");
         }
     }
 
@@ -3709,6 +3940,12 @@ async function load_sparky_3d_file_impl(file) {
             const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
             if (projChecked) {
                 toggle_visualize_proj(true);
+            }
+
+            // Check in JS if the resulting 3D spectrum has majority negative peaks and automatically flip if required
+            if (is_spectra_3d_majority_negative()) {
+                append_3d_log("[auto-phase] Notice: Resulting 3D spectrum has majority negative peaks. Automatically applying 180° phase flip...");
+                flip_direct_phase_180();
             }
         }
 
@@ -4685,7 +4922,6 @@ function refresh_current_view(spectrum_in) {
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
 function sync_sliders_to_center(is_end = true) {
-    console.log("sync_sliders_to_center called");
     if (!main_plot || !spectra_3d || spectra_3d.length === 0) return;
 
     let s = spectra_3d[0]; // Reference spectrum for PPM calculations
@@ -8275,7 +8511,6 @@ async function load_fid_3d_file() {
  * @returns {Promise<void>}
  */
 async function handle_webass_3d_message(e) {
-    console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
@@ -8346,7 +8581,6 @@ async function handle_webass_3d_message(e) {
             if (dl_btn) dl_btn.disabled = false;
             let toggle_btn = document.getElementById("button_toggle_peak_symbols");
             if (toggle_btn) toggle_btn.disabled = false;
-            console.log("Fitted Peaks Output:\n", resultString);
 
             try {
                 let peaks = parse_peaks_text(resultString);
@@ -8494,6 +8728,10 @@ async function handle_webass_3d_message(e) {
 
                     append_3d_log(`[tfjs] Filled full spectrum P0=${p0_full.toFixed(2)}° and P1=${p1_full.toFixed(2)}° into edit boxes.`);
 
+                    if (result && result.applied180Flip) {
+                        append_3d_log("[tfjs] Notice: Spectrum polarity flipped by 180° along direct dimension for post-processing.");
+                    }
+
                     // Internally, ALWAYS use the local parameters for the current extraction
                     trace_x_ph0 = p0_extract;
                     trace_x_ph1 = local_p1;
@@ -8524,9 +8762,9 @@ async function handle_webass_3d_message(e) {
                         const ind1_p1 = document.getElementById('phase_correction_indirect1_p1').value || "0.0";
                         const ind2_p0 = document.getElementById('phase_correction_indirect2_p0').value || "0.0";
                         const ind2_p1 = document.getElementById('phase_correction_indirect2_p1').value || "0.0";
-                        const phaseTextToUse = `${p0_full} ${p1_full} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
+                        const phaseTextToUse = `${local_p0} ${local_p1} ${ind1_p0} ${ind1_p1} ${ind2_p0} ${ind2_p1}`;
 
-                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases p0=${p0_full.toFixed(2)}, p1=${p1_full.toFixed(2)}`);
+                        append_3d_log(`[main] Posting postprocess_ft3 to worker with direct phases local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
 
                         document.getElementById("webassembly_message").innerText = "Running final baseline correction and phase application in C++...";
 
@@ -8537,6 +8775,7 @@ async function handle_webass_3d_message(e) {
                             "#sym:webassembly_job ": "postprocess_ft3",
                             cfg: current_fid_config,
                             phaseTextToUse: phaseTextToUse,
+                            phaseText: phaseTextToUse,
                             ft3Bytes: ft3Data
                         }, [ft3Data.buffer]);
 
@@ -8824,6 +9063,16 @@ function apply_trace_x_phase(p0, p1, pivot, updateBoxes) {
         if (has_ri) {
             s.raw_data_ri = new_raw_data_ri;
         }
+
+        let maxVal = -Infinity;
+        let minVal = Infinity;
+        for (let i = 0; i < new_raw_data.length; i++) {
+            const v = new_raw_data[i];
+            if (v > maxVal) maxVal = v;
+            if (v < minVal) minVal = v;
+        }
+        s.spectral_max = maxVal;
+        s.spectral_min = minVal;
 
         // Update header to reflect that data is now phased
         if (s.header && s.header.length >= 512) {
