@@ -1403,6 +1403,192 @@
   }
 
   // =========================================================================
+  // 5.1 Peak Polarity Evaluation (Model 04)
+  // =========================================================================
+
+  /**
+   * Evaluates the peak polarity in the phased working spectrum.
+   * If all or majority of peaks are negative, returns isMajorityNegative: true.
+   */
+  function evaluatePolarityModel04(spectraObj, signalDetails, cfg) {
+    const { spectra, shape } = spectraObj;
+    const ni1 = shape[1];
+    const ni2 = shape[2];
+    const nd = shape[3];
+    const channels = shape[4] || 2;
+
+    const noiseLevel = (cfg && cfg.noiseLevel) || estimate3DNoiseLevel(spectraObj);
+    const snrThresh = 3.0; // peak must be at least 3x noise
+    const peakThresh = snrThresh * noiseLevel;
+
+    let numPositive = 0;
+    let numNegative = 0;
+    let sumPositive = 0.0;
+    let sumNegative = 0.0;
+
+    // 1. Inspect extracted signal token locations (NMR signal features used by Model 04)
+    if (signalDetails && signalDetails.length > 0) {
+      for (let i = 0; i < signalDetails.length; i++) {
+        const token = signalDetails[i];
+        const s1 = token.s1 != null ? token.s1 : 0;
+        const e1 = Math.min(ni1, s1 + 16);
+        const s2 = token.s2 != null ? token.s2 : 0;
+        const e2 = Math.min(ni2, s2 + 16);
+
+        let startF3 = 0;
+        let endF3 = nd;
+        if (token.directCenterF3 != null) {
+          startF3 = Math.max(0, Math.round(token.directCenterF3 - 64));
+          endF3 = Math.min(nd, startF3 + 128);
+        } else if (token.directRange) {
+          const parts = String(token.directRange).split("..");
+          startF3 = parseInt(parts[0], 10);
+          endF3 = parseInt(parts[1], 10) + 1;
+        }
+
+        const coreStart = Math.min(Math.max(0, startF3 + 32), nd);
+        const coreEnd = Math.max(coreStart, Math.min(nd, startF3 + 96));
+
+        let maxAbsVal = 0.0;
+        let bestRealVal = 0.0;
+
+        for (let r1 = s1; r1 < e1; r1++) {
+          for (let r2 = s2; r2 < e2; r2++) {
+            for (let c = coreStart; c < coreEnd; c++) {
+              const idx = spectraIndex(shape, 0, r1, r2, c, 0);
+              const rr = spectra[idx];
+              const absVal = Math.abs(rr);
+              if (absVal > maxAbsVal) {
+                maxAbsVal = absVal;
+                bestRealVal = rr;
+              }
+            }
+          }
+        }
+
+        if (maxAbsVal >= peakThresh) {
+          if (bestRealVal > 0) {
+            numPositive++;
+            sumPositive += bestRealVal;
+          } else if (bestRealVal < 0) {
+            numNegative++;
+            sumNegative += -bestRealVal;
+          }
+        }
+      }
+    }
+
+    // 2. 3D Volume direct-dimension peak extrema scan (outside water region)
+    let extremaPos = 0;
+    let extremaNeg = 0;
+    let extremaPosSum = 0.0;
+    let extremaNegSum = 0.0;
+
+    let volPosSum = 0.0;
+    let volNegSum = 0.0;
+    let volPosCount = 0;
+    let volNegCount = 0;
+    const volThresh = 3.5 * noiseLevel;
+
+    const waterBelt = cfg && cfg.waterBelt;
+    const minWaterEdgeDist = (cfg && cfg.minWaterEdgeDist) || DEFAULTS.minWaterEdgeDist;
+
+    const stepR1 = Math.max(1, Math.floor(ni1 / 8));
+    const stepR2 = Math.max(1, Math.floor(ni2 / 8));
+
+    for (let r1 = 0; r1 < ni1; r1 += stepR1) {
+      for (let r2 = 0; r2 < ni2; r2 += stepR2) {
+        for (let c = 1; c < nd - 1; c++) {
+          if (waterBelt && waterBelt.hasWaterBelt && Number.isInteger(waterBelt.waterIndex)) {
+            if (Math.abs(c - waterBelt.waterIndex) < minWaterEdgeDist) continue;
+          }
+          const idx = spectraIndex(shape, 0, r1, r2, c, 0);
+          const rr = spectra[idx];
+          const absVal = Math.abs(rr);
+
+          // Volume integral
+          if (rr > volThresh) {
+            volPosCount++;
+            volPosSum += rr;
+          } else if (rr < -volThresh) {
+            volNegCount++;
+            volNegSum += -rr;
+          }
+
+          // 1D local extremum along direct dimension
+          if (absVal >= volThresh) {
+            const idxLeft = spectraIndex(shape, 0, r1, r2, c - 1, 0);
+            const idxRight = spectraIndex(shape, 0, r1, r2, c + 1, 0);
+            const absLeft = Math.abs(spectra[idxLeft]);
+            const absRight = Math.abs(spectra[idxRight]);
+            if (absVal >= absLeft && absVal >= absRight) {
+              if (rr > 0) {
+                extremaPos++;
+                extremaPosSum += rr;
+              } else if (rr < 0) {
+                extremaNeg++;
+                extremaNegSum += -rr;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Robust polarity decision
+    let isMajorityNegative = false;
+    const totalTokens = numPositive + numNegative;
+    const totalExtrema = extremaPos + extremaNeg;
+
+    // Rule 1: Signal tokens decision (targeted Model 04 features)
+    if (totalTokens > 0) {
+      if (numNegative > numPositive) {
+        isMajorityNegative = true;
+      } else if (numNegative === numPositive && numNegative > 0 && sumNegative > sumPositive) {
+        isMajorityNegative = true;
+      } else if (sumNegative > 1.3 * sumPositive && numNegative > 0) {
+        isMajorityNegative = true;
+      }
+    }
+
+    // Rule 2: Volume local extrema decision
+    if (!isMajorityNegative && totalExtrema >= 3) {
+      if (extremaNeg > extremaPos) {
+        isMajorityNegative = true;
+      } else if (extremaNeg === extremaPos && extremaNeg > 0 && extremaNegSum > extremaPosSum) {
+        isMajorityNegative = true;
+      } else if (extremaNegSum > 1.3 * extremaPosSum && extremaNeg > 0) {
+        isMajorityNegative = true;
+      }
+    }
+
+    // Rule 3: Volume integral fallback outside water
+    if (!isMajorityNegative) {
+      if (volNegCount > volPosCount && volNegSum > volPosSum) {
+        isMajorityNegative = true;
+      } else if (volNegSum > 1.5 * volPosSum) {
+        isMajorityNegative = true;
+      }
+    }
+
+    return {
+      isMajorityNegative,
+      numPositive,
+      numNegative,
+      sumPositive,
+      sumNegative,
+      extremaPos,
+      extremaNeg,
+      extremaPosSum,
+      extremaNegSum,
+      volPosCount,
+      volNegCount,
+      volPosSum,
+      volNegSum
+    };
+  }
+
+  // =========================================================================
   // 6. Model 04 Forward Execution & 2-Round Pipeline
   // =========================================================================
 
@@ -1667,16 +1853,55 @@
     console.log(round2Log);
     logToHtml(round2Log);
 
+    // Apply Round 2 phase correction to working spectra so it reflects the 2-round result
+    applyLeftRightToSpectra(spectraWorking, [[-left2, -right2]]);
+
     // =========================================================================
     // TOTAL COMBINED (2 ROUNDS)
     // =========================================================================
-    const finalLeft = left1 + left2;
-    const finalRight = right1 + right2;
-    const finalLeftRight = [[finalLeft, finalRight]];
+    let finalLeft = left1 + left2;
+    let finalRight = right1 + right2;
 
     const combinedLog = `[ANN Phase] Total Combined (2 rounds) | Left: ${finalLeft.toFixed(2)}°, Right: ${finalRight.toFixed(2)}°`;
     console.log(combinedLog);
     logToHtml(combinedLog);
+
+    // =========================================================================
+    // POLARITY CHECK & 180° PHASE FLIP
+    // =========================================================================
+    // Combine token details from both rounds to ensure all valid peaks are considered
+    const allTokens = (ext1.tokenDetails || []).concat(ext2.tokenDetails || []);
+    const polarity = evaluatePolarityModel04(spectraWorking, allTokens, cfg);
+
+    let applied180Flip = false;
+    if (polarity.isMajorityNegative) {
+      const origP0 = finalLeft;
+      const origP1 = finalRight - finalLeft;
+      // Add 180 deg to direct dimension phase
+      let newP0 = ((origP0 + 180.0 + 180.0) % 360.0);
+      if (newP0 < 0) newP0 += 360.0;
+      newP0 -= 180.0;
+
+      finalLeft = newP0;
+      finalRight = newP0 + origP1; // Preserves P1 strictly invariant
+
+      // Flip real part of working spectra via 180° phase application
+      applyLeftRightToSpectra(spectraWorking, [[-180.0, -180.0]]);
+      applied180Flip = true;
+
+      const flipLog = `[ANN Phase] Polarity check: majority/all negative peaks detected (tokens: ${polarity.numNegative} neg / ${polarity.numPositive} pos, extrema: ${polarity.extremaNeg || 0} neg / ${polarity.extremaPos || 0} pos). Applied additional 180° phase flip along direct dimension (P0: ${origP0.toFixed(2)}° -> ${finalLeft.toFixed(2)}°, P1: ${origP1.toFixed(2)}°).`;
+      console.log(flipLog);
+      logToHtml(flipLog);
+    } else {
+      const totalTokens = polarity.numPositive + polarity.numNegative;
+      if (totalTokens > 0) {
+        const okLog = `[ANN Phase] Polarity check: positive absorptive peaks confirmed (${polarity.numPositive} tokens pos, ${polarity.extremaPos || 0} extrema pos).`;
+        console.log(okLog);
+        logToHtml(okLog);
+      }
+    }
+
+    const finalLeftRight = [[finalLeft, finalRight]];
 
     return {
       ft3Meta: exp.meta,
@@ -1697,6 +1922,8 @@
         right: right2,
       },
       final_wls_phase_left_right: finalLeftRight,
+      applied180Flip: applied180Flip,
+      polarityStats: polarity,
     };
   }
 
@@ -1717,6 +1944,7 @@
     patchTouchesWaterEdge,
     extractSignalTokensModel04,
     weightedRansacFit,
+    evaluatePolarityModel04,
     runFromFt3,
     applyLeftRightToSpectra,
     addLeftRightArrays,

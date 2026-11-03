@@ -1,0 +1,23 @@
+##TITLE= Parameter file, TopSpin 3.6.2
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 191	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= bruschweiler
+$$ 2020-12-26 13:11:43.684 -0500  bruschweiler@cbec850rb
+$$ /home/bruschweiler/Data/lb-li/data/Protein_kRas/nmr/N15C13_kRasWT_GDP_Assgn_16Dec2020_850rb/20/acqu3s
+$$ process /opt/topspin3.6.2/prog/mod/go4
+##$ACQT0= 0
+##$BF1= 850.16
+##$FnMODE= 5
+##$NUC1= <1H>
+##$NusJSP= 0
+##$NusT2= 1
+##$NusTD= 190
+##$O1= 3992.85000003147
+##$ProjAngle= 0
+##$SFO1= 850.16399285
+##$SW= 14.0029006225653
+##$SW_h= 11904.7619047619
+##$TD= 190
+##END=

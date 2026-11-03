@@ -470,7 +470,7 @@ self.onmessage = async function (event) {
     else if (job === 'postprocess_ft3') {
         try {
             const cfg = event.data.cfg || {};
-            const phaseTextToUse = event.data.phaseTextToUse;
+            const phaseTextToUse = event.data.phaseTextToUse || event.data.phaseText;
             let ft3Bytes = new Uint8Array(event.data.ft3Bytes || []);
 
             console.log('[webass_3d] Running job postprocess_ft3, bytes:', ft3Bytes.length, 'phase:', phaseTextToUse);
@@ -500,7 +500,7 @@ self.onmessage = async function (event) {
 
                 // Baseline orders: set final baseline correction to userFrqPolyOrder
 
-                const userFrqPolyOrder = cfg.userFrqPolyOrder || [-1, -1, -1];
+                const userFrqPolyOrder = cfg.userFrqPolyOrder || event.data.frqPolyOrder || [-1, -1, -1];
                 console.log('[webass_3d] postprocess_ft3: set_final_frq_polynorminal_order:', userFrqPolyOrder);
                 fid.set_final_frq_polynorminal_order(
                     userFrqPolyOrder[0],
