@@ -140,13 +140,19 @@ The script will automatically detect whether the experiment is NUS based on the 
 
 ## Output Files
 
-After running, two output files are created directly inside the experiment folder:
+After running, the following output files are created directly inside the experiment folder:
 
 1. **`colmarvista_result.ft3`**:
    - NMRPipe-formatted 3D frequency-domain spectrum.
    - Fully phased and baseline-corrected.
    - Can be opened directly in COLMARVIEW (`index_3d.html`), NMRPipe, Sparky, or UCSF ChimeraX.
 
-2. **`colmarvista_peaks.txt`** *(only generated in `full` mode)*:
+2. **`colmarvista_peaks.txt`** *(generated in `full` mode)*:
    - Peak table containing partition IDs, peak amplitudes, 3D centers (grid points and PPM), FWHH line widths, and Lorentzian/Gaussian fractions ($L_x, L_y, L_z$).
    - Can be overlaid back into `index_3d.html` via the "Overlay Theoretical 3D Peaks" button.
+
+3. **`exp.png`** *(generated in `full` mode)*:
+   - High-resolution 3D isosurface visualization figure of the experimental spectrum, showing positive solid surfaces, wireframe thresholds, peak spheres, and coordinate axes.
+
+4. **`theory.png`** *(generated in `full` mode)*:
+   - High-resolution 3D isosurface visualization figure of the reconstructed/predicted spectrum generated from fitted peak shape parameters.

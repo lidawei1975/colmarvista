@@ -12,7 +12,7 @@ class IsoSurfaceRenderer {
             return;
         }
 
-        this.gl = this.canvas.getContext("webgl", { alpha: false });
+        this.gl = this.canvas.getContext("webgl", { alpha: false, preserveDrawingBuffer: true });
         if (!this.gl) {
             alert("WebGL not supported");
             return;

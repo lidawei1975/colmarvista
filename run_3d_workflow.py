@@ -490,6 +490,8 @@ def run_workflow(
             # 9. Run Peak Picking and Fitting (if mode is full)
             peaks_output_path = None
             num_peaks = 0
+            exp_png_path = None
+            theory_png_path = None
 
             if mode == "fid-only":
                 print("-" * 70)
@@ -537,6 +539,74 @@ def run_workflow(
                 num_peaks = max(0, len(peak_lines) - 1)  # Subtract header line
                 print(f"[Output] Successfully saved {peaks_output_path} ({num_peaks} peaks fitted)")
 
+                # 11. Enable True 3D Visualization and Export 3D Views (exp.png and theory.png)
+                print("-" * 70)
+                print("[3D View] Enabling True 3D Isosurface Visualization...")
+                page.evaluate("""() => {
+                    const cb = document.getElementById('check_visualize_3d');
+                    if (cb) {
+                        cb.checked = true;
+                        cb.dispatchEvent(new Event('change', { bubbles: true }));
+                    } else if (typeof toggle_visualize_3d === 'function') {
+                        toggle_visualize_3d(true);
+                    }
+                }""")
+
+                # Wait for 3D isosurface geometry calculation to complete
+                print("[3D View] Computing 3D geometry & rendering isosurfaces...")
+                render_3d_start = time.time()
+                while True:
+                    if time.time() - render_3d_start > 60:
+                        print("[Warning] Timed out waiting for 3D isosurface rendering to complete.")
+                        break
+
+                    is_rendered = page.evaluate("""() => {
+                        const loading = document.getElementById('loading_3d');
+                        const isLoading = loading && window.getComputedStyle(loading).display !== 'none';
+                        const hasRenderer = typeof iso_renderer !== 'undefined' && iso_renderer !== null && iso_renderer.gl;
+                        const hasVolume = typeof current_volume_data !== 'undefined' && current_volume_data !== null;
+                        return !isLoading && hasRenderer && hasVolume;
+                    }""")
+                    if is_rendered:
+                        break
+                    page.wait_for_timeout(500)
+
+                page.wait_for_timeout(500)
+
+                # Save Experimental 3D View (exp.png)
+                exp_png_path = os.path.join(target_dir, "exp.png")
+                print(f"[3D View] Capturing Experimental 3D view to: {exp_png_path}...")
+                exp_b64 = page.evaluate("""() => {
+                    if (typeof get_3d_view_data_url === 'function') {
+                        return get_3d_view_data_url('exp', 2);
+                    }
+                    const c = document.getElementById('canvas_3d');
+                    return c ? c.toDataURL('image/png') : null;
+                }""")
+                if exp_b64 and "," in exp_b64:
+                    with open(exp_png_path, "wb") as f:
+                        f.write(base64.b64decode(exp_b64.split(",", 1)[1]))
+                    print(f"[Output] Successfully saved {exp_png_path} ({os.path.getsize(exp_png_path):,} bytes)")
+                else:
+                    print(f"[Warning] Failed to capture experimental 3D view.")
+
+                # Save Reconstructed / Predicted 3D View (theory.png)
+                theory_png_path = os.path.join(target_dir, "theory.png")
+                print(f"[3D View] Capturing Reconstructed/Predicted 3D view to: {theory_png_path}...")
+                theory_b64 = page.evaluate("""() => {
+                    if (typeof get_3d_view_data_url === 'function') {
+                        return get_3d_view_data_url('theory', 2);
+                    }
+                    const c = document.getElementById('canvas_3d_recon');
+                    return c ? c.toDataURL('image/png') : null;
+                }""")
+                if theory_b64 and "," in theory_b64:
+                    with open(theory_png_path, "wb") as f:
+                        f.write(base64.b64decode(theory_b64.split(",", 1)[1]))
+                    print(f"[Output] Successfully saved {theory_png_path} ({os.path.getsize(theory_png_path):,} bytes)")
+                else:
+                    print(f"[Warning] Failed to capture reconstructed 3D view.")
+
             # Summary
             total_duration = time.time() - start_time
             print("=" * 70)
@@ -546,6 +616,10 @@ def run_workflow(
                 print(f"  • Fitted Peaks: {peaks_output_path} ({num_peaks} peaks)")
             else:
                 print(f"  • Peak Fitting: Skipped (mode='{mode}')")
+            if exp_png_path and os.path.isfile(exp_png_path):
+                print(f"  • Exp 3D Plot:  {exp_png_path}")
+            if theory_png_path and os.path.isfile(theory_png_path):
+                print(f"  • Theory 3D:    {theory_png_path}")
             print(f"  • Total Time:   {total_duration:.1f} seconds")
             print("=" * 70)
 
@@ -565,6 +639,8 @@ def run_workflow(
                 "ft3_size_mb": file_size_mb,
                 "peaks_path": peaks_output_path,
                 "num_peaks": num_peaks,
+                "exp_png": exp_png_path,
+                "theory_png": theory_png_path,
                 "duration": total_duration
             }
 
@@ -770,7 +846,8 @@ def run_batch(tasks, global_args):
         if status == "SUCCESS":
             res = r["result"]
             peak_str = f"{res['num_peaks']} peaks" if res["num_peaks"] > 0 else "peaks skipped"
-            print(f"  [{idx}/{total}] SUCCESS | {folder_display} ({task['mode']}) -> FT3: {res['ft3_size_mb']:.1f} MB, {peak_str} ({res['duration']:.1f}s)")
+            view_str = ", 3D views saved" if res.get("exp_png") and res.get("theory_png") else ""
+            print(f"  [{idx}/{total}] SUCCESS | {folder_display} ({task['mode']}) -> FT3: {res['ft3_size_mb']:.1f} MB, {peak_str}{view_str} ({res['duration']:.1f}s)")
         else:
             print(f"  [{idx}/{total}] FAILED  | {folder_display} ({task['mode']}) -> Error: {r['error']}")
 
