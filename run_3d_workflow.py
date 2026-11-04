@@ -80,10 +80,8 @@ class QuietHTTPHandler(http.server.SimpleHTTPRequestHandler):
     }
 
     def end_headers(self):
-        # Enable CORS and SharedArrayBuffer if needed
+        # Enable CORS for local web requests
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
-        self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
         super().end_headers()
 
     def log_message(self, format, *args):
@@ -311,6 +309,12 @@ def run_workflow(
                 print(f"  [colmarview] {text}")
 
         page.on("console", on_console)
+
+        # Stream unhandled page and worker errors
+        def on_page_error(err):
+            print(f"  [Page/Worker Error] {err}", file=sys.stderr)
+
+        page.on("pageerror", on_page_error)
 
         # Handle any modal dialogs (alerts)
         def on_dialog(dialog):
