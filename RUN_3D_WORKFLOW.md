@@ -117,7 +117,7 @@ D:\nmr_data\protein_hnca --i2p0 -90.0 --i2p1 0.0
 | `--headless` | | `False` | Run Chrome in headless mode (no visible browser window). |
 | `--keep-browser` | | `False` | Keep the browser open after finishing a single run to inspect 2D plots and 3D views. |
 | `--chrome-path` | | Auto-detected | Path to custom Google Chrome executable if not in standard program directories. |
-| `--timeout` | | `900` | Timeout per operation in seconds (default: 15 minutes). |
+| `--timeout` | | `3600` | Timeout per operation in seconds (default: 1 hour). |
 
 ---
 

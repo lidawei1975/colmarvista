@@ -217,7 +217,7 @@ def run_workflow(
     headless=False,
     keep_browser=False,
     peak_cutoff=0.4,
-    timeout_seconds=900,
+    timeout_seconds=3600,
     extract_from=None,
     extract_to=None,
     flatt_baseline=False,
@@ -953,8 +953,8 @@ def main():
     parser.add_argument(
         "--timeout",
         type=int,
-        default=900,
-        help="Timeout in seconds for processing and fitting (default: 900s / 15 mins)."
+        default=3600,
+        help="Timeout in seconds for processing and fitting (default: 3600s / 1 hour)."
     )
 
     args = parser.parse_args()
