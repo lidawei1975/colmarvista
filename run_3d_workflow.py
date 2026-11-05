@@ -756,7 +756,7 @@ def parse_batch_file(batch_path, base_args):
                 continue
 
             # Determine mode for this task
-            if parsed.fid_only_flag or parsed.mode in ("fid-only", "fid_only"):
+            if parsed.fid_only or parsed.mode in ("fid-only", "fid_only"):
                 task_mode = "fid-only"
             elif parsed.mode == "full":
                 task_mode = "full"
