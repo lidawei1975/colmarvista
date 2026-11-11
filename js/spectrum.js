@@ -267,6 +267,9 @@ class spectrum {
                 else if (key === "inter_window_channel") {
                     // Do not serialize DOM BroadcastChannel
                 }
+                else if (key === "spectra") {
+                    // Do not serialize the runtime spectrum collection back-reference
+                }
                 else if (key === "fid_process_parameters") {
                     if (this.fid_process_parameters) {
                         // Keep processing parameters metadata

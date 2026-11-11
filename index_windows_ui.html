@@ -229,7 +229,8 @@
         function toggleSection(id, buttonId) {
             const element = appElement(id);
             if (!element) return;
-            const isHidden = element.classList.toggle("windows-section-hidden");
+            const isHidden = !element.classList.contains("windows-section-hidden");
+            setSectionHidden(element, isHidden);
             if (!isHidden && buttonId) {
                 const button = appElement(buttonId);
                 if (button && button.innerText.trim() === "+") button.click();
@@ -239,7 +240,7 @@
         function openSection(id, buttonId) {
             const element = appElement(id);
             if (!element) return;
-            element.classList.remove("windows-section-hidden");
+            setSectionHidden(element, false);
             if (buttonId) {
                 const button = appElement(buttonId);
                 if (button && button.innerText.trim() === "+") button.click();
@@ -302,16 +303,24 @@
                     }
                 });
             }
+
+            const fidForm = documentRef.getElementById("fid_file_form");
+            if (fidForm) {
+                fidForm.addEventListener("submit", () => {
+                    const fidArea = documentRef.getElementById("fid_file_area");
+                    if (fidArea) setSectionHidden(fidArea, true);
+                });
+            }
         }
 
         function runCommand(command) {
             if (!frame.contentDocument) return;
             switch (command) {
                 case "save":
-                    toggleSection("load_and_save");
+                    if (typeof frame.contentWindow.save_to_file === "function") frame.contentWindow.save_to_file();
                     break;
                 case "load":
-                    toggleSection("load_and_save");
+                    clickAppElement("load_file");
                     break;
                 case "fid":
                     toggleSection("fid_file_area", "button_minimize_fid_area");
