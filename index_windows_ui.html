@@ -234,7 +234,14 @@
 
         function togglePanel(id) {
             const element = appElement(id);
-            if (element) element.classList.toggle("windows-panel-hidden");
+            if (element) {
+                const hidden = id === "peak_area"
+                    ? !element.classList.contains("windows-peak-visible")
+                    : element.style.display === "none" || element.classList.contains("windows-panel-hidden");
+                if (id === "peak_area") element.classList.toggle("windows-peak-visible", hidden);
+                else element.classList.toggle("windows-panel-hidden", !hidden);
+                element.style.display = hidden ? "block" : "none";
+            }
         }
 
         function setSectionHidden(element, hidden) {
@@ -277,7 +284,7 @@
                 html, body { background: #f8fafc !important; }
                 #navbar-placeholder { display: none !important; }
                 #body { min-width: 0 !important; width: 100% !important; margin: 0 !important; align-items: stretch !important; }
-                #section1 { width: auto !important; padding: 12px 18px !important; background: #eef5fc !important; border-bottom: 1px solid #cbd5e1 !important; }
+                #section1 { display: none !important; }
                 #section1 h1 { margin: 4px 0 !important; font-size: 20px !important; color: #1e3a5f !important; }
                 #section1 h2 { margin: 4px 0 8px !important; font-size: 12px !important; color: #64748b !important; }
                 #section1 h3 { margin: 0 !important; font-size: 12px !important; }
@@ -288,13 +295,9 @@
                 #file_area.windows-section-hidden { visibility: hidden !important; }
                 #load_and_save.windows-section-hidden { display: none !important; }
                 #plot { width: 100% !important; padding: 10px !important; border-color: #94a3b8 !important; border-radius: 6px !important; background: #fff !important; }
-                #plot { width: calc(100% - 390px) !important; margin-left: 0 !important; margin-right: 390px !important; }
                 #load_and_save { position: fixed !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
+                #peak_area.windows-peak-visible { display: block !important; }
                 #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
-                #peak_area { display: flex !important; position: fixed !important; top: 10px !important; right: 12px !important; width: 360px !important; height: calc(100% - 250px) !important; min-width: 280px !important; min-height: 220px !important; padding: 0 !important; margin: 0 !important; z-index: 9997 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 8px 24px rgba(15,23,42,.16) !important; }
-                #peak_area.windows-panel-hidden, #log_area.windows-panel-hidden { display: none !important; }
-                #peak_area > div { padding: 8px 10px !important; background: #e8eef5 !important; border-bottom: 1px solid #cbd5e1 !important; }
-                #peak_area table { font-size: 11px !important; }
                 #log_area { top: auto !important; right: 12px !important; bottom: 12px !important; left: auto !important; width: 360px !important; height: 220px !important; border-radius: 7px !important; z-index: 9998 !important; }
                 button, input, select { font-family: inherit !important; }
             `;
@@ -303,8 +306,6 @@
                 const element = documentRef.getElementById(id);
                 if (element) setSectionHidden(element, true);
             });
-            const peakArea = documentRef.getElementById("peak_area");
-            if (peakArea) peakArea.classList.add("windows-panel-hidden");
             const logArea = documentRef.getElementById("log_area");
             if (logArea) logArea.classList.add("windows-panel-hidden");
 
