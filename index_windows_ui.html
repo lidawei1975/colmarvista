@@ -54,7 +54,13 @@
 
         .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; }
         .brand-mark { color: var(--accent); font-size: 17px; }
+        .titlebar-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+        .app-nav { display: flex; align-items: center; gap: 4px; overflow-x: auto; white-space: nowrap; }
+        .app-nav a { padding: 4px 7px; color: #475569; border-radius: 4px; text-decoration: none; font-size: 11px; }
+        .app-nav a:hover, .app-nav a.active { color: #075b9e; background: var(--accent-soft); }
         .window-state { color: var(--muted); font-size: 11px; }
+        .ui-switch { display: flex; align-items: center; gap: 7px; color: #475569; font-size: 11px; cursor: pointer; }
+        .ui-switch input { accent-color: var(--accent); cursor: pointer; }
 
         .ribbon {
             min-height: 68px;
@@ -142,8 +148,22 @@
 <body>
     <header id="app-topbar">
         <div class="titlebar">
-            <div class="brand"><span class="brand-mark">[C]</span><span>COLMARvista 2D</span></div>
-            <span class="window-state">Windows workspace</span>
+            <div class="titlebar-left">
+                <div class="brand"><span class="brand-mark">[C]</span><span>COLMARvista</span></div>
+                <nav class="app-nav" aria-label="COLMARvista applications">
+                    <a class="active" href="index_windows_ui.html">2D</a>
+                    <a href="index_1d.html">1D</a>
+                    <a href="index_2d_3dview.html">2D 3D view</a>
+                    <a href="index_3d.html">3D</a>
+                    <a href="index_document.html" target="_blank" rel="noopener">Document</a>
+                    <a href="about.html">About</a>
+                    <a href="index.html">Old UI</a>
+                </nav>
+            </div>
+            <label class="ui-switch" title="Switch between the Windows-style UI and the original interface">
+                <input id="ui-mode-toggle" type="checkbox" checked>
+                <span>Windows UI</span>
+            </label>
         </div>
         <nav class="ribbon" aria-label="Application commands">
             <div class="ribbon-group">
@@ -348,10 +368,15 @@
             }
         }
 
+
+        function switchUi(useWindowsUi) {
+            window.location.href = useWindowsUi ? "index_windows_ui.html" : "index.html";
+        }
         frame.addEventListener("load", styleEmbeddedApp);
         document.querySelectorAll("[data-command]").forEach(button => {
             button.addEventListener("click", () => runCommand(button.dataset.command));
         });
+        document.getElementById("ui-mode-toggle").addEventListener("change", (event) => switchUi(event.target.checked));
     </script>
 </body>
 </html>
