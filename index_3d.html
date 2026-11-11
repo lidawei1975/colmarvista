@@ -876,7 +876,9 @@
                             style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px; background: #f8f8f8; padding: 2px; border-radius: 8px; border: 1px solid #eee; width: 100%; justify-content: center; align-items: center;">
                             <button onclick="reset_3d_view()">Reset View</button>
                             <button onclick="center_3d_on_slices()">Set 3D Center</button>
-                            <button onclick="download_3d_views()">Download 3D Views</button>
+                            <button onclick="download_3d_views()" title="Download both Experimental and Reconstructed 3D views as PNG">Download 3D Views</button>
+                            <button onclick="download_3d_view('exp', 'exp.png')" title="Save Experimental 3D plot as exp.png">Save Exp 3D Plot</button>
+                            <button onclick="download_3d_view('theory', 'theory.png')" title="Save Reconstructed / Predicted 3D plot as theory.png">Save Recon 3D Plot</button>
                             <div
                                 style="font-weight: bold; border: 1px solid #ccc; padding: 2px 2px; border-radius: 4px; background: #fff;">
                                 Center: <span id="center_info">-</span></div>
@@ -920,16 +922,18 @@
                             style="display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center;">
                             <div id="vis_parent_3d" class="resizable"
                                 style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
-                                <h5
-                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
-                                    Experimental 3D</h5>
+                                <div style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; display: flex; gap: 6px; align-items: center;">
+                                    <h5 style="margin: 0; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Experimental 3D</h5>
+                                    <button type="button" onclick="download_3d_view('exp', 'exp.png')" style="font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,0.85); border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Save Experimental 3D plot as exp.png">Save PNG</button>
+                                </div>
                                 <canvas id="canvas_3d" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
                             <div id="vis_parent_3d_recon" class="resizable"
                                 style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
-                                <h5
-                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
-                                    Reconstructed 3D</h5>
+                                <div style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; display: flex; gap: 6px; align-items: center;">
+                                    <h5 style="margin: 0; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Reconstructed 3D</h5>
+                                    <button type="button" onclick="download_3d_view('theory', 'theory.png')" style="font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,0.85); border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Save Reconstructed / Predicted 3D plot as theory.png">Save PNG</button>
+                                </div>
                                 <canvas id="canvas_3d_recon" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
                         </div>

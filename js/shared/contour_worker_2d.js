@@ -5,7 +5,11 @@
  * Calculates iso-contour line vertices using D3's marching squares algorithm.
  */
 
-importScripts('https://d3js.org/d3.v7.min.js');
+try {
+    importScripts('../d3.7.min.js');
+} catch (e) {
+    importScripts('https://d3js.org/d3.v7.min.js');
+}
 
 onmessage = (e) => {
     // 1. Remove spectrum message (COLMARvista multi-spectra removal)
