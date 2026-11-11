@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COLMARvista 2D - Windows UI</title>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+    <style>
+        :root {
+            --window-bg: #f3f6fa;
+            --panel-bg: #ffffff;
+            --bar-bg: rgba(255, 255, 255, 0.94);
+            --border: #cbd5e1;
+            --text: #1f2937;
+            --muted: #64748b;
+            --accent: #0067c0;
+            --accent-soft: #e5f1fb;
+            --shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+            --font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            font-family: var(--font);
+            color: var(--text);
+            background: radial-gradient(circle at 50% 0%, #eef5fc 0%, #d7e3ef 100%);
+        }
+
+        body { display: flex; flex-direction: column; }
+
+        #app-topbar {
+            flex: 0 0 auto;
+            background: var(--bar-bg);
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(16px);
+            z-index: 2;
+        }
+
+        .titlebar {
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 13px;
+        }
+
+        .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+        .brand-mark { color: var(--accent); font-size: 17px; }
+        .window-state { color: var(--muted); font-size: 11px; }
+
+        .ribbon {
+            min-height: 68px;
+            display: flex;
+            align-items: stretch;
+            gap: 8px;
+            padding: 6px 12px;
+            overflow-x: auto;
+        }
+
+        .ribbon-group {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0 10px 0 2px;
+            border-right: 1px solid #e2e8f0;
+        }
+
+        .ribbon-group:last-child { border-right: 0; }
+
+        .ribbon-command {
+            min-width: 74px;
+            height: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 4px 8px;
+            color: #334155;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .ribbon-command:hover { background: var(--accent-soft); border-color: #b7d4ee; color: #075b9e; }
+        .ribbon-command:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .command-icon { font-size: 18px; line-height: 1; color: var(--accent); }
+
+        #workspace {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+            padding: 10px;
+        }
+
+        #app-frame {
+            width: 100%;
+            height: 100%;
+            display: block;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--panel-bg);
+            box-shadow: var(--shadow);
+        }
+
+        #statusbar {
+            flex: 0 0 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 12px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.88);
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+        }
+
+        .status-ready { color: #18794e; font-weight: 650; }
+        .status-right { display: flex; gap: 14px; }
+
+        @media (max-width: 720px) {
+            .ribbon { min-height: 60px; }
+            .ribbon-command { min-width: 62px; height: 44px; font-size: 10px; }
+            .command-icon { font-size: 15px; }
+            .window-state, .status-right { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <header id="app-topbar">
+        <div class="titlebar">
+            <div class="brand"><span class="brand-mark">[C]</span><span>COLMARvista 2D</span></div>
+            <span class="window-state">Windows workspace</span>
+        </div>
+        <nav class="ribbon" aria-label="Application commands">
+            <div class="ribbon-group">
+                <button class="ribbon-command" type="button" data-command="save" title="Save current session">
+                    <span class="command-icon">[S]</span><span>Save session</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="load" title="Load a saved session">
+                    <span class="command-icon">[L]</span><span>Load session</span>
+                </button>
+            </div>
+            <div class="ribbon-group">
+                <button class="ribbon-command" type="button" data-command="fid" title="Open Bruker time-domain processing">
+                    <span class="command-icon">[F]</span><span>FID process</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="spectrum" title="Open frequency-domain spectrum input">
+                    <span class="command-icon">[2D]</span><span>Open spectrum</span>
+                </button>
+            </div>
+            <div class="ribbon-group">
+                <button class="ribbon-command" type="button" data-command="pseudo3d" title="Open pseudo-3D and fitting tools">
+                    <span class="command-icon">[3D]</span><span>Pseudo-3D</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="log" title="Show processing log">
+                    <span class="command-icon">[=]</span><span>Processing log</span>
+                </button>
+            </div>
+            <div class="ribbon-group">
+                <button class="ribbon-command" type="button" data-command="reset" title="Reload the application workspace">
+                    <span class="command-icon">[R]</span><span>Reset view</span>
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <main id="workspace">
+        <iframe id="app-frame" src="index.html" title="COLMARvista 2D application"></iframe>
+    </main>
+
+    <footer id="statusbar">
+        <span>Workspace: <strong>2D spectrum analysis</strong></span>
+        <span class="status-ready">Application ready</span>
+        <span class="status-right"><span>Native processing controls</span><span>Windows UI</span></span>
+    </footer>
+
+    <script>
+        const frame = document.getElementById("app-frame");
+
+        function appDocument() {
+            return frame.contentDocument || frame.contentWindow.document;
+        }
+
+        function appElement(id) {
+            return appDocument().getElementById(id);
+        }
+
+        function clickAppElement(id) {
+            const element = appElement(id);
+            if (element) element.click();
+        }
+
+        function styleEmbeddedApp() {
+            const documentRef = appDocument();
+            if (!documentRef || documentRef.getElementById("windows-ui-theme")) return;
+
+            const theme = documentRef.createElement("style");
+            theme.id = "windows-ui-theme";
+            theme.textContent = `
+                html, body { background: #f8fafc !important; }
+                #navbar-placeholder { display: none !important; }
+                #body { min-width: 0 !important; width: 100% !important; margin: 0 !important; align-items: stretch !important; }
+                #section1 { width: auto !important; padding: 12px 18px !important; background: #eef5fc !important; border-bottom: 1px solid #cbd5e1 !important; }
+                #section1 h1 { margin: 4px 0 !important; font-size: 20px !important; color: #1e3a5f !important; }
+                #section1 h2 { margin: 4px 0 8px !important; font-size: 12px !important; color: #64748b !important; }
+                #section1 h3 { margin: 0 !important; font-size: 12px !important; }
+                #section2 { min-width: 0 !important; width: 100% !important; margin: 0 !important; padding: 10px !important; }
+                #section2 > .drop-area-neighbor, #section2 > .drop-area, #assignment_area, #spectra_list { width: 100% !important; max-width: none !important; margin: 6px 0 !important; border-color: #cbd5e1 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 2px 7px rgba(15,23,42,.06) !important; }
+                #load_and_save, #fid_file_area, #file_area, #pseudo3d_area, #assignment_area, #spectra_list { padding: 8px 12px !important; }
+                #plot { width: 100% !important; padding: 10px !important; border-color: #94a3b8 !important; border-radius: 6px !important; background: #fff !important; }
+                #log_area { border-radius: 6px !important; }
+                button, input, select { font-family: inherit !important; }
+            `;
+            documentRef.head.appendChild(theme);
+        }
+
+        function runCommand(command) {
+            if (!frame.contentDocument) return;
+            switch (command) {
+                case "save":
+                    if (typeof frame.contentWindow.save_to_file === "function") frame.contentWindow.save_to_file();
+                    break;
+                case "load":
+                    clickAppElement("load_file");
+                    break;
+                case "fid":
+                    clickAppElement("button_minimize_fid_area");
+                    break;
+                case "spectrum":
+                    clickAppElement("button_minimize_file_area");
+                    clickAppElement("userfile");
+                    break;
+                case "pseudo3d":
+                    clickAppElement("button_minimize_preudo3d_area");
+                    break;
+                case "log":
+                    if (typeof frame.contentWindow.toggle_log_minimize === "function") frame.contentWindow.toggle_log_minimize();
+                    break;
+                case "reset":
+                    frame.contentWindow.location.reload();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        frame.addEventListener("load", styleEmbeddedApp);
+        document.querySelectorAll("[data-command]").forEach(button => {
+            button.addEventListener("click", () => runCommand(button.dataset.command));
+        });
+    </script>
+</body>
+</html>
