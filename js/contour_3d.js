@@ -1,4 +1,8 @@
-importScripts('https://d3js.org/d3.v7.min.js');
+try {
+    importScripts('d3.7.min.js');
+} catch (e) {
+    importScripts('https://d3js.org/d3.v7.min.js');
+}
 
 /**
  * Import local ldwmath.js and earcut.js

@@ -4,13 +4,17 @@
 class webgl_contour_plot {
 
     constructor(canvas_id, spectra = null) {
-        let selector = (typeof canvas_id === 'string' && canvas_id.startsWith('#')) ? canvas_id : ('#' + canvas_id);
-        this.canvas = document.querySelector(selector);
+        if (typeof canvas_id === 'object' && canvas_id !== null && ((typeof HTMLElement !== 'undefined' && canvas_id instanceof HTMLElement) || canvas_id.getContext)) {
+            this.canvas = canvas_id;
+        } else {
+            let selector = (typeof canvas_id === 'string' && canvas_id.startsWith('#')) ? canvas_id : ('#' + canvas_id);
+            this.canvas = document.querySelector(selector);
+        }
         if (!this.canvas) {
             console.warn("Canvas not found:", canvas_id);
             return;
         }
-        this.gl = this.canvas.getContext("webgl") || this.canvas.getContext("experimental-webgl");
+        this.gl = this.canvas.getContext("webgl", { preserveDrawingBuffer: true }) || this.canvas.getContext("experimental-webgl", { preserveDrawingBuffer: true });
         if (!this.gl) {
             console.warn("No WebGL context for canvas:", canvas_id);
             return;
@@ -297,7 +301,9 @@ class webgl_contour_plot {
         if (!this.gl) return;
 
         if (typeof webglUtils !== 'undefined' && webglUtils.resizeCanvasToDisplaySize) {
-            webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+            if (this.gl.canvas.clientWidth > 0 && this.gl.canvas.clientHeight > 0) {
+                webglUtils.resizeCanvasToDisplaySize(this.gl.canvas);
+            }
         }
 
         let is_multi_view = Boolean(this.view_stack && this.view_stack.length > 0 &&
@@ -1579,9 +1585,285 @@ class webgl_contour_plot {
 
 };
 
+/**
+ * shared_webgl_contour_target: Virtual target that manages individual plot state
+ * but renders through a single shared master WebGL context and blits the final frame
+ * to a local 2D canvas via drawImage. Solves browser WebGL context limits (8-16) when
+ * displaying many spectra (e.g. in COLMARq).
+ */
+class shared_webgl_contour_target {
+    constructor(canvas_id) {
+        this.canvas_id = canvas_id;
+        this.camera_ppm_stack = [];
+        this.view_stack = [];
+        this.spectral_information = null;
+        this.data_args = null;
+        this.visible = null;
+
+        this.x_ppm_start = 0;
+        this.x_ppm_step = 1;
+        this.y_ppm_start = 0;
+        this.y_ppm_step = 1;
+        this.n_direct = 1024;
+        this.n_indirect = 1024;
+        this.x_ppm_ref = 0;
+        this.y_ppm_ref = 0;
+
+        this.x_ppm = 0;
+        this.x2_ppm = 12;
+        this.y_ppm = 0;
+        this.y2_ppm = 160;
+
+        this.points = null;
+        this.points_start = [];
+        this.polygon_length = [];
+        this.levels_length = [];
+        this.colors = [];
+        this.contour_lbs = [];
+
+        this.points_start_negative = [];
+        this.polygon_length_negative = [];
+        this.levels_length_negative = [];
+        this.colors_negative = [];
+        this.contour_lbs_negative = [];
+    }
+
+    static get_master_instance() {
+        if (!shared_webgl_contour_target._master_instance) {
+            let canvas = document.createElement('canvas');
+            canvas.id = 'colmarq_shared_webgl_master_canvas';
+            canvas.style.display = 'none';
+            if (typeof document !== 'undefined') {
+                if (document.body) {
+                    document.body.appendChild(canvas);
+                } else if (document.addEventListener) {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        if (!canvas.parentNode && document.body) {
+                            document.body.appendChild(canvas);
+                        }
+                    });
+                }
+            }
+            shared_webgl_contour_target._master_instance = new webgl_contour_plot(canvas);
+        }
+        return shared_webgl_contour_target._master_instance;
+    }
+
+    get_target_canvas() {
+        if (typeof this.canvas_id === 'string') {
+            let selector = this.canvas_id.startsWith('#') ? this.canvas_id : ('#' + this.canvas_id);
+            return document.querySelector(selector);
+        } else if (this.canvas_id && typeof this.canvas_id === 'object' && ((typeof HTMLElement !== 'undefined' && this.canvas_id instanceof HTMLElement) || this.canvas_id.getContext)) {
+            return this.canvas_id;
+        }
+        return null;
+    }
+
+    get canvas() {
+        return this.get_target_canvas();
+    }
+
+    get gl() {
+        let master = shared_webgl_contour_target.get_master_instance();
+        return master ? master.gl : null;
+    }
+
+    set_spectrum_information(x_ppm_start, x_ppm_step, y_ppm_start, y_ppm_step, n_direct, n_indirect, x_ppm_ref = 0, y_ppm_ref = 0) {
+        this.x_ppm_start = x_ppm_start;
+        this.x_ppm_step = x_ppm_step;
+        this.y_ppm_start = y_ppm_start;
+        this.y_ppm_step = y_ppm_step;
+        this.n_direct = n_direct;
+        this.n_indirect = n_indirect;
+        this.x_ppm_ref = x_ppm_ref;
+        this.y_ppm_ref = y_ppm_ref;
+        this.spectral_information = [{
+            x_ppm_start: x_ppm_start,
+            x_ppm_step: x_ppm_step,
+            y_ppm_start: y_ppm_start,
+            y_ppm_step: y_ppm_step,
+            n_direct: n_direct,
+            n_indirect: n_indirect,
+            x_ppm_ref: x_ppm_ref,
+            y_ppm_ref: y_ppm_ref
+        }];
+        const master = shared_webgl_contour_target._master_instance;
+        if (master && master._active_target === this) {
+            master._active_target = null;
+        }
+    }
+
+    set_data(spectral_information, points, points_start, polygon_length, levels_length, colors, contour_lbs, points_start_n, polygon_length_n, levels_length_n, colors_n, contour_lbs_n) {
+        this.data_args = Array.prototype.slice.call(arguments);
+
+        if (spectral_information instanceof Float32Array || (Array.isArray(spectral_information) && typeof spectral_information[0] === 'number')) {
+            this.points = spectral_information;
+            this.points_start = points;
+            this.polygon_length = points_start;
+            this.levels_length = polygon_length;
+            this.colors = levels_length;
+            this.contour_lbs = colors;
+            this.points_start_negative = contour_lbs;
+            this.polygon_length_negative = points_start_n;
+            this.levels_length_negative = polygon_length_n;
+            this.colors_negative = levels_length_n;
+            this.contour_lbs_negative = colors_n;
+        } else {
+            this.spectral_information = spectral_information;
+            this.points = points;
+            this.points_start = points_start;
+            this.polygon_length = polygon_length;
+            this.levels_length = levels_length;
+            this.colors = colors;
+            this.contour_lbs = contour_lbs;
+            this.points_start_negative = points_start_n;
+            this.polygon_length_negative = polygon_length_n;
+            this.levels_length_negative = levels_length_n;
+            this.colors_negative = colors_n;
+            this.contour_lbs_negative = contour_lbs_n;
+        }
+
+        const master = shared_webgl_contour_target._master_instance;
+        if (master && master._active_target === this) {
+            master._active_target = null;
+        }
+    }
+
+    clearCamera() {
+        this.camera_ppm_stack = [];
+    }
+
+    clearView() {
+        this.view_stack = [];
+    }
+
+    setView(left, right, bottom, top) {
+        this.view_stack.push({ left: left, right: right, bottom: bottom, top: top });
+    }
+
+    setCamera_ppm(x_ppm, x2_ppm, y_ppm, y2_ppm) {
+        this.x_ppm = x_ppm;
+        this.x2_ppm = x2_ppm;
+        this.y_ppm = y_ppm;
+        this.y2_ppm = y2_ppm;
+        this.camera_ppm_stack.push({ x_ppm: x_ppm, x2_ppm: x2_ppm, y_ppm: y_ppm, y2_ppm: y2_ppm });
+    }
+
+    update_ppm(ref1, ref2) {
+        this.x_ppm_start += ref1;
+        this.y_ppm_start += ref2;
+        if (this.spectral_information) {
+            let sInfo = Array.isArray(this.spectral_information) ? this.spectral_information : [this.spectral_information];
+            for (let i = 0; i < sInfo.length; i++) {
+                if (sInfo[i]) {
+                    sInfo[i].x_ppm_ref = (sInfo[i].x_ppm_ref || 0) + ref1;
+                    sInfo[i].y_ppm_ref = (sInfo[i].y_ppm_ref || 0) + ref2;
+                }
+            }
+        }
+        const master = shared_webgl_contour_target._master_instance;
+        if (master && master._active_target === this) {
+            master._active_target = null;
+        }
+    }
+
+    set_level_lb(level_lb) {
+        if (this.contour_lbs && this.contour_lbs.length > 0) {
+            this.contour_lbs[0] = level_lb;
+        }
+        const master = shared_webgl_contour_target._master_instance;
+        if (master && master._active_target === this) {
+            master._active_target = null;
+        }
+        this.drawScene();
+    }
+
+    drawScene(flag = 0) {
+        let target_canvas = this.get_target_canvas();
+        if (!target_canvas) {
+            console.warn("Shared WebGL target canvas not found:", this.canvas_id);
+            return;
+        }
+
+        let target_w = target_canvas.width || parseInt(target_canvas.style.width) || target_canvas.clientWidth || 0;
+        let target_h = target_canvas.height || parseInt(target_canvas.style.height) || target_canvas.clientHeight || 0;
+
+        if (target_w <= 0 || target_h <= 0) {
+            return;
+        }
+
+        if (target_canvas.width !== target_w) target_canvas.width = target_w;
+        if (target_canvas.height !== target_h) target_canvas.height = target_h;
+
+        let master = shared_webgl_contour_target.get_master_instance();
+        if (!master || !master.gl) {
+            console.warn("No shared WebGL master context available");
+            return;
+        }
+
+        // Resize shared master WebGL canvas to match target dimensions
+        if (master.canvas.width !== target_w || master.canvas.height !== target_h) {
+            master.canvas.width = target_w;
+            master.canvas.height = target_h;
+            master.gl.viewport(0, 0, target_w, target_h);
+        }
+
+        // Re-bind data and spectrum info if active target changed
+        if (master._active_target !== this) {
+            master.set_spectrum_information(
+                this.x_ppm_start, this.x_ppm_step,
+                this.y_ppm_start, this.y_ppm_step,
+                this.n_direct, this.n_indirect,
+                this.x_ppm_ref, this.y_ppm_ref
+            );
+            if (this.spectral_information) {
+                master.spectral_information = this.spectral_information;
+            }
+            if (this.data_args) {
+                master.set_data.apply(master, this.data_args);
+            }
+            master._active_target = this;
+        }
+
+        // Set visibility
+        if (this.visible) {
+            master.visible = this.visible.slice();
+        } else {
+            master.visible = null;
+        }
+
+        // Copy camera & view stacks
+        master.clearCamera();
+        master.clearView();
+        master.view_stack = this.view_stack.slice();
+        master.camera_ppm_stack = this.camera_ppm_stack.slice();
+        master.x_ppm = this.x_ppm;
+        master.x2_ppm = this.x2_ppm;
+        master.y_ppm = this.y_ppm;
+        master.y2_ppm = this.y2_ppm;
+
+        // Render on master WebGL context
+        master.drawScene(0);
+
+        // Blit to target 2D canvas
+        let ctx2d = target_canvas.getContext('2d');
+        if (ctx2d) {
+            ctx2d.clearRect(0, 0, target_w, target_h);
+            ctx2d.drawImage(master.canvas, 0, 0);
+        }
+
+        if (flag === 1) {
+            return target_canvas.toDataURL();
+        }
+    }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = webgl_contour_plot;
+    module.exports.webgl_contour_plot = webgl_contour_plot;
+    module.exports.shared_webgl_contour_target = shared_webgl_contour_target;
 }
 if (typeof window !== 'undefined') {
     window.webgl_contour_plot = webgl_contour_plot;
+    window.shared_webgl_contour_target = shared_webgl_contour_target;
 }

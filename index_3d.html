@@ -131,8 +131,8 @@
                             <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox"
                                     id="normal_direct_dim_auto_phase_3d"> Automatic phase correction</label>
                             <label id="label_show_spectrum_artifact_3d"
-                                style="margin-left: 10px; cursor: pointer; color: gray;"><input type="checkbox"
-                                    id="show_spectrum_artifact_3d" disabled> Show spectrum with artifact</label>
+                                style="margin-left: 10px; cursor: pointer; "><input type="checkbox"
+                                    id="show_spectrum_artifact_3d"> Show spectrum with artifact</label>
                             <label style="margin-left: 10px; cursor: pointer;"><input type="checkbox"
                                     id="nus_flatt_baseline_3d"> Direct dimension FLATT baseline correction for NUS</label>
                             <br>
@@ -252,6 +252,7 @@
                 <label style="margin-right: 10px; cursor: pointer;"><input type="checkbox" id="check_visualize_proj"
                         onchange="toggle_visualize_proj(this.checked)"> Visualize Proj</label>
                 <button onclick="run_auto_phase_on_loaded_spectrum()">Auto Phase</button>
+                <button id="button_flip_direct_180" onclick="flip_direct_phase_180()" title="Apply additional 180° phase along direct dimension to flip real part sign">Flip 180°</button>
                 <label for="input_new_peak_cutoff" style="margin-left: 10px; font-weight: bold;" title="Higher = tolerates distorted peaks. Lower = prefers finding new peaks. Range: 0.2–0.6 (Default: 0.4).">overlapping peak cutoff: </label>
                 <input type="number" id="input_new_peak_cutoff" value="0.4" step="0.01" min="0.2" max="0.6" style="width: 50px; margin-right: 10px;" title="Higher = tolerates distorted peaks. Lower = prefers finding new peaks. Range: 0.2–0.6 (Default: 0.4).">
                 <button id="button_peak_fit_3d" onclick="run_peak_fit_3d_workflow()">Peak Picking & Fitting</button>
@@ -875,7 +876,9 @@
                             style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px; background: #f8f8f8; padding: 2px; border-radius: 8px; border: 1px solid #eee; width: 100%; justify-content: center; align-items: center;">
                             <button onclick="reset_3d_view()">Reset View</button>
                             <button onclick="center_3d_on_slices()">Set 3D Center</button>
-                            <button onclick="download_3d_views()">Download 3D Views</button>
+                            <button onclick="download_3d_views()" title="Download both Experimental and Reconstructed 3D views as PNG">Download 3D Views</button>
+                            <button onclick="download_3d_view('exp', 'exp.png')" title="Save Experimental 3D plot as exp.png">Save Exp 3D Plot</button>
+                            <button onclick="download_3d_view('theory', 'theory.png')" title="Save Reconstructed / Predicted 3D plot as theory.png">Save Recon 3D Plot</button>
                             <div
                                 style="font-weight: bold; border: 1px solid #ccc; padding: 2px 2px; border-radius: 4px; background: #fff;">
                                 Center: <span id="center_info">-</span></div>
@@ -919,16 +922,18 @@
                             style="display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center;">
                             <div id="vis_parent_3d" class="resizable"
                                 style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
-                                <h5
-                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
-                                    Experimental 3D</h5>
+                                <div style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; display: flex; gap: 6px; align-items: center;">
+                                    <h5 style="margin: 0; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Experimental 3D</h5>
+                                    <button type="button" onclick="download_3d_view('exp', 'exp.png')" style="font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,0.85); border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Save Experimental 3D plot as exp.png">Save PNG</button>
+                                </div>
                                 <canvas id="canvas_3d" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
                             <div id="vis_parent_3d_recon" class="resizable"
                                 style="position: relative; flex: 1; height: 600px; border: 1px solid #ccc; background: #000; border-radius: 8px; overflow: hidden; padding: 2px;">
-                                <h5
-                                    style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">
-                                    Reconstructed 3D</h5>
+                                <div style="position: absolute; top: 10px; left: 10px; margin: 0; z-index: 10; display: flex; gap: 6px; align-items: center;">
+                                    <h5 style="margin: 0; color: white; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 4px;">Reconstructed 3D</h5>
+                                    <button type="button" onclick="download_3d_view('theory', 'theory.png')" style="font-size: 11px; padding: 3px 8px; background: rgba(255,255,255,0.85); border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Save Reconstructed / Predicted 3D plot as theory.png">Save PNG</button>
+                                </div>
                                 <canvas id="canvas_3d_recon" style="width: 100%; height: 100%; display:block;"></canvas>
                             </div>
                         </div>
@@ -983,9 +988,9 @@
             <script type="text/javascript" src="js/marching_cubes.js"></script>
             <script type="text/javascript" src="js/webgl_iso_renderer.js"></script>
 
-            <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-            <script type="text/javascript" src="js/tfjs_infer_full_pipeline.js"></script>
-            <script type="text/javascript" src="js/3d.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+            <script type="text/javascript" src="js/tfjs_infer_full_pipeline.js?v=20261029_2"></script>
+            <script type="text/javascript" src="js/3d.js?v=20261030_1"></script>
         </div>
 </body>
 

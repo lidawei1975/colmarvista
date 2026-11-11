@@ -331,7 +331,7 @@ var trace_x_ph0 = 0.0;
 var trace_x_ph1 = 0.0;
 var trace_x_pivot = null;
 
-var tfjs_normal_model = null;
+var tfjs_normal_model = null; // Holds 3D Model 04 GraphModel
 var tfjs_large_model = null;
 var current_fid_config = null;
 var auto_p0_3d = null;
@@ -565,7 +565,29 @@ function create_ft3_buffer() {
 
     floatView[15] = nz;
     floatView[99] = nx;
-    floatView[219] = ny;
+    floatView[219] = (has_ri && has_ir) ? (ny * 2) : ny;
+
+    if (!(floatView[24] >= 1 && floatView[24] <= 4)) floatView[24] = 2;
+    if (!(floatView[25] >= 1 && floatView[25] <= 4)) floatView[25] = 1;
+    if (!(floatView[26] >= 1 && floatView[26] <= 4)) floatView[26] = 3;
+    if (!(floatView[27] >= 1 && floatView[27] <= 4)) floatView[27] = 4;
+    if (Math.round(floatView[24]) === 2 && (!(floatView[100] > 0) || !(floatView[119] > 0)) && s0.frq1 > 0 && s0.x_ppm_width > 0 && s0.x_ppm_step < 0) {
+        floatView[119] = s0.frq1;
+        floatView[100] = s0.x_ppm_width * s0.frq1;
+        floatView[101] = ((s0.x_ppm_start + (s0.x_ppm_ref || 0)) - s0.x_ppm_width - s0.x_ppm_step) * s0.frq1;
+        if (!(floatView[218] > 0) && s0.frq2 > 0) {
+            floatView[218] = s0.frq2;
+            if (s0.y_ppm_width > 0) floatView[229] = s0.y_ppm_width * s0.frq2;
+        }
+        if (!(floatView[10] > 0) && s0.frq3 > 0) {
+            floatView[10] = s0.frq3;
+            if (s0.z_ppm_width > 0) floatView[11] = s0.z_ppm_width * s0.frq3;
+        }
+        if (floatView[16] === 0 && s0.nucleus_direct) {
+            const labelBytes = new TextEncoder().encode(String(s0.nucleus_direct).slice(0, 8));
+            new Uint8Array(buffer, 16 * 4, 8).set(labelBytes);
+        }
+    }
 
     floatView[56] = has_ri ? 0 : 1;
     floatView[55] = has_ir ? 0 : 1;
@@ -646,10 +668,10 @@ async function run_auto_phase_on_loaded_spectrum() {
 
     append_3d_log("[tfjs] Running manual auto phase correction...");
     try {
-        if (!tfjs_normal_model || !tfjs_large_model) {
-            append_3d_log("[tfjs] Pre-loading models...");
-            if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-            if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
+        if (!tfjs_normal_model) {
+            append_3d_log("[tfjs] Loading 3D Model 04...");
+            tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+            append_3d_log("[tfjs] Model 04 loaded successfully.");
         }
 
         const buffer = create_ft3_buffer();
@@ -659,7 +681,7 @@ async function run_auto_phase_on_loaded_spectrum() {
             tf: window.tf,
             ft3ArrayBuffer: buffer,
             model: tfjs_normal_model,
-            largeModel: tfjs_large_model,
+            modelUrl: 'js/model04_tfjs/model.json'
         });
 
         const lr = result.final_wls_phase_left_right[0];
@@ -669,14 +691,46 @@ async function run_auto_phase_on_loaded_spectrum() {
         const s = spectra_3d[0];
         const nx = result.ft3Meta.nDirect;
 
-        // Use local parameters for immediate application to the loaded spectrum
-        const local_p0 = leftEdge;
+        // NMRPipe phase parameters for extracted region
+        const p0_extract = leftEdge;
+        const p1_extract = rightEdge - leftEdge;
         const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
 
-        append_3d_log(`[tfjs] Auto phase result: local_p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
+        // Extrapolate to full spectrum if spectral metadata available
+        let p0_full = p0_extract;
+        let p1_full = p1_extract;
+        if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+            const phaseMeta = get_full_spectrum_phase_correction(p0_extract, p0_extract + p1_extract, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+            p0_full = phaseMeta.p0;
+            p1_full = phaseMeta.p1;
+        }
+
+        append_3d_log(`[tfjs] Model 04 Phase Results (NMRPipe format):`);
+        append_3d_log(`       • Extracted region: P0 (left edge) = ${p0_extract.toFixed(2)}°, P1 (total change) = ${p1_extract.toFixed(2)}°`);
+        append_3d_log(`       • Full spectrum (extrapolated): P0 = ${p0_full.toFixed(2)}°, P1 = ${p1_full.toFixed(2)}°`);
+
+        // Fill extrapolated values into edit boxes
+        const box0 = document.getElementById('phase_correction_direct_p0');
+        const box1 = document.getElementById('phase_correction_direct_p1');
+        if (box0) box0.value = p0_full.toFixed(2);
+        if (box1) box1.value = p1_full.toFixed(2);
 
         append_3d_log("[tfjs] Applying correction to all planes...");
-        apply_trace_x_phase(local_p0, local_p1, s.x_ppm_start);
+        if (result && result.applied180Flip) {
+            append_3d_log("[tfjs] Notice: Spectrum polarity flipped by 180° along direct dimension (majority negative peaks detected).");
+        }
+
+        apply_trace_x_phase(p0_extract, local_p1, s.x_ppm_start, false);
+
+        // Check in JS if the resulting phased spectrum has majority negative peaks and automatically flip if required
+        if (is_spectra_3d_majority_negative()) {
+            append_3d_log("[auto-phase] Notice: Majority negative peaks detected after auto-phase. Automatically applying 180° phase flip...");
+            flip_direct_phase_180();
+        } else {
+            update_global_noise_level();
+            update_contour_levels();
+            draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+        }
 
     } catch (err) {
         console.error(err);
@@ -688,6 +742,221 @@ async function run_auto_phase_on_loaded_spectrum() {
  * Runs 3D peak picking and fitting workflow on the currently loaded spectrum.
  * @returns {Promise<void>}
  */
+/**
+ * Applies an additional 180-degree phase shift along the direct dimension to flip real part sign.
+ */
+function flip_direct_phase_180() {
+    if (!spectra_3d || spectra_3d.length === 0) {
+        alert("No spectra loaded.");
+        return;
+    }
+
+    append_3d_log("[phase] Applying additional 180° phase flip along direct dimension (flipping real part)...");
+
+    for (let z = 0; z < spectra_3d.length; z++) {
+        const s = spectra_3d[z];
+        if (!s.raw_data) continue;
+
+        let maxVal = -Infinity;
+        let minVal = Infinity;
+        const len = s.raw_data.length;
+        for (let i = 0; i < len; i++) {
+            s.raw_data[i] = -s.raw_data[i];
+            if (s.raw_data[i] > maxVal) maxVal = s.raw_data[i];
+            if (s.raw_data[i] < minVal) minVal = s.raw_data[i];
+        }
+        s.spectral_max = maxVal;
+        s.spectral_min = minVal;
+
+        if (s.raw_data_ri && s.raw_data_ri.length === len) {
+            for (let i = 0; i < len; i++) {
+                s.raw_data_ri[i] = -s.raw_data_ri[i];
+            }
+        }
+
+        s.cached_contour_pos = null;
+        s.cached_contour_neg = null;
+    }
+
+    // Update direct dimension P0 edit box if present
+    const box0 = document.getElementById('phase_correction_direct_p0');
+    if (box0) {
+        let cur = parseFloat(box0.value || 0);
+        let next = cur + 180.0;
+        while (next > 180.0) next -= 360.0;
+        while (next <= -180.0) next += 360.0;
+        box0.value = next.toFixed(2);
+    }
+
+    update_global_noise_level();
+    update_contour_levels();
+    generate_projection_spectrum();
+    visualize_3d();
+    draw_slice(current_slice_index >= 0 ? current_slice_index : 0);
+
+    if (typeof main_plot_xz !== 'undefined' && main_plot_xz && typeof refresh_xz_view === 'function') refresh_xz_view();
+    if (typeof main_plot_yz !== 'undefined' && main_plot_yz && typeof refresh_yz_view === 'function') refresh_yz_view();
+    if (typeof refresh_proj_plot === 'function') refresh_proj_plot();
+    if (typeof refresh_proj_y_plot === 'function') refresh_proj_y_plot();
+    if (typeof refresh_proj_x_plot === 'function') refresh_proj_x_plot();
+
+    append_3d_log("[phase] Flipped 180° along direct dimension (real part inverted).");
+}
+
+/**
+ * Checks whether the current spectra_3d dataset has majority negative peaks along the direct dimension.
+ * Excludes the water band (~4.4 - 5.0 ppm) if chemical shift scale is present.
+ * @returns {boolean} true if peaks are majority negative, false if positive or cannot be determined.
+ */
+function is_spectra_3d_majority_negative() {
+    if (!spectra_3d || spectra_3d.length === 0) return false;
+
+    const s0 = spectra_3d[0];
+    if (!s0.raw_data || s0.raw_data.length === 0) return false;
+
+    const nx = s0.n_direct;
+    const ny = s0.n_indirect;
+    const nz = spectra_3d.length;
+
+    // Direct dimension ppm scale check
+    const hasPpm = (typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number' && s0.x_ppm_step !== 0);
+    const isWater = function (xIdx) {
+        if (!hasPpm) return false;
+        const ppm = s0.x_ppm_start + xIdx * s0.x_ppm_step;
+        return (ppm >= 4.4 && ppm <= 5.0);
+    };
+
+    // Determine noise threshold across available planes
+    let noise = s0.noise_level;
+    if (!noise || noise <= 0) {
+        let sumSq = 0;
+        let count = 0;
+        const nSample = Math.min(nx, 32);
+        for (let i = 0; i < nSample; i++) {
+            sumSq += s0.raw_data[i] * s0.raw_data[i];
+            count++;
+        }
+        noise = Math.sqrt(sumSq / Math.max(count, 1)) || 1.0;
+    }
+    const peakThresh = 4.0 * noise;
+
+    // Collect candidate peak extrema across sampled planes
+    const peakCandidates = [];
+    let volPosSum = 0.0;
+    let volNegSum = 0.0;
+    let volPosCount = 0;
+    let volNegCount = 0;
+
+    const zStep = nz <= 32 ? 1 : Math.max(1, Math.floor(nz / 16));
+
+    for (let z = 0; z < nz; z += zStep) {
+        const s = spectra_3d[z];
+        const data = s.raw_data;
+        if (!data) continue;
+
+        const curNy = s.n_indirect || ny;
+        const curNx = s.n_direct || nx;
+        const yStep = curNy <= 128 ? 1 : Math.max(1, Math.floor(curNy / 64));
+
+        for (let y = 0; y < curNy; y += yStep) {
+            const rowOffset = y * curNx;
+            for (let x = 1; x < curNx - 1; x++) {
+                if (isWater(x)) continue;
+
+                const val = data[rowOffset + x];
+                const absVal = Math.abs(val);
+
+                // Volume integral of points outside water
+                if (absVal >= peakThresh) {
+                    if (val > 0) {
+                        volPosCount++;
+                        volPosSum += val;
+                    } else {
+                        volNegCount++;
+                        volNegSum += -val;
+                    }
+                }
+
+                // 1D local extremum along direct dimension
+                if (absVal >= peakThresh) {
+                    const left = Math.abs(data[rowOffset + x - 1]);
+                    const right = Math.abs(data[rowOffset + x + 1]);
+                    if (absVal >= left && absVal >= right) {
+                        peakCandidates.push({ val: val, absVal: absVal });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort candidate peaks by absolute intensity descending and inspect top 50
+    peakCandidates.sort((a, b) => b.absVal - a.absVal);
+    const topPeaks = peakCandidates.slice(0, 50);
+
+    let numPos = 0;
+    let numNeg = 0;
+    let sumPos = 0.0;
+    let sumNeg = 0.0;
+
+    for (const p of topPeaks) {
+        if (p.val > 0) {
+            numPos++;
+            sumPos += p.val;
+        } else if (p.val < 0) {
+            numNeg++;
+            sumNeg += -p.val;
+        }
+    }
+
+    append_3d_log(`[phase-check] Polarity check (top ${topPeaks.length} peaks): ${numPos} pos (sum=${sumPos.toExponential(2)}), ${numNeg} neg (sum=${sumNeg.toExponential(2)}) | Volume: pos=${volPosCount}, neg=${volNegCount}`);
+
+    // Rule 1: Evaluated on top peaks
+    if (topPeaks.length >= 3) {
+        if (numNeg > numPos) return true;
+        if (numNeg === numPos && sumNeg > sumPos) return true;
+        if (sumNeg > 1.3 * sumPos && numNeg >= 2) return true;
+        return false;
+    }
+
+    if (topPeaks.length > 0) {
+        if (numNeg > numPos) return true;
+        if (sumNeg > sumPos) return true;
+        return false;
+    }
+
+    // Rule 2: Fallback on volume integral outside water
+    if (volNegCount > 0 || volPosCount > 0) {
+        if (volNegCount > volPosCount && volNegSum > volPosSum) return true;
+        if (volNegSum > 1.5 * volPosSum) return true;
+    }
+
+    // Rule 3: Fallback on global spectral min vs max outside water
+    let globalMax = -Infinity;
+    let globalMin = Infinity;
+    for (let z = 0; z < Math.min(nz, 4); z++) {
+        const s = spectra_3d[z];
+        if (!s.raw_data) continue;
+        const curNx = s.n_direct || nx;
+        const curNy = s.n_indirect || ny;
+        for (let y = 0; y < curNy; y++) {
+            const rowOffset = y * curNx;
+            for (let x = 0; x < curNx; x++) {
+                if (isWater(x)) continue;
+                const v = s.raw_data[rowOffset + x];
+                if (v > globalMax) globalMax = v;
+                if (v < globalMin) globalMin = v;
+            }
+        }
+    }
+
+    if (Math.abs(globalMin) > 1.5 * Math.abs(globalMax) && Math.abs(globalMin) > peakThresh) {
+        return true;
+    }
+
+    return false;
+}
+window.is_spectra_3d_majority_negative = is_spectra_3d_majority_negative;
+
 async function run_peak_fit_3d_workflow() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectrum loaded to run peak picking/fitting.");
@@ -711,12 +980,12 @@ async function run_peak_fit_3d_workflow() {
 
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
-        let scale2 = 6.0;
-        let multiplier_input = document.getElementById("contour_start_multiplier");
-        if (multiplier_input) {
-            scale2 = parseFloat(multiplier_input.value) || 6.0;
+        let scale1 = 5.5;
+        let scale2 = 3.0;
+        if (noiseLevel > 0 && s0 && s0.levels && s0.levels.length >= 2) {
+            scale1 = Math.max(5.5, s0.levels[1] / noiseLevel);
+            scale2 = Math.max(3.0, s0.levels[0] / noiseLevel / 2.0);
         }
-        let scale1 = 1.5 * scale2;
 
         let newPeakCutoff = 0.4;
         let cutoff_input = document.getElementById("input_new_peak_cutoff");
@@ -770,19 +1039,44 @@ function append_3d_log(message) {
  * @param {number[]} extractPpmRange - [start, end] PPM of the extract.
  */
 function get_full_spectrum_phase_correction(leftEdge, rightEdge, fullPpmRange, extractPpmRange) {
-    const ppm_full_start = fullPpmRange[0];
-    const ppm_full_end = fullPpmRange[1];
-    const ppm_extract_start = extractPpmRange[0];
-    const ppm_extract_end = extractPpmRange[1];
+    if (!fullPpmRange || !extractPpmRange || fullPpmRange.length < 2 || extractPpmRange.length < 2) {
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
+    let ppm_full_start = fullPpmRange[0];
+    let ppm_full_end = fullPpmRange[1];
+    let ppm_extract_start = extractPpmRange[0];
+    let ppm_extract_end = extractPpmRange[1];
+
+    let extSpan = ppm_extract_end - ppm_extract_start;
+    let fullSpan = ppm_full_end - ppm_full_start;
+
+    // Ensure both spans are directed the same way
+    if (extSpan * fullSpan < 0) {
+        const tmp = ppm_full_start;
+        ppm_full_start = ppm_full_end;
+        ppm_full_end = tmp;
+        fullSpan = ppm_full_end - ppm_full_start;
+    }
+
+    // Safety checks: avoid division by zero or unrealistic extrapolation factors
+    if (Math.abs(extSpan) < 1e-4) {
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
+
+    const scaleFactor = Math.abs(fullSpan / extSpan);
+    if (!Number.isFinite(scaleFactor) || scaleFactor > 15.0 || scaleFactor < 0.1) {
+        console.warn('[3D] Extrapolation ratio out of plausible bounds (' + scaleFactor.toFixed(2) + '). Falling back to local phase.');
+        return { p0: leftEdge, p1: rightEdge - leftEdge };
+    }
 
     // Slope in degrees per PPM
-    const slope = (rightEdge - leftEdge) / (ppm_extract_end - ppm_extract_start);
+    const slope = (rightEdge - leftEdge) / extSpan;
 
-    // p0 is at d=0 of the full spectrum
+    // p0 is at ppm_full_start (left edge of the full spectrum)
     const p0 = leftEdge + slope * (ppm_full_start - ppm_extract_start);
 
     // p1 is the total phase change across the full spectrum
-    const p1 = slope * (ppm_full_end - ppm_full_start);
+    const p1 = slope * fullSpan;
 
     return {
         p0: p0,
@@ -2846,7 +3140,7 @@ function generate_theoretical_volume(peaks) {
         s.spectrum_color = document.getElementById('color_theo_pos') ? document.getElementById('color_theo_pos').value : "#ff0000";
         s.spectrum_color_negative = document.getElementById('color_theo_neg') ? document.getElementById('color_theo_neg').value : "#000000";
         s.levels = calculate_levels(s0.noise_level, 1.5, 30);
-        s.negative_levels = [];
+        s.negative_levels = calculate_negative_levels(s0.noise_level, 1.5, 30);
 
         theoretical_spectra_3d.push(s);
     }
@@ -3071,6 +3365,8 @@ function draw_slice(index, update_ortho_views = true) {
             // The worker message passes 'spectrum_index'.
             // Let's rely on a custom property in the request.
             request_contour_calculation(st, index, 0, "theoretical");
+            // Negative theoretical peaks (fitted dips)
+            request_contour_calculation(st, index, 1, "theoretical");
         }
     }
 
@@ -3644,6 +3940,12 @@ async function load_sparky_3d_file_impl(file) {
             const projChecked = !!(document.getElementById('check_visualize_proj') && document.getElementById('check_visualize_proj').checked);
             if (projChecked) {
                 toggle_visualize_proj(true);
+            }
+
+            // Check in JS if the resulting 3D spectrum has majority negative peaks and automatically flip if required
+            if (is_spectra_3d_majority_negative()) {
+                append_3d_log("[auto-phase] Notice: Resulting 3D spectrum has majority negative peaks. Automatically applying 180° phase flip...");
+                flip_direct_phase_180();
             }
         }
 
@@ -4620,7 +4922,6 @@ function refresh_current_view(spectrum_in) {
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
 function sync_sliders_to_center(is_end = true) {
-    console.log("sync_sliders_to_center called");
     if (!main_plot || !spectra_3d || spectra_3d.length === 0) return;
 
     let s = spectra_3d[0]; // Reference spectrum for PPM calculations
@@ -7157,57 +7458,91 @@ function reset_3d_view() {
  * The display is temporarily set to high resolution, rendered, captured, and restored synchronously
  * to avoid visual disruption or resizing on the screen.
  */
+/**
+ * Captures high-resolution PNG data URL from a 3D IsoSurfaceRenderer instance.
+ * @param {IsoSurfaceRenderer} renderer - The renderer to capture.
+ * @param {number} scale - Resolution multiplier (default: 2 for 2x retina/supersampling).
+ * @returns {string|null} PNG data URL or null.
+ */
+function capture_3d_renderer_data_url(renderer, scale = 2) {
+    if (!renderer || !renderer.canvas || !renderer.gl) return null;
+
+    const originalResize = renderer.resize;
+    try {
+        if (scale && scale !== 1) {
+            const w = renderer.canvas.clientWidth || renderer.canvas.width || 800;
+            const h = renderer.canvas.clientHeight || renderer.canvas.height || 600;
+            renderer.resize = function () {
+                this.canvas.width = w * scale;
+                this.canvas.height = h * scale;
+                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            };
+        }
+        renderer.render();
+        return renderer.canvas.toDataURL("image/png");
+    } catch (e) {
+        console.error("Failed to capture 3D view data URL:", e);
+        return null;
+    } finally {
+        renderer.resize = originalResize;
+        renderer.render();
+    }
+}
+
+/**
+ * Returns PNG data URL for either the experimental or predicted/reconstructed 3D view.
+ * @param {string} type - 'exp' | 'theory' | 'recon' | 'predicted'
+ * @param {number} scale - Resolution multiplier (default: 2)
+ * @returns {string|null}
+ */
+function get_3d_view_data_url(type = "exp", scale = 2) {
+    const isRecon = (type === "theory" || type === "recon" || type === "predicted" || type === "reconstructed");
+    const renderer = isRecon ? iso_renderer_recon : iso_renderer;
+    return capture_3d_renderer_data_url(renderer, scale);
+}
+
+/**
+ * Downloads a single 3D view (either experimental or reconstructed/predicted).
+ * @param {string} type - 'exp' | 'theory' | 'recon'
+ * @param {string|null} filename - Output filename (defaults to 'exp.png' or 'theory.png')
+ * @returns {boolean}
+ */
+function download_3d_view(type = "exp", filename = null) {
+    const isRecon = (type === "theory" || type === "recon" || type === "predicted" || type === "reconstructed");
+    const defaultName = isRecon ? "theory.png" : "exp.png";
+    const outName = filename || defaultName;
+
+    const dataURL = get_3d_view_data_url(type, 2);
+    if (!dataURL) {
+        alert("3D visualization not initialized for " + (isRecon ? "Reconstructed / Predicted" : "Experimental") + " view.");
+        return false;
+    }
+
+    const link = document.createElement("a");
+    link.download = outName;
+    link.href = dataURL;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return true;
+}
+
+/**
+ * Downloads both 3D views (experimental and reconstructed/predicted) as separate PNG files.
+ */
 function download_3d_views() {
     let downloaded = false;
 
-    // Helper to capture a renderer at 2x resolution
-    function captureRenderer(renderer, filename) {
-        if (!renderer || !renderer.canvas || !renderer.gl) return false;
-        
-        const originalResize = renderer.resize;
-        try {
-            // Override the resize logic to render at exactly 2x of its client/display size
-            renderer.resize = function() {
-                this.canvas.width = this.canvas.clientWidth * 2;
-                this.canvas.height = this.canvas.clientHeight * 2;
-                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-            };
-
-            // Synchronously render the high-res frame
-            renderer.render();
-
-            // Extract the PNG data URL
-            const dataURL = renderer.canvas.toDataURL("image/png");
-
-            // Trigger programmatic download
-            const link = document.createElement("a");
-            link.download = filename;
-            link.href = dataURL;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            return true;
-        } catch (e) {
-            console.error("Failed to download 3D view for " + filename + ":", e);
-            return false;
-        } finally {
-            // Restore original resize function and re-render to restore on-screen display
-            renderer.resize = originalResize;
-            renderer.render();
-        }
-    }
-
     // Capture Experimental 3D View
     if (iso_renderer) {
-        if (captureRenderer(iso_renderer, "experimental_3d.png")) {
+        if (download_3d_view("exp", "exp.png")) {
             downloaded = true;
         }
     }
 
-    // Capture Reconstructed 3D View (if it exists)
+    // Capture Reconstructed / Predicted 3D View (if available)
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0 && iso_renderer_recon) {
-        if (captureRenderer(iso_renderer_recon, "reconstructed_3d.png")) {
+        if (download_3d_view("theory", "theory.png")) {
             downloaded = true;
         }
     }
@@ -7217,9 +7552,6 @@ function download_3d_views() {
     }
 }
 
-/**
- * Handles mouse peak picking on the 3D surface.
- */
 function handle3DPeakPicked(pt, type = "Experimental") {
     if (!current_volume_data || !spectra_3d || spectra_3d.length === 0) return;
     let s0 = spectra_3d[0];
@@ -8161,6 +8493,9 @@ async function load_fid_3d_file() {
 
         const showArtifactChecked = !!(document.getElementById('show_spectrum_artifact_3d') && document.getElementById('show_spectrum_artifact_3d').checked);
         cfg.showArtifact = showArtifactChecked;
+        if (showArtifactChecked) {
+            cfg.debugNusRunFullProcess = true;
+        }
 
         // Per requirement: If auto-phasing NUS, we MUST run the full process route (skip SMILE) 
         // to get a spectrum the model can phase correctly.
@@ -8207,7 +8542,6 @@ async function load_fid_3d_file() {
  * @returns {Promise<void>}
  */
 async function handle_webass_3d_message(e) {
-    console.log('[3D][worker->main] message keys:', Object.keys(e.data || {}));
     if (e.data.error) {
         append_3d_log('[worker-error] ' + e.data.error);
         document.getElementById("webassembly_message").innerText = "Error: " + e.data.error;
@@ -8278,7 +8612,6 @@ async function handle_webass_3d_message(e) {
             if (dl_btn) dl_btn.disabled = false;
             let toggle_btn = document.getElementById("button_toggle_peak_symbols");
             if (toggle_btn) toggle_btn.disabled = false;
-            console.log("Fitted Peaks Output:\n", resultString);
 
             try {
                 let peaks = parse_peaks_text(resultString);
@@ -8372,24 +8705,17 @@ async function handle_webass_3d_message(e) {
 
             // Auto phase correction for normal workflow (or NUS phase check mode)
             if (e.data["#sym:webassembly_job "] !== "postprocess_ft3" && current_fid_config && (current_fid_config.normalDirectDimAutoPhase || current_fid_config.nusDirectDimAutoPhase)) {
-                append_3d_log("[tfjs] Starting auto phase correction on direct dimension...");
+                append_3d_log("[tfjs] Starting auto phase correction on direct dimension (Model 04, 2 rounds)...");
                 try {
+                    if (!tfjs_normal_model) {
+                        tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+                    }
                     const result = await NUS3DPhasePipeline.runFromFt3({
                         tf: window.tf,
                         ft3ArrayBuffer: ft3Data.buffer,
                         model: tfjs_normal_model,
-                        largeModel: tfjs_large_model,
-                        modelUrl: 'js/model22_tfjs/model.json',
-                        largeModelUrl: 'js/model22_large_tfjs/model.json'
+                        modelUrl: 'js/model04_tfjs/model.json'
                     });
-
-                    // Cache models if they were loaded inside the pipeline
-                    if (!tfjs_normal_model && result.stage_normal_1 && result.stage_normal_1.model) {
-                        // Wait, looking at tfjs_infer_full_pipeline.js, it doesn't return the model in stage_normal_1.
-                        // I'll have to load them manually if I want to cache them easily, or modify the pipeline.
-                        // But let's check if they are returned. Stage_normal_1 is the result of runModelOnCubes.
-                        // runModelOnCubes returns { pred_local_phase, pred_local_w, wls_phase_left_right }. No model.
-                    }
 
                     const lr = result.final_wls_phase_left_right[0]; // Batch 0
                     const leftEdge = lr[0];
@@ -8408,38 +8734,46 @@ async function handle_webass_3d_message(e) {
                     const local_p1 = (rightEdge - leftEdge) * (nx - 1) / nx;
                     const local_pivot = x_ppm_start_val;
 
-                    // Extrapolate to global parameters ONLY for UI box display
-                    let ui_p0 = local_p0;
-                    let ui_p1 = local_p1;
+                    // NMRPipe phase parameters for extracted region
+                    const p0_extract = leftEdge;
+                    const p1_extract = rightEdge - leftEdge;
 
+                    // Extrapolate to full spectrum if spectral metadata available
+                    let p0_full = p0_extract;
+                    let p1_full = p1_extract;
                     if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
-                        const phaseMeta = get_full_spectrum_phase_correction(leftEdge, rightEdge, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
-                        ui_p0 = phaseMeta.p0;
-                        ui_p1 = phaseMeta.p1;
-                        append_3d_log(`[tfjs] Extrapolated phase for UI display: p0=${ui_p0.toFixed(2)}, p1=${ui_p1.toFixed(2)}`);
-                    } else {
-                        append_3d_log(`[tfjs] Auto phase result (local): p0=${local_p0.toFixed(2)}, local_p1=${local_p1.toFixed(2)}`);
-                        console.warn('[3D] Missing spectral metadata for extrapolation. Falling back to local values.', window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                        const phaseMeta = get_full_spectrum_phase_correction(p0_extract, p0_extract + p1_extract, window.last_fid_full_ppm_range, window.last_fid_extract_ppm_range);
+                        p0_full = phaseMeta.p0;
+                        p1_full = phaseMeta.p1;
                     }
 
-                    append_3d_log(`[tfjs] Auto phase calculated. UI update will follow application.`);
+                    append_3d_log(`[tfjs] Model 04 Phase Results (NMRPipe format):`);
+                    append_3d_log(`       • Extracted region: P0 (left edge) = ${p0_extract.toFixed(2)}°, P1 (total change) = ${p1_extract.toFixed(2)}°`);
+                    append_3d_log(`       • Full spectrum (extrapolated): P0 = ${p0_full.toFixed(2)}°, P1 = ${p1_full.toFixed(2)}°`);
+
+                    // Fill extrapolated values into edit boxes
+                    const box0 = document.getElementById('phase_correction_direct_p0');
+                    const box1 = document.getElementById('phase_correction_direct_p1');
+                    if (box0) box0.value = p0_full.toFixed(2);
+                    if (box1) box1.value = p1_full.toFixed(2);
+
+                    append_3d_log(`[tfjs] Filled full spectrum P0=${p0_full.toFixed(2)}° and P1=${p1_full.toFixed(2)}° into edit boxes.`);
+
+                    if (result && result.applied180Flip) {
+                        append_3d_log("[tfjs] Notice: Spectrum polarity flipped by 180° along direct dimension for post-processing.");
+                    }
 
                     // Internally, ALWAYS use the local parameters for the current extraction
-                    trace_x_ph0 = local_p0;
+                    trace_x_ph0 = p0_extract;
                     trace_x_ph1 = local_p1;
                     trace_x_pivot = local_pivot;
 
                     // Set auto_p0_3d/auto_p1_3d to non-null to trigger the application later
-                    auto_p0_3d = local_p0;
+                    auto_p0_3d = p0_extract;
                     auto_p1_3d = local_p1;
 
                     if (current_fid_config && !current_fid_config.isNus && current_fid_config.normalDirectDimAutoPhase) {
                         append_3d_log("[main] Automatically running final baseline correction and phase correction in C++ post-processing...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
 
                         const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
                         if (autoCheckbox) {
@@ -8454,7 +8788,7 @@ async function handle_webass_3d_message(e) {
                         trace_x_ph1 = 0.0;
                         trace_x_pivot = null;
 
-                        // Phase text to send: construct using calculated local_p0, local_p1 and current UI values for indirect dimensions
+                        // Phase text to send: construct using calculated p0_full, p1_full and current UI values for indirect dimensions
                         const ind1_p0 = document.getElementById('phase_correction_indirect1_p0').value || "0.0";
                         const ind1_p1 = document.getElementById('phase_correction_indirect1_p1').value || "0.0";
                         const ind2_p0 = document.getElementById('phase_correction_indirect2_p0').value || "0.0";
@@ -8472,6 +8806,7 @@ async function handle_webass_3d_message(e) {
                             "#sym:webassembly_job ": "postprocess_ft3",
                             cfg: current_fid_config,
                             phaseTextToUse: phaseTextToUse,
+                            phaseText: phaseTextToUse,
                             ft3Bytes: ft3Data
                         }, [ft3Data.buffer]);
 
@@ -8482,11 +8817,6 @@ async function handle_webass_3d_message(e) {
 
                     if (current_fid_config && current_fid_config.nusDirectDimAutoPhase && !current_fid_config.showArtifact) {
                         append_3d_log("[main] Automatically re-running NUS processing with calculated phase values...");
-
-                        const box0 = document.getElementById('phase_correction_direct_p0');
-                        const box1 = document.getElementById('phase_correction_direct_p1');
-                        if (box0) box0.value = (parseFloat(box0.value || 0) + ui_p0).toFixed(2);
-                        if (box1) box1.value = (parseFloat(box1.value || 0) + ui_p1).toFixed(2);
 
                         const autoCheckbox = document.getElementById('normal_direct_dim_auto_phase_3d');
                         if (autoCheckbox) {
@@ -8645,7 +8975,7 @@ function handle_webass_smile_3d_message(e) {
     }
 
     if (e.data && e.data.spectrum_data && e.data.file_type === 'smile_3d') {
-        const smileBytes = e.data.spectrum_data instanceof Uint8Array
+        let smileBytes = e.data.spectrum_data instanceof Uint8Array
             ? e.data.spectrum_data
             : new Uint8Array(e.data.spectrum_data);
         append_3d_log('[main] Received smile.ft3 from SMILE worker, bytes=' + smileBytes.length);
@@ -8686,49 +9016,42 @@ function handle_webass_smile_3d_message(e) {
  * @param {any} p1 - P1
  * @param {any} pivot - Pivot
  */
-function apply_trace_x_phase(p0, p1, pivot) {
+function apply_trace_x_phase(p0, p1, pivot, updateBoxes) {
     if (!spectra_3d || spectra_3d.length === 0) return;
     if (!spectra_3d.every(s => s.raw_data_ri && s.raw_data_ri.length > 0)) {
         alert("Imaginary data (raw_data_ri) not available for phase correction.");
         return;
     }
 
-    // Determine the 'delta' phase to be applied.
-    // If called from the UI button, p0/p1 are undefined, so we use the slider values (trace_x_ph0/ph1).
-    let add_p0 = p0 !== undefined ? p0 : trace_x_ph0;
-    let add_p1 = p1 !== undefined ? p1 : trace_x_ph1;
-    let apply_pivot = pivot !== undefined ? pivot : trace_x_pivot;
+    const isExplicit = (typeof p0 === 'number');
+    let add_p0 = isExplicit ? p0 : trace_x_ph0;
+    let add_p1 = (typeof p1 === 'number') ? p1 : trace_x_ph1;
+    let apply_pivot = (typeof pivot === 'number') ? pivot : trace_x_pivot;
+    let shouldUpdateBoxes = (updateBoxes !== undefined) ? !!updateBoxes : !isExplicit;
 
     if (add_p0 === 0 && add_p1 === 0) return;
 
-    // 1. Calculate global extrapolation of this 'delta' phase and add to the total boxes
-    const s0 = spectra_3d[0];
-    const h = s0.header;
-    if (h && h.length >= 512 && typeof get_full_spectrum_phase_correction === 'function') {
-        let full_ppm_range, extract_ppm_range;
+    if (shouldUpdateBoxes) {
+        const s0 = spectra_3d[0];
+        const h = s0.header;
+        if (h && h.length >= 512 && typeof get_full_spectrum_phase_correction === 'function') {
+            let full_ppm_range, extract_ppm_range;
 
-        // Prefer worker-captured ranges for FID route (especially important for NUS)
-        if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
-            full_ppm_range = window.last_fid_full_ppm_range;
-            extract_ppm_range = window.last_fid_extract_ppm_range;
-        } else {
-            const swDirect = h[100];
-            const obsDirect = h[119];
-            const originDirect = h[257];
-            const full_ppm_width = swDirect / obsDirect;
-            full_ppm_range = [originDirect, originDirect - full_ppm_width];
-            extract_ppm_range = [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+            if (window.last_fid_full_ppm_range && window.last_fid_extract_ppm_range) {
+                full_ppm_range = window.last_fid_full_ppm_range;
+                extract_ppm_range = window.last_fid_extract_ppm_range;
+            } else {
+                full_ppm_range = [s0.x_ppm_start, s0.x_ppm_start + (s0.n_direct - 1) * s0.x_ppm_step];
+                extract_ppm_range = full_ppm_range;
+            }
+
+            const phaseMeta = get_full_spectrum_phase_correction(add_p0, add_p0 + add_p1, full_ppm_range, extract_ppm_range);
+            const box0 = document.getElementById('phase_correction_direct_p0');
+            const box1 = document.getElementById('phase_correction_direct_p1');
+            if (box0) box0.value = (parseFloat(box0.value || 0) + phaseMeta.p0).toFixed(2);
+            if (box1) box1.value = (parseFloat(box1.value || 0) + phaseMeta.p1).toFixed(2);
+            append_3d_log(`[phase] Applied delta: local_p0=${add_p0.toFixed(2)}°, local_p1=${add_p1.toFixed(2)}° (Extrapolated for full FID: p0=${phaseMeta.p0.toFixed(2)}°, p1=${phaseMeta.p1.toFixed(2)}°)`);
         }
-
-        // We assume add_p1 is for the current extracted width (local)
-        const phaseMeta = get_full_spectrum_phase_correction(add_p0, add_p0 + add_p1, full_ppm_range, extract_ppm_range);
-
-        const box0 = document.getElementById('phase_correction_direct_p0');
-        const box1 = document.getElementById('phase_correction_direct_p1');
-        if (box0) box0.value = (parseFloat(box0.value || 0) + phaseMeta.p0).toFixed(2);
-        if (box1) box1.value = (parseFloat(box1.value || 0) + phaseMeta.p1).toFixed(2);
-
-        append_3d_log(`[phase] Applied delta: local_p0=${add_p0.toFixed(2)}, local_p1=${add_p1.toFixed(2)}`);
     }
 
     let p0_rad = add_p0 * Math.PI / 180.0;
@@ -8771,6 +9094,16 @@ function apply_trace_x_phase(p0, p1, pivot) {
         if (has_ri) {
             s.raw_data_ri = new_raw_data_ri;
         }
+
+        let maxVal = -Infinity;
+        let minVal = Infinity;
+        for (let i = 0; i < new_raw_data.length; i++) {
+            const v = new_raw_data[i];
+            if (v > maxVal) maxVal = v;
+            if (v < minVal) minVal = v;
+        }
+        s.spectral_max = maxVal;
+        s.spectral_min = minVal;
 
         // Update header to reflect that data is now phased
         if (s.header && s.header.length >= 512) {
@@ -8836,37 +9169,19 @@ window.addEventListener('DOMContentLoaded', () => {
     if (autoDirectNormal) {
         autoDirectNormal.addEventListener('change', async function () {
             if (this.checked && typeof NUS3DPhasePipeline !== 'undefined' && window.tf) {
-                if (!tfjs_normal_model || !tfjs_large_model) {
-                    append_3d_log("[tfjs] Pre-loading models...");
+                if (!tfjs_normal_model) {
+                    append_3d_log("[tfjs] Pre-loading Model 04...");
                     try {
-                        if (!tfjs_normal_model) tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_tfjs/model.json');
-                        if (!tfjs_large_model) tfjs_large_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model22_large_tfjs/model.json');
-                        append_3d_log("[tfjs] Models loaded successfully.");
+                        tfjs_normal_model = await NUS3DPhasePipeline.loadModel(window.tf, 'js/model04_tfjs/model.json');
+                        append_3d_log("[tfjs] Model 04 loaded successfully.");
                     } catch (err) {
-                        append_3d_log("[tfjs-error] Failed to pre-load models: " + err.message);
+                        append_3d_log("[tfjs-error] Failed to pre-load Model 04: " + err.message);
                     }
                 }
             }
         });
 
-        // Handle grey out for "show spectrum with artifact" based on auto phase correction
-        autoDirectNormal.addEventListener('change', function () {
-            const artifactCheckbox = document.getElementById('show_spectrum_artifact_3d');
-            const artifactLabel = document.getElementById('label_show_spectrum_artifact_3d');
-            if (artifactCheckbox && artifactLabel) {
-                if (this.checked) {
-                    artifactCheckbox.disabled = false;
-                    artifactLabel.style.color = '';
-                } else {
-                    artifactCheckbox.disabled = true;
-                    artifactCheckbox.checked = false; // Reset to unchecked when disabled
-                    artifactLabel.style.color = 'gray';
-                }
-            }
-        });
-
-        // Trigger initial state
-        autoDirectNormal.dispatchEvent(new Event('change'));
+        // "Show spectrum with artifact" remains independently selectable for manual phase correction
     }
 
 });

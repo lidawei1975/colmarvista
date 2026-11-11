@@ -1,35 +1,34 @@
-// 1. Initialize TensorFlow.js and load the models from your server's static directories
+// 1. Initialize TensorFlow.js and load Model 17 from your server's static directory
 async function initPipelineAndRun(ft2File) {
     try {
         // Reference the global window object loaded from the scripts
         const pipeline = window.NUS2DPhasePipeline;
         const tf = window.tf;
 
-        console.log("Loading models...");
+        console.log("Loading Model 17...");
 
-        // Replace these URLs with the correct paths on your web server
-        const modelUrl = '/2D_model30_tfjs/model.json';
+        // Replace this URL with the correct path on your web server
+        const modelUrl = 'js/model17_tfjs/model.json';
 
-        // Register custom model layers and load the model instances
-        pipeline.registerCustomLayers(tf);
-        const model = await tf.loadGraphModel(modelUrl);
+        // Load the Model 17 GraphModel instance (with automatic CPU fallback for integrated GPUs)
+        const model = await pipeline.loadModel(tf, modelUrl);
 
         console.log("Reading FT2 file into ArrayBuffer...");
         const ft2ArrayBuffer = await readFileAsArrayBuffer(ft2File);
 
-        console.log("Executing 4-stage inference pipeline...");
+        console.log("Executing 2-round Model 17 inference pipeline...");
         const result = await pipeline.runFromFt2({
             tf: tf,
             ft2ArrayBuffer: ft2ArrayBuffer,
             model: model,
-            useTokenNorms: false, // matches test_tfjs_pipeline.js settings
+            numRounds: 2,
         });
 
         console.log("Inference complete!", result);
 
         // Retrieve the final phase outputs (Left, Right)
         const finalPhases = result.final_wls_phase_left_right;
-        console.log("Final WLS phase left/right arrays:", finalPhases);
+        console.log("Final phase left/right arrays:", finalPhases);
 
         alert(`Prediction Complete!\nFirst row phases (Left, Right): ${finalPhases[0].join(', ')}`);
 
