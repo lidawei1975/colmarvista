@@ -158,13 +158,21 @@
                 <button class="ribbon-command" type="button" data-command="fid" title="Open Bruker time-domain processing">
                     <span class="command-icon">[F]</span><span>FID process</span>
                 </button>
-                <button class="ribbon-command" type="button" data-command="spectrum" title="Open frequency-domain spectrum input">
-                    <span class="command-icon">[2D]</span><span>Open spectrum</span>
+                <button class="ribbon-command" type="button" data-command="spectrum" title="Select FT2 spectrum files">
+                    <span class="command-icon">[2D]</span><span>Load FT2</span>
                 </button>
             </div>
             <div class="ribbon-group">
                 <button class="ribbon-command" type="button" data-command="pseudo3d" title="Open pseudo-3D and fitting tools">
                     <span class="command-icon">[3D]</span><span>Pseudo-3D</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="transfer" title="Open assignment transfer tools">
+                    <span class="command-icon">[A]</span><span>Transfer</span>
+                </button>
+            </div>
+            <div class="ribbon-group">
+                <button class="ribbon-command" type="button" data-command="peaks" title="Show or hide the peak table">
+                    <span class="command-icon">[P]</span><span>Peak table</span>
                 </button>
                 <button class="ribbon-command" type="button" data-command="log" title="Show processing log">
                     <span class="command-icon">[=]</span><span>Processing log</span>
@@ -204,6 +212,40 @@
             if (element) element.click();
         }
 
+        function togglePanel(id) {
+            const element = appElement(id);
+            if (element) element.classList.toggle("windows-panel-hidden");
+        }
+
+        function setSectionHidden(element, hidden) {
+            element.classList.toggle("windows-section-hidden", hidden);
+            if (hidden) {
+                element.style.setProperty("display", "none", "important");
+            } else {
+                element.style.removeProperty("display");
+            }
+        }
+
+        function toggleSection(id, buttonId) {
+            const element = appElement(id);
+            if (!element) return;
+            const isHidden = element.classList.toggle("windows-section-hidden");
+            if (!isHidden && buttonId) {
+                const button = appElement(buttonId);
+                if (button && button.innerText.trim() === "+") button.click();
+            }
+        }
+
+        function openSection(id, buttonId) {
+            const element = appElement(id);
+            if (!element) return;
+            element.classList.remove("windows-section-hidden");
+            if (buttonId) {
+                const button = appElement(buttonId);
+                if (button && button.innerText.trim() === "+") button.click();
+            }
+        }
+
         function styleEmbeddedApp() {
             const documentRef = appDocument();
             if (!documentRef || documentRef.getElementById("windows-ui-theme")) return;
@@ -221,34 +263,73 @@
                 #section2 { min-width: 0 !important; width: 100% !important; margin: 0 !important; padding: 10px !important; }
                 #section2 > .drop-area-neighbor, #section2 > .drop-area, #assignment_area, #spectra_list { width: 100% !important; max-width: none !important; margin: 6px 0 !important; border-color: #cbd5e1 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 2px 7px rgba(15,23,42,.06) !important; }
                 #load_and_save, #fid_file_area, #file_area, #pseudo3d_area, #assignment_area, #spectra_list { padding: 8px 12px !important; }
+                #fid_file_area.windows-section-hidden, #file_area.windows-section-hidden, #pseudo3d_area.windows-section-hidden, #assignment_area.windows-section-hidden { display: none !important; }
+                #file_area.windows-section-hidden { visibility: hidden !important; }
+                #load_and_save.windows-section-hidden { display: none !important; }
                 #plot { width: 100% !important; padding: 10px !important; border-color: #94a3b8 !important; border-radius: 6px !important; background: #fff !important; }
-                #log_area { border-radius: 6px !important; }
+                #plot { width: calc(100% - 390px) !important; margin-left: 0 !important; margin-right: 390px !important; }
+                #load_and_save { position: fixed !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
+                #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
+                #peak_area { display: flex !important; position: fixed !important; top: 10px !important; right: 12px !important; width: 360px !important; height: calc(100% - 250px) !important; min-width: 280px !important; min-height: 220px !important; padding: 0 !important; margin: 0 !important; z-index: 9997 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 8px 24px rgba(15,23,42,.16) !important; }
+                #peak_area.windows-panel-hidden, #log_area.windows-panel-hidden { display: none !important; }
+                #peak_area > div { padding: 8px 10px !important; background: #e8eef5 !important; border-bottom: 1px solid #cbd5e1 !important; }
+                #peak_area table { font-size: 11px !important; }
+                #log_area { top: auto !important; right: 12px !important; bottom: 12px !important; left: auto !important; width: 360px !important; height: 220px !important; border-radius: 7px !important; z-index: 9998 !important; }
                 button, input, select { font-family: inherit !important; }
             `;
             documentRef.head.appendChild(theme);
+            ["load_and_save", "fid_file_area", "file_area", "pseudo3d_area", "assignment_area"].forEach(id => {
+                const element = documentRef.getElementById(id);
+                if (element) setSectionHidden(element, true);
+            });
+            const peakArea = documentRef.getElementById("peak_area");
+            if (peakArea) peakArea.classList.add("windows-panel-hidden");
+            const logArea = documentRef.getElementById("log_area");
+            if (logArea) logArea.classList.add("windows-panel-hidden");
+
+            const ft2Input = documentRef.getElementById("userfile");
+            const ft2Form = documentRef.getElementById("ft2_file_form");
+            if (ft2Input) {
+                ft2Input.addEventListener("change", () => {
+                    const fileArea = documentRef.getElementById("file_area");
+                    if (fileArea) setSectionHidden(fileArea, true);
+                    if (ft2Input.files && ft2Input.files.length > 0 && ft2Form) {
+                        if (typeof ft2Form.requestSubmit === "function") {
+                            ft2Form.requestSubmit();
+                        } else {
+                            ft2Form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+                        }
+                    }
+                });
+            }
         }
 
         function runCommand(command) {
             if (!frame.contentDocument) return;
             switch (command) {
                 case "save":
-                    if (typeof frame.contentWindow.save_to_file === "function") frame.contentWindow.save_to_file();
+                    toggleSection("load_and_save");
                     break;
                 case "load":
-                    clickAppElement("load_file");
+                    toggleSection("load_and_save");
                     break;
                 case "fid":
-                    clickAppElement("button_minimize_fid_area");
+                    toggleSection("fid_file_area", "button_minimize_fid_area");
                     break;
                 case "spectrum":
-                    clickAppElement("button_minimize_file_area");
                     clickAppElement("userfile");
                     break;
                 case "pseudo3d":
-                    clickAppElement("button_minimize_preudo3d_area");
+                    toggleSection("pseudo3d_area", "button_minimize_preudo3d_area");
+                    break;
+                case "transfer":
+                    toggleSection("assignment_area", "button_minimize_assignment_area");
+                    break;
+                case "peaks":
+                    togglePanel("peak_area");
                     break;
                 case "log":
-                    if (typeof frame.contentWindow.toggle_log_minimize === "function") frame.contentWindow.toggle_log_minimize();
+                    togglePanel("log_area");
                     break;
                 case "reset":
                     frame.contentWindow.location.reload();
