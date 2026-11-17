@@ -4709,6 +4709,8 @@ function init_main_plot(first_spectrum) {
         inter_window_channel: null,
         tooldiv: tooldiv,
         on_sync_views: sync_3d_views,
+        b_show_cross_section: false
+    };
 
     main_plot = new plotit(input);
 
@@ -4918,6 +4920,38 @@ function refresh_current_view(spectrum_in) {
 }
 
 /**
+ * Updates x/y domains, axes, and WebGL camera on a target plot without triggering sync callbacks.
+ *
+ * @param {object} target_plot - Target plotit instance
+ * @param {Array<number>|null} x_domain - Optional [min, max] X domain in ppm
+ * @param {Array<number>|null} y_domain - Optional [min, max] Y domain in ppm
+ */
+function sync_plot_xy_domain(target_plot, x_domain, y_domain) {
+    if (!target_plot || !target_plot.xRange || !target_plot.yRange) return;
+    if (Array.isArray(x_domain) && x_domain.length === 2) {
+        target_plot.xscale = [x_domain[0], x_domain[1]];
+        target_plot.xRange.domain(target_plot.xscale);
+    }
+    if (Array.isArray(y_domain) && y_domain.length === 2) {
+        target_plot.yscale = [y_domain[0], y_domain[1]];
+        target_plot.yRange.domain(target_plot.yscale);
+    }
+    target_plot.reset_axis();
+    if (target_plot.$xAxis_svg && target_plot.xAxis) {
+        target_plot.$xAxis_svg.call(target_plot.xAxis);
+    }
+    if (target_plot.$yAxis_svg && target_plot.yAxis) {
+        target_plot.$yAxis_svg.call(target_plot.yAxis);
+    }
+    if (target_plot.contour_plot) {
+        let x_dom = target_plot.xRange.domain();
+        let y_dom = target_plot.yRange.domain();
+        target_plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], y_dom[0], y_dom[1]);
+        target_plot.contour_plot.drawScene();
+    }
+}
+
+/**
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
 function sync_sliders_to_center(is_end = true) {
@@ -5013,6 +5047,19 @@ function sync_sliders_to_center(is_end = true) {
         }
     }
 
+    // Sync projection plots sharing X and/or Y axes
+    if (main_plot_proj) {
+        sync_plot_xy_domain(main_plot_proj, x_domain, y_domain);
+    }
+    if (main_plot_proj_y) {
+        let z_dom = (main_plot_xz && main_plot_xz.yRange) ? main_plot_xz.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_y, x_domain, z_dom);
+    }
+    if (main_plot_proj_x) {
+        let z_dom = (main_plot_yz && main_plot_yz.xRange) ? main_plot_yz.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_x, y_domain, z_dom);
+    }
+
     update_3d_crosshairs();
 }
 
@@ -5094,6 +5141,19 @@ function sync_from_xz_plot(is_end = true) {
             let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
             val_yz.innerText = (new_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
         }
+    }
+
+    // Sync projection plots sharing X and/or Z axes
+    if (main_plot_proj_y) {
+        sync_plot_xy_domain(main_plot_proj_y, x_domain, y_domain);
+    }
+    if (main_plot_proj) {
+        let y_dom_xy = (main_plot && main_plot.yRange) ? main_plot.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj, x_domain, y_dom_xy);
+    }
+    if (main_plot_proj_x) {
+        let y_dom_xy = (main_plot && main_plot.yRange) ? main_plot.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_x, y_dom_xy, y_domain);
     }
 
     update_3d_crosshairs();
@@ -5178,6 +5238,19 @@ function sync_from_yz_plot(is_end = true) {
             let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
             val_xz.innerText = (new_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
         }
+    }
+
+    // Sync projection plots sharing Y and/or Z axes
+    if (main_plot_proj) {
+        let x_dom_xy = (main_plot && main_plot.xRange) ? main_plot.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj, x_dom_xy, y_domain);
+    }
+    if (main_plot_proj_y) {
+        let x_dom_xz = (main_plot_xz && main_plot_xz.xRange) ? main_plot_xz.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_y, x_dom_xz, x_domain);
+    }
+    if (main_plot_proj_x) {
+        sync_plot_xy_domain(main_plot_proj_x, y_domain, x_domain);
     }
 
     update_3d_crosshairs();
@@ -5295,6 +5368,8 @@ function init_ortho_plots(s) {
             tooldiv: tooldiv,
             on_sync_views: sync_3d_views,
             b_show_cross_section: false
+        };
+        main_plot_xz = new plotit(input_xz);
         main_plot_xz.draw();
 
         // Draw fixed center crosshairs
@@ -5349,6 +5424,8 @@ function init_ortho_plots(s) {
             on_sync_views: sync_3d_views,
             b_show_cross_section: false
         };
+        main_plot_yz = new plotit(input_yz);
+        main_plot_yz.draw();
 
         // Draw fixed center crosshairs
         if (typeof main_plot_yz.draw_center_lines === 'function') {
@@ -6906,6 +6983,15 @@ function toggle_visualize_proj(show) {
             if (!main_plot_proj || main_plot_proj.WIDTH === 0) init_proj_plot(s);
             if (!main_plot_proj_y || main_plot_proj_y.WIDTH === 0) init_proj_y_plot(s);
             if (!main_plot_proj_x || main_plot_proj_x.WIDTH === 0) init_proj_x_plot(s);
+            if (main_plot_proj && main_plot && main_plot.xRange && main_plot.yRange) {
+                sync_plot_xy_domain(main_plot_proj, main_plot.xRange.domain(), main_plot.yRange.domain());
+            }
+            if (main_plot_proj_y && main_plot_xz && main_plot_xz.xRange && main_plot_xz.yRange) {
+                sync_plot_xy_domain(main_plot_proj_y, main_plot_xz.xRange.domain(), main_plot_xz.yRange.domain());
+            }
+            if (main_plot_proj_x && main_plot_yz && main_plot_yz.xRange && main_plot_yz.yRange) {
+                sync_plot_xy_domain(main_plot_proj_x, main_plot_yz.yRange.domain(), main_plot_yz.xRange.domain());
+            }
             update_all_plot_axis_labels();
         }
 
@@ -6916,6 +7002,7 @@ function toggle_visualize_proj(show) {
             refresh_proj_y_plot();
             refresh_proj_x_plot();
         }
+        update_3d_crosshairs();
     } else {
         if (c1) c1.style.display = 'none';
         if (c2) c2.style.display = 'none';
@@ -9321,6 +9408,10 @@ function init_proj_plot(s) {
         b_show_cross_section: false
     };
     main_plot_proj = new plotit(input_proj);
+    main_plot_proj.draw();
+    if (typeof main_plot_proj.draw_center_lines === 'function') {
+        main_plot_proj.draw_center_lines();
+    }
     // Disable interactive behaviors
     main_plot_proj.cross_line_pause_flag = false;
     if (typeof main_plot_proj.allow_right_click === 'function') {
@@ -9330,6 +9421,10 @@ function init_proj_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot && main_plot.xRange && main_plot.yRange) {
+        sync_plot_xy_domain(main_plot_proj, main_plot.xRange.domain(), main_plot.yRange.domain());
     }
 }
 
@@ -9822,6 +9917,9 @@ function init_proj_y_plot(s) {
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
+    if (typeof main_plot_proj_y.draw_center_lines === 'function') {
+        main_plot_proj_y.draw_center_lines();
+    }
     main_plot_proj_y.cross_line_pause_flag = false;
     if (typeof main_plot_proj_y.allow_right_click === 'function') {
         main_plot_proj_y.allow_right_click(false);
@@ -9830,6 +9928,10 @@ function init_proj_y_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot_xz && main_plot_xz.xRange && main_plot_xz.yRange) {
+        sync_plot_xy_domain(main_plot_proj_y, main_plot_xz.xRange.domain(), main_plot_xz.yRange.domain());
     }
 }
 
@@ -9972,6 +10074,10 @@ function init_proj_x_plot(s) {
     };
     main_plot_proj_x = new plotit(input_proj);
     main_plot_proj_x.draw();
+    if (typeof main_plot_proj_x.draw_center_lines === 'function') {
+        main_plot_proj_x.draw_center_lines();
+    }
+    main_plot_proj_x.cross_line_pause_flag = false;
 
     if (typeof main_plot_proj_x.allow_right_click === 'function') {
         main_plot_proj_x.allow_right_click(false);
@@ -9980,6 +10086,10 @@ function init_proj_x_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot_yz && main_plot_yz.xRange && main_plot_yz.yRange) {
+        sync_plot_xy_domain(main_plot_proj_x, main_plot_yz.yRange.domain(), main_plot_yz.xRange.domain());
     }
 }
 
@@ -10074,6 +10184,13 @@ function reset_proj_x_zoom() {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_x_plot(is_end = true) {
+    if (main_plot_proj_x && main_plot_proj_x.xRange && main_plot_proj_x.yRange && main_plot_yz) {
+        let y_domain = main_plot_proj_x.xRange.domain();
+        let z_domain = main_plot_proj_x.yRange.domain();
+        sync_plot_xy_domain(main_plot_yz, z_domain, y_domain);
+        sync_from_yz_plot(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -10084,6 +10201,19 @@ function sync_from_proj_x_plot(is_end = true) {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_plot(is_end = true) {
+    if (main_plot_proj && main_plot_proj.xRange && main_plot_proj.yRange && main_plot) {
+        let x_domain = main_plot_proj.xRange.domain();
+        let y_domain = main_plot_proj.yRange.domain();
+        sync_plot_xy_domain(main_plot, x_domain, y_domain);
+        if (main_plot.x_cross_section_plot) {
+            main_plot.x_cross_section_plot.zoom_x(main_plot.xscale);
+        }
+        if (main_plot.y_cross_section_plot) {
+            main_plot.y_cross_section_plot.zoom_y(main_plot.yscale);
+        }
+        sync_sliders_to_center(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -10094,6 +10224,13 @@ function sync_from_proj_plot(is_end = true) {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_y_plot(is_end = true) {
+    if (main_plot_proj_y && main_plot_proj_y.xRange && main_plot_proj_y.yRange && main_plot_xz) {
+        let x_domain = main_plot_proj_y.xRange.domain();
+        let z_domain = main_plot_proj_y.yRange.domain();
+        sync_plot_xy_domain(main_plot_xz, x_domain, z_domain);
+        sync_from_xz_plot(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
