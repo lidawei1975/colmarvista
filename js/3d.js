@@ -4708,8 +4708,7 @@ function init_main_plot(first_spectrum) {
         PointData: [],
         inter_window_channel: null,
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
-    };
+        on_sync_views: sync_3d_views,
 
     main_plot = new plotit(input);
 
@@ -5294,9 +5293,8 @@ function init_ortho_plots(s) {
             drawto_infor: "infor_xz",
             size: [cr.width, cr.height],
             tooldiv: tooldiv,
-            on_sync_views: sync_3d_views
-        };
-        main_plot_xz = new plotit(input_xz);
+            on_sync_views: sync_3d_views,
+            b_show_cross_section: false
         main_plot_xz.draw();
 
         // Draw fixed center crosshairs
@@ -5348,10 +5346,9 @@ function init_ortho_plots(s) {
             drawto_infor: "infor_yz",
             size: [cr.width, cr.height],
             tooldiv: tooldiv,
-            on_sync_views: sync_3d_views
+            on_sync_views: sync_3d_views,
+            b_show_cross_section: false
         };
-        main_plot_yz = new plotit(input_yz);
-        main_plot_yz.draw();
 
         // Draw fixed center crosshairs
         if (typeof main_plot_yz.draw_center_lines === 'function') {
@@ -9320,11 +9317,10 @@ function init_proj_plot(s) {
         drawto_infor: "infor_proj",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj = new plotit(input_proj);
-    main_plot_proj.draw();
-
     // Disable interactive behaviors
     main_plot_proj.cross_line_pause_flag = false;
     if (typeof main_plot_proj.allow_right_click === 'function') {
@@ -9821,12 +9817,11 @@ function init_proj_y_plot(s) {
         drawto_infor: "infor_proj_y",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
-
-    // Disable interactive behaviors
     main_plot_proj_y.cross_line_pause_flag = false;
     if (typeof main_plot_proj_y.allow_right_click === 'function') {
         main_plot_proj_y.allow_right_click(false);
@@ -9972,13 +9967,12 @@ function init_proj_x_plot(s) {
         drawto_infor: "infor_proj_x",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj_x = new plotit(input_proj);
     main_plot_proj_x.draw();
 
-    // Disable interactive behaviors
-    main_plot_proj_x.cross_line_pause_flag = false;
     if (typeof main_plot_proj_x.allow_right_click === 'function') {
         main_plot_proj_x.allow_right_click(false);
     }
