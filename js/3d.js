@@ -448,6 +448,8 @@ function reset_3d_dataset_state(keepNuclei = false) {
         ft3_processed_btn.onclick = null;
     }
 
+    let shift_x = document.getElementById("shift_val_x");
+    if (shift_x) shift_x.value = "";
     let shift_y = document.getElementById("shift_val_y");
     if (shift_y) shift_y.value = "";
     let shift_z = document.getElementById("shift_val_z");
@@ -2209,11 +2211,11 @@ window.remove_secondary_axis = remove_secondary_axis;
 window.update_all_secondary_axes = update_all_secondary_axes;
 
 /**
- * Applies a calibration shift (in ppm or Hz) to an indirect dimension ('y' or 'z').
+ * Applies a calibration shift (in ppm or Hz) to a dimension ('x', 'y', or 'z').
  * Updates internal coordinates, NMRPipe header (both CAR and ORIG), plot scales,
  * WebGL contours, slice indicators, 1D traces, and the spectrum information table.
  *
- * @param {string} axis - 'y' for Indirect Dimension 1, 'z' for Indirect Dimension 2 (Planes)
+ * @param {string} axis - 'x' for Direct Dimension, 'y' for Indirect Dimension 1, 'z' for Indirect Dimension 2 (Planes)
  */
 function apply_dimension_shift(axis) {
     if (!spectra_3d || spectra_3d.length === 0) {
@@ -2222,13 +2224,13 @@ function apply_dimension_shift(axis) {
     }
 
     const normAxis = String(axis).toLowerCase();
-    if (normAxis !== 'y' && normAxis !== 'z') {
-        console.error("apply_dimension_shift: Invalid axis " + axis + ". Must be 'y' or 'z'.");
+    if (normAxis !== 'x' && normAxis !== 'y' && normAxis !== 'z') {
+        console.error("apply_dimension_shift: Invalid axis " + axis + ". Must be 'x', 'y', or 'z'.");
         return;
     }
 
-    const inputId = (normAxis === 'y') ? "shift_val_y" : "shift_val_z";
-    const unitId = (normAxis === 'y') ? "shift_unit_y" : "shift_unit_z";
+    const inputId = "shift_val_" + normAxis;
+    const unitId = "shift_unit_" + normAxis;
 
     const inputElem = document.getElementById(inputId);
     const unitElem = document.getElementById(unitId);
@@ -2275,9 +2277,11 @@ function apply_dimension_shift(axis) {
         return 0;
     };
 
-    let frq = (normAxis === 'y')
-        ? (s0.frq2 || getDimHeaderVal(25, 218, 119, 10))
-        : (s0.frq3 || getDimHeaderVal(26, 218, 119, 10));
+    let frq = (normAxis === 'x')
+        ? (s0.frq1 || getDimHeaderVal(24, 218, 119, 10))
+        : ((normAxis === 'y')
+            ? (s0.frq2 || getDimHeaderVal(25, 218, 119, 10))
+            : (s0.frq3 || getDimHeaderVal(26, 218, 119, 10)));
 
     let delta_ppm = 0;
     let delta_hz = 0;
@@ -2303,12 +2307,13 @@ function apply_dimension_shift(axis) {
     }
 
     // Identify NMRPipe header indices for CAR (ppm) and ORIG (Hz)
+    // dimorder1 = header[24] (Direct dim / x)
     // dimorder2 = header[25] (Indirect dim 1 / y)
     // dimorder3 = header[26] (Indirect dim 2 / z)
-    const dimOrderIdx = (normAxis === 'y') ? 25 : 26;
+    const dimOrderIdx = (normAxis === 'x') ? 24 : ((normAxis === 'y') ? 25 : 26);
     const dimNum = (s0.header && s0.header.length > dimOrderIdx)
         ? Math.round(s0.header[dimOrderIdx])
-        : (normAxis === 'y' ? 1 : 3);
+        : (normAxis === 'x' ? 2 : (normAxis === 'y' ? 1 : 3));
 
     let carIdx, origIdx;
     if (dimNum === 1) {
@@ -2328,7 +2333,13 @@ function apply_dimension_shift(axis) {
     // Update all planes in spectra_3d
     for (let i = 0; i < spectra_3d.length; i++) {
         const s = spectra_3d[i];
-        if (normAxis === 'y') {
+        if (normAxis === 'x') {
+            if (typeof s.x_ppm_start === 'number') s.x_ppm_start += delta_ppm;
+            if (s.ref && s.direct_ndx !== undefined && s.direct_ndx >= 1) {
+                s.ref[s.direct_ndx - 1] += delta_hz;
+            }
+            if (typeof s.ref1 === 'number') s.ref1 += delta_hz;
+        } else if (normAxis === 'y') {
             if (typeof s.y_ppm_start === 'number') s.y_ppm_start += delta_ppm;
             if (s.ref && s.indirect_ndx !== undefined && s.indirect_ndx >= 1) {
                 s.ref[s.indirect_ndx - 1] += delta_hz;
@@ -2352,7 +2363,9 @@ function apply_dimension_shift(axis) {
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         for (let i = 0; i < theoretical_spectra_3d.length; i++) {
             const st = theoretical_spectra_3d[i];
-            if (normAxis === 'y' && typeof st.y_ppm_start === 'number') {
+            if (normAxis === 'x' && typeof st.x_ppm_start === 'number') {
+                st.x_ppm_start += delta_ppm;
+            } else if (normAxis === 'y' && typeof st.y_ppm_start === 'number') {
                 st.y_ppm_start += delta_ppm;
             } else if (normAxis === 'z' && typeof st.z_ppm_start === 'number') {
                 st.z_ppm_start += delta_ppm;
@@ -2361,122 +2374,99 @@ function apply_dimension_shift(axis) {
     }
 
     // Update synthetic orthogonal slice spectrum objects
-    if (spectrum_xz) {
-        if (normAxis === 'z' && typeof spectrum_xz.y_ppm_start === 'number') {
-            spectrum_xz.y_ppm_start += delta_ppm;
+    const shiftSpecStart = (specObj, prop) => {
+        if (specObj && typeof specObj[prop] === 'number') {
+            specObj[prop] += delta_ppm;
         }
-    }
-    if (theoretical_spectrum_xz) {
-        if (normAxis === 'z' && typeof theoretical_spectrum_xz.y_ppm_start === 'number') {
-            theoretical_spectrum_xz.y_ppm_start += delta_ppm;
-        }
-    }
-    if (spectrum_yz) {
-        if (normAxis === 'y' && typeof spectrum_yz.y_ppm_start === 'number') {
-            spectrum_yz.y_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof spectrum_yz.x_ppm_start === 'number') {
-            spectrum_yz.x_ppm_start += delta_ppm;
-        }
-    }
-    if (theoretical_spectrum_yz) {
-        if (normAxis === 'y' && typeof theoretical_spectrum_yz.y_ppm_start === 'number') {
-            theoretical_spectrum_yz.y_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof theoretical_spectrum_yz.x_ppm_start === 'number') {
-            theoretical_spectrum_yz.x_ppm_start += delta_ppm;
-        }
-    }
+    };
 
-    // Update projection spectra objects if present
-    if (spectrum_proj && normAxis === 'y' && typeof spectrum_proj.y_ppm_start === 'number') {
-        spectrum_proj.y_ppm_start += delta_ppm;
-    }
-    if (spectrum_proj_y && normAxis === 'z' && typeof spectrum_proj_y.y_ppm_start === 'number') {
-        spectrum_proj_y.y_ppm_start += delta_ppm;
-    }
-    if (spectrum_proj_x) {
-        if (normAxis === 'y' && typeof spectrum_proj_x.x_ppm_start === 'number') {
-            spectrum_proj_x.x_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof spectrum_proj_x.y_ppm_start === 'number') {
-            spectrum_proj_x.y_ppm_start += delta_ppm;
-        }
+    if (normAxis === 'x') {
+        shiftSpecStart(spectrum_xz, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_xz, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj_y, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_y, 'x_ppm_start');
+    } else if (normAxis === 'y') {
+        shiftSpecStart(spectrum_yz, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_yz, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj_x, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_x, 'x_ppm_start');
+    } else {
+        shiftSpecStart(spectrum_xz, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_xz, 'y_ppm_start');
+        shiftSpecStart(spectrum_yz, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_yz, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj_y, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_y, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj_x, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_x, 'y_ppm_start');
     }
 
     // Update plot scales and SVG axes
-    if (normAxis === 'y') {
-        // Main plot (XY) Y-axis is Y
-        if (main_plot && main_plot.yscale) {
-            main_plot.yscale = [main_plot.yscale[0] + delta_ppm, main_plot.yscale[1] + delta_ppm];
-            if (main_plot.yRange) main_plot.yRange.domain(main_plot.yscale);
-            if (main_plot.yscale_orig) {
-                main_plot.yscale_orig = [main_plot.yscale_orig[0] + delta_ppm, main_plot.yscale_orig[1] + delta_ppm];
+    const shiftPlotAxis = (plot, axisKey, delta) => {
+        if (!plot) return;
+        const isX = axisKey === 'x';
+        const scaleProp = isX ? 'xscale' : 'yscale';
+        const rangeProp = isX ? 'xRange' : 'yRange';
+        const origProp = isX ? 'xscale_orig' : 'yscale_orig';
+        const initProp = isX ? 'init_xscale' : 'init_yscale';
+        const svgAxisProp = isX ? '$xAxis_svg' : '$yAxis_svg';
+        const axisObjProp = isX ? 'xAxis' : 'yAxis';
+
+        if (Array.isArray(plot[scaleProp])) {
+            plot[scaleProp] = [plot[scaleProp][0] + delta, plot[scaleProp][1] + delta];
+            if (plot[rangeProp]) plot[rangeProp].domain(plot[scaleProp]);
+            if (Array.isArray(plot[origProp])) {
+                plot[origProp] = [plot[origProp][0] + delta, plot[origProp][1] + delta];
             }
-            if (typeof main_plot.reset_axis === 'function') main_plot.reset_axis();
-            if (main_plot.$yAxis_svg && main_plot.yAxis) main_plot.$yAxis_svg.call(main_plot.yAxis);
-        }
-        // YZ plot (ZY) Y-axis is Y
-        if (main_plot_yz && main_plot_yz.yscale) {
-            main_plot_yz.yscale = [main_plot_yz.yscale[0] + delta_ppm, main_plot_yz.yscale[1] + delta_ppm];
-            if (main_plot_yz.yRange) main_plot_yz.yRange.domain(main_plot_yz.yscale);
-            if (main_plot_yz.yscale_orig) {
-                main_plot_yz.yscale_orig = [main_plot_yz.yscale_orig[0] + delta_ppm, main_plot_yz.yscale_orig[1] + delta_ppm];
+            if (Array.isArray(plot[initProp])) {
+                plot[initProp] = [plot[initProp][0] + delta, plot[initProp][1] + delta];
             }
-            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
-            if (main_plot_yz.$yAxis_svg && main_plot_yz.yAxis) main_plot_yz.$yAxis_svg.call(main_plot_yz.yAxis);
+            if (typeof plot.reset_axis === 'function') plot.reset_axis();
+            if (plot[svgAxisProp] && plot[axisObjProp]) plot[svgAxisProp].call(plot[axisObjProp]);
         }
-        // Projections
-        if (main_plot_proj && main_plot_proj.yscale) {
-            main_plot_proj.yscale = [main_plot_proj.yscale[0] + delta_ppm, main_plot_proj.yscale[1] + delta_ppm];
-            if (main_plot_proj.yRange) main_plot_proj.yRange.domain(main_plot_proj.yscale);
-            if (main_plot_proj.yscale_orig) main_plot_proj.yscale_orig = [main_plot_proj.yscale_orig[0] + delta_ppm, main_plot_proj.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj.reset_axis === 'function') main_plot_proj.reset_axis();
+    };
+
+    if (normAxis === 'x') {
+        // Main plot (XY) X-axis is X; XZ plot X-axis is X; projections X-axis is X
+        shiftPlotAxis(main_plot, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_xz, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj_y, 'x', delta_ppm);
+        if (trace_x_pivot !== null) {
+            trace_x_pivot += delta_ppm;
+            ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = trace_x_pivot.toFixed(2) + ' ppm';
+            });
         }
-        if (main_plot_proj_x && main_plot_proj_x.xscale) {
-            main_plot_proj_x.xscale = [main_plot_proj_x.xscale[0] + delta_ppm, main_plot_proj_x.xscale[1] + delta_ppm];
-            if (main_plot_proj_x.xRange) main_plot_proj_x.xRange.domain(main_plot_proj_x.xscale);
-            if (main_plot_proj_x.xscale_orig) main_plot_proj_x.xscale_orig = [main_plot_proj_x.xscale_orig[0] + delta_ppm, main_plot_proj_x.xscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
-        }
+    } else if (normAxis === 'y') {
+        // Main plot (XY) Y-axis is Y; YZ plot (ZY) Y-axis is Y
+        shiftPlotAxis(main_plot, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_yz, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj_x, 'x', delta_ppm);
     } else {
-        // XZ plot Y-axis is Z
-        if (main_plot_xz && main_plot_xz.yscale) {
-            main_plot_xz.yscale = [main_plot_xz.yscale[0] + delta_ppm, main_plot_xz.yscale[1] + delta_ppm];
-            if (main_plot_xz.yRange) main_plot_xz.yRange.domain(main_plot_xz.yscale);
-            if (main_plot_xz.yscale_orig) {
-                main_plot_xz.yscale_orig = [main_plot_xz.yscale_orig[0] + delta_ppm, main_plot_xz.yscale_orig[1] + delta_ppm];
-            }
-            if (typeof main_plot_xz.reset_axis === 'function') main_plot_xz.reset_axis();
-            if (main_plot_xz.$yAxis_svg && main_plot_xz.yAxis) main_plot_xz.$yAxis_svg.call(main_plot_xz.yAxis);
-        }
-        // YZ plot X-axis is Z
-        if (main_plot_yz && main_plot_yz.xscale) {
-            main_plot_yz.xscale = [main_plot_yz.xscale[0] + delta_ppm, main_plot_yz.xscale[1] + delta_ppm];
-            if (main_plot_yz.xRange) main_plot_yz.xRange.domain(main_plot_yz.xscale);
-            if (main_plot_yz.xscale_orig) {
-                main_plot_yz.xscale_orig = [main_plot_yz.xscale_orig[0] + delta_ppm, main_plot_yz.xscale_orig[1] + delta_ppm];
-            }
-            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
-            if (main_plot_yz.$xAxis_svg && main_plot_yz.xAxis) main_plot_yz.$xAxis_svg.call(main_plot_yz.xAxis);
-        }
-        // Projections
-        if (main_plot_proj_y && main_plot_proj_y.yscale) {
-            main_plot_proj_y.yscale = [main_plot_proj_y.yscale[0] + delta_ppm, main_plot_proj_y.yscale[1] + delta_ppm];
-            if (main_plot_proj_y.yRange) main_plot_proj_y.yRange.domain(main_plot_proj_y.yscale);
-            if (main_plot_proj_y.yscale_orig) main_plot_proj_y.yscale_orig = [main_plot_proj_y.yscale_orig[0] + delta_ppm, main_plot_proj_y.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_y.reset_axis === 'function') main_plot_proj_y.reset_axis();
-        }
-        if (main_plot_proj_x && main_plot_proj_x.yscale) {
-            main_plot_proj_x.yscale = [main_plot_proj_x.yscale[0] + delta_ppm, main_plot_proj_x.yscale[1] + delta_ppm];
-            if (main_plot_proj_x.yRange) main_plot_proj_x.yRange.domain(main_plot_proj_x.yscale);
-            if (main_plot_proj_x.yscale_orig) main_plot_proj_x.yscale_orig = [main_plot_proj_x.yscale_orig[0] + delta_ppm, main_plot_proj_x.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
-        }
+        // XZ plot Y-axis is Z; YZ plot X-axis is Z
+        shiftPlotAxis(main_plot_xz, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_yz, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj_y, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj_x, 'y', delta_ppm);
     }
 
     // Refresh contours and WebGL scenes
-    if (normAxis === 'y') {
+    if (normAxis === 'x') {
+        if (typeof refresh_current_view === 'function') {
+            const curSlice = (current_slice_index >= 0 && spectra_3d[current_slice_index]) ? spectra_3d[current_slice_index] : spectra_3d[0];
+            refresh_current_view(curSlice);
+        }
+        if (typeof refresh_ortho_plot === 'function') {
+            refresh_ortho_plot("xz");
+        }
+    } else if (normAxis === 'y') {
         if (typeof refresh_current_view === 'function') {
             const curSlice = (current_slice_index >= 0 && spectra_3d[current_slice_index]) ? spectra_3d[current_slice_index] : spectra_3d[0];
             refresh_current_view(curSlice);
@@ -2491,10 +2481,15 @@ function apply_dimension_shift(axis) {
         }
     }
 
-    // Redraw fixed center crosshairs
-    if (main_plot && typeof main_plot.draw_center_lines === 'function') main_plot.draw_center_lines();
-    if (main_plot_xz && typeof main_plot_xz.draw_center_lines === 'function') main_plot_xz.draw_center_lines();
-    if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') main_plot_yz.draw_center_lines();
+    if (spectrum_proj && typeof refresh_proj_plot === 'function') {
+        refresh_proj_plot();
+    }
+    if (spectrum_proj_y && typeof refresh_proj_y_plot === 'function') {
+        refresh_proj_y_plot();
+    }
+    if (spectrum_proj_x && typeof refresh_proj_x_plot === 'function') {
+        refresh_proj_x_plot();
+    }
 
     // Update slice readouts
     if (normAxis === 'z') {
@@ -2512,9 +2507,18 @@ function apply_dimension_shift(axis) {
             val_xz.innerText = `${current_y_index + 1}/${s0.n_indirect} (${ppm_y.toFixed(3)} ppm)`;
         }
     }
+    if (normAxis === 'x') {
+        const val_yz = document.getElementById("val_yz");
+        if (val_yz && s0.n_direct) {
+            const ppm_x = s0.x_ppm_start + (current_x_index * s0.x_ppm_step);
+            val_yz.innerText = `${current_x_index + 1}/${s0.n_direct} (${ppm_x.toFixed(3)} ppm)`;
+        }
+    }
 
-    // Update 1D traces
-    if (typeof update_1d_traces_from_center === 'function') {
+    // Update crosshairs and 1D traces
+    if (typeof update_3d_crosshairs === 'function') {
+        update_3d_crosshairs();
+    } else if (typeof update_1d_traces_from_center === 'function') {
         update_1d_traces_from_center();
     }
 
@@ -2526,7 +2530,9 @@ function apply_dimension_shift(axis) {
 
     // Clear input field and report status
     inputElem.value = "";
-    const dimTitle = (normAxis === 'y') ? "Indirect Dimension 1 (y)" : "Indirect Dimension 2 / Planes (z)";
+    const dimTitle = (normAxis === 'x')
+        ? "Direct Dimension (x)"
+        : ((normAxis === 'y') ? "Indirect Dimension 1 (y)" : "Indirect Dimension 2 / Planes (z)");
     const signPpm = delta_ppm >= 0 ? `+${delta_ppm.toFixed(4)}` : delta_ppm.toFixed(4);
     const signHz = delta_hz >= 0 ? `+${delta_hz.toFixed(2)}` : delta_hz.toFixed(2);
     const msg = `Applied ${signPpm} ppm (${signHz} Hz) shift to ${dimTitle}.`;
