@@ -242,6 +242,12 @@
                     <input type="file" id="theoretical_peaks_file" accept=".txt"><br>
                     <button id="btn_load_theoretical">Load and Overlay Peaks</button>
                 </div>
+                <div style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
+                    <h4>Overlay 2D HSQC (1H and 15N):</h4>
+                    <label for="hsqc_overlay_file">Select 2D HSQC spectral file (.ft2, .ucsf): </label>
+                    <input type="file" id="hsqc_overlay_file" accept=".ft2,.ucsf" onchange="load_hsqc_overlay_file()"><br>
+                    <button type="button" id="btn_load_hsqc_overlay" onclick="load_hsqc_overlay_file()">Load and Overlay 2D HSQC</button>
+                </div>
             </div>
 
             <div id="aux_buttons" style=" Padding: 10px; width: 98%; box-sizing: border-box; display:none;"
@@ -605,6 +611,23 @@
                             <label for="color_peak_symbol" style="margin-left: 10px;">Peak Symbol:</label>
                             <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()"
                                 style="vertical-align: middle;">
+                            <div id="hsqc_overlay_controls" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc;">
+                                <strong>2D HSQC (1H-15N) Overlay:</strong>
+                                <button type="button" onclick="document.getElementById('hsqc_overlay_file').click()">Load 2D HSQC</button>
+                                <label style="margin-left: 8px; cursor: pointer;"><input type="checkbox" id="check_show_hsqc_overlay" checked onchange="toggle_hsqc_overlay(this.checked)"> Show 2D HSQC</label>
+                                <div style="display:inline-block; margin: 2px 6px; padding: 2px 8px; border: 1px solid #ccc; background: #fdfdfd; border-radius: 4px; font-size: 13px;">
+                                    <span id="hsqc_overlay_noise_display" style="font-weight: bold; color: #555;">HSQC Noise: -</span>
+                                </div>
+                                <label for="hsqc_contour_start_multiplier" style="font-weight: bold; margin-left: 6px;">Lowest level (x noise): </label>
+                                <input type="number" id="hsqc_contour_start_multiplier" value="6.0" step="0.5" style="width: 55px;">
+                                <label for="hsqc_contour_scale_factor" style="font-weight: bold; margin-left: 6px;">Scale factor: </label>
+                                <input type="number" id="hsqc_contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
+                                <label for="color_hsqc_pos" style="margin-left: 8px;">Pos Color:</label>
+                                <input type="color" id="color_hsqc_pos" value="#ff8c00" onchange="update_hsqc_overlay_contours()" style="vertical-align: middle;">
+                                <label for="color_hsqc_neg" style="margin-left: 6px;">Neg Color:</label>
+                                <input type="color" id="color_hsqc_neg" value="#ff00ff" onchange="update_hsqc_overlay_contours()" style="vertical-align: middle;">
+                                <button type="button" onclick="update_hsqc_overlay_contours()" style="margin-left: 6px;">Update HSQC Contours</button>
+                            </div>
                         </div>
 
                         <div

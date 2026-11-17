@@ -283,6 +283,10 @@ var theoretical_spectrum_proj_x = null;
 var global_3d_noise = 0.0;
 var show_peak_symbols = true;
 
+var hsqc_overlay_spectrum = null;
+var hsqc_overlay_spectrum_transposed = null;
+var show_hsqc_overlay = true;
+
 function evaluate_global_noise_redefinition() {
 
     let max_pos = 0;
@@ -3288,6 +3292,11 @@ function handle_worker_message(e) {
             return;
         }
 
+        if (e.data.spectrum_type === "hsqc_overlay") {
+            handle_hsqc_overlay_response(e.data);
+            return;
+        }
+
         let slice_idx = e.data.spectrum_index; // We passed slice index as spectrum_index
 
         let spec = null;
@@ -4831,6 +4840,12 @@ function refresh_current_view(spectrum_in) {
         }
     }
 
+    // Check for 2D HSQC (1H-15N) overlay on xy plane
+    let hsqc_xy = get_hsqc_overlay_for_plot('x', 'y');
+    if (hsqc_xy && hsqc_xy.cached_contour_pos) {
+        spectra_list.push(hsqc_xy);
+    }
+
     let points_pos_list = [];
     let len_pos_list = [];
     let poly_pos_list = [];
@@ -5882,6 +5897,10 @@ function refresh_ortho_plot(type) {
     let spectra_list = [spec];
     if (type === "xz" && theoretical_spectrum_xz) spectra_list.push(theoretical_spectrum_xz);
     if (type === "yz" && theoretical_spectrum_yz) spectra_list.push(theoretical_spectrum_yz);
+    let hsqc_ortho = (type === "xz") ? get_hsqc_overlay_for_plot('x', 'z') : get_hsqc_overlay_for_plot('z', 'y');
+    if (hsqc_ortho && hsqc_ortho.cached_contour_pos) {
+        spectra_list.push(hsqc_ortho);
+    }
 
     let total_points = 0;
 
@@ -9802,6 +9821,8 @@ function refresh_proj_plot() {
 
     let spectra_list = [spectrum_proj];
     if (theoretical_spectrum_proj) spectra_list.push(theoretical_spectrum_proj);
+    let hsqc_proj = get_hsqc_overlay_for_plot('x', 'y');
+    if (hsqc_proj && hsqc_proj.cached_contour_pos) spectra_list.push(hsqc_proj);
 
     render_to_plot(main_plot_proj, spectra_list);
 }
@@ -10309,6 +10330,8 @@ function refresh_proj_y_plot() {
 
     let spectra_list = [spectrum_proj_y];
     if (theoretical_spectrum_proj_y) spectra_list.push(theoretical_spectrum_proj_y);
+    let hsqc_proj_y = get_hsqc_overlay_for_plot('x', 'z');
+    if (hsqc_proj_y && hsqc_proj_y.cached_contour_pos) spectra_list.push(hsqc_proj_y);
 
     render_to_plot(main_plot_proj_y, spectra_list);
 }
@@ -10467,6 +10490,8 @@ function refresh_proj_x_plot() {
 
     let spectra_list = [spectrum_proj_x];
     if (theoretical_spectrum_proj_x) spectra_list.push(theoretical_spectrum_proj_x);
+    let hsqc_proj_x = get_hsqc_overlay_for_plot('y', 'z');
+    if (hsqc_proj_x && hsqc_proj_x.cached_contour_pos) spectra_list.push(hsqc_proj_x);
 
     render_to_plot(main_plot_proj_x, spectra_list);
 }
@@ -10876,4 +10901,222 @@ function search_peak_3d() {
             }
         }
     }
+}
+
+/**
+ * Loads a 2D HSQC (1H-15N) spectrum (.ft2 or .ucsf) for overlaying onto matching 2D views.
+ *
+ * @returns {Promise<void>}
+ */
+async function load_hsqc_overlay_file() {
+    const fileInput = document.getElementById('hsqc_overlay_file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        alert("Please select a 2D HSQC (.ft2 or .ucsf) file.");
+        return;
+    }
+
+    const file = fileInput.files[0];
+    try {
+        const buffer = await read_file_as_buffer(file);
+        if (!buffer || buffer.byteLength < 16) {
+            alert("Selected HSQC file is empty or too small.");
+            return;
+        }
+
+        const headerBytes = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
+        let magic = "";
+        for (let i = 0; i < headerBytes.length; i++) {
+            magic += String.fromCharCode(headerBytes[i]);
+        }
+
+        const isUcsf = magic === "UCSF NMR" || file.name.toLowerCase().endsWith('.ucsf');
+        const spec = new spectrum();
+
+        if (isUcsf) {
+            spec.process_sparky_file(buffer, file.name, -1);
+        } else {
+            spec.process_ft_file(buffer, file.name, -1);
+        }
+
+        if (spec.error || !spec.raw_data || spec.raw_data.length === 0) {
+            alert("Failed to parse 2D HSQC file" + (spec.error ? (": " + spec.error) : "."));
+            return;
+        }
+
+        hsqc_overlay_spectrum = spec;
+        hsqc_overlay_spectrum_transposed = null;
+
+        const noiseDisplay = document.getElementById('hsqc_overlay_noise_display');
+        if (noiseDisplay) {
+            noiseDisplay.innerText = `HSQC Noise (${file.name}): ${spec.noise_level.toExponential(2)}`;
+            noiseDisplay.style.color = "#555";
+        }
+
+        const cb = document.getElementById('check_show_hsqc_overlay');
+        show_hsqc_overlay = cb ? !!cb.checked : true;
+
+        update_hsqc_overlay_contours();
+    } catch (err) {
+        console.error("Error loading 2D HSQC file:", err);
+        alert("Failed to load 2D HSQC file: " + err.message);
+    }
+}
+
+/**
+ * Updates 2D HSQC overlay colors and logarithmic contour levels, then recalculates contours.
+ */
+function update_hsqc_overlay_contours() {
+    if (!hsqc_overlay_spectrum) return;
+
+    const mulEl = document.getElementById('hsqc_contour_start_multiplier');
+    const scaleEl = document.getElementById('hsqc_contour_scale_factor');
+    const posColorEl = document.getElementById('color_hsqc_pos');
+    const negColorEl = document.getElementById('color_hsqc_neg');
+
+    const multiplier = (mulEl && parseFloat(mulEl.value) > 0) ? parseFloat(mulEl.value) : 6.0;
+    const scale = (scaleEl && parseFloat(scaleEl.value) > 1.0) ? parseFloat(scaleEl.value) : 1.4;
+    const colorPos = posColorEl ? posColorEl.value : '#ff8c00';
+    const colorNeg = negColorEl ? negColorEl.value : '#ff00ff';
+
+    hsqc_overlay_spectrum.spectrum_color = colorPos;
+    hsqc_overlay_spectrum.spectrum_color_negative = colorNeg;
+    hsqc_overlay_spectrum.levels = calculate_levels(hsqc_overlay_spectrum.noise_level, scale, 30, multiplier, scale);
+    hsqc_overlay_spectrum.negative_levels = calculate_negative_levels(hsqc_overlay_spectrum.noise_level, scale, 30, multiplier, scale);
+    hsqc_overlay_spectrum.cached_contour_pos = null;
+    hsqc_overlay_spectrum.cached_contour_neg = null;
+    hsqc_overlay_spectrum_transposed = null;
+
+    request_contour_calculation(hsqc_overlay_spectrum, 0, 0, "hsqc_overlay");
+    request_contour_calculation(hsqc_overlay_spectrum, 0, 1, "hsqc_overlay");
+}
+
+/**
+ * Handles contour worker response for the 2D HSQC overlay spectrum.
+ *
+ * @param {object} data - Contour data returned by worker
+ */
+function handle_hsqc_overlay_response(data) {
+    if (!hsqc_overlay_spectrum) return;
+
+    if (data.contour_sign === 0) {
+        hsqc_overlay_spectrum.cached_contour_pos = data;
+    } else {
+        hsqc_overlay_spectrum.cached_contour_neg = data;
+    }
+    hsqc_overlay_spectrum_transposed = null;
+    refresh_hsqc_overlay_views();
+}
+
+/**
+ * Toggles visibility of the 2D HSQC overlay across matching 2D and projection views.
+ *
+ * @param {boolean} show - True to show overlay, false to hide
+ */
+function toggle_hsqc_overlay(show) {
+    show_hsqc_overlay = !!show;
+    refresh_hsqc_overlay_views();
+}
+
+/**
+ * Returns a copy of 2D contour worker data with (x, y) coordinates transposed.
+ *
+ * @param {object|null} contourData - Original contour response object
+ * @returns {object|null}
+ */
+function transpose_contour_data_2d(contourData) {
+    if (!contourData) return null;
+    const src = contourData.points;
+    const swapped = new Float32Array(src ? src.length : 0);
+    if (src) {
+        for (let i = 0; i + 1 < src.length; i += 2) {
+            swapped[i] = src[i + 1];
+            swapped[i + 1] = src[i];
+        }
+    }
+    return {
+        points: swapped,
+        polygon_length: contourData.polygon_length,
+        levels_length: contourData.levels_length,
+        contour_sign: contourData.contour_sign
+    };
+}
+
+/**
+ * Returns the 2D HSQC spectrum (oriented to match plotDimX/plotDimY) if visible and
+ * the target plot represents the 1H-15N plane; otherwise returns null.
+ *
+ * @param {string} plotDimX - 3D dimension on the plot's X axis ('x', 'y', or 'z')
+ * @param {string} plotDimY - 3D dimension on the plot's Y axis ('x', 'y', or 'z')
+ * @returns {object|null}
+ */
+function get_hsqc_overlay_for_plot(plotDimX, plotDimY) {
+    if (!hsqc_overlay_spectrum || !show_hsqc_overlay || !spectra_3d || spectra_3d.length === 0) {
+        return null;
+    }
+
+    const s0 = spectra_3d[0];
+    if (!is_1h_15n_2d_plot(plotDimX, plotDimY, s0)) {
+        return null;
+    }
+
+    const plotNucX = get_3d_dim_nucleus_type(plotDimX, s0);
+    const rawHsqcDirect = (hsqc_overlay_spectrum.nucleus_direct || '').toUpperCase();
+    let hsqcNucX = '';
+    if (rawHsqcDirect.includes('15N') || rawHsqcDirect.includes('N15')) {
+        hsqcNucX = '15N';
+    } else if (rawHsqcDirect.includes('1H') || rawHsqcDirect.includes('H1')) {
+        hsqcNucX = '1H';
+    } else {
+        const centerX = hsqc_overlay_spectrum.x_ppm_start +
+            hsqc_overlay_spectrum.x_ppm_step * hsqc_overlay_spectrum.n_direct * 0.5;
+        hsqcNucX = (centerX >= 95 && centerX <= 140) ? '15N' : '1H';
+    }
+
+    if (plotNucX === hsqcNucX) {
+        return hsqc_overlay_spectrum;
+    }
+
+    if (!hsqc_overlay_spectrum_transposed) {
+        const h = hsqc_overlay_spectrum;
+        hsqc_overlay_spectrum_transposed = {
+            n_direct: h.n_indirect,
+            n_indirect: h.n_direct,
+            x_ppm_start: h.y_ppm_start,
+            x_ppm_step: h.y_ppm_step,
+            x_ppm_width: h.y_ppm_width,
+            x_ppm_ref: h.y_ppm_ref || 0,
+            y_ppm_start: h.x_ppm_start,
+            y_ppm_step: h.x_ppm_step,
+            y_ppm_width: h.x_ppm_width,
+            y_ppm_ref: h.x_ppm_ref || 0,
+            noise_level: h.noise_level,
+            levels: h.levels,
+            negative_levels: h.negative_levels,
+            spectrum_color: h.spectrum_color,
+            spectrum_color_negative: h.spectrum_color_negative,
+            visible: true,
+            cached_contour_pos: transpose_contour_data_2d(h.cached_contour_pos),
+            cached_contour_neg: transpose_contour_data_2d(h.cached_contour_neg)
+        };
+    }
+
+    return hsqc_overlay_spectrum_transposed;
+}
+
+/**
+ * Refreshes all 2D slice and projection plots so HSQC overlay changes take effect immediately.
+ */
+function refresh_hsqc_overlay_views() {
+    if (spectra_3d && current_slice_index >= 0 && spectra_3d[current_slice_index]) {
+        refresh_current_view(spectra_3d[current_slice_index]);
+    }
+    if (typeof main_plot_xz !== 'undefined' && main_plot_xz && spectrum_xz) {
+        refresh_ortho_plot("xz");
+    }
+    if (typeof main_plot_yz !== 'undefined' && main_plot_yz && spectrum_yz) {
+        refresh_ortho_plot("yz");
+    }
+    if (typeof refresh_proj_plot === 'function') refresh_proj_plot();
+    if (typeof refresh_proj_y_plot === 'function') refresh_proj_y_plot();
+    if (typeof refresh_proj_x_plot === 'function') refresh_proj_x_plot();
 }
