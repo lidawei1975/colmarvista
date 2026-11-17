@@ -231,10 +231,17 @@ function create_plane_spectrum_from_template(s0, buffer, byteOffset, plane_name,
     return s;
 }
 var trace_plot_margins_3d = { left: 52, right: 12, top: 8, bottom: 22 };
+var vert_trace_plot_margins_3d = { left: 46, right: 10, top: 10, bottom: 24 };
 var trace_zoom_domains = {
     'trace_x_svg': null,
     'trace_y_svg': null,
-    'trace_z_svg': null
+    'trace_z_svg': null,
+    'vert_trace_svg_xy': null,
+    'vert_trace_svg_xz': null,
+    'vert_trace_svg_yz': null,
+    'vert_trace_svg_proj': null,
+    'vert_trace_svg_proj_y': null,
+    'vert_trace_svg_proj_x': null
 };
 
 /**
@@ -6118,6 +6125,87 @@ function clear_1d_trace_svg(svgId) {
     d3.select(svgEl).selectAll('*').remove();
 }
 
+const VERT_TRACE_BOX_IDS = [
+    'vert_trace_box_xy',
+    'vert_trace_box_xz',
+    'vert_trace_box_yz',
+    'vert_trace_box_proj',
+    'vert_trace_box_proj_y',
+    'vert_trace_box_proj_x'
+];
+
+const VERT_TRACE_SVG_IDS = [
+    'vert_trace_svg_xy',
+    'vert_trace_svg_xz',
+    'vert_trace_svg_yz',
+    'vert_trace_svg_proj',
+    'vert_trace_svg_proj_y',
+    'vert_trace_svg_proj_x'
+];
+
+/**
+ * Determines normalized nucleus type ('1H', '15N', '13C', or '') for a 3D dimension.
+ *
+ * @param {string} dim - 'x', 'y', or 'z'
+ * @param {object} s0 - Reference 2D/3D spectrum plane object
+ * @returns {string} Normalized nucleus identifier
+ */
+function get_3d_dim_nucleus_type(dim, s0) {
+    let nuc = (window.last_fid_nuclei && window.last_fid_nuclei[dim])
+        ? String(window.last_fid_nuclei[dim]).trim().toUpperCase()
+        : '';
+    if (nuc) {
+        if (nuc.includes('15N') || nuc.includes('N15') || nuc === 'N' || nuc === 'NH') return '15N';
+        if (nuc.includes('13C') || nuc.includes('C13') || nuc === 'C' || nuc === 'CA' || nuc === 'CB' || nuc === 'CO') return '13C';
+        if (nuc.includes('1H') || nuc.includes('H1') || nuc === 'H' || nuc === 'HN') return '1H';
+    }
+
+    if (s0) {
+        const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+            if (!s0.header) return 0;
+            const d = Math.round(s0.header[dimOrderIdx]);
+            if (d === 1) return s0.header[f1Offset] || 0;
+            if (d === 2) return s0.header[f2Offset] || 0;
+            if (d === 3) return s0.header[f3Offset] || 0;
+            return 0;
+        };
+        const frq_x = s0.frq1 || getDimHeaderVal(24, 218, 119, 10);
+        let frq_dim = frq_x;
+        if (dim === 'y') frq_dim = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+        else if (dim === 'z') frq_dim = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+
+        if (frq_x > 0 && frq_dim > 0) {
+            const ratio = frq_dim / frq_x;
+            if (ratio > 0.08 && ratio < 0.13) return '15N';
+            if (ratio > 0.20 && ratio < 0.30) return '13C';
+            if (ratio > 0.90 && ratio < 1.10) return '1H';
+        }
+
+        const dom = get_trace_domain_3d(dim, s0);
+        if (Array.isArray(dom) && dom.length === 2) {
+            const center = (dom[0] + dom[1]) / 2;
+            const span = Math.abs(dom[1] - dom[0]);
+            if (center >= -2 && center <= 15 && span < 25) return '1H';
+            if (center >= 95 && center <= 140 && span < 50) return '15N';
+        }
+    }
+    return '';
+}
+
+/**
+ * Returns true if the two given 3D dimensions form a 1H-15N 2D plane (in either order).
+ *
+ * @param {string} dimA - First dimension ('x', 'y', or 'z')
+ * @param {string} dimB - Second dimension ('x', 'y', or 'z')
+ * @param {object} s0 - Reference spectrum plane object
+ * @returns {boolean}
+ */
+function is_1h_15n_2d_plot(dimA, dimB, s0) {
+    const nucA = get_3d_dim_nucleus_type(dimA, s0);
+    const nucB = get_3d_dim_nucleus_type(dimB, s0);
+    return (nucA === '1H' && nucB === '15N') || (nucA === '15N' && nucB === '1H');
+}
+
 /**
  * Clears all 1d traces.
  */
@@ -6128,6 +6216,13 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_proj_x_svg');
     clear_1d_trace_svg('trace_proj_y_x_svg');
     clear_1d_trace_svg('trace_proj_z_svg');
+    VERT_TRACE_SVG_IDS.forEach(clear_1d_trace_svg);
+    if (!spectra_3d || spectra_3d.length === 0) {
+        VERT_TRACE_BOX_IDS.forEach(id => {
+            const box = document.getElementById(id);
+            if (box) box.style.display = 'none';
+        });
+    }
 }
 
 /**
@@ -6440,6 +6535,192 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
     }
 }
 
+/**
+ * Renders a vertical 1D trace SVG (chemical shift ppm along Y axis, intensity along X axis)
+ * with vertical brush zoom, mouse wheel zoom, and double-click zoom reset.
+ *
+ * @param {string} svgId - Target SVG element ID
+ * @param {Array<{ppm: number, value: number}>} points - Experimental trace points
+ * @param {Array<number>} yDomain - Vertical ppm domain [start, end]
+ * @param {string} lineColor - Primary trace stroke color
+ * @param {Array<{ppm: number, value: number}>|null} [points_recon] - Optional reconstructed trace points
+ */
+function render_vertical_trace_3d(svgId, points, yDomain, lineColor, points_recon = null) {
+    const svgEl = document.getElementById(svgId);
+    if (!svgEl) return;
+
+    const svg = d3.select(svgEl);
+    svg.selectAll('*').remove();
+
+    if (!points || points.length === 0) return;
+
+    const width = parseFloat(svg.attr('width')) || svgEl.clientWidth || 200;
+    const height = parseFloat(svg.attr('height')) || svgEl.clientHeight || 600;
+    const m = vert_trace_plot_margins_3d;
+    const plotWidth = Math.max(10, width - m.left - m.right);
+    const plotHeight = Math.max(10, height - m.top - m.bottom);
+
+    const yScale = d3.scaleLinear()
+        .domain(yDomain)
+        .range([m.top + plotHeight, m.top]);
+
+    const yMin = Math.min(yDomain[0], yDomain[1]);
+    const yMax = Math.max(yDomain[0], yDomain[1]);
+    const visiblePoints = points.filter(p => p.ppm >= yMin && p.ppm <= yMax);
+    const xSource = visiblePoints.length > 0 ? visiblePoints : points;
+
+    let visiblePointsRecon = [];
+    if (points_recon && points_recon.length > 0) {
+        visiblePointsRecon = points_recon.filter(p => p.ppm >= yMin && p.ppm <= yMax);
+    }
+
+    let xMin = d3.min(xSource, d => d.value);
+    let xMax = d3.max(xSource, d => d.value);
+
+    if (points_recon && points_recon.length > 0) {
+        const xSourceRecon = visiblePointsRecon.length > 0 ? visiblePointsRecon : points_recon;
+        const xMinRecon = d3.min(xSourceRecon, d => d.value);
+        const xMaxRecon = d3.max(xSourceRecon, d => d.value);
+        if (Number.isFinite(xMinRecon)) xMin = Math.min(xMin, xMinRecon);
+        if (Number.isFinite(xMaxRecon)) xMax = Math.max(xMax, xMaxRecon);
+    }
+
+    if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) {
+        xMin = -1;
+        xMax = 1;
+    }
+    if (xMin === xMax) {
+        const padEq = Math.max(Math.abs(xMin) * 0.2, 1e-6);
+        xMin -= padEq;
+        xMax += padEq;
+    }
+    const pad = (xMax - xMin) * 0.08;
+    xMin -= pad;
+    xMax += pad;
+
+    const xScale = d3.scaleLinear()
+        .domain([xMin, xMax])
+        .range([m.left, m.left + plotWidth]);
+
+    const line = d3.line()
+        .x(d => xScale(d.value))
+        .y(d => yScale(d.ppm))
+        .defined(d => Number.isFinite(d.ppm) && Number.isFinite(d.value));
+
+    const clipId = 'clip-' + svgId;
+    svg.append('defs').append('clipPath')
+        .attr('id', clipId)
+        .append('rect')
+        .attr('x', m.left)
+        .attr('y', m.top)
+        .attr('width', plotWidth)
+        .attr('height', plotHeight);
+
+    svg.append('g')
+        .attr('transform', 'translate(' + m.left + ',0)')
+        .call(d3.axisLeft(yScale).ticks(8));
+
+    svg.append('g')
+        .attr('transform', 'translate(0,' + (m.top + plotHeight) + ')')
+        .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.2s')));
+
+    const plotGroup = svg.append('g')
+        .attr('clip-path', 'url(#' + clipId + ')');
+
+    if (xMin < 0 && xMax > 0) {
+        plotGroup.append('line')
+            .attr('x1', xScale(0))
+            .attr('x2', xScale(0))
+            .attr('y1', m.top)
+            .attr('y2', m.top + plotHeight)
+            .attr('stroke', '#b0b0b0')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,2');
+    }
+
+    plotGroup.append('path')
+        .datum(points)
+        .attr('fill', 'none')
+        .attr('stroke', lineColor || '#0000ff')
+        .attr('stroke-width', 1.5)
+        .attr('d', line);
+
+    if (points_recon && points_recon.length > 0) {
+        plotGroup.append('path')
+            .datum(points_recon)
+            .attr('fill', 'none')
+            .attr('stroke', '#ff0000')
+            .attr('stroke-width', 1.5)
+            .attr('d', line);
+    }
+
+    if (visiblePoints.length < 64) {
+        plotGroup.selectAll('.trace-circle-exp')
+            .data(visiblePoints.filter(d => Number.isFinite(d.ppm) && Number.isFinite(d.value)))
+            .enter()
+            .append('circle')
+            .attr('class', 'trace-circle-exp')
+            .attr('cx', d => xScale(d.value))
+            .attr('cy', d => yScale(d.ppm))
+            .attr('r', 3)
+            .attr('fill', lineColor || '#0000ff')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1)
+            .style('pointer-events', 'none');
+    }
+
+    if (points_recon && points_recon.length > 0 && visiblePointsRecon.length < 64) {
+        plotGroup.selectAll('.trace-circle-recon')
+            .data(visiblePointsRecon.filter(d => Number.isFinite(d.ppm) && Number.isFinite(d.value)))
+            .enter()
+            .append('circle')
+            .attr('class', 'trace-circle-recon')
+            .attr('cx', d => xScale(d.value))
+            .attr('cy', d => yScale(d.ppm))
+            .attr('r', 3)
+            .attr('fill', '#ff0000')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1)
+            .style('pointer-events', 'none');
+    }
+
+    // Brush for vertical PPM zooming
+    const brush = d3.brushY()
+        .extent([[m.left, m.top], [m.left + plotWidth, m.top + plotHeight]])
+        .on('end', function (event) {
+            if (!event.selection) return;
+            const [py0, py1] = event.selection;
+            trace_zoom_domains[svgId] = [yScale.invert(py1), yScale.invert(py0)];
+            update_1d_traces_from_center();
+        });
+
+    svg.append('g')
+        .attr('class', 'brush')
+        .call(brush);
+
+    // Wheel zoom centered at cursor vertical position
+    svg.on('wheel', function (event) {
+        event.preventDefault();
+        const rect = svgEl.getBoundingClientRect();
+        const mouseY = Math.max(m.top, Math.min(m.top + plotHeight, event.clientY - rect.top));
+        const pivotPpm = yScale.invert(mouseY);
+        const span = yDomain[1] - yDomain[0];
+        const k = event.deltaY > 0 ? 1.15 : 0.85;
+        const newSpan = span * k;
+        const ratio = Math.abs(span) > 1e-12 ? (pivotPpm - yDomain[0]) / span : 0.5;
+        const newStart = pivotPpm - newSpan * ratio;
+        const newEnd = newStart + newSpan;
+        trace_zoom_domains[svgId] = [newStart, newEnd];
+        update_1d_traces_from_center();
+    });
+
+    // Double-click to reset zoom
+    svg.on('dblclick', function () {
+        trace_zoom_domains[svgId] = null;
+        update_1d_traces_from_center();
+    });
+}
+
 
 /**
  * Updates 1d traces from center.
@@ -6527,6 +6808,62 @@ function update_1d_traces_from_center() {
             span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
         }
     }
+
+    // Show/hide vertical 1D trace next to the 2D plot(s) with 1H and 15N axes
+    const vertPlaneConfigs = [
+        {
+            dimA: 'x', dimB: 'y', otherDim: 'z',
+            trace: traceZ, traceRecon: traceZ_recon,
+            coordLabel: `${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm`,
+            otherLabel: labelZ,
+            boxIds: ['vert_trace_box_xy', 'vert_trace_box_proj'],
+            labelIds: ['vert_trace_label_xy', 'vert_trace_label_proj'],
+            svgIds: ['vert_trace_svg_xy', 'vert_trace_svg_proj']
+        },
+        {
+            dimA: 'x', dimB: 'z', otherDim: 'y',
+            trace: traceY, traceRecon: traceY_recon,
+            coordLabel: `${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm`,
+            otherLabel: labelY,
+            boxIds: ['vert_trace_box_xz', 'vert_trace_box_proj_y'],
+            labelIds: ['vert_trace_label_xz', 'vert_trace_label_proj_y'],
+            svgIds: ['vert_trace_svg_xz', 'vert_trace_svg_proj_y']
+        },
+        {
+            dimA: 'z', dimB: 'y', otherDim: 'x',
+            trace: traceX, traceRecon: traceX_recon,
+            coordLabel: `${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm`,
+            otherLabel: labelX,
+            boxIds: ['vert_trace_box_yz', 'vert_trace_box_proj_x'],
+            labelIds: ['vert_trace_label_yz', 'vert_trace_label_proj_x'],
+            svgIds: ['vert_trace_svg_yz', 'vert_trace_svg_proj_x']
+        }
+    ];
+
+    vertPlaneConfigs.forEach(cfg => {
+        const showVert = is_1h_15n_2d_plot(cfg.dimA, cfg.dimB, s0);
+        cfg.boxIds.forEach(boxId => {
+            const box = document.getElementById(boxId);
+            if (box) box.style.display = showVert ? 'flex' : 'none';
+        });
+        if (showVert) {
+            cfg.labelIds.forEach(lblId => {
+                const lblEl = document.getElementById(lblId);
+                if (lblEl) {
+                    const span = lblEl.querySelector('span');
+                    if (span) {
+                        span.innerText = `1D Trace Along ${cfg.otherLabel} (at ${cfg.coordLabel})`;
+                    }
+                }
+            });
+            cfg.svgIds.forEach(svgId => {
+                const yDomain = trace_zoom_domains[svgId] || get_trace_domain_3d(cfg.otherDim, s0);
+                render_vertical_trace_3d(svgId, cfg.trace, yDomain, '#0000ff', cfg.traceRecon);
+            });
+        } else {
+            cfg.svgIds.forEach(clear_1d_trace_svg);
+        }
+    });
 
     // Update Projection 1D Trace
     if (spectrum_proj && spectrum_proj.raw_data) {
@@ -9238,7 +9575,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 update_1d_traces_from_center();
             }
         });
-        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].concat(VERT_TRACE_SVG_IDS).forEach(id => {
             const el = document.getElementById(id);
             if (el && el.parentElement) {
                 ro.observe(el.parentElement);
@@ -9277,12 +9614,12 @@ function setup_2d_plot_resizing() {
     if (typeof ResizeObserver === 'undefined') return;
 
     const plots = [
-        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
-        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
-        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
-        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
-        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
-        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
+        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", vert_box: "vert_trace_box_xy", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
+        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", vert_box: "vert_trace_box_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
+        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", vert_box: "vert_trace_box_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
+        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", vert_box: "vert_trace_box_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
+        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", vert_box: "vert_trace_box_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
+        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", vert_box: "vert_trace_box_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
     ];
 
     const ro = new ResizeObserver((entries) => {
@@ -9331,6 +9668,13 @@ function setup_2d_plot_resizing() {
                 fontsize: plot_font_size
             });
 
+            if (plot_info.vert_box) {
+                let vb = document.getElementById(plot_info.vert_box);
+                if (vb && vb.style.height !== cr.height + "px") {
+                    vb.style.height = cr.height + "px";
+                }
+            }
+
             // Redraw/move all crosshairs with updated scales
             update_3d_crosshairs();
         }
@@ -9346,7 +9690,7 @@ function setup_2d_plot_resizing() {
             update_1d_traces_from_center();
         }
     });
-    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].concat(VERT_TRACE_SVG_IDS).forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentElement) {
             ro_1d.observe(el.parentElement);
