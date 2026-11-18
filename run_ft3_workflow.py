@@ -16,6 +16,7 @@ Processes pre-processed 3D (.ft3 / .ft3.pipe / 3D .pipe / 3D .ucsf) and
 import os
 import sys
 import time
+import base64
 import struct
 import shlex
 import shutil
@@ -127,19 +128,36 @@ def is_candidate_spectrum_filename(filename):
     return any(lower.endswith(ext) for ext in SPECTRUM_SUFFIXES)
 
 
-def get_peak_output_path(spec_path):
-    """Strips composite spectrum extensions and appends .txt."""
+def get_spectrum_stem(spec_path):
+    """Returns path stem without composite NMR spectrum extensions."""
     p = Path(spec_path)
     name = p.name
     lower = name.lower()
-    stem = name
     for ext in SPECTRUM_SUFFIXES:
         if lower.endswith(ext):
-            stem = name[: len(name) - len(ext)]
-            break
-    else:
-        stem = p.stem
+            return name[: len(name) - len(ext)]
+    return p.stem
+
+
+def get_peak_output_path(spec_path):
+    """Strips composite spectrum extensions and appends .txt."""
+    p = Path(spec_path)
+    stem = get_spectrum_stem(spec_path)
     return str(p.with_name(f"{stem}.txt"))
+
+
+def get_plot_output_paths(spec_path, kind):
+    """Returns dict of plot output paths based on spectrum kind ('3d' or '2d')."""
+    p = Path(spec_path)
+    stem = get_spectrum_stem(spec_path)
+    if kind == "3d":
+        return {
+            "exp_png": str(p.with_name(f"{stem}_exp.png")),
+            "theory_png": str(p.with_name(f"{stem}_theory.png")),
+        }
+    return {
+        "plot_png": str(p.with_name(f"{stem}.png")),
+    }
 
 
 def inspect_spectrum_file(file_path):
@@ -238,6 +256,7 @@ def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True):
             print(f"[Skip] Could not classify as 2D or 3D spectrum: {entry.name}")
             continue
 
+        plot_paths = get_plot_output_paths(entry, info["kind"])
         item = {
             "path": str(entry),
             "name": entry.name,
@@ -247,6 +266,7 @@ def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True):
             "ny": info["ny"],
             "nz": info["nz"],
             "output_txt": get_peak_output_path(entry),
+            **plot_paths,
             "size_mb": entry.stat().st_size / (1024 * 1024),
         }
 
@@ -340,6 +360,7 @@ def count_2d_peaks(peaks_text):
     for raw in peaks_text.splitlines():
         line = raw.strip()
         if not line or line.startswith(("DATA", "REMARK", "VARS", "FORMAT", "#")):
+            continue
         count += 1
     return count
 
@@ -449,8 +470,77 @@ def process_3d_spectrum(
             f.write(peaks_text)
 
         num_peaks = count_3d_peaks(peaks_text)
+        print(f"[Output] Saved {output_path} ({num_peaks} peaks)")
+
+        exp_png_path = None
+        theory_png_path = None
+        if num_peaks > 0:
+            print("[3D View] Enabling True 3D Isosurface Visualization...")
+            page.evaluate("""() => {
+                const cb = document.getElementById('check_visualize_3d');
+                if (cb) {
+                    cb.checked = true;
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (typeof toggle_visualize_3d === 'function') {
+                    toggle_visualize_3d(true);
+                }
+            }""")
+
+            render_start = time.time()
+            while True:
+                if time.time() - render_start > 60:
+                    print("[Warning] Timed out waiting for 3D isosurface rendering.")
+                    break
+
+                is_rendered = page.evaluate("""() => {
+                    const loading = document.getElementById('loading_3d');
+                    const isLoading = loading && window.getComputedStyle(loading).display !== 'none';
+                    const hasRenderer = typeof iso_renderer !== 'undefined' && iso_renderer !== null && iso_renderer.gl;
+                    const hasVolume = typeof current_volume_data !== 'undefined' && current_volume_data !== null;
+                    const hasTheo = typeof theoretical_spectra_3d !== 'undefined' && theoretical_spectra_3d && theoretical_spectra_3d.length > 0;
+                    const hasReconRenderer = !hasTheo || (typeof iso_renderer_recon !== 'undefined' && iso_renderer_recon !== null && iso_renderer_recon.gl);
+                    return Boolean(!isLoading && hasRenderer && hasVolume && hasReconRenderer);
+                }""")
+                if is_rendered:
+                    break
+                page.wait_for_timeout(500)
+
+            page.wait_for_timeout(500)
+
+            exp_target = spec_item["exp_png"]
+            exp_b64 = page.evaluate("""() => {
+                if (typeof get_3d_view_data_url === 'function') {
+                    return get_3d_view_data_url('exp', 2);
+                }
+                const c = document.getElementById('canvas_3d');
+                return c ? c.toDataURL('image/png') : null;
+            }""")
+            if exp_b64 and "," in exp_b64:
+                with open(exp_target, "wb") as f:
+                    f.write(base64.b64decode(exp_b64.split(",", 1)[1]))
+                exp_png_path = exp_target
+                print(f"[Output] Saved {exp_png_path} ({os.path.getsize(exp_png_path):,} bytes)")
+            else:
+                print("[Warning] Failed to capture experimental 3D view.")
+
+            theory_target = spec_item["theory_png"]
+            theory_b64 = page.evaluate("""() => {
+                if (typeof get_3d_view_data_url === 'function') {
+                    return get_3d_view_data_url('theory', 2);
+                }
+                const c = document.getElementById('canvas_3d_recon');
+                return c ? c.toDataURL('image/png') : null;
+            }""")
+            if theory_b64 and "," in theory_b64:
+                with open(theory_target, "wb") as f:
+                    f.write(base64.b64decode(theory_b64.split(",", 1)[1]))
+                theory_png_path = theory_target
+                print(f"[Output] Saved {theory_png_path} ({os.path.getsize(theory_png_path):,} bytes)")
+            else:
+                print("[Warning] Failed to capture reconstructed 3D view.")
+
         duration = time.time() - spec_start
-        print(f"[Output] Saved {output_path} ({num_peaks} peaks, {duration:.1f}s)")
+        print(f"[3D] Finished {spec_item['name']} in {duration:.1f}s.")
 
         if keep_page_open:
             print("\n[Notice] --keep-browser is enabled. Press Enter in this terminal to continue/close...")
@@ -463,6 +553,8 @@ def process_3d_spectrum(
             "name": spec_item["name"],
             "kind": "3d",
             "output_txt": output_path,
+            "exp_png": exp_png_path,
+            "theory_png": theory_png_path,
             "num_peaks": num_peaks,
             "duration": duration,
             "dialogs": dialogs,
@@ -631,8 +723,74 @@ def process_2d_spectrum(
             f.write(peaks_tab)
 
         num_peaks = count_2d_peaks(peaks_tab)
+        print(f"[Output] Saved {output_path} ({num_peaks} peaks)")
+
+        plot_png_path = None
+        if num_peaks > 0:
+            print("[2D Plot] Waiting for reconstructed contour overlay (contours only, no peak symbols/labels)...")
+            while True:
+                if time.time() - recon_start > 60:
+                    print("[Warning] Timed out waiting for reconstructed 2D contour overlay; exporting current plot.")
+                    break
+                recon_ready = page.evaluate("""() => {
+                    const s0 = (typeof hsqc_spectra !== 'undefined' && hsqc_spectra) ? hsqc_spectra[0] : null;
+                    if (!s0 || !s0.recon_generated_v2) return false;
+                    if (typeof main_plot === 'undefined' || !main_plot || !main_plot.levels_length || !main_plot.levels_length_negative) return false;
+                    const contourMsg = document.getElementById('contour_message');
+                    const isCalculating = contourMsg && contourMsg.innerText.trim().length > 0;
+                    return !isCalculating && main_plot.levels_length.length >= 2 && main_plot.levels_length_negative.length >= 2;
+                }""")
+                if recon_ready:
+                    break
+                page.wait_for_timeout(300)
+
+            page.evaluate("""() => {
+                const lblCb = document.getElementById('show_peak_label');
+                if (sfp) {
+                    sfp.checked = false;
+                }
+                const sp = document.getElementById('show_peaks-0');
+                if (sp) {
+
+                    if (typeof main_plot.remove_picked_peaks === 'function') {
+                        main_plot.remove_picked_peaks();
+                    }
+                    if (main_plot.$vis) {
+                        main_plot.$vis.selectAll('.peak').remove();
+                        main_plot.$vis.selectAll('.peak_text').remove();
+                        main_plot.$vis.selectAll('.peak_line').remove();
+                    }
+                }
+                }
+                            rCb.checked = true;
+                    main_plot.redraw_contour();
+                }
+            }""")
+
+            page.wait_for_timeout(200)
+                const $canvas = document.createElement('canvas');
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, $canvas.width, $canvas.height);
+                ctx.drawImage(
+                    contour_image,
+                    plot_margin_left,
+                    plot_margin_top,
+                    $canvas.width - plot_margin_left - plot_margin_right,
+                    $canvas.height - plot_margin_top - plot_margin_bottom
+                );
+                ctx.drawImage(img, 0, 0, $canvas.width, $canvas.height);
+                return $canvas.toDataURL('image/png', 1.0);
+            }""")
+            if plot_b64 and "," in plot_b64:
+                with open(plot_target, "wb") as f:
+                    f.write(base64.b64decode(plot_b64.split(",", 1)[1]))
+                plot_png_path = plot_target
+                print(f"[Output] Saved {plot_png_path} ({os.path.getsize(plot_png_path):,} bytes)")
+            else:
+                print("[Warning] Failed to capture 2D overlaid plot.")
+
         duration = time.time() - spec_start
-        print(f"[Output] Saved {output_path} ({num_peaks} peaks, {duration:.1f}s)")
+        print(f"[2D] Finished {spec_item['name']} in {duration:.1f}s.")
 
         if keep_page_open:
             print("\n[Notice] --keep-browser is enabled. Press Enter in this terminal to continue/close...")
@@ -645,6 +803,7 @@ def process_2d_spectrum(
             "name": spec_item["name"],
             "kind": "2d",
             "output_txt": output_path,
+            "plot_png": plot_png_path,
             "num_peaks": num_peaks,
             "duration": duration,
             "dialogs": dialogs,
@@ -794,9 +953,17 @@ def run_folder_workflow(
         item = r["item"]
         if r["status"] == "SUCCESS":
             res = r["result"]
+            extras = []
+            if res.get("exp_png") and os.path.isfile(res["exp_png"]):
+                extras.append(os.path.basename(res["exp_png"]))
+            if res.get("theory_png") and os.path.isfile(res["theory_png"]):
+                extras.append(os.path.basename(res["theory_png"]))
+            if res.get("plot_png") and os.path.isfile(res["plot_png"]):
+                extras.append(os.path.basename(res["plot_png"]))
+            extra_str = (", plots: " + ", ".join(extras)) if extras else ""
             print(
                 f"  SUCCESS | {item['kind'].upper()} | {item['name']} -> "
-                f"{os.path.basename(res['output_txt'])} ({res['num_peaks']} peaks, {res['duration']:.1f}s)"
+                f"{os.path.basename(res['output_txt'])} ({res['num_peaks']} peaks{extra_str}, {res['duration']:.1f}s)"
             )
         else:
             print(f"  FAILED  | {item['kind'].upper()} | {item['name']} -> {r['error']}")
