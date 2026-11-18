@@ -304,8 +304,8 @@ $(document).ready(function () {
     ft2_file_drop_processor = new file_drop_processor()
         .drop_area('file_area') /** id of dropzone */
         .files_name([]) /** file names to be searched from upload. It is empty because we will use file_extension*/
-        .file_extension(["ft2", "ft3", "txt", "ucsf"])  /** file extensions to be searched from upload */
-        .files_id(["userfile", "userfile", "userfile", "userfile"]) /** Corresponding file element IDs */
+        .file_extension(["ft2", "ft3", "txt", "ucsf", "pipe"])  /** file extensions to be searched from upload */
+        .files_id(["userfile", "userfile", "userfile", "userfile", "userfile"]) /** Corresponding file element IDs */
         .init();
 
     /**
@@ -630,12 +630,14 @@ $(document).ready(function () {
                 /**
                  * If not a .ft2 file or .ft3 file, resolve the promise
                  */
-                if (current_file.name.endsWith(".ft2")
-                    || current_file.name.endsWith(".ft3")
-                    || current_file.name.endsWith(".ucsf")) {
+                const lowerName = current_file.name.toLowerCase();
+                if (lowerName.endsWith(".ft2")
+                    || lowerName.endsWith(".ft3")
+                    || lowerName.endsWith(".ucsf")
+                    || lowerName.endsWith(".pipe")) {
                     return read_file(current_file);
                 }
-                else if (current_file.name.endsWith(".txt")) {
+                else if (lowerName.endsWith(".txt")) {
                     return read_file_text(current_file);
                 }
                 else {

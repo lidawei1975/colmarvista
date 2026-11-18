@@ -228,7 +228,7 @@
                             <div class="drop-area input-section" id="drop_area_ft3">
                                 <label for="userfile_ft3">Select a single 3D spectral file (.ft3/.ucsf) or raw binary
                                     file: </label>
-                                <input type="file" id="userfile_ft3" accept=".ft3,.ucsf"><br>
+                                <input type="file" id="userfile_ft3" accept=".ft3,.ucsf,.pipe"><br>
                                 <span class="information"> Supported formats: nmrPipe (*.ft?), Sparky (*.ucsf), or raw binary (others).</span><br>
                                 <span class="information"> You can also drag and drop a file or folder here.</span><br>
                             </div>
@@ -245,7 +245,7 @@
                 <div style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
                     <h4>Overlay 2D HSQC (1H and 15N):</h4>
                     <label for="hsqc_overlay_file">Select 2D HSQC spectral file (.ft2, .ucsf): </label>
-                    <input type="file" id="hsqc_overlay_file" accept=".ft2,.ucsf" onchange="load_hsqc_overlay_file()"><br>
+                    <input type="file" id="hsqc_overlay_file" accept=".ft2,.ucsf,.pipe" onchange="load_hsqc_overlay_file()"><br>
                     <button type="button" id="btn_load_hsqc_overlay" onclick="load_hsqc_overlay_file()">Load and Overlay 2D HSQC</button>
                 </div>
             </div>

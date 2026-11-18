@@ -557,6 +557,7 @@ function create_ft3_buffer() {
     // Fast Option A: if master buffer is valid real data, clone directly via single memory copy
     if (window.master_3d_buffer && !has_ri && !has_ir && !has_ii &&
         s0.raw_data && s0.raw_data.buffer === window.master_3d_buffer &&
+        s0.raw_data.byteOffset === header_byte_size &&
         window.master_3d_buffer.byteLength >= total_byte_size) {
         const cloned = window.master_3d_buffer.slice(0, total_byte_size);
         if (s0.header && s0.header.length >= 512) {
@@ -3650,7 +3651,7 @@ async function load_ft3_file() {
         return;
     }
 
-    let isNmrPipe = ext.match(/^ft[a-z0-9]?$/i);
+    let isNmrPipe = ext.match(/^ft[a-z0-9]?$/i) || ext === 'pipe';
 
     if (isNmrPipe) {
         await load_ft3_file_impl(file);
