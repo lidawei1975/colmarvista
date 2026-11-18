@@ -231,10 +231,17 @@ function create_plane_spectrum_from_template(s0, buffer, byteOffset, plane_name,
     return s;
 }
 var trace_plot_margins_3d = { left: 52, right: 12, top: 8, bottom: 22 };
+var vert_trace_plot_margins_3d = { left: 46, right: 10, top: 10, bottom: 24 };
 var trace_zoom_domains = {
     'trace_x_svg': null,
     'trace_y_svg': null,
-    'trace_z_svg': null
+    'trace_z_svg': null,
+    'vert_trace_svg_xy': null,
+    'vert_trace_svg_xz': null,
+    'vert_trace_svg_yz': null,
+    'vert_trace_svg_proj': null,
+    'vert_trace_svg_proj_y': null,
+    'vert_trace_svg_proj_x': null
 };
 
 /**
@@ -275,6 +282,10 @@ var theoretical_spectrum_proj_x = null;
 
 var global_3d_noise = 0.0;
 var show_peak_symbols = true;
+
+var hsqc_overlay_spectrum = null;
+var hsqc_overlay_spectrum_transposed = null;
+var show_hsqc_overlay = true;
 
 function evaluate_global_noise_redefinition() {
 
@@ -441,6 +452,8 @@ function reset_3d_dataset_state(keepNuclei = false) {
         ft3_processed_btn.onclick = null;
     }
 
+    let shift_x = document.getElementById("shift_val_x");
+    if (shift_x) shift_x.value = "";
     let shift_y = document.getElementById("shift_val_y");
     if (shift_y) shift_y.value = "";
     let shift_z = document.getElementById("shift_val_z");
@@ -2202,11 +2215,11 @@ window.remove_secondary_axis = remove_secondary_axis;
 window.update_all_secondary_axes = update_all_secondary_axes;
 
 /**
- * Applies a calibration shift (in ppm or Hz) to an indirect dimension ('y' or 'z').
+ * Applies a calibration shift (in ppm or Hz) to a dimension ('x', 'y', or 'z').
  * Updates internal coordinates, NMRPipe header (both CAR and ORIG), plot scales,
  * WebGL contours, slice indicators, 1D traces, and the spectrum information table.
  *
- * @param {string} axis - 'y' for Indirect Dimension 1, 'z' for Indirect Dimension 2 (Planes)
+ * @param {string} axis - 'x' for Direct Dimension, 'y' for Indirect Dimension 1, 'z' for Indirect Dimension 2 (Planes)
  */
 function apply_dimension_shift(axis) {
     if (!spectra_3d || spectra_3d.length === 0) {
@@ -2215,13 +2228,13 @@ function apply_dimension_shift(axis) {
     }
 
     const normAxis = String(axis).toLowerCase();
-    if (normAxis !== 'y' && normAxis !== 'z') {
-        console.error("apply_dimension_shift: Invalid axis " + axis + ". Must be 'y' or 'z'.");
+    if (normAxis !== 'x' && normAxis !== 'y' && normAxis !== 'z') {
+        console.error("apply_dimension_shift: Invalid axis " + axis + ". Must be 'x', 'y', or 'z'.");
         return;
     }
 
-    const inputId = (normAxis === 'y') ? "shift_val_y" : "shift_val_z";
-    const unitId = (normAxis === 'y') ? "shift_unit_y" : "shift_unit_z";
+    const inputId = "shift_val_" + normAxis;
+    const unitId = "shift_unit_" + normAxis;
 
     const inputElem = document.getElementById(inputId);
     const unitElem = document.getElementById(unitId);
@@ -2268,9 +2281,11 @@ function apply_dimension_shift(axis) {
         return 0;
     };
 
-    let frq = (normAxis === 'y')
-        ? (s0.frq2 || getDimHeaderVal(25, 218, 119, 10))
-        : (s0.frq3 || getDimHeaderVal(26, 218, 119, 10));
+    let frq = (normAxis === 'x')
+        ? (s0.frq1 || getDimHeaderVal(24, 218, 119, 10))
+        : ((normAxis === 'y')
+            ? (s0.frq2 || getDimHeaderVal(25, 218, 119, 10))
+            : (s0.frq3 || getDimHeaderVal(26, 218, 119, 10)));
 
     let delta_ppm = 0;
     let delta_hz = 0;
@@ -2296,12 +2311,13 @@ function apply_dimension_shift(axis) {
     }
 
     // Identify NMRPipe header indices for CAR (ppm) and ORIG (Hz)
+    // dimorder1 = header[24] (Direct dim / x)
     // dimorder2 = header[25] (Indirect dim 1 / y)
     // dimorder3 = header[26] (Indirect dim 2 / z)
-    const dimOrderIdx = (normAxis === 'y') ? 25 : 26;
+    const dimOrderIdx = (normAxis === 'x') ? 24 : ((normAxis === 'y') ? 25 : 26);
     const dimNum = (s0.header && s0.header.length > dimOrderIdx)
         ? Math.round(s0.header[dimOrderIdx])
-        : (normAxis === 'y' ? 1 : 3);
+        : (normAxis === 'x' ? 2 : (normAxis === 'y' ? 1 : 3));
 
     let carIdx, origIdx;
     if (dimNum === 1) {
@@ -2321,7 +2337,13 @@ function apply_dimension_shift(axis) {
     // Update all planes in spectra_3d
     for (let i = 0; i < spectra_3d.length; i++) {
         const s = spectra_3d[i];
-        if (normAxis === 'y') {
+        if (normAxis === 'x') {
+            if (typeof s.x_ppm_start === 'number') s.x_ppm_start += delta_ppm;
+            if (s.ref && s.direct_ndx !== undefined && s.direct_ndx >= 1) {
+                s.ref[s.direct_ndx - 1] += delta_hz;
+            }
+            if (typeof s.ref1 === 'number') s.ref1 += delta_hz;
+        } else if (normAxis === 'y') {
             if (typeof s.y_ppm_start === 'number') s.y_ppm_start += delta_ppm;
             if (s.ref && s.indirect_ndx !== undefined && s.indirect_ndx >= 1) {
                 s.ref[s.indirect_ndx - 1] += delta_hz;
@@ -2345,7 +2367,9 @@ function apply_dimension_shift(axis) {
     if (theoretical_spectra_3d && theoretical_spectra_3d.length > 0) {
         for (let i = 0; i < theoretical_spectra_3d.length; i++) {
             const st = theoretical_spectra_3d[i];
-            if (normAxis === 'y' && typeof st.y_ppm_start === 'number') {
+            if (normAxis === 'x' && typeof st.x_ppm_start === 'number') {
+                st.x_ppm_start += delta_ppm;
+            } else if (normAxis === 'y' && typeof st.y_ppm_start === 'number') {
                 st.y_ppm_start += delta_ppm;
             } else if (normAxis === 'z' && typeof st.z_ppm_start === 'number') {
                 st.z_ppm_start += delta_ppm;
@@ -2354,122 +2378,99 @@ function apply_dimension_shift(axis) {
     }
 
     // Update synthetic orthogonal slice spectrum objects
-    if (spectrum_xz) {
-        if (normAxis === 'z' && typeof spectrum_xz.y_ppm_start === 'number') {
-            spectrum_xz.y_ppm_start += delta_ppm;
+    const shiftSpecStart = (specObj, prop) => {
+        if (specObj && typeof specObj[prop] === 'number') {
+            specObj[prop] += delta_ppm;
         }
-    }
-    if (theoretical_spectrum_xz) {
-        if (normAxis === 'z' && typeof theoretical_spectrum_xz.y_ppm_start === 'number') {
-            theoretical_spectrum_xz.y_ppm_start += delta_ppm;
-        }
-    }
-    if (spectrum_yz) {
-        if (normAxis === 'y' && typeof spectrum_yz.y_ppm_start === 'number') {
-            spectrum_yz.y_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof spectrum_yz.x_ppm_start === 'number') {
-            spectrum_yz.x_ppm_start += delta_ppm;
-        }
-    }
-    if (theoretical_spectrum_yz) {
-        if (normAxis === 'y' && typeof theoretical_spectrum_yz.y_ppm_start === 'number') {
-            theoretical_spectrum_yz.y_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof theoretical_spectrum_yz.x_ppm_start === 'number') {
-            theoretical_spectrum_yz.x_ppm_start += delta_ppm;
-        }
-    }
+    };
 
-    // Update projection spectra objects if present
-    if (spectrum_proj && normAxis === 'y' && typeof spectrum_proj.y_ppm_start === 'number') {
-        spectrum_proj.y_ppm_start += delta_ppm;
-    }
-    if (spectrum_proj_y && normAxis === 'z' && typeof spectrum_proj_y.y_ppm_start === 'number') {
-        spectrum_proj_y.y_ppm_start += delta_ppm;
-    }
-    if (spectrum_proj_x) {
-        if (normAxis === 'y' && typeof spectrum_proj_x.x_ppm_start === 'number') {
-            spectrum_proj_x.x_ppm_start += delta_ppm;
-        }
-        if (normAxis === 'z' && typeof spectrum_proj_x.y_ppm_start === 'number') {
-            spectrum_proj_x.y_ppm_start += delta_ppm;
-        }
+    if (normAxis === 'x') {
+        shiftSpecStart(spectrum_xz, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_xz, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj_y, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_y, 'x_ppm_start');
+    } else if (normAxis === 'y') {
+        shiftSpecStart(spectrum_yz, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_yz, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj_x, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_x, 'x_ppm_start');
+    } else {
+        shiftSpecStart(spectrum_xz, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_xz, 'y_ppm_start');
+        shiftSpecStart(spectrum_yz, 'x_ppm_start');
+        shiftSpecStart(theoretical_spectrum_yz, 'x_ppm_start');
+        shiftSpecStart(spectrum_proj_y, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_y, 'y_ppm_start');
+        shiftSpecStart(spectrum_proj_x, 'y_ppm_start');
+        shiftSpecStart(theoretical_spectrum_proj_x, 'y_ppm_start');
     }
 
     // Update plot scales and SVG axes
-    if (normAxis === 'y') {
-        // Main plot (XY) Y-axis is Y
-        if (main_plot && main_plot.yscale) {
-            main_plot.yscale = [main_plot.yscale[0] + delta_ppm, main_plot.yscale[1] + delta_ppm];
-            if (main_plot.yRange) main_plot.yRange.domain(main_plot.yscale);
-            if (main_plot.yscale_orig) {
-                main_plot.yscale_orig = [main_plot.yscale_orig[0] + delta_ppm, main_plot.yscale_orig[1] + delta_ppm];
+    const shiftPlotAxis = (plot, axisKey, delta) => {
+        if (!plot) return;
+        const isX = axisKey === 'x';
+        const scaleProp = isX ? 'xscale' : 'yscale';
+        const rangeProp = isX ? 'xRange' : 'yRange';
+        const origProp = isX ? 'xscale_orig' : 'yscale_orig';
+        const initProp = isX ? 'init_xscale' : 'init_yscale';
+        const svgAxisProp = isX ? '$xAxis_svg' : '$yAxis_svg';
+        const axisObjProp = isX ? 'xAxis' : 'yAxis';
+
+        if (Array.isArray(plot[scaleProp])) {
+            plot[scaleProp] = [plot[scaleProp][0] + delta, plot[scaleProp][1] + delta];
+            if (plot[rangeProp]) plot[rangeProp].domain(plot[scaleProp]);
+            if (Array.isArray(plot[origProp])) {
+                plot[origProp] = [plot[origProp][0] + delta, plot[origProp][1] + delta];
             }
-            if (typeof main_plot.reset_axis === 'function') main_plot.reset_axis();
-            if (main_plot.$yAxis_svg && main_plot.yAxis) main_plot.$yAxis_svg.call(main_plot.yAxis);
-        }
-        // YZ plot (ZY) Y-axis is Y
-        if (main_plot_yz && main_plot_yz.yscale) {
-            main_plot_yz.yscale = [main_plot_yz.yscale[0] + delta_ppm, main_plot_yz.yscale[1] + delta_ppm];
-            if (main_plot_yz.yRange) main_plot_yz.yRange.domain(main_plot_yz.yscale);
-            if (main_plot_yz.yscale_orig) {
-                main_plot_yz.yscale_orig = [main_plot_yz.yscale_orig[0] + delta_ppm, main_plot_yz.yscale_orig[1] + delta_ppm];
+            if (Array.isArray(plot[initProp])) {
+                plot[initProp] = [plot[initProp][0] + delta, plot[initProp][1] + delta];
             }
-            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
-            if (main_plot_yz.$yAxis_svg && main_plot_yz.yAxis) main_plot_yz.$yAxis_svg.call(main_plot_yz.yAxis);
+            if (typeof plot.reset_axis === 'function') plot.reset_axis();
+            if (plot[svgAxisProp] && plot[axisObjProp]) plot[svgAxisProp].call(plot[axisObjProp]);
         }
-        // Projections
-        if (main_plot_proj && main_plot_proj.yscale) {
-            main_plot_proj.yscale = [main_plot_proj.yscale[0] + delta_ppm, main_plot_proj.yscale[1] + delta_ppm];
-            if (main_plot_proj.yRange) main_plot_proj.yRange.domain(main_plot_proj.yscale);
-            if (main_plot_proj.yscale_orig) main_plot_proj.yscale_orig = [main_plot_proj.yscale_orig[0] + delta_ppm, main_plot_proj.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj.reset_axis === 'function') main_plot_proj.reset_axis();
+    };
+
+    if (normAxis === 'x') {
+        // Main plot (XY) X-axis is X; XZ plot X-axis is X; projections X-axis is X
+        shiftPlotAxis(main_plot, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_xz, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj_y, 'x', delta_ppm);
+        if (trace_x_pivot !== null) {
+            trace_x_pivot += delta_ppm;
+            ['trace_x_pivot_val', 'trace_proj_x_pivot_val', 'trace_proj_y_x_pivot_val'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = trace_x_pivot.toFixed(2) + ' ppm';
+            });
         }
-        if (main_plot_proj_x && main_plot_proj_x.xscale) {
-            main_plot_proj_x.xscale = [main_plot_proj_x.xscale[0] + delta_ppm, main_plot_proj_x.xscale[1] + delta_ppm];
-            if (main_plot_proj_x.xRange) main_plot_proj_x.xRange.domain(main_plot_proj_x.xscale);
-            if (main_plot_proj_x.xscale_orig) main_plot_proj_x.xscale_orig = [main_plot_proj_x.xscale_orig[0] + delta_ppm, main_plot_proj_x.xscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
-        }
+    } else if (normAxis === 'y') {
+        // Main plot (XY) Y-axis is Y; YZ plot (ZY) Y-axis is Y
+        shiftPlotAxis(main_plot, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_yz, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj_x, 'x', delta_ppm);
     } else {
-        // XZ plot Y-axis is Z
-        if (main_plot_xz && main_plot_xz.yscale) {
-            main_plot_xz.yscale = [main_plot_xz.yscale[0] + delta_ppm, main_plot_xz.yscale[1] + delta_ppm];
-            if (main_plot_xz.yRange) main_plot_xz.yRange.domain(main_plot_xz.yscale);
-            if (main_plot_xz.yscale_orig) {
-                main_plot_xz.yscale_orig = [main_plot_xz.yscale_orig[0] + delta_ppm, main_plot_xz.yscale_orig[1] + delta_ppm];
-            }
-            if (typeof main_plot_xz.reset_axis === 'function') main_plot_xz.reset_axis();
-            if (main_plot_xz.$yAxis_svg && main_plot_xz.yAxis) main_plot_xz.$yAxis_svg.call(main_plot_xz.yAxis);
-        }
-        // YZ plot X-axis is Z
-        if (main_plot_yz && main_plot_yz.xscale) {
-            main_plot_yz.xscale = [main_plot_yz.xscale[0] + delta_ppm, main_plot_yz.xscale[1] + delta_ppm];
-            if (main_plot_yz.xRange) main_plot_yz.xRange.domain(main_plot_yz.xscale);
-            if (main_plot_yz.xscale_orig) {
-                main_plot_yz.xscale_orig = [main_plot_yz.xscale_orig[0] + delta_ppm, main_plot_yz.xscale_orig[1] + delta_ppm];
-            }
-            if (typeof main_plot_yz.reset_axis === 'function') main_plot_yz.reset_axis();
-            if (main_plot_yz.$xAxis_svg && main_plot_yz.xAxis) main_plot_yz.$xAxis_svg.call(main_plot_yz.xAxis);
-        }
-        // Projections
-        if (main_plot_proj_y && main_plot_proj_y.yscale) {
-            main_plot_proj_y.yscale = [main_plot_proj_y.yscale[0] + delta_ppm, main_plot_proj_y.yscale[1] + delta_ppm];
-            if (main_plot_proj_y.yRange) main_plot_proj_y.yRange.domain(main_plot_proj_y.yscale);
-            if (main_plot_proj_y.yscale_orig) main_plot_proj_y.yscale_orig = [main_plot_proj_y.yscale_orig[0] + delta_ppm, main_plot_proj_y.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_y.reset_axis === 'function') main_plot_proj_y.reset_axis();
-        }
-        if (main_plot_proj_x && main_plot_proj_x.yscale) {
-            main_plot_proj_x.yscale = [main_plot_proj_x.yscale[0] + delta_ppm, main_plot_proj_x.yscale[1] + delta_ppm];
-            if (main_plot_proj_x.yRange) main_plot_proj_x.yRange.domain(main_plot_proj_x.yscale);
-            if (main_plot_proj_x.yscale_orig) main_plot_proj_x.yscale_orig = [main_plot_proj_x.yscale_orig[0] + delta_ppm, main_plot_proj_x.yscale_orig[1] + delta_ppm];
-            if (typeof main_plot_proj_x.reset_axis === 'function') main_plot_proj_x.reset_axis();
-        }
+        // XZ plot Y-axis is Z; YZ plot X-axis is Z
+        shiftPlotAxis(main_plot_xz, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_yz, 'x', delta_ppm);
+        shiftPlotAxis(main_plot_proj_y, 'y', delta_ppm);
+        shiftPlotAxis(main_plot_proj_x, 'y', delta_ppm);
     }
 
     // Refresh contours and WebGL scenes
-    if (normAxis === 'y') {
+    if (normAxis === 'x') {
+        if (typeof refresh_current_view === 'function') {
+            const curSlice = (current_slice_index >= 0 && spectra_3d[current_slice_index]) ? spectra_3d[current_slice_index] : spectra_3d[0];
+            refresh_current_view(curSlice);
+        }
+        if (typeof refresh_ortho_plot === 'function') {
+            refresh_ortho_plot("xz");
+        }
+    } else if (normAxis === 'y') {
         if (typeof refresh_current_view === 'function') {
             const curSlice = (current_slice_index >= 0 && spectra_3d[current_slice_index]) ? spectra_3d[current_slice_index] : spectra_3d[0];
             refresh_current_view(curSlice);
@@ -2484,10 +2485,15 @@ function apply_dimension_shift(axis) {
         }
     }
 
-    // Redraw fixed center crosshairs
-    if (main_plot && typeof main_plot.draw_center_lines === 'function') main_plot.draw_center_lines();
-    if (main_plot_xz && typeof main_plot_xz.draw_center_lines === 'function') main_plot_xz.draw_center_lines();
-    if (main_plot_yz && typeof main_plot_yz.draw_center_lines === 'function') main_plot_yz.draw_center_lines();
+    if (spectrum_proj && typeof refresh_proj_plot === 'function') {
+        refresh_proj_plot();
+    }
+    if (spectrum_proj_y && typeof refresh_proj_y_plot === 'function') {
+        refresh_proj_y_plot();
+    }
+    if (spectrum_proj_x && typeof refresh_proj_x_plot === 'function') {
+        refresh_proj_x_plot();
+    }
 
     // Update slice readouts
     if (normAxis === 'z') {
@@ -2505,9 +2511,18 @@ function apply_dimension_shift(axis) {
             val_xz.innerText = `${current_y_index + 1}/${s0.n_indirect} (${ppm_y.toFixed(3)} ppm)`;
         }
     }
+    if (normAxis === 'x') {
+        const val_yz = document.getElementById("val_yz");
+        if (val_yz && s0.n_direct) {
+            const ppm_x = s0.x_ppm_start + (current_x_index * s0.x_ppm_step);
+            val_yz.innerText = `${current_x_index + 1}/${s0.n_direct} (${ppm_x.toFixed(3)} ppm)`;
+        }
+    }
 
-    // Update 1D traces
-    if (typeof update_1d_traces_from_center === 'function') {
+    // Update crosshairs and 1D traces
+    if (typeof update_3d_crosshairs === 'function') {
+        update_3d_crosshairs();
+    } else if (typeof update_1d_traces_from_center === 'function') {
         update_1d_traces_from_center();
     }
 
@@ -2519,7 +2534,9 @@ function apply_dimension_shift(axis) {
 
     // Clear input field and report status
     inputElem.value = "";
-    const dimTitle = (normAxis === 'y') ? "Indirect Dimension 1 (y)" : "Indirect Dimension 2 / Planes (z)";
+    const dimTitle = (normAxis === 'x')
+        ? "Direct Dimension (x)"
+        : ((normAxis === 'y') ? "Indirect Dimension 1 (y)" : "Indirect Dimension 2 / Planes (z)");
     const signPpm = delta_ppm >= 0 ? `+${delta_ppm.toFixed(4)}` : delta_ppm.toFixed(4);
     const signHz = delta_hz >= 0 ? `+${delta_hz.toFixed(2)}` : delta_hz.toFixed(2);
     const msg = `Applied ${signPpm} ppm (${signHz} Hz) shift to ${dimTitle}.`;
@@ -3272,6 +3289,11 @@ function handle_worker_message(e) {
 
         if (e.data.spectrum_type === "proj_x_theo") {
             handle_proj_x_response(e.data, "proj_x_theo");
+            return;
+        }
+
+        if (e.data.spectrum_type === "hsqc_overlay") {
+            handle_hsqc_overlay_response(e.data);
             return;
         }
 
@@ -4708,7 +4730,8 @@ function init_main_plot(first_spectrum) {
         PointData: [],
         inter_window_channel: null,
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
 
     main_plot = new plotit(input);
@@ -4817,6 +4840,12 @@ function refresh_current_view(spectrum_in) {
         }
     }
 
+    // Check for 2D HSQC (1H-15N) overlay on xy plane
+    let hsqc_xy = get_hsqc_overlay_for_plot('x', 'y');
+    if (hsqc_xy && hsqc_xy.cached_contour_pos) {
+        spectra_list.push(hsqc_xy);
+    }
+
     let points_pos_list = [];
     let len_pos_list = [];
     let poly_pos_list = [];
@@ -4919,6 +4948,38 @@ function refresh_current_view(spectrum_in) {
 }
 
 /**
+ * Updates x/y domains, axes, and WebGL camera on a target plot without triggering sync callbacks.
+ *
+ * @param {object} target_plot - Target plotit instance
+ * @param {Array<number>|null} x_domain - Optional [min, max] X domain in ppm
+ * @param {Array<number>|null} y_domain - Optional [min, max] Y domain in ppm
+ */
+function sync_plot_xy_domain(target_plot, x_domain, y_domain) {
+    if (!target_plot || !target_plot.xRange || !target_plot.yRange) return;
+    if (Array.isArray(x_domain) && x_domain.length === 2) {
+        target_plot.xscale = [x_domain[0], x_domain[1]];
+        target_plot.xRange.domain(target_plot.xscale);
+    }
+    if (Array.isArray(y_domain) && y_domain.length === 2) {
+        target_plot.yscale = [y_domain[0], y_domain[1]];
+        target_plot.yRange.domain(target_plot.yscale);
+    }
+    target_plot.reset_axis();
+    if (target_plot.$xAxis_svg && target_plot.xAxis) {
+        target_plot.$xAxis_svg.call(target_plot.xAxis);
+    }
+    if (target_plot.$yAxis_svg && target_plot.yAxis) {
+        target_plot.$yAxis_svg.call(target_plot.yAxis);
+    }
+    if (target_plot.contour_plot) {
+        let x_dom = target_plot.xRange.domain();
+        let y_dom = target_plot.yRange.domain();
+        target_plot.contour_plot.setCamera_ppm(x_dom[0], x_dom[1], y_dom[0], y_dom[1]);
+        target_plot.contour_plot.drawScene();
+    }
+}
+
+/**
  * Sync XZ and YZ sliders AND axes to the main XY plot
  */
 function sync_sliders_to_center(is_end = true) {
@@ -5014,6 +5075,19 @@ function sync_sliders_to_center(is_end = true) {
         }
     }
 
+    // Sync projection plots sharing X and/or Y axes
+    if (main_plot_proj) {
+        sync_plot_xy_domain(main_plot_proj, x_domain, y_domain);
+    }
+    if (main_plot_proj_y) {
+        let z_dom = (main_plot_xz && main_plot_xz.yRange) ? main_plot_xz.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_y, x_domain, z_dom);
+    }
+    if (main_plot_proj_x) {
+        let z_dom = (main_plot_yz && main_plot_yz.xRange) ? main_plot_yz.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_x, y_domain, z_dom);
+    }
+
     update_3d_crosshairs();
 }
 
@@ -5095,6 +5169,19 @@ function sync_from_xz_plot(is_end = true) {
             let ppm_x = s.x_ppm_start + (new_x_index * s.x_ppm_step);
             val_yz.innerText = (new_x_index + 1) + "/" + s.n_direct + " (" + ppm_x.toFixed(3) + " ppm)";
         }
+    }
+
+    // Sync projection plots sharing X and/or Z axes
+    if (main_plot_proj_y) {
+        sync_plot_xy_domain(main_plot_proj_y, x_domain, y_domain);
+    }
+    if (main_plot_proj) {
+        let y_dom_xy = (main_plot && main_plot.yRange) ? main_plot.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj, x_domain, y_dom_xy);
+    }
+    if (main_plot_proj_x) {
+        let y_dom_xy = (main_plot && main_plot.yRange) ? main_plot.yRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_x, y_dom_xy, y_domain);
     }
 
     update_3d_crosshairs();
@@ -5179,6 +5266,19 @@ function sync_from_yz_plot(is_end = true) {
             let ppm_y = s.y_ppm_start + (new_y_index * s.y_ppm_step);
             val_xz.innerText = (new_y_index + 1) + "/" + s.n_indirect + " (" + ppm_y.toFixed(3) + " ppm)";
         }
+    }
+
+    // Sync projection plots sharing Y and/or Z axes
+    if (main_plot_proj) {
+        let x_dom_xy = (main_plot && main_plot.xRange) ? main_plot.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj, x_dom_xy, y_domain);
+    }
+    if (main_plot_proj_y) {
+        let x_dom_xz = (main_plot_xz && main_plot_xz.xRange) ? main_plot_xz.xRange.domain() : null;
+        sync_plot_xy_domain(main_plot_proj_y, x_dom_xz, x_domain);
+    }
+    if (main_plot_proj_x) {
+        sync_plot_xy_domain(main_plot_proj_x, y_domain, x_domain);
     }
 
     update_3d_crosshairs();
@@ -5294,7 +5394,8 @@ function init_ortho_plots(s) {
             drawto_infor: "infor_xz",
             size: [cr.width, cr.height],
             tooldiv: tooldiv,
-            on_sync_views: sync_3d_views
+            on_sync_views: sync_3d_views,
+            b_show_cross_section: false
         };
         main_plot_xz = new plotit(input_xz);
         main_plot_xz.draw();
@@ -5348,7 +5449,8 @@ function init_ortho_plots(s) {
             drawto_infor: "infor_yz",
             size: [cr.width, cr.height],
             tooldiv: tooldiv,
-            on_sync_views: sync_3d_views
+            on_sync_views: sync_3d_views,
+            b_show_cross_section: false
         };
         main_plot_yz = new plotit(input_yz);
         main_plot_yz.draw();
@@ -5795,6 +5897,10 @@ function refresh_ortho_plot(type) {
     let spectra_list = [spec];
     if (type === "xz" && theoretical_spectrum_xz) spectra_list.push(theoretical_spectrum_xz);
     if (type === "yz" && theoretical_spectrum_yz) spectra_list.push(theoretical_spectrum_yz);
+    let hsqc_ortho = (type === "xz") ? get_hsqc_overlay_for_plot('x', 'z') : get_hsqc_overlay_for_plot('z', 'y');
+    if (hsqc_ortho && hsqc_ortho.cached_contour_pos) {
+        spectra_list.push(hsqc_ortho);
+    }
 
     let total_points = 0;
 
@@ -6044,6 +6150,87 @@ function clear_1d_trace_svg(svgId) {
     d3.select(svgEl).selectAll('*').remove();
 }
 
+const VERT_TRACE_BOX_IDS = [
+    'vert_trace_box_xy',
+    'vert_trace_box_xz',
+    'vert_trace_box_yz',
+    'vert_trace_box_proj',
+    'vert_trace_box_proj_y',
+    'vert_trace_box_proj_x'
+];
+
+const VERT_TRACE_SVG_IDS = [
+    'vert_trace_svg_xy',
+    'vert_trace_svg_xz',
+    'vert_trace_svg_yz',
+    'vert_trace_svg_proj',
+    'vert_trace_svg_proj_y',
+    'vert_trace_svg_proj_x'
+];
+
+/**
+ * Determines normalized nucleus type ('1H', '15N', '13C', or '') for a 3D dimension.
+ *
+ * @param {string} dim - 'x', 'y', or 'z'
+ * @param {object} s0 - Reference 2D/3D spectrum plane object
+ * @returns {string} Normalized nucleus identifier
+ */
+function get_3d_dim_nucleus_type(dim, s0) {
+    let nuc = (window.last_fid_nuclei && window.last_fid_nuclei[dim])
+        ? String(window.last_fid_nuclei[dim]).trim().toUpperCase()
+        : '';
+    if (nuc) {
+        if (nuc.includes('15N') || nuc.includes('N15') || nuc === 'N' || nuc === 'NH') return '15N';
+        if (nuc.includes('13C') || nuc.includes('C13') || nuc === 'C' || nuc === 'CA' || nuc === 'CB' || nuc === 'CO') return '13C';
+        if (nuc.includes('1H') || nuc.includes('H1') || nuc === 'H' || nuc === 'HN') return '1H';
+    }
+
+    if (s0) {
+        const getDimHeaderVal = (dimOrderIdx, f1Offset, f2Offset, f3Offset) => {
+            if (!s0.header) return 0;
+            const d = Math.round(s0.header[dimOrderIdx]);
+            if (d === 1) return s0.header[f1Offset] || 0;
+            if (d === 2) return s0.header[f2Offset] || 0;
+            if (d === 3) return s0.header[f3Offset] || 0;
+            return 0;
+        };
+        const frq_x = s0.frq1 || getDimHeaderVal(24, 218, 119, 10);
+        let frq_dim = frq_x;
+        if (dim === 'y') frq_dim = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+        else if (dim === 'z') frq_dim = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+
+        if (frq_x > 0 && frq_dim > 0) {
+            const ratio = frq_dim / frq_x;
+            if (ratio > 0.08 && ratio < 0.13) return '15N';
+            if (ratio > 0.20 && ratio < 0.30) return '13C';
+            if (ratio > 0.90 && ratio < 1.10) return '1H';
+        }
+
+        const dom = get_trace_domain_3d(dim, s0);
+        if (Array.isArray(dom) && dom.length === 2) {
+            const center = (dom[0] + dom[1]) / 2;
+            const span = Math.abs(dom[1] - dom[0]);
+            if (center >= -2 && center <= 15 && span < 25) return '1H';
+            if (center >= 95 && center <= 140 && span < 50) return '15N';
+        }
+    }
+    return '';
+}
+
+/**
+ * Returns true if the two given 3D dimensions form a 1H-15N 2D plane (in either order).
+ *
+ * @param {string} dimA - First dimension ('x', 'y', or 'z')
+ * @param {string} dimB - Second dimension ('x', 'y', or 'z')
+ * @param {object} s0 - Reference spectrum plane object
+ * @returns {boolean}
+ */
+function is_1h_15n_2d_plot(dimA, dimB, s0) {
+    const nucA = get_3d_dim_nucleus_type(dimA, s0);
+    const nucB = get_3d_dim_nucleus_type(dimB, s0);
+    return (nucA === '1H' && nucB === '15N') || (nucA === '15N' && nucB === '1H');
+}
+
 /**
  * Clears all 1d traces.
  */
@@ -6054,6 +6241,13 @@ function clear_all_1d_traces() {
     clear_1d_trace_svg('trace_proj_x_svg');
     clear_1d_trace_svg('trace_proj_y_x_svg');
     clear_1d_trace_svg('trace_proj_z_svg');
+    VERT_TRACE_SVG_IDS.forEach(clear_1d_trace_svg);
+    if (!spectra_3d || spectra_3d.length === 0) {
+        VERT_TRACE_BOX_IDS.forEach(id => {
+            const box = document.getElementById(id);
+            if (box) box.style.display = 'none';
+        });
+    }
 }
 
 /**
@@ -6366,6 +6560,192 @@ function render_trace_3d(svgId, points, xDomain, lineColor, points_recon = null)
     }
 }
 
+/**
+ * Renders a vertical 1D trace SVG (chemical shift ppm along Y axis, intensity along X axis)
+ * with vertical brush zoom, mouse wheel zoom, and double-click zoom reset.
+ *
+ * @param {string} svgId - Target SVG element ID
+ * @param {Array<{ppm: number, value: number}>} points - Experimental trace points
+ * @param {Array<number>} yDomain - Vertical ppm domain [start, end]
+ * @param {string} lineColor - Primary trace stroke color
+ * @param {Array<{ppm: number, value: number}>|null} [points_recon] - Optional reconstructed trace points
+ */
+function render_vertical_trace_3d(svgId, points, yDomain, lineColor, points_recon = null) {
+    const svgEl = document.getElementById(svgId);
+    if (!svgEl) return;
+
+    const svg = d3.select(svgEl);
+    svg.selectAll('*').remove();
+
+    if (!points || points.length === 0) return;
+
+    const width = parseFloat(svg.attr('width')) || svgEl.clientWidth || 200;
+    const height = parseFloat(svg.attr('height')) || svgEl.clientHeight || 600;
+    const m = vert_trace_plot_margins_3d;
+    const plotWidth = Math.max(10, width - m.left - m.right);
+    const plotHeight = Math.max(10, height - m.top - m.bottom);
+
+    const yScale = d3.scaleLinear()
+        .domain(yDomain)
+        .range([m.top + plotHeight, m.top]);
+
+    const yMin = Math.min(yDomain[0], yDomain[1]);
+    const yMax = Math.max(yDomain[0], yDomain[1]);
+    const visiblePoints = points.filter(p => p.ppm >= yMin && p.ppm <= yMax);
+    const xSource = visiblePoints.length > 0 ? visiblePoints : points;
+
+    let visiblePointsRecon = [];
+    if (points_recon && points_recon.length > 0) {
+        visiblePointsRecon = points_recon.filter(p => p.ppm >= yMin && p.ppm <= yMax);
+    }
+
+    let xMin = d3.min(xSource, d => d.value);
+    let xMax = d3.max(xSource, d => d.value);
+
+    if (points_recon && points_recon.length > 0) {
+        const xSourceRecon = visiblePointsRecon.length > 0 ? visiblePointsRecon : points_recon;
+        const xMinRecon = d3.min(xSourceRecon, d => d.value);
+        const xMaxRecon = d3.max(xSourceRecon, d => d.value);
+        if (Number.isFinite(xMinRecon)) xMin = Math.min(xMin, xMinRecon);
+        if (Number.isFinite(xMaxRecon)) xMax = Math.max(xMax, xMaxRecon);
+    }
+
+    if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) {
+        xMin = -1;
+        xMax = 1;
+    }
+    if (xMin === xMax) {
+        const padEq = Math.max(Math.abs(xMin) * 0.2, 1e-6);
+        xMin -= padEq;
+        xMax += padEq;
+    }
+    const pad = (xMax - xMin) * 0.08;
+    xMin -= pad;
+    xMax += pad;
+
+    const xScale = d3.scaleLinear()
+        .domain([xMin, xMax])
+        .range([m.left, m.left + plotWidth]);
+
+    const line = d3.line()
+        .x(d => xScale(d.value))
+        .y(d => yScale(d.ppm))
+        .defined(d => Number.isFinite(d.ppm) && Number.isFinite(d.value));
+
+    const clipId = 'clip-' + svgId;
+    svg.append('defs').append('clipPath')
+        .attr('id', clipId)
+        .append('rect')
+        .attr('x', m.left)
+        .attr('y', m.top)
+        .attr('width', plotWidth)
+        .attr('height', plotHeight);
+
+    svg.append('g')
+        .attr('transform', 'translate(' + m.left + ',0)')
+        .call(d3.axisLeft(yScale).ticks(8));
+
+    svg.append('g')
+        .attr('transform', 'translate(0,' + (m.top + plotHeight) + ')')
+        .call(d3.axisBottom(xScale).ticks(3).tickFormat(d3.format('.2s')));
+
+    const plotGroup = svg.append('g')
+        .attr('clip-path', 'url(#' + clipId + ')');
+
+    if (xMin < 0 && xMax > 0) {
+        plotGroup.append('line')
+            .attr('x1', xScale(0))
+            .attr('x2', xScale(0))
+            .attr('y1', m.top)
+            .attr('y2', m.top + plotHeight)
+            .attr('stroke', '#b0b0b0')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,2');
+    }
+
+    plotGroup.append('path')
+        .datum(points)
+        .attr('fill', 'none')
+        .attr('stroke', lineColor || '#0000ff')
+        .attr('stroke-width', 1.5)
+        .attr('d', line);
+
+    if (points_recon && points_recon.length > 0) {
+        plotGroup.append('path')
+            .datum(points_recon)
+            .attr('fill', 'none')
+            .attr('stroke', '#ff0000')
+            .attr('stroke-width', 1.5)
+            .attr('d', line);
+    }
+
+    if (visiblePoints.length < 64) {
+        plotGroup.selectAll('.trace-circle-exp')
+            .data(visiblePoints.filter(d => Number.isFinite(d.ppm) && Number.isFinite(d.value)))
+            .enter()
+            .append('circle')
+            .attr('class', 'trace-circle-exp')
+            .attr('cx', d => xScale(d.value))
+            .attr('cy', d => yScale(d.ppm))
+            .attr('r', 3)
+            .attr('fill', lineColor || '#0000ff')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1)
+            .style('pointer-events', 'none');
+    }
+
+    if (points_recon && points_recon.length > 0 && visiblePointsRecon.length < 64) {
+        plotGroup.selectAll('.trace-circle-recon')
+            .data(visiblePointsRecon.filter(d => Number.isFinite(d.ppm) && Number.isFinite(d.value)))
+            .enter()
+            .append('circle')
+            .attr('class', 'trace-circle-recon')
+            .attr('cx', d => xScale(d.value))
+            .attr('cy', d => yScale(d.ppm))
+            .attr('r', 3)
+            .attr('fill', '#ff0000')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1)
+            .style('pointer-events', 'none');
+    }
+
+    // Brush for vertical PPM zooming
+    const brush = d3.brushY()
+        .extent([[m.left, m.top], [m.left + plotWidth, m.top + plotHeight]])
+        .on('end', function (event) {
+            if (!event.selection) return;
+            const [py0, py1] = event.selection;
+            trace_zoom_domains[svgId] = [yScale.invert(py1), yScale.invert(py0)];
+            update_1d_traces_from_center();
+        });
+
+    svg.append('g')
+        .attr('class', 'brush')
+        .call(brush);
+
+    // Wheel zoom centered at cursor vertical position
+    svg.on('wheel', function (event) {
+        event.preventDefault();
+        const rect = svgEl.getBoundingClientRect();
+        const mouseY = Math.max(m.top, Math.min(m.top + plotHeight, event.clientY - rect.top));
+        const pivotPpm = yScale.invert(mouseY);
+        const span = yDomain[1] - yDomain[0];
+        const k = event.deltaY > 0 ? 1.15 : 0.85;
+        const newSpan = span * k;
+        const ratio = Math.abs(span) > 1e-12 ? (pivotPpm - yDomain[0]) / span : 0.5;
+        const newStart = pivotPpm - newSpan * ratio;
+        const newEnd = newStart + newSpan;
+        trace_zoom_domains[svgId] = [newStart, newEnd];
+        update_1d_traces_from_center();
+    });
+
+    // Double-click to reset zoom
+    svg.on('dblclick', function () {
+        trace_zoom_domains[svgId] = null;
+        update_1d_traces_from_center();
+    });
+}
+
 
 /**
  * Updates 1d traces from center.
@@ -6453,6 +6833,62 @@ function update_1d_traces_from_center() {
             span.innerText = `1D Trace Along ${labelX} (at ${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm)`;
         }
     }
+
+    // Show/hide vertical 1D trace next to the 2D plot(s) with 1H and 15N axes
+    const vertPlaneConfigs = [
+        {
+            dimA: 'x', dimB: 'y', otherDim: 'z',
+            trace: traceZ, traceRecon: traceZ_recon,
+            coordLabel: `${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelY}=${center.ppm_y.toFixed(3)} ppm`,
+            otherLabel: labelZ,
+            boxIds: ['vert_trace_box_xy', 'vert_trace_box_proj'],
+            labelIds: ['vert_trace_label_xy', 'vert_trace_label_proj'],
+            svgIds: ['vert_trace_svg_xy', 'vert_trace_svg_proj']
+        },
+        {
+            dimA: 'x', dimB: 'z', otherDim: 'y',
+            trace: traceY, traceRecon: traceY_recon,
+            coordLabel: `${labelX}=${center.ppm_x.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm`,
+            otherLabel: labelY,
+            boxIds: ['vert_trace_box_xz', 'vert_trace_box_proj_y'],
+            labelIds: ['vert_trace_label_xz', 'vert_trace_label_proj_y'],
+            svgIds: ['vert_trace_svg_xz', 'vert_trace_svg_proj_y']
+        },
+        {
+            dimA: 'z', dimB: 'y', otherDim: 'x',
+            trace: traceX, traceRecon: traceX_recon,
+            coordLabel: `${labelY}=${center.ppm_y.toFixed(3)} ppm, ${labelZ}=${center.ppm_z.toFixed(3)} ppm`,
+            otherLabel: labelX,
+            boxIds: ['vert_trace_box_yz', 'vert_trace_box_proj_x'],
+            labelIds: ['vert_trace_label_yz', 'vert_trace_label_proj_x'],
+            svgIds: ['vert_trace_svg_yz', 'vert_trace_svg_proj_x']
+        }
+    ];
+
+    vertPlaneConfigs.forEach(cfg => {
+        const showVert = is_1h_15n_2d_plot(cfg.dimA, cfg.dimB, s0);
+        cfg.boxIds.forEach(boxId => {
+            const box = document.getElementById(boxId);
+            if (box) box.style.display = showVert ? 'flex' : 'none';
+        });
+        if (showVert) {
+            cfg.labelIds.forEach(lblId => {
+                const lblEl = document.getElementById(lblId);
+                if (lblEl) {
+                    const span = lblEl.querySelector('span');
+                    if (span) {
+                        span.innerText = `1D Trace Along ${cfg.otherLabel} (at ${cfg.coordLabel})`;
+                    }
+                }
+            });
+            cfg.svgIds.forEach(svgId => {
+                const yDomain = trace_zoom_domains[svgId] || get_trace_domain_3d(cfg.otherDim, s0);
+                render_vertical_trace_3d(svgId, cfg.trace, yDomain, '#0000ff', cfg.traceRecon);
+            });
+        } else {
+            cfg.svgIds.forEach(clear_1d_trace_svg);
+        }
+    });
 
     // Update Projection 1D Trace
     if (spectrum_proj && spectrum_proj.raw_data) {
@@ -6909,6 +7345,15 @@ function toggle_visualize_proj(show) {
             if (!main_plot_proj || main_plot_proj.WIDTH === 0) init_proj_plot(s);
             if (!main_plot_proj_y || main_plot_proj_y.WIDTH === 0) init_proj_y_plot(s);
             if (!main_plot_proj_x || main_plot_proj_x.WIDTH === 0) init_proj_x_plot(s);
+            if (main_plot_proj && main_plot && main_plot.xRange && main_plot.yRange) {
+                sync_plot_xy_domain(main_plot_proj, main_plot.xRange.domain(), main_plot.yRange.domain());
+            }
+            if (main_plot_proj_y && main_plot_xz && main_plot_xz.xRange && main_plot_xz.yRange) {
+                sync_plot_xy_domain(main_plot_proj_y, main_plot_xz.xRange.domain(), main_plot_xz.yRange.domain());
+            }
+            if (main_plot_proj_x && main_plot_yz && main_plot_yz.xRange && main_plot_yz.yRange) {
+                sync_plot_xy_domain(main_plot_proj_x, main_plot_yz.yRange.domain(), main_plot_yz.xRange.domain());
+            }
             update_all_plot_axis_labels();
         }
 
@@ -6919,6 +7364,7 @@ function toggle_visualize_proj(show) {
             refresh_proj_y_plot();
             refresh_proj_x_plot();
         }
+        update_3d_crosshairs();
     } else {
         if (c1) c1.style.display = 'none';
         if (c2) c2.style.display = 'none';
@@ -9154,7 +9600,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 update_1d_traces_from_center();
             }
         });
-        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+        ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].concat(VERT_TRACE_SVG_IDS).forEach(id => {
             const el = document.getElementById(id);
             if (el && el.parentElement) {
                 ro.observe(el.parentElement);
@@ -9193,12 +9639,12 @@ function setup_2d_plot_resizing() {
     if (typeof ResizeObserver === 'undefined') return;
 
     const plots = [
-        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
-        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
-        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
-        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
-        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
-        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
+        { parent: "vis_parent", svg: "visualization", canvas: "canvas1", vert_box: "vert_trace_box_xy", get_plot: () => typeof main_plot !== 'undefined' ? main_plot : null },
+        { parent: "vis_parent_xz", svg: "visualization_xz", canvas: "canvas_xz", vert_box: "vert_trace_box_xz", get_plot: () => typeof main_plot_xz !== 'undefined' ? main_plot_xz : null },
+        { parent: "vis_parent_yz", svg: "visualization_yz", canvas: "canvas_yz", vert_box: "vert_trace_box_yz", get_plot: () => typeof main_plot_yz !== 'undefined' ? main_plot_yz : null },
+        { parent: "vis_parent_proj", svg: "visualization_proj", canvas: "canvas_proj", vert_box: "vert_trace_box_proj", get_plot: () => typeof main_plot_proj !== 'undefined' ? main_plot_proj : null },
+        { parent: "vis_parent_proj_y", svg: "visualization_proj_y", canvas: "canvas_proj_y", vert_box: "vert_trace_box_proj_y", get_plot: () => typeof main_plot_proj_y !== 'undefined' ? main_plot_proj_y : null },
+        { parent: "vis_parent_proj_x", svg: "visualization_proj_x", canvas: "canvas_proj_x", vert_box: "vert_trace_box_proj_x", get_plot: () => typeof main_plot_proj_x !== 'undefined' ? main_plot_proj_x : null }
     ];
 
     const ro = new ResizeObserver((entries) => {
@@ -9247,6 +9693,13 @@ function setup_2d_plot_resizing() {
                 fontsize: plot_font_size
             });
 
+            if (plot_info.vert_box) {
+                let vb = document.getElementById(plot_info.vert_box);
+                if (vb && vb.style.height !== cr.height + "px") {
+                    vb.style.height = cr.height + "px";
+                }
+            }
+
             // Redraw/move all crosshairs with updated scales
             update_3d_crosshairs();
         }
@@ -9262,7 +9715,7 @@ function setup_2d_plot_resizing() {
             update_1d_traces_from_center();
         }
     });
-    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].forEach(id => {
+    ['trace_z_svg', 'trace_y_svg', 'trace_x_svg', 'trace_proj_x_svg', 'trace_proj_y_x_svg', 'trace_proj_z_svg'].concat(VERT_TRACE_SVG_IDS).forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentElement) {
             ro_1d.observe(el.parentElement);
@@ -9320,11 +9773,14 @@ function init_proj_plot(s) {
         drawto_infor: "infor_proj",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj = new plotit(input_proj);
     main_plot_proj.draw();
-
+    if (typeof main_plot_proj.draw_center_lines === 'function') {
+        main_plot_proj.draw_center_lines();
+    }
     // Disable interactive behaviors
     main_plot_proj.cross_line_pause_flag = false;
     if (typeof main_plot_proj.allow_right_click === 'function') {
@@ -9334,6 +9790,10 @@ function init_proj_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot && main_plot.xRange && main_plot.yRange) {
+        sync_plot_xy_domain(main_plot_proj, main_plot.xRange.domain(), main_plot.yRange.domain());
     }
 }
 
@@ -9361,6 +9821,8 @@ function refresh_proj_plot() {
 
     let spectra_list = [spectrum_proj];
     if (theoretical_spectrum_proj) spectra_list.push(theoretical_spectrum_proj);
+    let hsqc_proj = get_hsqc_overlay_for_plot('x', 'y');
+    if (hsqc_proj && hsqc_proj.cached_contour_pos) spectra_list.push(hsqc_proj);
 
     render_to_plot(main_plot_proj, spectra_list);
 }
@@ -9821,12 +10283,14 @@ function init_proj_y_plot(s) {
         drawto_infor: "infor_proj_y",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj_y = new plotit(input_proj);
     main_plot_proj_y.draw();
-
-    // Disable interactive behaviors
+    if (typeof main_plot_proj_y.draw_center_lines === 'function') {
+        main_plot_proj_y.draw_center_lines();
+    }
     main_plot_proj_y.cross_line_pause_flag = false;
     if (typeof main_plot_proj_y.allow_right_click === 'function') {
         main_plot_proj_y.allow_right_click(false);
@@ -9835,6 +10299,10 @@ function init_proj_y_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot_xz && main_plot_xz.xRange && main_plot_xz.yRange) {
+        sync_plot_xy_domain(main_plot_proj_y, main_plot_xz.xRange.domain(), main_plot_xz.yRange.domain());
     }
 }
 
@@ -9862,6 +10330,8 @@ function refresh_proj_y_plot() {
 
     let spectra_list = [spectrum_proj_y];
     if (theoretical_spectrum_proj_y) spectra_list.push(theoretical_spectrum_proj_y);
+    let hsqc_proj_y = get_hsqc_overlay_for_plot('x', 'z');
+    if (hsqc_proj_y && hsqc_proj_y.cached_contour_pos) spectra_list.push(hsqc_proj_y);
 
     render_to_plot(main_plot_proj_y, spectra_list);
 }
@@ -9972,13 +10442,16 @@ function init_proj_x_plot(s) {
         drawto_infor: "infor_proj_x",
         size: [cr.width, cr.height],
         tooldiv: tooldiv,
-        on_sync_views: sync_3d_views
+        on_sync_views: sync_3d_views,
+        b_show_cross_section: false
     };
     main_plot_proj_x = new plotit(input_proj);
     main_plot_proj_x.draw();
-
-    // Disable interactive behaviors
+    if (typeof main_plot_proj_x.draw_center_lines === 'function') {
+        main_plot_proj_x.draw_center_lines();
+    }
     main_plot_proj_x.cross_line_pause_flag = false;
+
     if (typeof main_plot_proj_x.allow_right_click === 'function') {
         main_plot_proj_x.allow_right_click(false);
     }
@@ -9986,6 +10459,10 @@ function init_proj_x_plot(s) {
     update_all_plot_axis_labels();
     if (typeof update_all_secondary_axes === 'function') {
         update_all_secondary_axes();
+    }
+
+    if (main_plot_yz && main_plot_yz.xRange && main_plot_yz.yRange) {
+        sync_plot_xy_domain(main_plot_proj_x, main_plot_yz.yRange.domain(), main_plot_yz.xRange.domain());
     }
 }
 
@@ -10013,6 +10490,8 @@ function refresh_proj_x_plot() {
 
     let spectra_list = [spectrum_proj_x];
     if (theoretical_spectrum_proj_x) spectra_list.push(theoretical_spectrum_proj_x);
+    let hsqc_proj_x = get_hsqc_overlay_for_plot('y', 'z');
+    if (hsqc_proj_x && hsqc_proj_x.cached_contour_pos) spectra_list.push(hsqc_proj_x);
 
     render_to_plot(main_plot_proj_x, spectra_list);
 }
@@ -10080,6 +10559,13 @@ function reset_proj_x_zoom() {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_x_plot(is_end = true) {
+    if (main_plot_proj_x && main_plot_proj_x.xRange && main_plot_proj_x.yRange && main_plot_yz) {
+        let y_domain = main_plot_proj_x.xRange.domain();
+        let z_domain = main_plot_proj_x.yRange.domain();
+        sync_plot_xy_domain(main_plot_yz, z_domain, y_domain);
+        sync_from_yz_plot(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -10090,6 +10576,19 @@ function sync_from_proj_x_plot(is_end = true) {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_plot(is_end = true) {
+    if (main_plot_proj && main_plot_proj.xRange && main_plot_proj.yRange && main_plot) {
+        let x_domain = main_plot_proj.xRange.domain();
+        let y_domain = main_plot_proj.yRange.domain();
+        sync_plot_xy_domain(main_plot, x_domain, y_domain);
+        if (main_plot.x_cross_section_plot) {
+            main_plot.x_cross_section_plot.zoom_x(main_plot.xscale);
+        }
+        if (main_plot.y_cross_section_plot) {
+            main_plot.y_cross_section_plot.zoom_y(main_plot.yscale);
+        }
+        sync_sliders_to_center(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -10100,6 +10599,13 @@ function sync_from_proj_plot(is_end = true) {
  * @param {boolean} [is_end] - Is end Default is true.
  */
 function sync_from_proj_y_plot(is_end = true) {
+    if (main_plot_proj_y && main_plot_proj_y.xRange && main_plot_proj_y.yRange && main_plot_xz) {
+        let x_domain = main_plot_proj_y.xRange.domain();
+        let z_domain = main_plot_proj_y.yRange.domain();
+        sync_plot_xy_domain(main_plot_xz, x_domain, z_domain);
+        sync_from_xz_plot(is_end);
+        return;
+    }
     update_1d_traces_from_center();
     update_3d_crosshairs();
 }
@@ -10395,4 +10901,222 @@ function search_peak_3d() {
             }
         }
     }
+}
+
+/**
+ * Loads a 2D HSQC (1H-15N) spectrum (.ft2 or .ucsf) for overlaying onto matching 2D views.
+ *
+ * @returns {Promise<void>}
+ */
+async function load_hsqc_overlay_file() {
+    const fileInput = document.getElementById('hsqc_overlay_file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        alert("Please select a 2D HSQC (.ft2 or .ucsf) file.");
+        return;
+    }
+
+    const file = fileInput.files[0];
+    try {
+        const buffer = await read_file_as_buffer(file);
+        if (!buffer || buffer.byteLength < 16) {
+            alert("Selected HSQC file is empty or too small.");
+            return;
+        }
+
+        const headerBytes = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
+        let magic = "";
+        for (let i = 0; i < headerBytes.length; i++) {
+            magic += String.fromCharCode(headerBytes[i]);
+        }
+
+        const isUcsf = magic === "UCSF NMR" || file.name.toLowerCase().endsWith('.ucsf');
+        const spec = new spectrum();
+
+        if (isUcsf) {
+            spec.process_sparky_file(buffer, file.name, -1);
+        } else {
+            spec.process_ft_file(buffer, file.name, -1);
+        }
+
+        if (spec.error || !spec.raw_data || spec.raw_data.length === 0) {
+            alert("Failed to parse 2D HSQC file" + (spec.error ? (": " + spec.error) : "."));
+            return;
+        }
+
+        hsqc_overlay_spectrum = spec;
+        hsqc_overlay_spectrum_transposed = null;
+
+        const noiseDisplay = document.getElementById('hsqc_overlay_noise_display');
+        if (noiseDisplay) {
+            noiseDisplay.innerText = `HSQC Noise (${file.name}): ${spec.noise_level.toExponential(2)}`;
+            noiseDisplay.style.color = "#555";
+        }
+
+        const cb = document.getElementById('check_show_hsqc_overlay');
+        show_hsqc_overlay = cb ? !!cb.checked : true;
+
+        update_hsqc_overlay_contours();
+    } catch (err) {
+        console.error("Error loading 2D HSQC file:", err);
+        alert("Failed to load 2D HSQC file: " + err.message);
+    }
+}
+
+/**
+ * Updates 2D HSQC overlay colors and logarithmic contour levels, then recalculates contours.
+ */
+function update_hsqc_overlay_contours() {
+    if (!hsqc_overlay_spectrum) return;
+
+    const mulEl = document.getElementById('hsqc_contour_start_multiplier');
+    const scaleEl = document.getElementById('hsqc_contour_scale_factor');
+    const posColorEl = document.getElementById('color_hsqc_pos');
+    const negColorEl = document.getElementById('color_hsqc_neg');
+
+    const multiplier = (mulEl && parseFloat(mulEl.value) > 0) ? parseFloat(mulEl.value) : 6.0;
+    const scale = (scaleEl && parseFloat(scaleEl.value) > 1.0) ? parseFloat(scaleEl.value) : 1.4;
+    const colorPos = posColorEl ? posColorEl.value : '#ff8c00';
+    const colorNeg = negColorEl ? negColorEl.value : '#ff00ff';
+
+    hsqc_overlay_spectrum.spectrum_color = colorPos;
+    hsqc_overlay_spectrum.spectrum_color_negative = colorNeg;
+    hsqc_overlay_spectrum.levels = calculate_levels(hsqc_overlay_spectrum.noise_level, scale, 30, multiplier, scale);
+    hsqc_overlay_spectrum.negative_levels = calculate_negative_levels(hsqc_overlay_spectrum.noise_level, scale, 30, multiplier, scale);
+    hsqc_overlay_spectrum.cached_contour_pos = null;
+    hsqc_overlay_spectrum.cached_contour_neg = null;
+    hsqc_overlay_spectrum_transposed = null;
+
+    request_contour_calculation(hsqc_overlay_spectrum, 0, 0, "hsqc_overlay");
+    request_contour_calculation(hsqc_overlay_spectrum, 0, 1, "hsqc_overlay");
+}
+
+/**
+ * Handles contour worker response for the 2D HSQC overlay spectrum.
+ *
+ * @param {object} data - Contour data returned by worker
+ */
+function handle_hsqc_overlay_response(data) {
+    if (!hsqc_overlay_spectrum) return;
+
+    if (data.contour_sign === 0) {
+        hsqc_overlay_spectrum.cached_contour_pos = data;
+    } else {
+        hsqc_overlay_spectrum.cached_contour_neg = data;
+    }
+    hsqc_overlay_spectrum_transposed = null;
+    refresh_hsqc_overlay_views();
+}
+
+/**
+ * Toggles visibility of the 2D HSQC overlay across matching 2D and projection views.
+ *
+ * @param {boolean} show - True to show overlay, false to hide
+ */
+function toggle_hsqc_overlay(show) {
+    show_hsqc_overlay = !!show;
+    refresh_hsqc_overlay_views();
+}
+
+/**
+ * Returns a copy of 2D contour worker data with (x, y) coordinates transposed.
+ *
+ * @param {object|null} contourData - Original contour response object
+ * @returns {object|null}
+ */
+function transpose_contour_data_2d(contourData) {
+    if (!contourData) return null;
+    const src = contourData.points;
+    const swapped = new Float32Array(src ? src.length : 0);
+    if (src) {
+        for (let i = 0; i + 1 < src.length; i += 2) {
+            swapped[i] = src[i + 1];
+            swapped[i + 1] = src[i];
+        }
+    }
+    return {
+        points: swapped,
+        polygon_length: contourData.polygon_length,
+        levels_length: contourData.levels_length,
+        contour_sign: contourData.contour_sign
+    };
+}
+
+/**
+ * Returns the 2D HSQC spectrum (oriented to match plotDimX/plotDimY) if visible and
+ * the target plot represents the 1H-15N plane; otherwise returns null.
+ *
+ * @param {string} plotDimX - 3D dimension on the plot's X axis ('x', 'y', or 'z')
+ * @param {string} plotDimY - 3D dimension on the plot's Y axis ('x', 'y', or 'z')
+ * @returns {object|null}
+ */
+function get_hsqc_overlay_for_plot(plotDimX, plotDimY) {
+    if (!hsqc_overlay_spectrum || !show_hsqc_overlay || !spectra_3d || spectra_3d.length === 0) {
+        return null;
+    }
+
+    const s0 = spectra_3d[0];
+    if (!is_1h_15n_2d_plot(plotDimX, plotDimY, s0)) {
+        return null;
+    }
+
+    const plotNucX = get_3d_dim_nucleus_type(plotDimX, s0);
+    const rawHsqcDirect = (hsqc_overlay_spectrum.nucleus_direct || '').toUpperCase();
+    let hsqcNucX = '';
+    if (rawHsqcDirect.includes('15N') || rawHsqcDirect.includes('N15')) {
+        hsqcNucX = '15N';
+    } else if (rawHsqcDirect.includes('1H') || rawHsqcDirect.includes('H1')) {
+        hsqcNucX = '1H';
+    } else {
+        const centerX = hsqc_overlay_spectrum.x_ppm_start +
+            hsqc_overlay_spectrum.x_ppm_step * hsqc_overlay_spectrum.n_direct * 0.5;
+        hsqcNucX = (centerX >= 95 && centerX <= 140) ? '15N' : '1H';
+    }
+
+    if (plotNucX === hsqcNucX) {
+        return hsqc_overlay_spectrum;
+    }
+
+    if (!hsqc_overlay_spectrum_transposed) {
+        const h = hsqc_overlay_spectrum;
+        hsqc_overlay_spectrum_transposed = {
+            n_direct: h.n_indirect,
+            n_indirect: h.n_direct,
+            x_ppm_start: h.y_ppm_start,
+            x_ppm_step: h.y_ppm_step,
+            x_ppm_width: h.y_ppm_width,
+            x_ppm_ref: h.y_ppm_ref || 0,
+            y_ppm_start: h.x_ppm_start,
+            y_ppm_step: h.x_ppm_step,
+            y_ppm_width: h.x_ppm_width,
+            y_ppm_ref: h.x_ppm_ref || 0,
+            noise_level: h.noise_level,
+            levels: h.levels,
+            negative_levels: h.negative_levels,
+            spectrum_color: h.spectrum_color,
+            spectrum_color_negative: h.spectrum_color_negative,
+            visible: true,
+            cached_contour_pos: transpose_contour_data_2d(h.cached_contour_pos),
+            cached_contour_neg: transpose_contour_data_2d(h.cached_contour_neg)
+        };
+    }
+
+    return hsqc_overlay_spectrum_transposed;
+}
+
+/**
+ * Refreshes all 2D slice and projection plots so HSQC overlay changes take effect immediately.
+ */
+function refresh_hsqc_overlay_views() {
+    if (spectra_3d && current_slice_index >= 0 && spectra_3d[current_slice_index]) {
+        refresh_current_view(spectra_3d[current_slice_index]);
+    }
+    if (typeof main_plot_xz !== 'undefined' && main_plot_xz && spectrum_xz) {
+        refresh_ortho_plot("xz");
+    }
+    if (typeof main_plot_yz !== 'undefined' && main_plot_yz && spectrum_yz) {
+        refresh_ortho_plot("yz");
+    }
+    if (typeof refresh_proj_plot === 'function') refresh_proj_plot();
+    if (typeof refresh_proj_y_plot === 'function') refresh_proj_y_plot();
+    if (typeof refresh_proj_x_plot === 'function') refresh_proj_x_plot();
 }

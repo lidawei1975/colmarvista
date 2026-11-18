@@ -155,9 +155,11 @@ function plotit(input) {
      * y_domain is [0,1]
      */
     this.current_spectral_index = 0;
-    this.b_show_cross_section = (typeof cross_section_plot !== 'undefined');
+    this.b_show_cross_section = (typeof input.b_show_cross_section === 'boolean')
+        ? input.b_show_cross_section
+        : (typeof cross_section_plot !== 'undefined');
     this.b_show_projection = false;
-    if (typeof cross_section_plot !== 'undefined') {
+    if (this.b_show_cross_section && typeof cross_section_plot !== 'undefined') {
         this.x_cross_section_plot = new cross_section_plot(this);
         this.x_cross_section_plot.init(this.WIDTH, 200, this.xscale, [0, 1], { top: 10, right: this.MARGINS.right, bottom: 10, left: this.MARGINS.left }, "cross_section_svg_x", "horizontal");
         this.y_cross_section_plot = new cross_section_plot(this);
@@ -1366,9 +1368,9 @@ plotit.prototype.draw = function () {
     });
 
     /**
-     * Allow right click to set cross section (always enabled)
+     * Allow right click to set cross section when cross section is enabled
      */
-    this.allow_right_click(true);
+    this.allow_right_click(this.b_show_cross_section);
 
     /**
      * Draw contour on the canvas, which is a background layer

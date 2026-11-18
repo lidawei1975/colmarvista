@@ -242,6 +242,12 @@
                     <input type="file" id="theoretical_peaks_file" accept=".txt"><br>
                     <button id="btn_load_theoretical">Load and Overlay Peaks</button>
                 </div>
+                <div style="margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px;">
+                    <h4>Overlay 2D HSQC (1H and 15N):</h4>
+                    <label for="hsqc_overlay_file">Select 2D HSQC spectral file (.ft2, .ucsf): </label>
+                    <input type="file" id="hsqc_overlay_file" accept=".ft2,.ucsf" onchange="load_hsqc_overlay_file()"><br>
+                    <button type="button" id="btn_load_hsqc_overlay" onclick="load_hsqc_overlay_file()">Load and Overlay 2D HSQC</button>
+                </div>
             </div>
 
             <div id="aux_buttons" style=" Padding: 10px; width: 98%; box-sizing: border-box; display:none;"
@@ -307,7 +313,16 @@
                                         <td id="spec_info_ppm_range_x" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
                                         <td id="spec_info_hz_range_x" style="padding: 8px 12px; font-family: Consolas, monospace; border: 1px solid #e2e8f0;">-</td>
                                         <td id="spec_info_points_x" style="padding: 8px 12px; border: 1px solid #e2e8f0;">-</td>
-                                        <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">—</td>
+                                        <td style="padding: 6px 10px; border: 1px solid #e2e8f0; white-space: nowrap;">
+                                            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                <input type="number" id="shift_val_x" step="any" placeholder="0.0" style="width: 55px; padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right;" onkeydown="if(event.key==='Enter') apply_dimension_shift('x');" title="Shift amount (+ or -)">
+                                                <select id="shift_unit_x" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                                    <option value="ppm" selected>ppm</option>
+                                                    <option value="hz">Hz</option>
+                                                </select>
+                                                <button type="button" id="btn_apply_shift_x" onclick="apply_dimension_shift('x')" style="padding: 3px 8px; font-size: 12px; background-color: #2b5797; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;" title="Apply shift to Direct Dimension (x)">Apply</button>
+                                            </div>
+                                        </td>
                                         <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">—</td>
                                     </tr>
                                     <tr id="row_dim_y" style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
@@ -596,6 +611,23 @@
                             <label for="color_peak_symbol" style="margin-left: 10px;">Peak Symbol:</label>
                             <input type="color" id="color_peak_symbol" value="#00ffff" onchange="redraw_peak_symbols()"
                                 style="vertical-align: middle;">
+                            <div id="hsqc_overlay_controls" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc;">
+                                <strong>2D HSQC (1H-15N) Overlay:</strong>
+                                <button type="button" onclick="document.getElementById('hsqc_overlay_file').click()">Load 2D HSQC</button>
+                                <label style="margin-left: 8px; cursor: pointer;"><input type="checkbox" id="check_show_hsqc_overlay" checked onchange="toggle_hsqc_overlay(this.checked)"> Show 2D HSQC</label>
+                                <div style="display:inline-block; margin: 2px 6px; padding: 2px 8px; border: 1px solid #ccc; background: #fdfdfd; border-radius: 4px; font-size: 13px;">
+                                    <span id="hsqc_overlay_noise_display" style="font-weight: bold; color: #555;">HSQC Noise: -</span>
+                                </div>
+                                <label for="hsqc_contour_start_multiplier" style="font-weight: bold; margin-left: 6px;">Lowest level (x noise): </label>
+                                <input type="number" id="hsqc_contour_start_multiplier" value="6.0" step="0.5" style="width: 55px;">
+                                <label for="hsqc_contour_scale_factor" style="font-weight: bold; margin-left: 6px;">Scale factor: </label>
+                                <input type="number" id="hsqc_contour_scale_factor" value="1.4" step="0.05" style="width: 50px;">
+                                <label for="color_hsqc_pos" style="margin-left: 8px;">Pos Color:</label>
+                                <input type="color" id="color_hsqc_pos" value="#ff8c00" onchange="update_hsqc_overlay_contours()" style="vertical-align: middle;">
+                                <label for="color_hsqc_neg" style="margin-left: 6px;">Neg Color:</label>
+                                <input type="color" id="color_hsqc_neg" value="#ff00ff" onchange="update_hsqc_overlay_contours()" style="vertical-align: middle;">
+                                <button type="button" onclick="update_hsqc_overlay_contours()" style="margin-left: 6px;">Update HSQC Contours</button>
+                            </div>
                         </div>
 
                         <div
@@ -613,18 +645,28 @@
                                     <button id="next_slice">&gt;</button>
                                     <span id="slice_info" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent" class="resizable"
-                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent" class="resizable"
+                                        style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor">Information</span>
+                                        </div>
+                                        <div id="canvas_parent"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas1"></canvas></div>
+                                        <div id="svg_parent"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization"></svg></div>
                                     </div>
-                                    <div id="canvas_parent"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas1"></canvas></div>
-                                    <div id="svg_parent"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization"></svg></div>
+                                    <div id="vert_trace_box_xy"
+                                        style="display: none; width: 200px; height: 800px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_xy"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along z</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_xy" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                             <!-- XZ Plane -->
@@ -638,18 +680,28 @@
                                     <button id="next_slice_xz">&gt;</button>
                                     <span id="val_xz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent_xz" class="resizable"
-                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor_xz">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent_xz" class="resizable"
+                                        style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor_xz">Information</span>
+                                        </div>
+                                        <div id="canvas_parent_xz"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas_xz"></canvas></div>
+                                        <div id="svg_parent_xz"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization_xz"></svg></div>
                                     </div>
-                                    <div id="canvas_parent_xz"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas_xz"></canvas></div>
-                                    <div id="svg_parent_xz"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization_xz"></svg></div>
+                                    <div id="vert_trace_box_xz"
+                                        style="display: none; width: 200px; height: 800px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_xz"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along y</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_xz" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                             <!-- YZ Plane -->
@@ -663,18 +715,28 @@
                                     <button id="next_slice_yz">&gt;</button>
                                     <span id="val_yz" style="font-weight: bold; margin-left: 5px;">0/0</span>
                                 </div>
-                                <div id="vis_parent_yz" class="resizable"
-                                    style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor_yz">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent_yz" class="resizable"
+                                        style="position: relative; width: 800px; height: 800px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor_yz">Information</span>
+                                        </div>
+                                        <div id="canvas_parent_yz"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas_yz"></canvas></div>
+                                        <div id="svg_parent_yz"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization_yz"></svg></div>
                                     </div>
-                                    <div id="canvas_parent_yz"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas_yz"></canvas></div>
-                                    <div id="svg_parent_yz"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization_yz"></svg></div>
+                                    <div id="vert_trace_box_yz"
+                                        style="display: none; width: 200px; height: 800px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_yz"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along x</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_yz" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -726,18 +788,28 @@
                                         Phase</button>
                                     <button onclick="reset_proj_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
-                                <div id="vis_parent_proj" class="resizable"
-                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor_proj">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent_proj" class="resizable"
+                                        style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor_proj">Information</span>
+                                        </div>
+                                        <div id="canvas_parent_proj"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas_proj"></canvas></div>
+                                        <div id="svg_parent_proj"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization_proj"></svg></div>
                                     </div>
-                                    <div id="canvas_parent_proj"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas_proj"></canvas></div>
-                                    <div id="svg_parent_proj"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization_proj"></svg></div>
+                                    <div id="vert_trace_box_proj"
+                                        style="display: none; width: 200px; height: 600px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_proj"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along z</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_proj" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -791,18 +863,28 @@
                                         Phase</button>
                                     <button onclick="reset_proj_y_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
-                                <div id="vis_parent_proj_y" class="resizable"
-                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor_proj_y">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent_proj_y" class="resizable"
+                                        style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor_proj_y">Information</span>
+                                        </div>
+                                        <div id="canvas_parent_proj_y"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas_proj_y"></canvas></div>
+                                        <div id="svg_parent_proj_y"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization_proj_y"></svg></div>
                                     </div>
-                                    <div id="canvas_parent_proj_y"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas_proj_y"></canvas></div>
-                                    <div id="svg_parent_proj_y"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization_proj_y"></svg></div>
+                                    <div id="vert_trace_box_proj_y"
+                                        style="display: none; width: 200px; height: 600px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_proj_y"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along y</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_proj_y" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -845,18 +927,28 @@
                                     <button onclick="update_proj_x_contour_levels()">Update</button>
                                     <button onclick="reset_proj_x_zoom()" style="margin-left: 10px;">Reset Zoom</button>
                                 </div>
-                                <div id="vis_parent_proj_x" class="resizable"
-                                    style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
-                                    <div class="plot-info-bar"
-                                        style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
-                                        <span id="infor_proj_x">Information</span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; align-items: stretch;">
+                                    <div id="vis_parent_proj_x" class="resizable"
+                                        style="position: relative; width: 600px; height: 600px; border: 1px solid #ccc;">
+                                        <div class="plot-info-bar"
+                                            style="position: absolute; top: 5px; right: 5px; z-index: 10; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 12px; border-radius: 4px; pointer-events: none;">
+                                            <span id="infor_proj_x">Information</span>
+                                        </div>
+                                        <div id="canvas_parent_proj_x"
+                                            style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
+                                                id="canvas_proj_x"></canvas></div>
+                                        <div id="svg_parent_proj_x"
+                                            style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
+                                                id="visualization_proj_x"></svg></div>
                                     </div>
-                                    <div id="canvas_parent_proj_x"
-                                        style="position: absolute; top: 0px; left: 0px; z-index: 1;"><canvas
-                                            id="canvas_proj_x"></canvas></div>
-                                    <div id="svg_parent_proj_x"
-                                        style="position: absolute; bottom: 0px; left: 0px; z-index: 2;"><svg
-                                            id="visualization_proj_x"></svg></div>
+                                    <div id="vert_trace_box_proj_x"
+                                        style="display: none; width: 200px; height: 600px; resize: horizontal; overflow: hidden; min-width: 140px; border: 1px solid #ccc; background: #fafafa; flex-direction: column; box-sizing: border-box;">
+                                        <div id="vert_trace_label_proj_x"
+                                            style="font-size: 12px; font-weight: bold; padding: 4px 6px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; line-height: 1.3;">
+                                            <span>1D Trace Along x</span>
+                                        </div>
+                                        <svg id="vert_trace_svg_proj_x" style="width: 100%; flex-grow: 1; display: block;"></svg>
+                                    </div>
                                 </div>
                             </div>
                         </div>
