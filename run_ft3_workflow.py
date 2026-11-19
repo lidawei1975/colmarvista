@@ -728,6 +728,7 @@ def process_2d_spectrum(
         plot_png_path = None
         if num_peaks > 0:
             print("[2D Plot] Waiting for reconstructed contour overlay (contours only, no peak symbols/labels)...")
+            recon_start = time.time()
             while True:
                 if time.time() - recon_start > 60:
                     print("[Warning] Timed out waiting for reconstructed 2D contour overlay; exporting current plot.")
@@ -746,12 +747,22 @@ def process_2d_spectrum(
 
             page.evaluate("""() => {
                 const lblCb = document.getElementById('show_peak_label');
+                if (lblCb) {
+                    lblCb.checked = false;
+                }
+                const sfp = document.getElementById('show_fitted_peaks-0');
                 if (sfp) {
                     sfp.checked = false;
                 }
                 const sp = document.getElementById('show_peaks-0');
                 if (sp) {
+                    sp.checked = false;
+                }
 
+                if (typeof main_plot !== 'undefined' && main_plot) {
+                    if (main_plot.sim && typeof main_plot.sim.stop === 'function') {
+                        main_plot.sim.stop();
+                    }
                     if (typeof main_plot.remove_picked_peaks === 'function') {
                         main_plot.remove_picked_peaks();
                     }
@@ -761,14 +772,42 @@ def process_2d_spectrum(
                         main_plot.$vis.selectAll('.peak_line').remove();
                     }
                 }
+                const visEl = document.getElementById('visualization');
+                if (visEl) {
+                    visEl.querySelectorAll('.peak, .peak_text, .peak_line').forEach(el => el.remove());
                 }
+
+                if (typeof hsqc_spectra !== 'undefined' && Array.isArray(hsqc_spectra)) {
+                    for (let i = 0; i < hsqc_spectra.length; i++) {
+                        if (hsqc_spectra[i]) {
+                            hsqc_spectra[i].visible = true;
+                        }
+                        const rCb = document.getElementById('show_recon-' + i);
+                        if (rCb) {
                             rCb.checked = true;
+                        }
+                    }
+                }
+                if (typeof main_plot !== 'undefined' && main_plot && typeof main_plot.redraw_contour === 'function') {
                     main_plot.redraw_contour();
                 }
             }""")
 
             page.wait_for_timeout(200)
+
+            plot_target = spec_item["plot_png"]
+            plot_b64 = page.evaluate("""async () => {
+                const $svg = document.getElementById('visualization');
+                if (!$svg || typeof main_plot === 'undefined' || !main_plot || !main_plot.contour_plot) return null;
+                const contourUrl = main_plot.contour_plot.drawScene(1);
+                if (!contourUrl) return null;
+                const contour_image = await loadImage(contourUrl);
+                const svgData = encodeAsUTF8(serializeAsXML($svg));
+                const img = await loadImage(svgData);
                 const $canvas = document.createElement('canvas');
+                $canvas.width = $svg.clientWidth;
+                $canvas.height = $svg.clientHeight;
+                const ctx = $canvas.getContext('2d');
                 ctx.fillStyle = 'white';
                 ctx.fillRect(0, 0, $canvas.width, $canvas.height);
                 ctx.drawImage(
