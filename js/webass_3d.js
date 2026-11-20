@@ -556,12 +556,19 @@ self.onmessage = async function (event) {
             const scale1 = typeof event.data.scale1 !== 'undefined' ? parseFloat(event.data.scale1) : 5.5;
             const scale2 = typeof event.data.scale2 !== 'undefined' ? parseFloat(event.data.scale2) : 3.0;
             const newPeakCutoff = typeof event.data.newPeakCutoff !== 'undefined' ? parseFloat(event.data.newPeakCutoff) : 0.4;
+            const hnCutoffEnabled = event.data.hnCutoffEnabled === true;
+            const hnCutoffMin = typeof event.data.hnCutoffMin !== 'undefined' ? parseFloat(event.data.hnCutoffMin) : 4.5;
+            const hnCutoffMax = typeof event.data.hnCutoffMax !== 'undefined' ? parseFloat(event.data.hnCutoffMax) : 5.5;
 
             if (ft3Bytes.length === 0) {
                 throw new Error("No FT3 bytes provided for peak picking/fitting.");
             }
-            console.log('[webass_3d] pick_and_fit_3d starting, size:', ft3Bytes.length, 'noise:', noiseLevel, 'scale1:', scale1, 'scale2:', scale2, 'newPeakCutoff:', newPeakCutoff);
-            postMessage({ stdout: '[webass_3d] pick_and_fit_3d starting with cutoff ' + newPeakCutoff });
+            console.log('[webass_3d] pick_and_fit_3d starting, size:', ft3Bytes.length, 'noise:', noiseLevel, 'scale1:', scale1, 'scale2:', scale2, 'newPeakCutoff:', newPeakCutoff, 'hnCutoff:', hnCutoffEnabled ? `${hnCutoffMin}-${hnCutoffMax}` : 'disabled');
+            let startMsg = '[webass_3d] pick_and_fit_3d starting with cutoff ' + newPeakCutoff;
+            if (hnCutoffEnabled) {
+                startMsg += ` (HN cutoff: ${hnCutoffMin.toFixed(2)}–${hnCutoffMax.toFixed(2)} ppm)`;
+            }
+            postMessage({ stdout: startMsg });
 
             const app = new Module.spectrum_fit_3d();
             let resultString = "";

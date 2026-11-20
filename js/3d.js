@@ -971,6 +971,79 @@ function is_spectra_3d_majority_negative() {
 }
 window.is_spectra_3d_majority_negative = is_spectra_3d_majority_negative;
 
+/**
+ * Filters 3D peak list text by excluding peaks whose HN (direct dimension) chemical shift falls in [min_ppm, max_ppm].
+ * @param {string} text - Peak list text
+ * @param {number} min_ppm - Minimum chemical shift of exclusion range
+ * @param {number} max_ppm - Maximum chemical shift of exclusion range
+ * @returns {string} Filtered peak list text
+ */
+function filter_peaks_string_by_hn_cutoff(text, min_ppm, max_ppm) {
+    if (!text || typeof text !== 'string') return text;
+    let lines = text.split('\n');
+    let filteredLines = [];
+    let header_map = null;
+    let removed_count = 0;
+    const s0 = (typeof spectra_3d !== 'undefined' && spectra_3d && spectra_3d.length > 0) ? spectra_3d[0] : null;
+
+    for (let line of lines) {
+        let trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+            filteredLines.push(line);
+            continue;
+        }
+
+        let parts = trimmed.split(/\s+/);
+
+        if (!header_map) {
+            let is_format1 = parts.includes("Partition") && parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center") && parts.includes("X_FWHH");
+            let is_format2 = parts.includes("X_Center") && parts.includes("Y_Center") && parts.includes("Z_Center") && parts.includes("X_Center_ppm") && parts.includes("Height");
+            let is_format3 = parts.includes("Peak") && parts.includes("Amplitude") && parts.includes("X_Center");
+
+            if (is_format1 || is_format2 || is_format3) {
+                header_map = {};
+                parts.forEach((col, idx) => {
+                    header_map[col] = idx;
+                });
+            }
+            filteredLines.push(line);
+            continue;
+        }
+
+        if (trimmed.startsWith("=") || trimmed.startsWith("-") || trimmed.startsWith("Rank") || trimmed.startsWith("Peak")) {
+            filteredLines.push(line);
+            continue;
+        }
+
+        let x_ppm = undefined;
+        if (header_map["X_Center_ppm"] !== undefined && header_map["X_Center_ppm"] < parts.length) {
+            let val = parseFloat(parts[header_map["X_Center_ppm"]]);
+            if (!isNaN(val)) x_ppm = val;
+        }
+
+        if (x_ppm === undefined && header_map["X_Center"] !== undefined && header_map["X_Center"] < parts.length && s0) {
+            let val = parseFloat(parts[header_map["X_Center"]]);
+            if (!isNaN(val) && typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number') {
+                x_ppm = s0.x_ppm_start + val * s0.x_ppm_step;
+            }
+        }
+
+        if (x_ppm !== undefined && x_ppm >= min_ppm && x_ppm <= max_ppm) {
+            removed_count++;
+            continue; // Exclude peak in cutoff range
+        }
+
+        filteredLines.push(line);
+    }
+
+    if (removed_count > 0) {
+        append_3d_log(`[main] HN cutoff filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
+        console.log(`[main] HN cutoff filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
+    }
+
+    return filteredLines.join('\n');
+}
+
 async function run_peak_fit_3d_workflow() {
     if (!spectra_3d || spectra_3d.length === 0) {
         alert("No spectrum loaded to run peak picking/fitting.");
@@ -988,10 +1061,6 @@ async function run_peak_fit_3d_workflow() {
             throw new Error("Failed to compile currently loaded spectrum to an FT3 buffer.");
         }
 
-        const ft3Bytes = new Uint8Array(buffer);
-        append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
-        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting partitions)...";
-
         let s0 = spectra_3d[0];
         let noiseLevel = s0 ? (s0.noise_level || 0.0) : 0.0;
         let scale1 = 5.5;
@@ -1008,13 +1077,87 @@ async function run_peak_fit_3d_workflow() {
             if (isNaN(newPeakCutoff)) newPeakCutoff = 0.4;
         }
 
+        // HN dimension cutoff region (e.g. 5.5 to 4.5 ppm water region suppression)
+        let hnCutoffEnabled = false;
+        let hnCutoffStart = 5.5;
+        let hnCutoffEnd = 4.5;
+        let hnCutoffMin = 4.5;
+        let hnCutoffMax = 5.5;
+
+        const checkCutoff = document.getElementById("check_hn_cutoff");
+        const inputCutoffStart = document.getElementById("input_hn_cutoff_start");
+        const inputCutoffEnd = document.getElementById("input_hn_cutoff_end");
+
+        if (checkCutoff && checkCutoff.checked) {
+            hnCutoffEnabled = true;
+            if (inputCutoffStart && !isNaN(parseFloat(inputCutoffStart.value))) {
+                hnCutoffStart = parseFloat(inputCutoffStart.value);
+            }
+            if (inputCutoffEnd && !isNaN(parseFloat(inputCutoffEnd.value))) {
+                hnCutoffEnd = parseFloat(inputCutoffEnd.value);
+            }
+            hnCutoffMin = Math.min(hnCutoffStart, hnCutoffEnd);
+            hnCutoffMax = Math.max(hnCutoffStart, hnCutoffEnd);
+        }
+
+        window.last_3d_hn_cutoff = {
+            enabled: hnCutoffEnabled,
+            min_ppm: hnCutoffMin,
+            max_ppm: hnCutoffMax
+        };
+
+        if (hnCutoffEnabled && s0 && typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number' && s0.x_ppm_step !== 0) {
+            const nz = spectra_3d.length;
+            const ny = s0.n_indirect;
+            const nx = s0.n_direct;
+
+            const idx1 = Math.round((hnCutoffMin - s0.x_ppm_start) / s0.x_ppm_step);
+            const idx2 = Math.round((hnCutoffMax - s0.x_ppm_start) / s0.x_ppm_step);
+            const x_low = Math.max(0, Math.min(idx1, idx2));
+            const x_high = Math.min(nx - 1, Math.max(idx1, idx2));
+
+            if (x_low <= x_high) {
+                const floatView = new Float32Array(buffer);
+                const has_ri = s0.raw_data_ri && s0.raw_data_ri.length > 0;
+                const has_ir = s0.raw_data_ir && s0.raw_data_ir.length > 0;
+                const has_ii = s0.raw_data_ii && s0.raw_data_ii.length > 0;
+                let parts_per_trace = 1;
+                if (has_ri) parts_per_trace++;
+                if (has_ir) parts_per_trace++;
+                if (has_ii) parts_per_trace++;
+
+                const trace_len = nx * parts_per_trace;
+                for (let z = 0; z < nz; z++) {
+                    for (let y = 0; y < ny; y++) {
+                        const trace_offset = 512 + (z * ny + y) * trace_len;
+                        for (let x = x_low; x <= x_high; x++) {
+                            floatView[trace_offset + x] = 0.0;
+                            for (let p = 1; p < parts_per_trace; p++) {
+                                floatView[trace_offset + p * nx + x] = 0.0;
+                            }
+                        }
+                    }
+                }
+                const actual_ppm_start = (s0.x_ppm_start + x_low * s0.x_ppm_step).toFixed(3);
+                const actual_ppm_end = (s0.x_ppm_start + x_high * s0.x_ppm_step).toFixed(3);
+                append_3d_log(`[main] HN cutoff active: zeroed region ${hnCutoffMin.toFixed(2)}–${hnCutoffMax.toFixed(2)} ppm (indices ${x_low}..${x_high}, ~${actual_ppm_start}..${actual_ppm_end} ppm) in spectrum buffer.`);
+            }
+        }
+
+        const ft3Bytes = new Uint8Array(buffer);
+        append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
+        document.getElementById("webassembly_message").innerText = "Peak picking & fitting in progress (iterative fitting partitions)...";
+
         get_or_create_web_worker_3d().postMessage({
             "#sym:webassembly_job ": "pick_and_fit_3d",
             ft3Bytes: ft3Bytes,
             noiseLevel: noiseLevel,
             scale1: scale1,
             scale2: scale2,
-            newPeakCutoff: newPeakCutoff
+            newPeakCutoff: newPeakCutoff,
+            hnCutoffEnabled: hnCutoffEnabled,
+            hnCutoffMin: hnCutoffMin,
+            hnCutoffMax: hnCutoffMax
         }, [ft3Bytes.buffer]);
 
     } catch (err) {
@@ -9054,6 +9197,10 @@ async function handle_webass_3d_message(e) {
 
         if (e.data.success && e.data.resultString) {
             let resultString = e.data.resultString;
+            const cutoffInfo = window.last_3d_hn_cutoff;
+            if (cutoffInfo && cutoffInfo.enabled && typeof cutoffInfo.min_ppm === 'number' && typeof cutoffInfo.max_ppm === 'number') {
+                resultString = filter_peaks_string_by_hn_cutoff(resultString, cutoffInfo.min_ppm, cutoffInfo.max_ppm);
+            }
             fitted_peaks_text_data = resultString;
             let dl_btn = document.getElementById("button_download_peaks_list");
             if (dl_btn) dl_btn.disabled = false;
