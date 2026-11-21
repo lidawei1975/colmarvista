@@ -234,17 +234,41 @@ def inspect_spectrum_file(file_path):
 
 
 def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, exclude_patterns=None):
+def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, exclude_patterns=None, only_patterns=None):
     """
     Discovers all 3D and 2D processed spectral files in folder_path.
+    Discovers all 3D and 2D processed spectral files in folder_path (or wraps a single spectral file).
     Returns list of dicts sorted cleanly (3D spectra alphabetically, then 2D spectra alphabetically).
     """
     p = Path(folder_path).resolve()
+    if p.is_file():
+        if not is_candidate_spectrum_filename(p.name):
+            raise ValueError(f"File is not a supported spectrum format: {p.name}")
+        info = inspect_spectrum_file(p)
+        if not info or not info["kind"]:
+            raise ValueError(f"Could not classify file as 2D or 3D spectrum: {p.name}")
+        plot_paths = get_plot_output_paths(p, info["kind"])
+        item = {
+            "path": str(p),
+            "name": p.name,
+            "kind": info["kind"],
+            "format": info["format"],
+            "nx": info["nx"],
+            "ny": info["ny"],
+            "nz": info["nz"],
+            "output_txt": get_peak_output_path(p),
+            **plot_paths,
+            "size_mb": p.stat().st_size / (1024 * 1024),
+        }
+        return [item]
+
     if not p.is_dir():
         raise FileNotFoundError(f"Selected path is not a directory: {p}")
 
     found_3d = []
     found_2d = []
     excludes = [e.lower() for e in (exclude_patterns or []) if e]
+    onlys = [o.lower() for o in (only_patterns or []) if o]
 
     for entry in sorted(p.iterdir(), key=lambda f: f.name.lower()):
         if not entry.is_file():
@@ -253,6 +277,8 @@ def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, ex
             continue
         if any(exc in entry.name.lower() for exc in excludes):
             print(f"[Exclude] Skipping excluded spectrum: {entry.name}")
+            continue
+        if onlys and not any(o in entry.name.lower() for o in onlys):
             continue
 
         info = inspect_spectrum_file(entry)
@@ -921,6 +947,7 @@ def run_folder_workflow(
     hn_cutoff_start=5.5,
     hn_cutoff_end=4.5,
     exclude_patterns=None,
+    only_patterns=None,
 ):
     folder_start = time.time()
     picker_flag = 1 if picker_2d == "simple" else 0
@@ -932,8 +959,10 @@ def run_folder_workflow(
         include_3d=include_3d,
         include_2d=include_2d,
         exclude_patterns=exclude_patterns,
+        only_patterns=only_patterns,
     )
     target_dir = str(Path(folder_path).resolve())
+    target_dir = str(Path(folder_path).parent.resolve()) if Path(folder_path).is_file() else str(Path(folder_path).resolve())
 
     print("=" * 78)
     print("COLMARVIEW FT3/FT2 AUTOMATED PEAK PICK & FIT WORKFLOW")
@@ -1093,6 +1122,7 @@ def make_task_parser():
     p.add_argument("--skip-2d", action="store_true", default=None)
     p.add_argument("--skip-3d", action="store_true", default=None)
     p.add_argument("--exclude", nargs="+", default=None)
+    p.add_argument("--only", nargs="+", default=None)
     p.add_argument("--timeout", type=int, default=None)
     return p
 
@@ -1134,6 +1164,7 @@ def parse_batch_file(batch_path, base_args):
                 "include_2d": not skip_2d,
                 "include_3d": not skip_3d,
                 "exclude": parsed.exclude if parsed.exclude is not None else getattr(base_args, "exclude", []),
+                "only": parsed.only if parsed.only is not None else getattr(base_args, "only", []),
                 "timeout": parsed.timeout if parsed.timeout is not None else base_args.timeout,
                 "line_num": line_num,
             })
@@ -1176,6 +1207,7 @@ def run_batch(tasks, global_args):
                     hn_cutoff_start=task.get("hn_cutoff_start", 5.5),
                     hn_cutoff_end=task.get("hn_cutoff_end", 4.5),
                     exclude_patterns=task.get("exclude", []),
+                    only_patterns=task.get("only", []),
                 )
                 batch_results.append({"task": task, "status": "SUCCESS", "result": res})
             except Exception as err:
@@ -1291,6 +1323,12 @@ def main():
         help="One or more spectrum filenames or patterns to exclude (e.g. --exclude CBCAcoNH.pipe).",
     )
     parser.add_argument(
+        "--only",
+        nargs="+",
+        default=[],
+        help="One or more spectrum filenames or patterns to only include (e.g. --only N15NOESY.pipe).",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=3600,
@@ -1305,6 +1343,10 @@ def main():
 
     if target and os.path.isfile(target):
         if target.lower().endswith(('.txt', '.batch', '.list')) or not is_spectrum_dir(target):
+        if is_candidate_spectrum_filename(target):
+            # Target is a direct single spectrum file to process
+            pass
+        elif target.lower().endswith(('.txt', '.batch', '.list')) or not is_spectrum_dir(target):
             batch_file = target
             target = None
 
@@ -1337,6 +1379,7 @@ def main():
                 hn_cutoff_start=args.hn_cutoff_start,
                 hn_cutoff_end=args.hn_cutoff_end,
                 exclude_patterns=args.exclude,
+                only_patterns=args.only,
             )
         except Exception as err:
             print(f"\n[Error] {err}", file=sys.stderr)
