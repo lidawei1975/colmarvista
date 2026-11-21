@@ -233,7 +233,7 @@ def inspect_spectrum_file(file_path):
     }
 
 
-def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True):
+def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, exclude_patterns=None):
     """
     Discovers all 3D and 2D processed spectral files in folder_path.
     Returns list of dicts sorted cleanly (3D spectra alphabetically, then 2D spectra alphabetically).
@@ -244,11 +244,15 @@ def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True):
 
     found_3d = []
     found_2d = []
+    excludes = [e.lower() for e in (exclude_patterns or []) if e]
 
     for entry in sorted(p.iterdir(), key=lambda f: f.name.lower()):
         if not entry.is_file():
             continue
         if not is_candidate_spectrum_filename(entry.name):
+            continue
+        if any(exc in entry.name.lower() for exc in excludes):
+            print(f"[Exclude] Skipping excluded spectrum: {entry.name}")
             continue
 
         info = inspect_spectrum_file(entry)
@@ -916,6 +920,7 @@ def run_folder_workflow(
     hn_cutoff_enabled=True,
     hn_cutoff_start=5.5,
     hn_cutoff_end=4.5,
+    exclude_patterns=None,
 ):
     folder_start = time.time()
     picker_flag = 1 if picker_2d == "simple" else 0
@@ -926,6 +931,7 @@ def run_folder_workflow(
         folder_path,
         include_3d=include_3d,
         include_2d=include_2d,
+        exclude_patterns=exclude_patterns,
     )
     target_dir = str(Path(folder_path).resolve())
 
@@ -1086,6 +1092,7 @@ def make_task_parser():
     p.add_argument("--fitter-2d", choices=["voigt", "gaussian", "voigt-lorentzian"], default=None)
     p.add_argument("--skip-2d", action="store_true", default=None)
     p.add_argument("--skip-3d", action="store_true", default=None)
+    p.add_argument("--exclude", nargs="+", default=None)
     p.add_argument("--timeout", type=int, default=None)
     return p
 
@@ -1126,6 +1133,7 @@ def parse_batch_file(batch_path, base_args):
                 "fitter_2d": parsed.fitter_2d if parsed.fitter_2d is not None else base_args.fitter_2d,
                 "include_2d": not skip_2d,
                 "include_3d": not skip_3d,
+                "exclude": parsed.exclude if parsed.exclude is not None else getattr(base_args, "exclude", []),
                 "timeout": parsed.timeout if parsed.timeout is not None else base_args.timeout,
                 "line_num": line_num,
             })
@@ -1167,6 +1175,7 @@ def run_batch(tasks, global_args):
                     hn_cutoff_enabled=task.get("hn_cutoff_enabled", True),
                     hn_cutoff_start=task.get("hn_cutoff_start", 5.5),
                     hn_cutoff_end=task.get("hn_cutoff_end", 4.5),
+                    exclude_patterns=task.get("exclude", []),
                 )
                 batch_results.append({"task": task, "status": "SUCCESS", "result": res})
             except Exception as err:
@@ -1276,6 +1285,12 @@ def main():
         help="Skip 3D spectra (only process 2D spectra).",
     )
     parser.add_argument(
+        "--exclude",
+        nargs="+",
+        default=[],
+        help="One or more spectrum filenames or patterns to exclude (e.g. --exclude CBCAcoNH.pipe).",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=3600,
@@ -1321,6 +1336,7 @@ def main():
                 hn_cutoff_enabled=args.hn_cutoff_enabled,
                 hn_cutoff_start=args.hn_cutoff_start,
                 hn_cutoff_end=args.hn_cutoff_end,
+                exclude_patterns=args.exclude,
             )
         except Exception as err:
             print(f"\n[Error] {err}", file=sys.stderr)
