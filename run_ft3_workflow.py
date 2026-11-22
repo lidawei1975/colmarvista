@@ -233,10 +233,8 @@ def inspect_spectrum_file(file_path):
     }
 
 
-def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, exclude_patterns=None):
 def discover_spectra_in_folder(folder_path, include_3d=True, include_2d=True, exclude_patterns=None, only_patterns=None):
     """
-    Discovers all 3D and 2D processed spectral files in folder_path.
     Discovers all 3D and 2D processed spectral files in folder_path (or wraps a single spectral file).
     Returns list of dicts sorted cleanly (3D spectra alphabetically, then 2D spectra alphabetically).
     """
@@ -1342,7 +1340,6 @@ def main():
     batch_file = args.batch_file
 
     if target and os.path.isfile(target):
-        if target.lower().endswith(('.txt', '.batch', '.list')) or not is_spectrum_dir(target):
         if is_candidate_spectrum_filename(target):
             # Target is a direct single spectrum file to process
             pass
