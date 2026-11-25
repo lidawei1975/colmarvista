@@ -972,14 +972,170 @@ function is_spectra_3d_majority_negative() {
 window.is_spectra_3d_majority_negative = is_spectra_3d_majority_negative;
 
 /**
- * Filters 3D peak list text by excluding peaks whose HN (direct dimension) chemical shift falls in [min_ppm, max_ppm].
+ * Reads the raw axis label for a 3D dimension ('x', 'y', or 'z') from last_fid_nuclei or NMRPipe header.
+ *
+ * @param {string} dim - 'x', 'y', or 'z'
+ * @param {object} s0 - Reference 3D spectrum plane object
+ * @returns {string} Raw axis label (trimmed) or ''
+ */
+function get_3d_dim_raw_label(dim, s0) {
+    const normDim = String(dim || '').toLowerCase();
+    const cached = (window.last_fid_nuclei && window.last_fid_nuclei[normDim])
+        ? String(window.last_fid_nuclei[normDim]).replace(/[\x00-\x1F\x7F-\x9F<>]/g, '').trim()
+        : '';
+    if (cached) return cached;
+
+    if (s0 && s0.header) {
+        const dimOrderIdx = normDim === 'x' ? 24 : (normDim === 'y' ? 25 : (normDim === 'z' ? 26 : -1));
+        if (dimOrderIdx !== -1) {
+            const dimNum = Math.round(s0.header[dimOrderIdx]);
+            const labelWord = dimNum === 1 ? 18 : (dimNum === 2 ? 16 : (dimNum === 3 ? 20 : (dimNum === 4 ? 22 : -1)));
+            if (labelWord !== -1 && s0.header.buffer) {
+                try {
+                    const byteOffset = (s0.header.byteOffset || 0) + labelWord * 4;
+                    if (byteOffset + 8 <= s0.header.buffer.byteLength) {
+                        const uint8 = new Uint8Array(s0.header.buffer, byteOffset, 8);
+                        let str = '';
+                        for (let i = 0; i < 8; i++) {
+                            if (uint8[i] === 0) break;
+                            str += String.fromCharCode(uint8[i]);
+                        }
+                        return str.replace(/[\x00-\x1F\x7F-\x9F<>]/g, '').trim();
+                    }
+                } catch (e) {
+                    // Ignore header label decode failure
+                }
+            }
+        }
+    }
+    return '';
+}
+
+/**
+ * Checks whether a raw axis label explicitly denotes an amide HN proton dimension.
+ *
+ * @param {string} label - Raw axis label
+ * @returns {boolean}
+ */
+function is_hn_axis_label(label) {
+    const clean = String(label || '').replace(/[\x00-\x1F\x7F-\x9F<>]/g, '').trim().toUpperCase();
+    return /^(?:1?H_?N\d*|H1_?N\d*|HN\d*|H\(?N\)?)$/.test(clean);
+}
+
+/**
+ * Automatically detects the target axis ('x', 'y', or 'z') for HN cutoff.
+ * Skips (returns axis: null) if no 15N dimension is present (e.g. 13C-only / 13C-NOESY).
+ * When 15N is present, prioritizes an explicit HN label among 1H axes, then falls back
+ * to the direct dimension ('x' if 1H, else the first 1H axis).
+ *
+ * @param {object} s0 - Reference 3D spectrum plane object
+ * @returns {{ axis: string|null, reason: string, label: string }}
+ */
+function detect_hn_dimension_3d(s0) {
+    if (!s0) {
+        return { axis: null, reason: 'no_spectrum', label: '' };
+    }
+
+    const dims = ['x', 'y', 'z'];
+    const nucTypes = {};
+    const rawLabels = {};
+    for (const d of dims) {
+        nucTypes[d] = get_3d_dim_nucleus_type(d, s0);
+        rawLabels[d] = get_3d_dim_raw_label(d, s0);
+    }
+
+    const has15N = dims.some(d => nucTypes[d] === '15N');
+    if (!has15N) {
+        return { axis: null, reason: 'no_15n', label: '' };
+    }
+
+    const hDims = dims.filter(d => nucTypes[d] === '1H');
+    if (hDims.length === 0) {
+        return { axis: null, reason: 'no_1h', label: '' };
+    }
+
+    // 1. Prefer an explicit HN label among 1H axes (e.g. HN, 1HN, H_N)
+    const hnLabeled = hDims.filter(d => is_hn_axis_label(rawLabels[d]));
+    if (hnLabeled.length > 0) {
+        const chosen = hnLabeled.includes('x') ? 'x' : hnLabeled[0];
+        return { axis: chosen, reason: 'hn_label', label: rawLabels[chosen] };
+    }
+
+    // 2. Fall back to the direct dimension ('x') if it is 1H, otherwise the first 1H axis
+    if (hDims.includes('x')) {
+        return { axis: 'x', reason: 'direct_dim', label: rawLabels.x };
+    }
+    return { axis: hDims[0], reason: 'single_or_first_1h', label: rawLabels[hDims[0]] };
+}
+
+/**
+ * Resolves which axis (or null to skip) should be used for HN cutoff based on UI mode ('auto'|'x'|'y'|'z').
+ *
+ * @param {string} dimMode - 'auto', 'x', 'y', or 'z'
+ * @param {object} s0 - Reference 3D spectrum plane object
+ * @returns {{ axis: string|null, reason: string, label: string }}
+ */
+function resolve_hn_cutoff_axis_3d(dimMode, s0) {
+    const mode = String(dimMode || 'auto').trim().toLowerCase();
+    if (mode === 'x' || mode === 'y' || mode === 'z') {
+        return { axis: mode, reason: 'manual', label: get_3d_dim_raw_label(mode, s0) };
+    }
+    return detect_hn_dimension_3d(s0);
+}
+
+/**
+ * Automatically sets #select_hn_cutoff_dim to 'x', 'y', or 'z' (or unchecks #check_hn_cutoff
+ * when no 15N dimension is present) after a 3D spectrum finishes loading.
+ *
+ * @param {object} s0 - Reference 3D spectrum plane object
+ */
+function auto_configure_hn_cutoff_ui(s0) {
+    const checkCutoff = document.getElementById("check_hn_cutoff");
+    const inputStart = document.getElementById("input_hn_cutoff_start");
+    const inputEnd = document.getElementById("input_hn_cutoff_end");
+    const selectDim = document.getElementById("select_hn_cutoff_dim");
+    if (!checkCutoff || !selectDim) return;
+
+    const detected = detect_hn_dimension_3d(s0);
+    if (detected && detected.axis) {
+        selectDim.value = detected.axis;
+        checkCutoff.checked = true;
+        if (inputStart) inputStart.disabled = false;
+        if (inputEnd) inputEnd.disabled = false;
+        selectDim.disabled = false;
+        const labelNote = detected.label ? `, label=${detected.label}` : '';
+        append_3d_log(`[main] HN cutoff axis automatically set to ${detected.axis.toUpperCase()} (${detected.reason}${labelNote}).`);
+    } else {
+        checkCutoff.checked = false;
+        if (inputStart) inputStart.disabled = true;
+        if (inputEnd) inputEnd.disabled = true;
+        selectDim.disabled = true;
+        const first1H = ['x', 'y', 'z'].find(d => get_3d_dim_nucleus_type(d, s0) === '1H');
+        if (first1H) selectDim.value = first1H;
+        const reasonMsg = (detected && detected.reason === 'no_15n')
+            ? "no 15N dimension detected (e.g. 13C-only spectrum)"
+            : "no 1H dimension detected";
+        append_3d_log(`[main] HN cutoff automatically unchecked: ${reasonMsg}.`);
+    }
+}
+
+/**
+ * Filters 3D peak list text by excluding peaks whose HN chemical shift along `axis` falls in [min_ppm, max_ppm].
  * @param {string} text - Peak list text
  * @param {number} min_ppm - Minimum chemical shift of exclusion range
  * @param {number} max_ppm - Maximum chemical shift of exclusion range
+ * @param {string} [axis='x'] - Target axis ('x', 'y', or 'z')
  * @returns {string} Filtered peak list text
  */
-function filter_peaks_string_by_hn_cutoff(text, min_ppm, max_ppm) {
+function filter_peaks_string_by_hn_cutoff(text, min_ppm, max_ppm, axis = 'x') {
     if (!text || typeof text !== 'string') return text;
+    const normAxis = ['x', 'y', 'z'].includes(String(axis || '').toLowerCase()) ? String(axis).toLowerCase() : 'x';
+    const prefix = normAxis.toUpperCase();
+    const ppmCol = `${prefix}_Center_ppm`;
+    const idxCol = `${prefix}_Center`;
+    const startProp = `${normAxis}_ppm_start`;
+    const stepProp = `${normAxis}_ppm_step`;
+
     let lines = text.split('\n');
     let filteredLines = [];
     let header_map = null;
@@ -1015,20 +1171,20 @@ function filter_peaks_string_by_hn_cutoff(text, min_ppm, max_ppm) {
             continue;
         }
 
-        let x_ppm = undefined;
-        if (header_map["X_Center_ppm"] !== undefined && header_map["X_Center_ppm"] < parts.length) {
-            let val = parseFloat(parts[header_map["X_Center_ppm"]]);
-            if (!isNaN(val)) x_ppm = val;
+        let axis_ppm = undefined;
+        if (header_map[ppmCol] !== undefined && header_map[ppmCol] < parts.length) {
+            let val = parseFloat(parts[header_map[ppmCol]]);
+            if (!isNaN(val)) axis_ppm = val;
         }
 
-        if (x_ppm === undefined && header_map["X_Center"] !== undefined && header_map["X_Center"] < parts.length && s0) {
-            let val = parseFloat(parts[header_map["X_Center"]]);
-            if (!isNaN(val) && typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number') {
-                x_ppm = s0.x_ppm_start + val * s0.x_ppm_step;
+        if (axis_ppm === undefined && header_map[idxCol] !== undefined && header_map[idxCol] < parts.length && s0) {
+            let val = parseFloat(parts[header_map[idxCol]]);
+            if (!isNaN(val) && typeof s0[startProp] === 'number' && typeof s0[stepProp] === 'number') {
+                axis_ppm = s0[startProp] + val * s0[stepProp];
             }
         }
 
-        if (x_ppm !== undefined && x_ppm >= min_ppm && x_ppm <= max_ppm) {
+        if (axis_ppm !== undefined && axis_ppm >= min_ppm && axis_ppm <= max_ppm) {
             removed_count++;
             continue; // Exclude peak in cutoff range
         }
@@ -1037,8 +1193,8 @@ function filter_peaks_string_by_hn_cutoff(text, min_ppm, max_ppm) {
     }
 
     if (removed_count > 0) {
-        append_3d_log(`[main] HN cutoff filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
-        console.log(`[main] HN cutoff filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
+        append_3d_log(`[main] HN cutoff (${prefix} axis) filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
+        console.log(`[main] HN cutoff (${prefix} axis) filtered out ${removed_count} peak(s) in range ${min_ppm.toFixed(2)}–${max_ppm.toFixed(2)} ppm.`);
     }
 
     return filteredLines.join('\n');
@@ -1083,10 +1239,12 @@ async function run_peak_fit_3d_workflow() {
         let hnCutoffEnd = 4.5;
         let hnCutoffMin = 4.5;
         let hnCutoffMax = 5.5;
+        let hnCutoffDimMode = 'auto';
 
         const checkCutoff = document.getElementById("check_hn_cutoff");
         const inputCutoffStart = document.getElementById("input_hn_cutoff_start");
         const inputCutoffEnd = document.getElementById("input_hn_cutoff_end");
+        const selectCutoffDim = document.getElementById("select_hn_cutoff_dim");
 
         if (checkCutoff && checkCutoff.checked) {
             hnCutoffEnabled = true;
@@ -1096,53 +1254,90 @@ async function run_peak_fit_3d_workflow() {
             if (inputCutoffEnd && !isNaN(parseFloat(inputCutoffEnd.value))) {
                 hnCutoffEnd = parseFloat(inputCutoffEnd.value);
             }
+            if (selectCutoffDim && selectCutoffDim.value) {
+                hnCutoffDimMode = String(selectCutoffDim.value).toLowerCase();
+            }
             hnCutoffMin = Math.min(hnCutoffStart, hnCutoffEnd);
             hnCutoffMax = Math.max(hnCutoffStart, hnCutoffEnd);
         }
 
+        let hnCutoffAxis = null;
+        let hnCutoffActive = false;
+        if (hnCutoffEnabled) {
+            const resolved = resolve_hn_cutoff_axis_3d(hnCutoffDimMode, s0);
+            if (!resolved || !resolved.axis) {
+                const reasonMsg = resolved && resolved.reason === 'no_15n'
+                    ? "no 15N dimension detected (e.g. 13C-only spectrum)"
+                    : "no 1H dimension detected";
+                append_3d_log(`[main] HN cutoff (${hnCutoffDimMode}) skipped: ${reasonMsg}.`);
+            } else {
+                hnCutoffAxis = resolved.axis;
+                const nz = spectra_3d.length;
+                const ny = s0.n_indirect;
+                const nx = s0.n_direct;
+                const axisStart = hnCutoffAxis === 'x' ? s0.x_ppm_start : (hnCutoffAxis === 'y' ? s0.y_ppm_start : s0.z_ppm_start);
+                const axisStep = hnCutoffAxis === 'x' ? s0.x_ppm_step : (hnCutoffAxis === 'y' ? s0.y_ppm_step : s0.z_ppm_step);
+                const axisLen = hnCutoffAxis === 'x' ? nx : (hnCutoffAxis === 'y' ? ny : nz);
+
+                if (typeof axisStart === 'number' && typeof axisStep === 'number' && axisStep !== 0 && axisLen > 0) {
+                    hnCutoffActive = true;
+                    const idx1 = Math.round((hnCutoffMin - axisStart) / axisStep);
+                    const idx2 = Math.round((hnCutoffMax - axisStart) / axisStep);
+                    const idxLow = Math.max(0, Math.min(idx1, idx2));
+                    const idxHigh = Math.min(axisLen - 1, Math.max(idx1, idx2));
+
+                    if (idxLow <= idxHigh) {
+                        const floatView = new Float32Array(buffer);
+                        const has_ri = s0.raw_data_ri && s0.raw_data_ri.length > 0;
+                        const has_ir = s0.raw_data_ir && s0.raw_data_ir.length > 0;
+                        const has_ii = s0.raw_data_ii && s0.raw_data_ii.length > 0;
+                        let parts_per_trace = 1;
+                        if (has_ri) parts_per_trace++;
+                        if (has_ir) parts_per_trace++;
+                        if (has_ii) parts_per_trace++;
+
+                        const trace_len = nx * parts_per_trace;
+                        if (hnCutoffAxis === 'x') {
+                            for (let z = 0; z < nz; z++) {
+                                for (let y = 0; y < ny; y++) {
+                                    const trace_offset = 512 + (z * ny + y) * trace_len;
+                                    for (let x = idxLow; x <= idxHigh; x++) {
+                                        floatView[trace_offset + x] = 0.0;
+                                        for (let p = 1; p < parts_per_trace; p++) {
+                                            floatView[trace_offset + p * nx + x] = 0.0;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (hnCutoffAxis === 'y') {
+                            for (let z = 0; z < nz; z++) {
+                                for (let y = idxLow; y <= idxHigh; y++) {
+                                    const rowStart = 512 + (z * ny + y) * trace_len;
+                                    floatView.fill(0.0, rowStart, rowStart + trace_len);
+                                }
+                            }
+                        } else if (hnCutoffAxis === 'z') {
+                            const planeLen = ny * trace_len;
+                            for (let z = idxLow; z <= idxHigh; z++) {
+                                const planeStart = 512 + z * planeLen;
+                                floatView.fill(0.0, planeStart, planeStart + planeLen);
+                            }
+                        }
+                        const actual_ppm_start = (axisStart + idxLow * axisStep).toFixed(3);
+                        const actual_ppm_end = (axisStart + idxHigh * axisStep).toFixed(3);
+                        const labelNote = resolved.label ? `, label=${resolved.label}` : '';
+                        append_3d_log(`[main] HN cutoff active on ${hnCutoffAxis.toUpperCase()} axis (${resolved.reason}${labelNote}): zeroed region ${hnCutoffMin.toFixed(2)}–${hnCutoffMax.toFixed(2)} ppm (indices ${idxLow}..${idxHigh}, ~${actual_ppm_start}..${actual_ppm_end} ppm) in spectrum buffer.`);
+                    }
+                }
+            }
+        }
+
         window.last_3d_hn_cutoff = {
-            enabled: hnCutoffEnabled,
+            enabled: hnCutoffActive,
+            axis: hnCutoffAxis,
             min_ppm: hnCutoffMin,
             max_ppm: hnCutoffMax
         };
-
-        if (hnCutoffEnabled && s0 && typeof s0.x_ppm_start === 'number' && typeof s0.x_ppm_step === 'number' && s0.x_ppm_step !== 0) {
-            const nz = spectra_3d.length;
-            const ny = s0.n_indirect;
-            const nx = s0.n_direct;
-
-            const idx1 = Math.round((hnCutoffMin - s0.x_ppm_start) / s0.x_ppm_step);
-            const idx2 = Math.round((hnCutoffMax - s0.x_ppm_start) / s0.x_ppm_step);
-            const x_low = Math.max(0, Math.min(idx1, idx2));
-            const x_high = Math.min(nx - 1, Math.max(idx1, idx2));
-
-            if (x_low <= x_high) {
-                const floatView = new Float32Array(buffer);
-                const has_ri = s0.raw_data_ri && s0.raw_data_ri.length > 0;
-                const has_ir = s0.raw_data_ir && s0.raw_data_ir.length > 0;
-                const has_ii = s0.raw_data_ii && s0.raw_data_ii.length > 0;
-                let parts_per_trace = 1;
-                if (has_ri) parts_per_trace++;
-                if (has_ir) parts_per_trace++;
-                if (has_ii) parts_per_trace++;
-
-                const trace_len = nx * parts_per_trace;
-                for (let z = 0; z < nz; z++) {
-                    for (let y = 0; y < ny; y++) {
-                        const trace_offset = 512 + (z * ny + y) * trace_len;
-                        for (let x = x_low; x <= x_high; x++) {
-                            floatView[trace_offset + x] = 0.0;
-                            for (let p = 1; p < parts_per_trace; p++) {
-                                floatView[trace_offset + p * nx + x] = 0.0;
-                            }
-                        }
-                    }
-                }
-                const actual_ppm_start = (s0.x_ppm_start + x_low * s0.x_ppm_step).toFixed(3);
-                const actual_ppm_end = (s0.x_ppm_start + x_high * s0.x_ppm_step).toFixed(3);
-                append_3d_log(`[main] HN cutoff active: zeroed region ${hnCutoffMin.toFixed(2)}–${hnCutoffMax.toFixed(2)} ppm (indices ${x_low}..${x_high}, ~${actual_ppm_start}..${actual_ppm_end} ppm) in spectrum buffer.`);
-            }
-        }
 
         const ft3Bytes = new Uint8Array(buffer);
         append_3d_log(`[main] Posting pick_and_fit_3d job to worker with buffer size ${ft3Bytes.length} bytes...`);
@@ -1155,7 +1350,8 @@ async function run_peak_fit_3d_workflow() {
             scale1: scale1,
             scale2: scale2,
             newPeakCutoff: newPeakCutoff,
-            hnCutoffEnabled: hnCutoffEnabled,
+            hnCutoffEnabled: hnCutoffActive,
+            hnCutoffAxis: hnCutoffAxis || 'x',
             hnCutoffMin: hnCutoffMin,
             hnCutoffMax: hnCutoffMax
         }, [ft3Bytes.buffer]);
@@ -4093,6 +4289,7 @@ async function load_sparky_3d_file_impl(file) {
             extract_nuclei_from_spectrum(spectra_3d[0]);
             // Initialize main plot with dimensions from the first slice
             init_main_plot(spectra_3d[0]);
+            auto_configure_hn_cutoff_ui(spectra_3d[0]);
 
             update_global_noise_level();
             // Draw first slice
@@ -4259,6 +4456,7 @@ async function load_ft3_file_impl(file) {
             extract_nuclei_from_spectrum(spectra_3d[0]);
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
+            auto_configure_hn_cutoff_ui(spectra_3d[0]);
 
             update_global_noise_level();
             // Draw first slice
@@ -4409,6 +4607,7 @@ async function load_raw_3d_file_impl(file) {
 
             // Initialize the main plot with dimensions from the first slice
             init_main_plot(spectra_3d[0]);
+            auto_configure_hn_cutoff_ui(spectra_3d[0]);
 
             update_global_noise_level();
             // Draw first slice
@@ -4493,6 +4692,7 @@ async function load_files() {
             extract_nuclei_from_spectrum(spectra_3d[0]);
             // Initialize the main plot now that we have data dimensions from the first slice
             init_main_plot(spectra_3d[0]);
+            auto_configure_hn_cutoff_ui(spectra_3d[0]);
 
             update_global_noise_level();
             // Draw first slice
@@ -6323,10 +6523,13 @@ function get_3d_dim_nucleus_type(dim, s0) {
     let nuc = (window.last_fid_nuclei && window.last_fid_nuclei[dim])
         ? String(window.last_fid_nuclei[dim]).trim().toUpperCase()
         : '';
+    if (!nuc) {
+        nuc = get_3d_dim_raw_label(dim, s0).toUpperCase();
+    }
     if (nuc) {
         if (nuc.includes('15N') || nuc.includes('N15') || nuc === 'N' || nuc === 'NH') return '15N';
         if (nuc.includes('13C') || nuc.includes('C13') || nuc === 'C' || nuc === 'CA' || nuc === 'CB' || nuc === 'CO') return '13C';
-        if (nuc.includes('1H') || nuc.includes('H1') || nuc === 'H' || nuc === 'HN') return '1H';
+        if (nuc.includes('1H') || nuc.includes('H1') || nuc === 'H' || nuc === 'HN' || /^H_?N\d*$|^HN\d*$/i.test(nuc) || nuc === 'HA' || nuc === 'HC') return '1H';
     }
 
     if (s0) {
@@ -6339,12 +6542,13 @@ function get_3d_dim_nucleus_type(dim, s0) {
             return 0;
         };
         const frq_x = s0.frq1 || getDimHeaderVal(24, 218, 119, 10);
-        let frq_dim = frq_x;
-        if (dim === 'y') frq_dim = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
-        else if (dim === 'z') frq_dim = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+        const frq_y = s0.frq2 || getDimHeaderVal(25, 218, 119, 10);
+        const frq_z = s0.frq3 || getDimHeaderVal(26, 218, 119, 10);
+        const maxFrq = Math.max(frq_x || 0, frq_y || 0, frq_z || 0);
+        const frq_dim = (dim === 'y') ? frq_y : ((dim === 'z') ? frq_z : frq_x);
 
-        if (frq_x > 0 && frq_dim > 0) {
-            const ratio = frq_dim / frq_x;
+        if (maxFrq > 0 && frq_dim > 0) {
+            const ratio = frq_dim / maxFrq;
             if (ratio > 0.08 && ratio < 0.13) return '15N';
             if (ratio > 0.20 && ratio < 0.30) return '13C';
             if (ratio > 0.90 && ratio < 1.10) return '1H';
@@ -9198,8 +9402,8 @@ async function handle_webass_3d_message(e) {
         if (e.data.success && e.data.resultString) {
             let resultString = e.data.resultString;
             const cutoffInfo = window.last_3d_hn_cutoff;
-            if (cutoffInfo && cutoffInfo.enabled && typeof cutoffInfo.min_ppm === 'number' && typeof cutoffInfo.max_ppm === 'number') {
-                resultString = filter_peaks_string_by_hn_cutoff(resultString, cutoffInfo.min_ppm, cutoffInfo.max_ppm);
+            if (cutoffInfo && cutoffInfo.enabled && cutoffInfo.axis && typeof cutoffInfo.min_ppm === 'number' && typeof cutoffInfo.max_ppm === 'number') {
+                resultString = filter_peaks_string_by_hn_cutoff(resultString, cutoffInfo.min_ppm, cutoffInfo.max_ppm, cutoffInfo.axis);
             }
             fitted_peaks_text_data = resultString;
             let dl_btn = document.getElementById("button_download_peaks_list");
@@ -9529,6 +9733,7 @@ async function handle_webass_3d_message(e) {
 
             // Keep initialization behavior consistent with .ft2/.ft3 file loaders.
             init_main_plot(spectra_3d[0]);
+            auto_configure_hn_cutoff_ui(spectra_3d[0]);
 
             update_global_noise_level();
 

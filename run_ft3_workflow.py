@@ -403,6 +403,7 @@ def process_3d_spectrum(
     hn_cutoff_enabled=True,
     hn_cutoff_start=5.5,
     hn_cutoff_end=4.5,
+    hn_cutoff_dim="auto",
 ):
     """Loads a 3D spectrum (.ft3/.ft3.pipe/.pipe/.ucsf) in index_3d.html, picks/fits peaks, saves .txt."""
     spec_start = time.time()
@@ -416,7 +417,7 @@ def process_3d_spectrum(
 
         # Upload file to #userfile_ft3 and ensure auto-phase is unchecked for pre-processed spectra
         page.locator('#userfile_ft3').set_input_files(spec_item['path'])
-        page.evaluate("""({ cutoffVal, hnEnabled, hnStart, hnEnd }) => {
+        page.evaluate("""({ cutoffVal, hnEnabled, hnStart, hnEnd, hnDim }) => {
             const autoCb = document.getElementById('normal_direct_dim_auto_phase_3d');
             if (autoCb) autoCb.checked = false;
             if (cutoffVal !== null && cutoffVal !== undefined) {
@@ -424,24 +425,33 @@ def process_3d_spectrum(
                 if (el) el.value = String(cutoffVal);
             }
             const chk = document.getElementById('check_hn_cutoff');
-            if (chk) {
-                chk.checked = !!hnEnabled;
+            if (chk && !hnEnabled) {
+                chk.checked = false;
             }
             const sEl = document.getElementById('input_hn_cutoff_start');
             if (sEl && hnStart !== null && hnStart !== undefined) {
                 sEl.value = String(hnStart);
-                sEl.disabled = !hnEnabled;
+                if (!hnEnabled) sEl.disabled = true;
             }
             const eEl = document.getElementById('input_hn_cutoff_end');
             if (eEl && hnEnd !== null && hnEnd !== undefined) {
                 eEl.value = String(hnEnd);
-                eEl.disabled = !hnEnabled;
+                if (!hnEnabled) eEl.disabled = true;
+            }
+            const dEl = document.getElementById('select_hn_cutoff_dim');
+            if (dEl) {
+                const dimNorm = hnDim ? String(hnDim).toLowerCase() : 'auto';
+                if (dimNorm === 'x' || dimNorm === 'y' || dimNorm === 'z') {
+                    dEl.value = dimNorm;
+                }
+                if (!hnEnabled) dEl.disabled = true;
             }
         }""", {
             "cutoffVal": peak_cutoff,
             "hnEnabled": hn_cutoff_enabled,
             "hnStart": hn_cutoff_start,
             "hnEnd": hn_cutoff_end,
+            "hnDim": hn_cutoff_dim,
         })
 
         page.locator('#button_ft3_process').click()
@@ -474,34 +484,57 @@ def process_3d_spectrum(
 
         page.wait_for_timeout(500)
 
-        # Ensure peak cutoff and HN cutoff are set before triggering workflow, reset previous text marker, and run peak pick/fit
-        page.evaluate("""({ cutoffVal, hnEnabled, hnStart, hnEnd }) => {
+        # Apply HN cutoff settings after load (preserving auto-detected axis/state unless overridden)
+        effective_hn = page.evaluate("""({ cutoffVal, hnEnabled, hnStart, hnEnd, hnDim }) => {
             if (cutoffVal !== null && cutoffVal !== undefined) {
                 const el = document.getElementById('input_new_peak_cutoff');
                 if (el) el.value = String(cutoffVal);
             }
             const chk = document.getElementById('check_hn_cutoff');
-            if (chk) {
-                chk.checked = !!hnEnabled;
-            }
             const sEl = document.getElementById('input_hn_cutoff_start');
-            if (sEl && hnStart !== null && hnStart !== undefined) {
-                sEl.value = String(hnStart);
-                sEl.disabled = !hnEnabled;
-            }
             const eEl = document.getElementById('input_hn_cutoff_end');
-            if (eEl && hnEnd !== null && hnEnd !== undefined) {
-                eEl.value = String(hnEnd);
-                eEl.disabled = !hnEnabled;
+            const dEl = document.getElementById('select_hn_cutoff_dim');
+            const dimNorm = hnDim ? String(hnDim).toLowerCase() : 'auto';
+
+            if (chk) {
+                if (!hnEnabled) {
+                    chk.checked = false;
+                } else if (dimNorm === 'x' || dimNorm === 'y' || dimNorm === 'z') {
+                    chk.checked = true;
+                }
             }
+            if (dEl && (dimNorm === 'x' || dimNorm === 'y' || dimNorm === 'z')) {
+                dEl.value = dimNorm;
+            }
+            const isChecked = chk ? !!chk.checked : false;
+            if (sEl) {
+                if (hnStart !== null && hnStart !== undefined) sEl.value = String(hnStart);
+                sEl.disabled = !isChecked;
+            }
+            if (eEl) {
+                if (hnEnd !== null && hnEnd !== undefined) eEl.value = String(hnEnd);
+                eEl.disabled = !isChecked;
+            }
+            if (dEl) {
+                dEl.disabled = !isChecked;
+            }
+            return {
+                enabled: isChecked,
+                axis: dEl ? dEl.value : 'x'
+            };
         }""", {
             "cutoffVal": peak_cutoff,
             "hnEnabled": hn_cutoff_enabled,
             "hnStart": hn_cutoff_start,
             "hnEnd": hn_cutoff_end,
+            "hnDim": hn_cutoff_dim,
         })
 
-        cutoff_desc = f", HN cutoff: {hn_cutoff_start}–{hn_cutoff_end} ppm" if hn_cutoff_enabled else ", HN cutoff: disabled"
+        cutoff_desc = (
+            f", HN cutoff: {hn_cutoff_start}–{hn_cutoff_end} ppm (axis={effective_hn['axis'].upper()})"
+            if effective_hn and effective_hn.get("enabled")
+            else ", HN cutoff: disabled"
+        )
         print(f"[3D] Running peak picking and iterative fitting (cutoff={peak_cutoff}{cutoff_desc})...")
         page.evaluate("""() => {
             window.fitted_peaks_text_data = null;
@@ -944,6 +977,7 @@ def run_folder_workflow(
     hn_cutoff_enabled=True,
     hn_cutoff_start=5.5,
     hn_cutoff_end=4.5,
+    hn_cutoff_dim="auto",
     exclude_patterns=None,
     only_patterns=None,
 ):
@@ -1045,6 +1079,7 @@ def run_folder_workflow(
                                 hn_cutoff_enabled=hn_cutoff_enabled,
                                 hn_cutoff_start=hn_cutoff_start,
                                 hn_cutoff_end=hn_cutoff_end,
+                                hn_cutoff_dim=hn_cutoff_dim,
                             )
                         else:
                             res = process_2d_spectrum(
@@ -1114,6 +1149,7 @@ def make_task_parser():
     p.add_argument("--cutoff", type=float, default=None)
     p.add_argument("--hn-cutoff-start", type=float, default=None)
     p.add_argument("--hn-cutoff-end", type=float, default=None)
+    p.add_argument("--hn-cutoff-dim", choices=["auto", "x", "y", "z"], default=None)
     p.add_argument("--no-hn-cutoff", action="store_true", default=None)
     p.add_argument("--picker-2d", choices=["deep", "simple"], default=None)
     p.add_argument("--fitter-2d", choices=["voigt", "gaussian", "voigt-lorentzian"], default=None)
@@ -1157,6 +1193,7 @@ def parse_batch_file(batch_path, base_args):
                 "hn_cutoff_enabled": hn_enabled,
                 "hn_cutoff_start": parsed.hn_cutoff_start if parsed.hn_cutoff_start is not None else base_args.hn_cutoff_start,
                 "hn_cutoff_end": parsed.hn_cutoff_end if parsed.hn_cutoff_end is not None else base_args.hn_cutoff_end,
+                "hn_cutoff_dim": parsed.hn_cutoff_dim if parsed.hn_cutoff_dim is not None else base_args.hn_cutoff_dim,
                 "picker_2d": parsed.picker_2d if parsed.picker_2d is not None else base_args.picker_2d,
                 "fitter_2d": parsed.fitter_2d if parsed.fitter_2d is not None else base_args.fitter_2d,
                 "include_2d": not skip_2d,
@@ -1204,6 +1241,7 @@ def run_batch(tasks, global_args):
                     hn_cutoff_enabled=task.get("hn_cutoff_enabled", True),
                     hn_cutoff_start=task.get("hn_cutoff_start", 5.5),
                     hn_cutoff_end=task.get("hn_cutoff_end", 4.5),
+                    hn_cutoff_dim=task.get("hn_cutoff_dim", "auto"),
                     exclude_patterns=task.get("exclude", []),
                     only_patterns=task.get("only", []),
                 )
@@ -1286,6 +1324,12 @@ def main():
         type=float,
         default=4.5,
         help="HN dimension cutoff end in ppm for 3D peak picking & fitting (default: 4.5 ppm).",
+    )
+    parser.add_argument(
+        "--hn-cutoff-dim",
+        choices=["auto", "x", "y", "z"],
+        default="auto",
+        help="Target axis for HN cutoff: 'auto' (default, uses HN label and direct dimension when 15N is present), or manual 'x', 'y', or 'z'.",
     )
     parser.add_argument(
         "--no-hn-cutoff",
@@ -1375,6 +1419,7 @@ def main():
                 hn_cutoff_enabled=args.hn_cutoff_enabled,
                 hn_cutoff_start=args.hn_cutoff_start,
                 hn_cutoff_end=args.hn_cutoff_end,
+                hn_cutoff_dim=args.hn_cutoff_dim,
                 exclude_patterns=args.exclude,
                 only_patterns=args.only,
             )
