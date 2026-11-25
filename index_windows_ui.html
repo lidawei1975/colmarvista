@@ -240,7 +240,7 @@
                     : element.style.display === "none" || element.classList.contains("windows-panel-hidden");
                 if (id === "peak_area") element.classList.toggle("windows-peak-visible", hidden);
                 else element.classList.toggle("windows-panel-hidden", !hidden);
-                element.style.display = hidden ? "block" : "none";
+                element.style.display = hidden ? (id === "log_area" ? "flex" : "block") : "none";
             }
         }
 
@@ -289,7 +289,7 @@
                 #section1 h2 { margin: 4px 0 8px !important; font-size: 12px !important; color: #64748b !important; }
                 #section1 h3 { margin: 0 !important; font-size: 12px !important; }
                 #section2 { min-width: 0 !important; width: 100% !important; margin: 0 !important; padding: 10px !important; }
-                #section2 > .drop-area-neighbor, #section2 > .drop-area, #assignment_area, #spectra_list { width: 100% !important; max-width: none !important; margin: 6px 0 !important; border-color: #cbd5e1 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 2px 7px rgba(15,23,42,.06) !important; }
+                #section2 > .drop-area-neighbor:not(#log_area), #section2 > .drop-area, #assignment_area, #spectra_list { width: 100% !important; max-width: none !important; margin: 6px 0 !important; border-color: #cbd5e1 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 2px 7px rgba(15,23,42,.06) !important; }
                 #load_and_save, #fid_file_area, #file_area, #pseudo3d_area, #assignment_area, #spectra_list { padding: 8px 12px !important; }
                 #fid_file_area.windows-section-hidden, #file_area.windows-section-hidden, #pseudo3d_area.windows-section-hidden, #assignment_area.windows-section-hidden { display: none !important; }
                 #file_area.windows-section-hidden { visibility: hidden !important; }
@@ -298,7 +298,8 @@
                 #load_and_save { position: fixed !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
                 #peak_area.windows-peak-visible { display: block !important; }
                 #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
-                #log_area { top: auto !important; right: 12px !important; bottom: 12px !important; left: auto !important; width: 360px !important; height: 220px !important; border-radius: 7px !important; z-index: 9998 !important; }
+                #log_area { top: auto; right: 12px; bottom: 40px; left: auto; width: 360px; height: 220px; border-radius: 7px !important; z-index: 9998 !important; }
+                #button_toggle_log { display: none !important; }
                 button, input, select { font-family: inherit !important; }
             `;
             documentRef.head.appendChild(theme);

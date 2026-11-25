@@ -173,6 +173,27 @@
             background: #9ca3af;
             cursor: not-allowed;
         }
+
+        #log_area {
+            top: auto;
+            right: 12px;
+            bottom: 52px;
+            left: auto;
+        }
+
+        #button_toggle_log {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            z-index: 10000;
+            padding: 6px 12px;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #1976d2;
+            cursor: pointer;
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -734,11 +755,12 @@
                     <div class="log-actions">
                         <button onclick="clear_log()">Clear</button>
                         <button onclick="download_log()">Download</button>
-                        <button id="button_minimize_log" onclick="toggle_log_minimize()">—</button>
                     </div>
                 </div>
                 <textarea id="log" readonly></textarea>
             </div>
+            <button type="button" id="button_toggle_log" onclick="toggle_log_visibility()"
+                aria-controls="log_area" aria-expanded="true">Hide log</button>
 
         </div>
 

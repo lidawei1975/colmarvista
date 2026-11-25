@@ -10917,6 +10917,20 @@ if (wa_msg_observer_target) {
 }
 
 /**
+ * Shows or hides the floating background log area.
+ */
+function toggle_log_visibility() {
+    const log_area = document.getElementById("log_area");
+    const toggle_button = document.getElementById("button_toggle_log");
+    if (!log_area || !toggle_button) return;
+
+    const is_visible = window.getComputedStyle(log_area).display !== "none";
+    log_area.style.display = is_visible ? "none" : "flex";
+    toggle_button.textContent = is_visible ? "Show log" : "Hide log";
+    toggle_button.setAttribute("aria-expanded", String(!is_visible));
+}
+
+/**
  * Minimizes or restores the floating background log area.
  */
 function toggle_log_minimize() {
