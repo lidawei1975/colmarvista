@@ -12,98 +12,23 @@
  * Make sure we can load WebWorker
 */
 
-var my_contour_worker, webassembly_worker, webassembly_worker2 = null;
-var wasm_2d_runner = null;
-const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
+const WEBASSEMBLY_JOB_KEY = Colmar2D.WEBASSEMBLY_JOB_KEY;
 
 function get_webassembly_job_flag(data) {
-    if (!data) {
-        return undefined;
-    }
-    return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
+    return Colmar2D.getWebAssemblyJobFlag(data);
 }
-try {
-    my_contour_worker = new Worker('js/shared/contour_worker_2d.js');
-
-    /**
-     * webdp1d_cpp.wasm is run in EPHEMERAL workers (see js/wasm_runner.js):
-     *  - the compiled WebAssembly.Module is cached here on the main thread
-     *    (WebAssembly.compileStreaming, compiled only once),
-     *  - a new js/webass_2d.js worker is spawned only when a job is submitted and the module is
-     *    posted to it together with the input data; the worker instantiates the module (and
-     *    therefore its linear memory) on demand,
-     *  - the worker is terminated as soon as the final result message is received (or on error),
-     *    so the memory is released after every job. Jobs run one at a time.
-     *
-     * `webassembly_worker` is a facade exposing postMessage/onmessage/terminate, so every
-     * webassembly_worker.postMessage(job, transferList) call below runs as an ephemeral job.
-     */
-    wasm_2d_runner = new EphemeralWasmRunner({
-        label: 'webdp1d_cpp',
-        workerUrl: './js/webass_2d.js',
-        wasmUrl: './js/webdp1d_cpp.wasm',
-        maxConcurrent: 1,
-        isIntermediate: function (data) {
-            return !!data && (typeof data.stdout !== 'undefined'
-                || get_webassembly_job_flag(data) === "pseudo3d_progress");
+function clear_webassembly_message_after_delay(delay_ms = 5000) {
+    window.setTimeout(function () {
+        const message_div = document.getElementById("webassembly_message");
+        if (message_div) {
+            message_div.innerText = "";
         }
-    });
-    webassembly_worker = wasm_2d_runner.createWorkerFacade();
-    wasm_2d_runner.preload(); //compile now (no worker, no linear memory is created)
-
-    function clear_webassembly_message_after_delay(delay_ms = 5000) {
-        window.setTimeout(function () {
-            const message_div = document.getElementById("webassembly_message");
-            if (message_div) {
-                message_div.innerText = "";
-            }
-        }, delay_ms);
-    }
-}
-catch (err) {
-    console.log(err);
-    if (typeof (my_contour_worker) === "undefined"
-        || typeof (webassembly_worker) === "undefined") {
-        alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
-    }
+    }, delay_ms);
 }
 
-const mathTool = new ldwmath();
-
-
-var plot_margin_top = 20;
-var plot_margin_bottom = 100;
-var plot_margin_left = 150;
-var plot_margin_right = 20;
-var plot_font_size = 24;
-var plot_padding = 20; //padding for the plot area
-
-
-var main_plot = null; //hsqc plot object
-var b_plot_initialized = false; //flag to indicate if the plot is initialized
-var tfjs_2d_normal_model = null;
-
-var tooldiv; //tooltip div (used by myplot1_new.js, this is not a good practice, but it is a quick fix)
-var current_spectrum_index_of_peaks = -1; //index of the spectrum that is currently showing peaks, -1 means none, -2 means pseudo 3D fitted peaks
-var current_flag_of_peaks = 'picked'; //flag of the peaks that is currently showing, 'picked' or 'fitted
-var total_number_of_experimental_spectra = 0; //total number of experimental spectra
-var pseudo3d_fitted_peaks_object = null; //pseudo 3D fitted peaks object
-var pseudo3d_fitted_peaks_error = []; //pseudo 3D fitted peaks with error estimation array, each element is a Cpeaks object
-var pending_pseudo3d_uncalculated_spectra = []; // pseudo 3D spectra indices (6th onwards) whose contour calculation is deferred
-var last_calculated_spectrum_index = -1; // track last spectrum sent to contour worker in a batch
-var baseline_correction_batch_total = 0;
-var baseline_correction_batch_completed = 0;
-var cest_multi_peak_indices = [];
-var cest_filter_multi_peaks_only = false;
-
-/**
- * For FID re-processing. Saved file data
- */
-var fid_process_parameters;
-var has_processed_fid = false;
-var current_reprocess_spectrum_index = -1;
-var nuslist_as_string = "";
-var current_process_fid_files_fn;
+if (Colmar2D.state.worker_initialization_error) {
+    alert("Failed to load WebWorker, probably due to browser incompatibility. Please use a modern browser, if you run this program locally, please read the instructions titled 'How to run COLMAR Viewer locally'");
+}
 
 function restore_fid_parameters_to_default() {
     const wsEl = document.getElementById("water_suppression");
@@ -171,60 +96,15 @@ window.restore_fid_parameters_to_default = restore_fid_parameters_to_default;
 /**
  * Default var in peaks to color-map the peaks symbols
  */
-var color_map_list = ['HEIGHT'];
 /**
  * Corresponding color map limits for the color_map_list
  * Save length of color_map_list.
  */
-var color_map_limit = [[0, 1]];
-
-var inter_window_channel;
-
-/**
- * ft2 file drop processor
- */
-var ft2_file_drop_processor;
-
-/**
-* fid file drop processor for the time domain spectra
-*/
-var fid_drop_process;
-
 /**
  * DOM div for the processing message
  */
-var oOutput;
-
-/**
- * Current phase correction values:
- * direct_p0, direct_p1, indirect_p0, indirect_p1
- */
-var current_phase_correction = [0, 0, 0, 0];
-
-var hsqc_spectra = []; //array of hsqc spectra
 
 let draggedItem = null;
-
-/**
- * Default color list for the contour plot (15 colors, repeat if more than 15 spectra)
- */
-var color_list = [
-    [0, 0, 1, 1.0],
-    [1, 0, 0, 1.0],
-    [0, 1, 0, 1.0],
-    [1, 1, 0, 1.0],
-    [0, 1, 1, 1.0],
-    [1, 0, 1, 1.0],
-    [0, 0, 0, 1.0],
-    [0.5, 0.5, 0.5, 1.0],
-    [1, 0.5, 0.5, 1.0],
-    [0.5, 1, 0.5, 1.0],
-    [0.5, 0.5, 1, 1.0],
-    [1, 0.5, 1, 1.0],
-    [1, 1, 0.5, 1.0],
-    [0.5, 1, 1, 1.0],
-    [0.5, 0.5, 0.5, 1.0],
-];
 
 /**
  * Read a file as array buffer
@@ -6702,42 +6582,16 @@ async function run_ann_phase_correction_for_spectrum(s, options) {
 
         const ft2ArrayBuffer = data.buffer;
 
-        const pipeline = window.NUS2DPhasePipeline;
-        const tf = window.tf;
-        if (!pipeline || !tf) {
-            throw new Error("TensorFlow.js or NUS2DPhasePipeline not loaded.");
-        }
+        const { p0, p1, valid } = await Colmar2D.runTfjsPhaseCorrection(ft2ArrayBuffer, numRounds);
 
-        const modelUrl = 'js/model17_tfjs/model.json';
-
-        if (!tfjs_2d_normal_model) {
-            tfjs_2d_normal_model = await pipeline.loadModel(tf, modelUrl);
-        }
-
-        const result = await pipeline.runFromFt2({
-            tf: tf,
-            ft2ArrayBuffer: ft2ArrayBuffer,
-            model: tfjs_2d_normal_model,
-            modelUrl: modelUrl,
-            numRounds: numRounds,
-        });
-
-        const finalPhases = result.final_wls_phase_left_right ? result.final_wls_phase_left_right[0] : null;
-        let p0 = 0.0;
-        let p1 = 0.0;
-
-        if (finalPhases && Number.isFinite(finalPhases[0]) && Number.isFinite(finalPhases[1])) {
-            const leftEdge = finalPhases[0];
-            const rightEdge = finalPhases[1];
-            p0 = leftEdge;
-            p1 = rightEdge - leftEdge;
-            console.log(`[ANN Phase] Applied Total Correction: left=${leftEdge.toFixed(2)}°, right=${rightEdge.toFixed(2)}° | NMRPipe P0=${p0.toFixed(2)}°, P1=${p1.toFixed(2)}°`);
-        } else {
+        if (!valid) {
             console.warn("[ANN Reprocess] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.");
             if (log_div) {
                 log_div.value += "[WARNING] Auto phase prediction returned NaN or invalid values. Falling back to 0.0 direct phase correction.\n";
                 log_div.scrollTop = log_div.scrollHeight;
             }
+        } else {
+            console.log(`[ANN Phase] Applied P0=${p0.toFixed(2)}°, P1=${p1.toFixed(2)}°`);
         }
 
         const phase_deg = [[p0, p1], [0.0, 0.0]];

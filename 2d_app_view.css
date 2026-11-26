@@ -1,0 +1,188 @@
+/* Compact minimized spectrum for 2D spectral list */
+        #spectra_list_ol > li.spectrum-minimized-compact,
+        ol#spectra_list_ol > li.spectrum-minimized-compact,
+        li.spectrum-minimized-compact {
+            display: inline-block !important;
+            list-style: none !important;
+            list-style-type: none !important;
+            counter-increment: list-item;
+            margin: 2px 2px !important;
+            padding: 0 !important;
+            vertical-align: middle;
+        }
+
+        li.spectrum-minimized-compact > div {
+            display: inline-flex !important;
+            align-items: center !important;
+            font-size: 0 !important;
+            line-height: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            background-color: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        li.spectrum-minimized-compact > div > *:not([id^="minimize-"]) {
+            display: none !important;
+        }
+
+        li.spectrum-minimized-compact > div > button[id^="minimize-"] {
+            display: inline-block !important;
+            font-size: 13px !important;
+            line-height: normal !important;
+            margin: 2px 2px !important;
+            padding: 2px 6px !important;
+            min-width: 22px;
+            height: 24px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        /* Multi-dip row highlighting for CEST / Pseudo-3D profiles */
+        tr.multi_peak_row,
+        tr.multi_peak_row td {
+            background-color: #ffe0b2 !important;
+        }
+
+        tr.multi_peak_row:hover,
+        tr.multi_peak_row:hover td {
+            background-color: #ffd199 !important;
+        }
+
+        #peak_table tbody tr.multi_peak_row td:first-child:hover {
+            background-color: #ffb74d !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row,
+        tr.multi_peak_row.selected_peak_row td {
+            background-color: lightblue !important;
+        }
+
+        tr.multi_peak_row.selected_peak_row td:first-child:hover {
+            background-color: #9eccf0 !important;
+        }
+
+        /* Double range slider for spectrum ratio colormap */
+        .ratio-double-slider {
+            position: relative;
+            display: inline-block;
+            width: 300px;
+            height: 20px;
+            vertical-align: middle;
+        }
+
+        .ratio-double-slider .ratio-slider-track {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 5px;
+            transform: translateY(-50%);
+            background-color: #d1d5db;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .ratio-double-slider .ratio-slider-fill {
+            position: absolute;
+            top: 50%;
+            left: 0%;
+            width: 100%;
+            height: 5px;
+            transform: translateY(-50%);
+            background-color: #2563eb;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .ratio-double-slider input[type="range"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            pointer-events: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .ratio-double-slider input[type="range"]:focus {
+            outline: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 5px;
+            background: transparent;
+            border: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-moz-range-track {
+            width: 100%;
+            height: 5px;
+            background: transparent;
+            border: none;
+        }
+
+        .ratio-double-slider input[type="range"]::-webkit-slider-thumb {
+            pointer-events: auto;
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            margin-top: -4.5px;
+        }
+
+        .ratio-double-slider input[type="range"]::-moz-range-thumb {
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #2563eb;
+            border: 2px solid #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        .ratio-double-slider input[type="range"]:disabled::-webkit-slider-thumb {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .ratio-double-slider input[type="range"]:disabled::-moz-range-thumb {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        #log_area {
+            top: auto;
+            right: 12px;
+            bottom: 52px;
+            left: auto;
+        }
+
+        #button_toggle_log {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            z-index: 10000;
+            padding: 6px 12px;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #1976d2;
+            cursor: pointer;
+            font-weight: 600;
+        }
