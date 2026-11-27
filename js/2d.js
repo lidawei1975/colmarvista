@@ -2564,21 +2564,24 @@ function update_all_minimized_spectra_display() {
         let btn = document.getElementById("minimize-" + index);
         if (!btn) continue;
         let is_minimized = (btn.innerText.trim().startsWith("+")) || li.classList.contains("spectrum-minimized-compact");
-        let spectrum_div = li.querySelector("div");
-        if (!spectrum_div) continue;
+        let spectrum_div = li.querySelector(":scope > div:not(.windows-spectrum-actions)");
 
         if (is_minimized) {
             li.classList.add("spectrum-minimized-compact");
-            spectrum_div.style.height = "";
-            spectrum_div.style.overflow = "";
+            if (spectrum_div) {
+                spectrum_div.style.height = "";
+                spectrum_div.style.overflow = "";
+            }
             btn.innerText = is_pseudo3d_spectrum(index) ? ("+ " + (index + 1)) : "+";
             if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
                 btn.title = "Restore: " + hsqc_spectra[index].filename + " (Plane: " + (index + 1) + ")";
             }
         } else {
             li.classList.remove("spectrum-minimized-compact");
-            spectrum_div.style.height = "auto";
-            spectrum_div.style.overflow = "";
+            if (spectrum_div) {
+                spectrum_div.style.height = "auto";
+                spectrum_div.style.overflow = "";
+            }
             btn.innerText = "-";
             btn.removeAttribute("title");
         }
@@ -2592,8 +2595,7 @@ function minimize_spectrum(button, index) {
     }
     let spec_el = document.getElementById("spectrum-".concat(index));
     if (!spec_el) return;
-    let spectrum_div = spec_el.querySelector("div");
-    if (!spectrum_div) return;
+    let spectrum_div = spec_el.querySelector(":scope > div:not(.windows-spectrum-actions)");
     let minimize_button = button || document.getElementById("minimize-" + index);
     if (!minimize_button) return;
 
@@ -2603,8 +2605,10 @@ function minimize_spectrum(button, index) {
         // Current state: expanded -> Action: Minimize
         minimize_button.innerText = is_pseudo3d_spectrum(index) ? ("+ " + (index + 1)) : "+";
         spec_el.classList.add("spectrum-minimized-compact");
-        spectrum_div.style.height = "";
-        spectrum_div.style.overflow = "";
+        if (spectrum_div) {
+            spectrum_div.style.height = "";
+            spectrum_div.style.overflow = "";
+        }
 
         if (hsqc_spectra[index] && hsqc_spectra[index].filename) {
             minimize_button.title = "Restore: " + hsqc_spectra[index].filename + " (Plane: " + (index + 1) + ")";
@@ -2630,8 +2634,10 @@ function minimize_spectrum(button, index) {
         minimize_button.innerText = "-";
         minimize_button.removeAttribute("title");
         spec_el.classList.remove("spectrum-minimized-compact");
-        spectrum_div.style.height = "auto";
-        spectrum_div.style.overflow = "";
+        if (spectrum_div) {
+            spectrum_div.style.height = "auto";
+            spectrum_div.style.overflow = "";
+        }
         if (hsqc_spectra[index]) {
             hsqc_spectra[index].visible = true;
         }
@@ -3253,8 +3259,10 @@ function add_to_list(index) {
     contour_color_input.setAttribute("value", new_spectrum.spectrum_color);
     contour_color_input.setAttribute("id", "contour_color-".concat(index));
     contour_color_input.addEventListener("change", (e) => { update_contour_color(e, index, 0); });
-    new_spectrum_div.appendChild(contour_color_label);
-    new_spectrum_div.appendChild(contour_color_input);
+    let contour_color_control = document.createElement("span");
+    contour_color_control.classList.add("windows-contour-color-control");
+    contour_color_control.append(contour_color_label, contour_color_input);
+    new_spectrum_div.appendChild(contour_color_control);
 
     let contour_colormap_checkbox = document.createElement("input");
     contour_colormap_checkbox.setAttribute("type", "checkbox");
@@ -3419,8 +3427,10 @@ function add_to_list(index) {
     contour_color_input_negative.setAttribute("value", new_spectrum.spectrum_color_negative);
     contour_color_input_negative.setAttribute("id", "contour_color_negative-".concat(index));
     contour_color_input_negative.addEventListener("change", (e) => { update_contour_color(e, index, 1); });
-    new_spectrum_div.appendChild(contour_color_label_negative);
-    new_spectrum_div.appendChild(contour_color_input_negative);
+    let contour_color_control_negative = document.createElement("span");
+    contour_color_control_negative.classList.add("windows-contour-color-control");
+    contour_color_control_negative.append(contour_color_label_negative, contour_color_input_negative);
+    new_spectrum_div.appendChild(contour_color_control_negative);
 
     /**
      * For experimental spectra:
@@ -10393,12 +10403,17 @@ function get_current_peak_object() {
 
 
 function show_peak_table() {
+    let peak_area = document.getElementById('peak_area');
+    if (window.colmarWindowsPeakTableEnabled === false) {
+        if (peak_area) peak_area.style.display = "none";
+        return;
+    }
+
     unselect_peak_row();
     /**
      * Step 1, clear current peak_table.
      * Get peak_area's all table children and remove them
      */
-    let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
     let peaks_object = get_current_peak_object();
 
@@ -10819,48 +10834,49 @@ function make_log_movable() {
     const header = log_area ? log_area.querySelector(".log-header") : null;
     if (!log_area || !header) return;
 
-    const initial_rect = log_area.getBoundingClientRect();
-    log_area.style.top = initial_rect.top + "px";
-    log_area.style.left = initial_rect.left + "px";
-    log_area.style.right = "auto";
-    log_area.style.bottom = "auto";
-
-    let startX, startY, initialLeft, initialTop;
-
-    header.onmousedown = function (e) {
-        // If clicking on a button inside the header, don't drag
-        if (e.target.tagName.toLowerCase() === 'button') {
+    header.onpointerdown = function (event) {
+        if (event.button !== 0 || event.target.closest("button")) {
             return;
         }
-        e = e || window.event;
-        e.preventDefault();
+        event.preventDefault();
 
-        // Initial mouse position
-        startX = e.clientX;
-        startY = e.clientY;
+        const rect = log_area.getBoundingClientRect();
+        const grabX = event.clientX - rect.left;
+        const grabY = event.clientY - rect.top;
+        const pointerId = event.pointerId;
 
-        // Current element position
-        let rect = log_area.getBoundingClientRect();
-        initialLeft = rect.left;
-        initialTop = rect.top;
+        log_area.style.top = `${rect.top}px`;
+        log_area.style.left = `${rect.left}px`;
+        log_area.style.right = "auto";
+        log_area.style.bottom = "auto";
 
-        document.onmouseup = function () {
-            document.onmouseup = null;
-            document.onmousemove = null;
+        if (typeof header.setPointerCapture === "function") {
+            header.setPointerCapture(pointerId);
+        }
+
+        const moveLog = moveEvent => {
+            if (moveEvent.pointerId !== pointerId) return;
+            const maxLeft = Math.max(0, window.innerWidth - log_area.offsetWidth);
+            const maxTop = Math.max(0, window.innerHeight - log_area.offsetHeight);
+            const left = Math.min(maxLeft, Math.max(0, moveEvent.clientX - grabX));
+            const top = Math.min(maxTop, Math.max(0, moveEvent.clientY - grabY));
+            log_area.style.left = `${left}px`;
+            log_area.style.top = `${top}px`;
         };
 
-        document.onmousemove = function (e) {
-            e = e || window.event;
-            e.preventDefault();
-
-            // Calculate distance moved
-            let dx = e.clientX - startX;
-            let dy = e.clientY - startY;
-
-            // Apply new position
-            log_area.style.top = (initialTop + dy) + "px";
-            log_area.style.left = (initialLeft + dx) + "px";
+        const stopMovingLog = endEvent => {
+            if (endEvent.pointerId !== pointerId) return;
+            header.removeEventListener("pointermove", moveLog);
+            header.removeEventListener("pointerup", stopMovingLog);
+            header.removeEventListener("pointercancel", stopMovingLog);
+            if (header.hasPointerCapture(pointerId)) {
+                header.releasePointerCapture(pointerId);
+            }
         };
+
+        header.addEventListener("pointermove", moveLog);
+        header.addEventListener("pointerup", stopMovingLog);
+        header.addEventListener("pointercancel", stopMovingLog);
     };
 }
 

@@ -6,6 +6,9 @@
             return appDocument().getElementById(id);
         }
 
+        let peakTableEnabled = false;
+        window.colmarWindowsPeakTableEnabled = peakTableEnabled;
+
         function clickAppElement(id) {
             const element = appElement(id);
             if (element) element.click();
@@ -218,26 +221,56 @@
             backdrop.id = "windows-spectrum-backdrop";
             documentRef.body.appendChild(backdrop);
 
-            function closeDetails() {
-                const openRow = list.querySelector(":scope > li.windows-spectrum-popup-open");
-                if (!openRow) {
+            const dialog = documentRef.createElement("section");
+            dialog.id = "windows-spectrum-dialog";
+            dialog.setAttribute("role", "dialog");
+            dialog.setAttribute("aria-modal", "true");
+            dialog.setAttribute("aria-labelledby", "windows-spectrum-dialog-title");
+            dialog.setAttribute("aria-hidden", "true");
+
+            const dialogHeader = documentRef.createElement("header");
+            dialogHeader.className = "windows-spectrum-dialog-header";
+            const dialogTitle = documentRef.createElement("h2");
+            dialogTitle.id = "windows-spectrum-dialog-title";
+            dialogTitle.textContent = "Spectrum details";
+            const dialogCloseButton = documentRef.createElement("button");
+            dialogCloseButton.type = "button";
+            dialogCloseButton.className = "windows-spectrum-popup-close";
+            dialogCloseButton.textContent = "Close";
+            dialogCloseButton.title = "Close spectrum details";
+            dialogHeader.append(dialogTitle, dialogCloseButton);
+
+            const dialogContent = documentRef.createElement("div");
+            dialogContent.id = "windows-spectrum-dialog-content";
+            dialog.append(dialogHeader, dialogContent);
+            documentRef.body.appendChild(dialog);
+
+            const controlsByRow = new WeakMap();
+            const hiddenPeakStateBySpectrum = new WeakMap();
+            let activeDetails = null;
+
+            function closeDetails(restoreFocus = true) {
+                if (!activeDetails) {
                     documentRef.body.classList.remove("windows-spectrum-popup-active");
+                    dialog.setAttribute("aria-hidden", "true");
                     return;
                 }
 
-                openRow.classList.remove("windows-spectrum-popup-open");
-                const controls = openRow.querySelector(":scope > div");
-                const trigger = openRow.querySelector(":scope > .windows-spectrum-actions .windows-spectrum-details-button");
-                if (controls) {
-                    controls.removeAttribute("role");
-                    controls.removeAttribute("aria-modal");
-                    controls.removeAttribute("aria-labelledby");
+                const { row, controls, placeholder, trigger } = activeDetails;
+                row.classList.remove("windows-spectrum-popup-open");
+                if (placeholder.parentNode) {
+                    placeholder.parentNode.insertBefore(controls, placeholder);
+                    placeholder.remove();
+                } else {
+                    controls.remove();
                 }
-                if (trigger) {
-                    trigger.setAttribute("aria-expanded", "false");
-                    trigger.focus();
-                }
+                trigger.setAttribute("aria-expanded", "false");
+                dialog.classList.remove("windows-spectrum-dialog-open");
+                dialog.setAttribute("aria-hidden", "true");
                 documentRef.body.classList.remove("windows-spectrum-popup-active");
+                activeDetails = null;
+
+                if (restoreFocus && trigger.isConnected) trigger.focus();
             }
 
             function updateSpectrumVisibility(row) {
@@ -262,6 +295,8 @@
                 const visibleBefore = !spectrum || spectrum.visible !== false;
                 const minimizeButton = documentRef.getElementById(`minimize-${spectrumIndex}`);
                 const reconstructedCheckbox = documentRef.getElementById(`show_recon-${spectrumIndex}`);
+                const activePeakIndex = window.current_spectrum_index_of_peaks;
+                const activePeakFlag = window.current_flag_of_peaks || "picked";
 
                 if (minimizeButton && typeof window.minimize_spectrum === "function") {
                     window.minimize_spectrum(spectrumIndex);
@@ -276,16 +311,29 @@
                             relatedIndices.add(index);
                         }
                     }
-                    const activePeakIndex = window.current_spectrum_index_of_peaks;
                     const isPseudo3dPeaks = activePeakIndex === -2
                         && typeof window.is_pseudo3d_spectrum === "function"
                         && window.is_pseudo3d_spectrum(spectrumIndex);
                     if (relatedIndices.has(activePeakIndex) || isPseudo3dPeaks) {
+                        if (spectrum) {
+                            hiddenPeakStateBySpectrum.set(spectrum, {
+                                index: activePeakIndex,
+                                flag: activePeakFlag
+                            });
+                        }
                         window.show_hide_peaks(
                             activePeakIndex,
-                            window.current_flag_of_peaks || "picked",
+                            activePeakFlag,
                             false
                         );
+                    }
+                } else if (!visibleBefore && spectrum && typeof window.show_hide_peaks === "function") {
+                    const hiddenPeakState = hiddenPeakStateBySpectrum.get(spectrum);
+                    if (hiddenPeakState) {
+                        if (window.current_spectrum_index_of_peaks === -1) {
+                            window.show_hide_peaks(hiddenPeakState.index, hiddenPeakState.flag, true);
+                        }
+                        hiddenPeakStateBySpectrum.delete(spectrum);
                     }
                 }
 
@@ -296,12 +344,14 @@
 
             function decorateRows() {
                 for (const row of list.querySelectorAll(":scope > li[id^='spectrum-']")) {
-                    const controls = row.querySelector(":scope > div");
+                    const controls = row.querySelector(":scope > div:not(.windows-spectrum-actions)");
                     if (!controls || row.style.display === "none") continue;
 
                     controls.classList.add("windows-spectrum-controls");
                     row.classList.add("windows-spectrum-row");
                     const spectrumIndex = Number.parseInt(row.id.slice("spectrum-".length), 10);
+                    controls.dataset.windowsSpectrumIndex = String(spectrumIndex);
+                    controlsByRow.set(row, controls);
                     const rowText = controls.textContent.replace(/\s+/g, " ").trim();
                     const filename = rowText.match(/File name:\s*(.+?)(?=\s+Noise:|$)/i);
                     const reconstructed = rowText.match(/Remove me\s+(.+?)\s+\(fitted from plane/i);
@@ -345,31 +395,13 @@
                     }
                     detailsButton.title = `Show processing controls for ${label}`;
                     detailsButton.setAttribute("aria-label", `Show processing controls for spectrum ${spectrumIndex + 1}: ${label}`);
-
-                    let header = controls.querySelector(":scope > .windows-spectrum-popup-header");
-                    if (!header) {
-                        header = documentRef.createElement("div");
-                        header.className = "windows-spectrum-popup-header";
-                        const title = documentRef.createElement("strong");
-                        const closeButton = documentRef.createElement("button");
-                        closeButton.type = "button";
-                        closeButton.className = "windows-spectrum-popup-close";
-                        closeButton.textContent = "Close";
-                        closeButton.title = "Close spectrum details";
-                        header.append(title, closeButton);
-                        controls.insertBefore(header, controls.firstChild);
-                    }
-                    header.querySelector("strong").textContent = label;
+                    detailsButton.dataset.spectrumLabel = label;
+                    const oldHeader = controls.querySelector(":scope > .windows-spectrum-popup-header");
+                    if (oldHeader) oldHeader.remove();
                 }
             }
 
             list.addEventListener("click", event => {
-                const closeButton = event.target.closest(".windows-spectrum-popup-close");
-                if (closeButton) {
-                    closeDetails();
-                    return;
-                }
-
                 const visibilityButton = event.target.closest(".windows-spectrum-visibility-toggle");
                 if (visibilityButton) {
                     const row = visibilityButton.closest("li");
@@ -380,28 +412,32 @@
                 const detailsButton = event.target.closest(".windows-spectrum-details-button");
                 if (!detailsButton) return;
                 const row = detailsButton.closest("li");
-                const controls = row && row.querySelector(":scope > div");
+                const controls = row && controlsByRow.get(row);
                 if (!row || !controls) return;
 
-                closeDetails();
+                closeDetails(false);
+                const placeholder = documentRef.createComment("spectrum-controls");
+                controls.parentNode.insertBefore(placeholder, controls);
+                dialogContent.replaceChildren(controls);
+                dialogTitle.textContent = detailsButton.dataset.spectrumLabel || "Spectrum details";
+                activeDetails = { row, controls, placeholder, trigger: detailsButton };
                 row.classList.add("windows-spectrum-popup-open");
                 detailsButton.setAttribute("aria-expanded", "true");
-                controls.setAttribute("role", "dialog");
-                controls.setAttribute("aria-modal", "true");
-                controls.setAttribute("aria-labelledby", `windows-spectrum-title-${row.id}`);
-                controls.querySelector(".windows-spectrum-popup-header strong").id = `windows-spectrum-title-${row.id}`;
+                dialog.classList.add("windows-spectrum-dialog-open");
+                dialog.setAttribute("aria-hidden", "false");
                 documentRef.body.classList.add("windows-spectrum-popup-active");
 
                 const spectrumIndex = Number.parseInt(row.id.slice("spectrum-".length), 10);
                 if (typeof window.set_current_spectrum === "function") {
                     window.set_current_spectrum(spectrumIndex);
                 }
-                controls.querySelector(".windows-spectrum-popup-close").focus();
+                dialogCloseButton.focus();
             });
 
+            dialogCloseButton.addEventListener("click", () => closeDetails());
             backdrop.addEventListener("click", closeDetails);
             documentRef.addEventListener("keydown", event => {
-                if (event.key === "Escape") closeDetails();
+                if (event.key === "Escape" && activeDetails) closeDetails();
             });
 
             const observer = new documentRef.defaultView.MutationObserver(decorateRows);
@@ -464,8 +500,8 @@
                 #peak_area.windows-peak-visible { display: block !important; }
                 #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
                 #section2 > #fid_file_area:not(#log_area):not(#spectra_list) { z-index: 10002 !important; border: 2px solid #64748b !important; }
-                :root { --windows-spectrum-rail-width: 220px; }
-                @media (max-width: 720px) { :root { --windows-spectrum-rail-width: min(220px, calc(100vw - 120px)); } }
+                :root { --windows-spectrum-rail-width: 220px; --windows-log-top: 112px; }
+                @media (max-width: 720px) { :root { --windows-spectrum-rail-width: min(220px, calc(100vw - 120px)); --windows-log-top: 100px; } }
                 body.windows-spectrum-list-collapsed { --windows-spectrum-rail-width: 38px; }
                 #spectra_list { position: absolute !important; top: 8px !important; right: auto !important; bottom: 8px !important; left: 8px !important; width: var(--windows-spectrum-rail-width) !important; min-width: 0 !important; max-width: var(--windows-spectrum-rail-width) !important; height: auto !important; max-height: none !important; margin: 0 !important; padding: 6px !important; overflow-x: hidden !important; overflow-y: auto !important; z-index: 10000 !important; box-sizing: border-box !important; }
                 #spectra_list h4 { display: block !important; margin: 0 0 6px !important; padding: 0 !important; font-size: 13px !important; }
@@ -500,11 +536,15 @@
                 body.windows-spectrum-list-collapsed .windows-spectrum-details-icon { display: inline; }
                 #windows-spectrum-backdrop { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.38); z-index: 9999; }
                 body.windows-spectrum-popup-active #windows-spectrum-backdrop { display: block; }
-                #spectra_list_ol > li.windows-spectrum-row.windows-spectrum-popup-open > .windows-spectrum-controls { display: block !important; position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; width: min(680px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; height: auto !important; max-height: calc(100vh - 40px) !important; min-height: 0 !important; margin: 0 !important; padding: 12px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10001 !important; font-size: 13px !important; line-height: 1.4 !important; box-sizing: border-box !important; }
-                #spectra_list_ol > li.windows-spectrum-popup-open > div > * { display: revert !important; }
-                #spectra_list_ol > li.windows-spectrum-popup-open > div > .windows-spectrum-popup-header { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: -12px; margin: -12px -12px 10px; padding: 10px 12px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                #windows-spectrum-dialog { display: none; position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; width: min(1200px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; max-height: calc(100vh - 40px) !important; min-height: 0 !important; margin: 0 !important; padding: 12px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10001 !important; font-size: 13px !important; line-height: 1.4 !important; box-sizing: border-box !important; }
+                #windows-spectrum-dialog.windows-spectrum-dialog-open { display: block !important; }
+                .windows-spectrum-dialog-header { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: -12px; margin: -12px -12px 10px; padding: 10px 12px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                .windows-spectrum-dialog-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
+                #windows-spectrum-dialog .windows-spectrum-controls { display: block !important; position: static !important; width: auto !important; max-width: none !important; max-height: none !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+                .windows-contour-color-control { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; vertical-align: middle; }
+                #windows-spectrum-dialog .draggable, #windows-spectrum-dialog button[id^="minimize-"] { display: none !important; }
                 .windows-spectrum-popup-close { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; cursor: pointer; }
-                #log_area { position: absolute !important; top: auto; right: 12px; bottom: 40px; left: auto; width: 360px; height: 220px; border-radius: 7px !important; z-index: 9998 !important; }
+                #log_area { position: fixed !important; top: var(--windows-log-top); right: 12px; bottom: auto; left: auto; width: 360px; height: 220px; margin: 0 !important; border-radius: 7px !important; z-index: 9998 !important; }
                 .windows-panel-hidden { display: none !important; }
                 #pseudo3d_profile_modal { position: absolute !important; top: 24px !important; right: 24px !important; z-index: 9999 !important; }
                 #button_toggle_log { display: none !important; }
@@ -660,7 +700,18 @@
                     toggleSection("assignment_area", "button_minimize_assignment_area");
                     break;
                 case "peaks":
-                    togglePanel("peak_area");
+                    peakTableEnabled = !peakTableEnabled;
+                    window.colmarWindowsPeakTableEnabled = peakTableEnabled;
+                    const peakTableButton = document.querySelector('[data-command="peaks"]');
+                    if (peakTableButton) {
+                        peakTableButton.setAttribute("aria-pressed", String(peakTableEnabled));
+                        peakTableButton.title = peakTableEnabled ? "Hide the peak table" : "Show the peak table";
+                    }
+                    if (!peakTableEnabled || window.current_spectrum_index_of_peaks === -1) {
+                        if (typeof window.remove_peak_table === "function") window.remove_peak_table();
+                    } else if (typeof window.show_peak_table === "function") {
+                        window.show_peak_table();
+                    }
                     break;
                 case "log":
                     togglePanel("log_area");
