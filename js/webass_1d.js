@@ -28,9 +28,11 @@ let ModulePromise = webdp1d_cpp({
 });
 
 self.onmessage = async function (event) {
-    const webassembly_job = getWebassemblyJob(event.data);
-    // Wait for the module to be ready
-    const Module = await ModulePromise;
+    const colmarJobId = event.data && event.data.__colmar_1d_job_id;
+    try {
+        const webassembly_job = getWebassemblyJob(event.data);
+        // Wait for the module to be ready
+        const Module = await ModulePromise;
 
     if (webassembly_job == "test_1d") {
         const obj = new Module.spectrum_pick_1d();
@@ -394,5 +396,12 @@ self.onmessage = async function (event) {
     else {
         // Handle other jobs or errors
         self.postMessage({ error: 'Unknown webassembly job type' });
+    }
+    } catch (error) {
+        self.postMessage({ error: error && error.message ? error.message : String(error) });
+    } finally {
+        if (typeof colmarJobId !== "undefined") {
+            self.postMessage({ __colmar_1d_job_complete: colmarJobId });
+        }
     }
 };

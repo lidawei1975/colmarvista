@@ -1,10 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="legacy-ui-mode">
 
 <head>
     <title>COLMARvista1D</title>
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" type="text/css" href="colmarview.css">
+    <style>
+        :root { --one-d-border: #cbd5e1; --one-d-accent: #0067c0; --one-d-accent-soft: #e5f1fb; }
+        html.windows-ui-1d, html.windows-ui-1d body { width: 100%; height: 100%; min-height: 100%; margin: 0; overflow: hidden; }
+        html.windows-ui-1d body { display: flex; flex-direction: column; background: #e7eef5; color: #1f2937; font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
+        #app-topbar-1d { display: none; flex: 0 0 auto; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--one-d-border); box-shadow: 0 2px 8px rgba(15,23,42,.08); z-index: 20; }
+        html.windows-ui-1d #app-topbar-1d { display: block; }
+        .one-d-titlebar { height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 14px; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+        html.windows-ui-1d #app-topbar-1d { display: block; }
+        .one-d-brand { display: flex; align-items: center; gap: 8px; font-weight: 650; white-space: nowrap; }
+        .one-d-brand-mark { color: var(--one-d-accent); font-size: 17px; }
+        .one-d-nav { display: flex; align-items: center; gap: 4px; overflow-x: auto; white-space: nowrap; }
+        .one-d-nav a { padding: 4px 7px; color: #475569; border-radius: 4px; text-decoration: none; font-size: 11px; }
+        .one-d-nav a:hover, .one-d-nav a.active { color: #075b9e; background: var(--one-d-accent-soft); }
+        .one-d-switch { display: flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer; color: #475569; }
+        .one-d-switch input { accent-color: var(--one-d-accent); }
+        .one-d-ribbon { min-height: 60px; display: flex; align-items: stretch; gap: 3px; padding: 4px 6px; overflow-x: auto; }
+        .one-d-ribbon-group { display: flex; align-items: center; gap: 2px; padding: 0 4px; border-right: 1px solid #e2e8f0; }
+        .one-d-ribbon-group:last-child { border-right: 0; }
+        .one-d-command { min-width: 56px; height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 3px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #334155; cursor: pointer; font: inherit; font-size: 10px; white-space: nowrap; }
+        .one-d-command:hover, .one-d-command[aria-expanded="true"], .one-d-command[aria-pressed="true"] { border-color: #b7d4ee; background: var(--one-d-accent-soft); color: #075b9e; }
+        .one-d-command:focus-visible { outline: 2px solid var(--one-d-accent); outline-offset: 1px; }
+        .one-d-command-icon { color: var(--one-d-accent); font-size: 16px; line-height: 1; }
+        html.windows-ui-1d #navbar-placeholder, html.windows-ui-1d #section1, html.windows-ui-1d #footer { display: none !important; }
+        html.windows-ui-1d #body { flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; margin: 0; padding: 8px; overflow: auto; align-items: stretch; }
+        html.windows-ui-1d #section2 { position: relative; min-width: 0; width: 100%; min-height: 100%; margin: 0; padding: 0; display: block; }
+        html.windows-ui-1d #section2 > .drop-area-neighbor:not(#spectra_list), html.windows-ui-1d #section2 > .drop-area { width: 100% !important; max-width: none !important; margin: 6px 0 !important; }
+        html.windows-ui-1d #spectra_list { position: absolute !important; top: 8px !important; left: 8px !important; right: auto !important; bottom: 8px !important; width: 220px !important; min-width: 0 !important; max-width: 220px !important; height: auto !important; max-height: none !important; margin: 0 !important; overflow: auto !important; }
+        html.windows-ui-1d #section2 > .flex-container { display: block !important; width: calc(100% - 238px) !important; min-width: 0 !important; margin: 0 0 0 238px !important; }
+        html.windows-ui-1d #plot { width: 100% !important; min-width: 0 !important; margin: 0 !important; border: 1px solid #94a3b8 !important; border-radius: 6px !important; background: #fff !important; box-shadow: 0 2px 7px rgba(15,23,42,.06) !important; }
+        html.windows-ui-1d #plot_1d { width: 100% !important; height: max(420px, calc(100vh - 240px)) !important; max-height: 900px; box-sizing: border-box; }
+        html.windows-ui-1d #plot_1d_instructions { display: none !important; }
+        html.windows-ui-1d #plot > div:first-child { display: none !important; }
+        html.windows-ui-1d #plot.windows-1d-controls-open > div:first-child { position: fixed !important; top: 50% !important; left: 50% !important; z-index: 10003 !important; display: block !important; width: min(960px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; overflow: auto !important; transform: translate(-50%, -50%) !important; padding: 16px !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; }
+        html.windows-ui-1d #plot.windows-1d-controls-open::before { content: "Plot controls"; display: block; padding: 4px 0 10px; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; font-weight: 650; }
+        html.windows-ui-1d #load_and_save.windows-1d-panel-open, html.windows-ui-1d #fid_file_area.windows-1d-panel-open, html.windows-ui-1d #file_area.windows-1d-panel-open, html.windows-ui-1d #peak_area.windows-1d-panel-open, html.windows-ui-1d #log_area.windows-1d-panel-open { position: fixed !important; top: 50% !important; left: 50% !important; z-index: 10002 !important; display: block !important; width: min(900px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; max-height: calc(100vh - 40px) !important; height: auto !important; overflow: auto !important; transform: translate(-50%, -50%) !important; margin: 0 !important; padding: 14px !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.26) !important; }
+        html.windows-ui-1d #peak_area.windows-1d-panel-open { width: min(1100px, calc(100vw - 32px)) !important; }
+        html.windows-ui-1d #log_area.windows-1d-panel-open { width: min(560px, calc(100vw - 32px)) !important; }
+        html.windows-ui-1d .windows-1d-panel-hidden, html.windows-ui-1d #peak_area.windows-1d-panel-hidden, html.windows-ui-1d #log_area.windows-1d-panel-hidden { display: none !important; }
+        .one-d-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -2px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; font-weight: 650; }
+        .one-d-close { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; cursor: pointer; }
+        html:not(.windows-ui-1d) .one-d-panel-header, html:not(.windows-ui-1d) .one-d-close { display: none !important; }
+        html.windows-ui-1d #button_toggle_log, html.windows-ui-1d #footer { display: none !important; }
+        @media (max-width: 720px) {
+            html.windows-ui-1d #spectra_list { width: 160px !important; max-width: 160px !important; }
+            html.windows-ui-1d #section2 > .flex-container { width: calc(100% - 178px) !important; margin-left: 178px !important; }
+        }
+    </style>
 </head>
 
 <!-- Google tag (gtag.js) -->
@@ -19,6 +66,39 @@
 
 
 <body>
+    <header id="app-topbar-1d">
+        <div class="one-d-titlebar">
+            <div class="one-d-brand"><span class="one-d-brand-mark">[C]</span><span>COLMARvista 1D</span></div>
+            <nav class="one-d-nav" aria-label="COLMARvista applications">
+                <a class="active" href="index_1d.html" data-one-d-mode="windows">1D</a>
+                <a href="index_windows_ui.html">2D</a>
+                <a href="index_2d_3dview.html">2D 3D view</a>
+                <a href="index_3d.html">3D</a>
+                <a href="index_document.html" target="_blank" rel="noopener">Document</a>
+                <a href="about.html">About</a>
+                <a href="index_1d.html" data-one-d-mode="legacy">Old UI</a>
+            </nav>
+            <label class="one-d-switch" title="Switch between the Windows-style UI and original interface">
+                <input id="ui-mode-toggle-1d" type="checkbox" aria-label="Windows UI">
+                <span>Windows UI</span>
+            </label>
+        </div>
+        <nav class="one-d-ribbon" aria-label="1D application commands">
+            <div class="one-d-ribbon-group">
+                <button class="one-d-command" type="button" data-one-d-command="save" title="Save current session"><span class="one-d-command-icon">[S]</span><span>Save</span></button>
+                <button class="one-d-command" type="button" data-one-d-command="load" title="Load a saved session"><span class="one-d-command-icon">[L]</span><span>Load</span></button>
+            </div>
+            <div class="one-d-ribbon-group">
+                <button class="one-d-command" type="button" data-one-d-command="fid" aria-expanded="false" title="Open FID processing"><span class="one-d-command-icon">[F]</span><span>FID process</span></button>
+                <button class="one-d-command" type="button" data-one-d-command="spectrum" title="Select FT1 spectrum files"><span class="one-d-command-icon">[1D]</span><span>Load FT1</span></button>
+            </div>
+            <div class="one-d-ribbon-group">
+                <button class="one-d-command" type="button" data-one-d-command="plot-controls" aria-expanded="false" title="Show or hide plot controls"><span class="one-d-command-icon">[C]</span><span>Plot controls</span></button>
+                <button class="one-d-command" type="button" data-one-d-command="peaks" aria-pressed="false" title="Show or hide peak table"><span class="one-d-command-icon">[P]</span><span>Peak table</span></button>
+                <button class="one-d-command" type="button" data-one-d-command="log" aria-expanded="false" title="Show or hide processing log"><span class="one-d-command-icon">[=]</span><span>Log</span></button>
+            </div>
+        </nav>
+    </header>
     <div id="navbar-placeholder"></div>
 
     <div id="body">
@@ -272,19 +352,20 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script type="text/javascript" src="js/d3.7.min.js"></script>
     <script type="text/javascript" src="js/ldwmath.js"></script>
-    <script type="text/javascript" src="js/file_drop.js"></script>
+    <script type="text/javascript" src="js/file_drop.js?v=20261127_3"></script>
     <script type="text/javascript" src="js/peaks.js"></script>
     <script type="text/javascript" src="js/spectrum_1d.js"></script>
     <script type="text/javascript" src="js/shared/myplot_1d.js"></script>
-    <script type="text/javascript" src="js/shared/nmr_phase_1d.js"></script>
-    <script type="text/javascript" src="js/shared/fid_tools_1d.js"></script>
+    <script type="text/javascript" src="js/shared/nmr_phase_1d.js?v=20261127_1"></script>
+    <script type="text/javascript" src="js/shared/fid_tools_1d.js?v=20261127_1"></script>
     <script type="text/javascript" src="js/shared/voigt_reconstruction.js"></script>
     <script type="text/javascript" src="js/shared/nmr_pipeline_1d.js"></script>
     <script type="text/javascript" src="js/make_table.js"></script>
     <script type="text/javascript" src="js/tutorial.js"></script>
     <script type="text/javascript" src="js/webdp1d_cpp.js"></script>
     <script type="text/javascript" src="js/tooltips.js?v=20261014_1"></script>
-    <script type="text/javascript" src="js/1d.js?v=20261020_1"></script>
+    <script type="text/javascript" src="js/1d.js?v=20261127_4"></script>
+    <script type="text/javascript" src="js/1d_windows_ui.js?v=20261127_4"></script>
     </div>
 </body>
 

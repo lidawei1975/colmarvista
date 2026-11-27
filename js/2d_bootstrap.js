@@ -28,7 +28,7 @@
         "js/tooltips.js?v=20261014_1",
         "js/wasm_runner.js?v=20261127_2",
         "js/2d_common.js?v=20261127_6",
-        "js/2d.js?v=20261127_11"
+        "js/2d.js?v=20261127_12"
     ];
 
     function loadScript(url) {

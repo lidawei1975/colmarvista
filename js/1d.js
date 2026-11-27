@@ -32,7 +32,7 @@ function get_webassembly_job_flag(data) {
     return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
 }
 try {
-    webassembly_1d_worker_2 = new Worker('./js/webass_1d.js');
+    webassembly_1d_worker_2 = new Worker('./js/webass_1d.js?v=20261127_1');
 }
 catch (err) {
     console.log(err);
@@ -145,7 +145,7 @@ $(document).ready(function () {
     b_allow_manual_phase_correction = true; //This is default. 
     b_allow_dragging_spectrum = true; //This is default.
 
-    fetch('navbar.html')
+    fetch('navbar.html?v=20261127_2')
         .then(response => response.text())
         .then(data => {
             document.getElementById('navbar-placeholder').innerHTML = data;
@@ -319,14 +319,20 @@ $(document).ready(function () {
     document.getElementById('load_file').addEventListener('change', function (e) {
         let file = document.getElementById('load_file').files[0];
         if (file) {
+            const releaseRead = typeof window.colmar1dBeginFileRead === "function" ? window.colmar1dBeginFileRead() : () => {};
             var reader = new FileReader();
-            reader.onload = function () {
+            reader.onload = async function () {
                 /**
                  * Read as array buffer
                  */
-                loadBinaryAndJsonWithLength(reader.result);
+                try {
+                    await loadBinaryAndJsonWithLength(reader.result);
+                } finally {
+                    releaseRead();
+                }
             };
             reader.onerror = function (e) {
+                releaseRead();
                 console.log("Error reading file");
             };
             /**
@@ -2142,6 +2148,8 @@ function load_peak_list(spectrum_index) {
 
     let file = file_input.files[0];
     let reader = new FileReader();
+    const releaseRead = typeof window.colmar1dBeginFileRead === "function" ? window.colmar1dBeginFileRead() : () => {};
+    reader.addEventListener("loadend", releaseRead, { once: true });
     reader.onload = function (e) {
         let peak_list = new cpeaks();
         /**
@@ -2774,6 +2782,10 @@ function zoom_to_peak(index) {
 
 function remove_peak_table() {
     let peak_area = document.getElementById('peak_area');
+    if (document.documentElement.classList.contains("windows-ui-1d")) {
+        peak_area.classList.remove("windows-1d-panel-open");
+        peak_area.classList.add("windows-1d-panel-hidden");
+    }
     let table = peak_area.getElementsByTagName('table')[0];
 
     /**
@@ -2811,11 +2823,25 @@ function get_current_peak_object() {
 
 
 function show_peak_table() {
+    let peak_area = document.getElementById('peak_area');
+    if (document.documentElement.classList.contains("windows-ui-1d")) {
+        if (window.colmar1dPeakTableEnabled === false) {
+            if (peak_area) {
+                peak_area.style.display = "none";
+                peak_area.classList.add("windows-1d-panel-hidden");
+            }
+            return;
+        }
+        if (peak_area) {
+            peak_area.classList.add("windows-1d-panel-open");
+            peak_area.classList.remove("windows-1d-panel-hidden");
+        }
+    }
+
     /**
      * Step 1, clear current peak_table.
      * Get peak_area's all table children and remove them
      */
-    let peak_area = document.getElementById('peak_area');
     let table = peak_area.getElementsByTagName('table')[0];
     let peaks_object = get_current_peak_object();
 

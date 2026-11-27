@@ -172,7 +172,7 @@ function track_file_reader(reader) {
 
 $(document).ready(function () {
 
-    fetch('navbar.html?v=20261127_1')
+    fetch('navbar.html?v=20261127_2')
         .then(response => response.text())
         .then(data => {
             document.getElementById('navbar-placeholder').innerHTML = data;

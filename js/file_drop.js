@@ -268,9 +268,8 @@ class file_drop_processor {
     }
 
     async track_file_operation(operation) {
-        const release = typeof window.colmarBeginFileRead === 'function'
-            ? window.colmarBeginFileRead()
-            : () => {};
+        const beginRead = window.colmarBeginFileRead || window.colmar1dBeginFileRead;
+        const release = typeof beginRead === 'function' ? beginRead() : () => {};
         try {
             return await operation();
         } finally {

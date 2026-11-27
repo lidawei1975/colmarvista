@@ -256,6 +256,9 @@ function get_current_b0(ndx) {
  */
 
 async function run_ann_phase_correction(ndx) {
+    const releaseBackgroundJob = typeof window.colmar1dBeginBackgroundJob === "function"
+        ? window.colmar1dBeginBackgroundJob()
+        : () => {};
     const original_console_log = console.log;
     const log_div = document.getElementById("log");
 
@@ -432,6 +435,7 @@ async function run_ann_phase_correction(ndx) {
             btn.dispatchEvent(new Event('colmar:processing_finished', { bubbles: true }));
         }
     } finally {
+        releaseBackgroundJob();
         console.log = original_console_log;
         const wasmMsgEnd = document.getElementById("webassembly_message"); if (wasmMsgEnd) wasmMsgEnd.innerText = "";
     }

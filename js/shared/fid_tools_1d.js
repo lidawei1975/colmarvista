@@ -542,7 +542,9 @@ function get_fid_data_from_nmrpipe(buffer) {
  */
 function read_file(file) {
     return new Promise((resolve, reject) => {
+        const releaseRead = typeof window.colmar1dBeginFileRead === "function" ? window.colmar1dBeginFileRead() : () => {};
         var reader = new FileReader();
+        reader.addEventListener("loadend", releaseRead, { once: true });
         reader.onload = function () {
             resolve(reader.result);
         };
@@ -560,7 +562,9 @@ function read_file(file) {
  */
 function read_file_text(file) {
     return new Promise((resolve, reject) => {
+        const releaseRead = typeof window.colmar1dBeginFileRead === "function" ? window.colmar1dBeginFileRead() : () => {};
         var reader = new FileReader();
+        reader.addEventListener("loadend", releaseRead, { once: true });
         reader.onload = function () {
             resolve(reader.result);
         };
