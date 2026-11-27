@@ -43,7 +43,7 @@
 
     async function start() {
         if (!root) throw new Error("Missing app view mount point.");
-        const response = await fetch("2d_app_view.html?v=20261126_2");
+        const response = await fetch("2d_app_view.html?v=20261127_6");
         if (!response.ok) throw new Error(`Failed to load app view (${response.status}).`);
         root.innerHTML = await response.text();
 
@@ -56,7 +56,7 @@
             }
             document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true }));
             if (controller === "windows") {
-                await loadScript("js/2d_windows_ui.js?v=20261126_4");
+                await loadScript("js/2d_windows_ui.js?v=20261127_7");
             }
         } finally {
             if (jquery && typeof jquery.holdReady === "function") jquery.holdReady(false);

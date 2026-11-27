@@ -23,6 +23,135 @@
             }
         }
 
+        function setPlotControlsOpen(open) {
+            const dialog = appElement("plot_control_dialog");
+            const backdrop = appElement("plot_control_backdrop");
+            const button = document.querySelector('[data-command="plot-controls"]');
+            if (!dialog || !backdrop) return;
+
+            if (open && document.body.classList.contains("windows-peak-editing-open")) {
+                setPeakEditingOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-magnifier-settings-open")) {
+                setMagnifierSettingsOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-spec-edit-open")) {
+                setSpecEditOpen(false);
+            }
+
+            dialog.classList.toggle("windows-plot-controls-hidden", !open);
+            dialog.classList.toggle("windows-plot-controls-open", open);
+            dialog.setAttribute("aria-hidden", String(!open));
+            document.body.classList.toggle("windows-plot-controls-open", open);
+            if (button) button.setAttribute("aria-expanded", String(open));
+
+            const focusTarget = open
+                ? appElement("button_close_plot_controls")
+                : button;
+            if (focusTarget) focusTarget.focus();
+        }
+
+        function togglePlotControls() {
+            const dialog = appElement("plot_control_dialog");
+            if (!dialog) return;
+            setPlotControlsOpen(dialog.classList.contains("windows-plot-controls-hidden"));
+        }
+
+        function setPeakEditingOpen(open) {
+            const dialog = appElement("peak_editing_dialog");
+            const backdrop = appElement("plot_control_backdrop");
+            const button = document.querySelector('[data-command="peak-editing"]');
+            if (!dialog || !backdrop) return;
+
+            if (open && document.body.classList.contains("windows-plot-controls-open")) {
+                setPlotControlsOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-magnifier-settings-open")) {
+                setMagnifierSettingsOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-spec-edit-open")) {
+                setSpecEditOpen(false);
+            }
+
+            dialog.classList.toggle("windows-peak-editing-hidden", !open);
+            dialog.classList.toggle("windows-peak-editing-open", open);
+            dialog.setAttribute("aria-hidden", String(!open));
+            document.body.classList.toggle("windows-peak-editing-open", open);
+            if (button) button.setAttribute("aria-expanded", String(open));
+
+            const focusTarget = open ? appElement("button_close_peak_editing") : button;
+            if (focusTarget) focusTarget.focus();
+        }
+
+        function togglePeakEditing() {
+            const dialog = appElement("peak_editing_dialog");
+            if (!dialog) return;
+            setPeakEditingOpen(dialog.classList.contains("windows-peak-editing-hidden"));
+        }
+
+        function setMagnifierSettingsOpen(open) {
+            const dialog = appElement("magnifier_settings_dialog");
+            const backdrop = appElement("plot_control_backdrop");
+            const button = document.querySelector('[data-command="magnifier-toggle"]');
+            if (!dialog || !backdrop) return;
+
+            if (open && document.body.classList.contains("windows-plot-controls-open")) {
+                setPlotControlsOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-peak-editing-open")) {
+                setPeakEditingOpen(false);
+            }
+            if (open && document.body.classList.contains("windows-spec-edit-open")) {
+                setSpecEditOpen(false);
+            }
+
+            dialog.classList.toggle("windows-magnifier-settings-hidden", !open);
+            dialog.classList.toggle("windows-magnifier-settings-open", open);
+            dialog.setAttribute("aria-hidden", String(!open));
+            document.body.classList.toggle("windows-magnifier-settings-open", open);
+
+            const focusTarget = open ? appElement("button_close_magnifier_settings") : button;
+            if (focusTarget) focusTarget.focus();
+        }
+
+        function closeActiveDialog() {
+            if (document.body.classList.contains("windows-plot-controls-open")) {
+                setPlotControlsOpen(false);
+            } else if (document.body.classList.contains("windows-peak-editing-open")) {
+                setPeakEditingOpen(false);
+            } else if (document.body.classList.contains("windows-magnifier-settings-open")) {
+                setMagnifierSettingsOpen(false);
+            } else if (document.body.classList.contains("windows-spec-edit-open")) {
+                setSpecEditOpen(false);
+            }
+        }
+
+        function setSpecEditOpen(open) {
+            const dialog = appElement("spec_edit_dialog");
+            const backdrop = appElement("plot_control_backdrop");
+            const button = document.querySelector('[data-command="spec-edit"]');
+            if (!dialog || !backdrop) return;
+
+            if (open && document.body.classList.contains("windows-plot-controls-open")) setPlotControlsOpen(false);
+            if (open && document.body.classList.contains("windows-peak-editing-open")) setPeakEditingOpen(false);
+            if (open && document.body.classList.contains("windows-magnifier-settings-open")) setMagnifierSettingsOpen(false);
+
+            dialog.classList.toggle("windows-spec-edit-hidden", !open);
+            dialog.classList.toggle("windows-spec-edit-open", open);
+            dialog.setAttribute("aria-hidden", String(!open));
+            document.body.classList.toggle("windows-spec-edit-open", open);
+            if (button) button.setAttribute("aria-expanded", String(open));
+
+            const focusTarget = open ? appElement("button_close_spec_edit") : button;
+            if (focusTarget) focusTarget.focus();
+        }
+
+        function toggleSpecEdit() {
+            const dialog = appElement("spec_edit_dialog");
+            if (!dialog) return;
+            setSpecEditOpen(dialog.classList.contains("windows-spec-edit-hidden"));
+        }
+
         function setSectionHidden(element, hidden) {
             element.classList.toggle("windows-section-hidden", hidden);
             if (hidden) {
@@ -301,6 +430,35 @@
                 #file_area.windows-section-hidden { visibility: hidden !important; }
                 #load_and_save.windows-section-hidden { display: none !important; }
                 #plot { width: 100% !important; padding: 10px !important; border-color: #94a3b8 !important; border-radius: 6px !important; background: #fff !important; }
+                #plot_control_dialog.windows-plot-controls-hidden { display: none !important; }
+                #plot_control_dialog.windows-plot-controls-open { position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; display: block !important; width: min(920px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; min-height: 0 !important; margin: 0 !important; padding: 14px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10002 !important; }
+                #plot_control_dialog .windows-plot-controls-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                #plot_control_dialog .windows-plot-controls-header button { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc; color: #334155; cursor: pointer; }
+                #plot_control_dialog #peak_display_controls { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+                #plot_control_dialog #plot_1d_view_controls { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+                #plot_control_dialog #peak_label_size, #plot_control_dialog #min_distance, #plot_control_dialog #max_distance, #plot_control_dialog #repulsive_force { width: 76px !important; }
+                #peak_editing_dialog.windows-peak-editing-hidden { display: none !important; }
+                #peak_editing_dialog.windows-peak-editing-open { position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; display: block !important; width: min(460px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; min-height: 0 !important; margin: 0 !important; padding: 14px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10002 !important; }
+                #peak_editing_dialog .windows-peak-editing-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                #peak_editing_dialog .windows-peak-editing-header button { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc; color: #334155; cursor: pointer; }
+                #peak_editing_controls { display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+                .windows-peak-editing-option { display: flex; align-items: center; gap: 8px; }
+                #magnifier_settings_dialog.windows-magnifier-settings-hidden { display: none !important; }
+                #magnifier_settings_dialog.windows-magnifier-settings-open { position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; display: block !important; width: min(380px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; min-height: 0 !important; margin: 0 !important; padding: 14px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10002 !important; }
+                #magnifier_settings_dialog .windows-magnifier-settings-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                #magnifier_settings_dialog .windows-magnifier-settings-header button { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc; color: #334155; cursor: pointer; }
+                #magnifier_settings_dialog fieldset { margin: 0; border: 0; padding: 4px; }
+                #magnifier_settings_dialog label[for="enable_magnifying_glass"], #magnifier_settings_dialog #enable_magnifying_glass { display: none !important; }
+                #magnifier_settings_dialog label[for="magnifying_glass_size"], #magnifier_settings_dialog label[for="magnifying_glass_ratio"] { display: inline-block; min-width: 72px; }
+                #magnifier_settings_dialog #magnifying_glass_size, #magnifier_settings_dialog #magnifying_glass_ratio { width: 88px !important; }
+                #spec_edit_dialog.windows-spec-edit-hidden { display: none !important; }
+                #spec_edit_dialog.windows-spec-edit-open { position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; display: block !important; width: min(680px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; min-height: 0 !important; margin: 0 !important; padding: 14px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10002 !important; }
+                #spec_edit_dialog .windows-spec-edit-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
+                #spec_edit_dialog .windows-spec-edit-header button { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc; color: #334155; cursor: pointer; }
+                #spec_edit_controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+                #plot_control_backdrop { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.38); z-index: 10001; }
+                body.windows-plot-controls-open #plot_control_backdrop, body.windows-peak-editing-open #plot_control_backdrop, body.windows-magnifier-settings-open #plot_control_backdrop, body.windows-spec-edit-open #plot_control_backdrop { display: block; }
+                #button_reset_zoom, #button_zoom_back, #button_zoom_out { display: none !important; }
                 #vis_parent { height: clamp(280px, calc(100vh - 470px), 800px) !important; }
                 #load_and_save { position: absolute !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
                 #peak_area.windows-peak-visible { display: block !important; }
@@ -353,6 +511,61 @@
             `;
             documentRef.head.appendChild(theme);
             initializeSpectrumSidebar(documentRef);
+            const plotControls = appElement("plot_control_dialog");
+            if (plotControls) {
+                plotControls.setAttribute("role", "dialog");
+                plotControls.setAttribute("aria-modal", "true");
+                plotControls.setAttribute("aria-labelledby", "plot_control_dialog_title");
+                plotControls.classList.add("windows-plot-controls-hidden");
+                plotControls.setAttribute("aria-hidden", "true");
+                documentRef.body.appendChild(plotControls);
+            }
+            const peakDisplayControls = appElement("peak_display_controls");
+            if (plotControls && peakDisplayControls) plotControls.appendChild(peakDisplayControls);
+            const plot1dViewControls = appElement("plot_1d_view_controls");
+            if (plotControls && plot1dViewControls) plotControls.appendChild(plot1dViewControls);
+            const peakEditingDialog = appElement("peak_editing_dialog");
+            if (peakEditingDialog) {
+                peakEditingDialog.setAttribute("role", "dialog");
+                peakEditingDialog.setAttribute("aria-modal", "true");
+                peakEditingDialog.setAttribute("aria-labelledby", "peak_editing_dialog_title");
+                peakEditingDialog.classList.add("windows-peak-editing-hidden");
+                peakEditingDialog.setAttribute("aria-hidden", "true");
+                documentRef.body.appendChild(peakEditingDialog);
+            }
+            const magnifierSettingsDialog = appElement("magnifier_settings_dialog");
+            if (magnifierSettingsDialog) {
+                magnifierSettingsDialog.setAttribute("role", "dialog");
+                magnifierSettingsDialog.setAttribute("aria-modal", "true");
+                magnifierSettingsDialog.setAttribute("aria-labelledby", "magnifier_settings_dialog_title");
+                magnifierSettingsDialog.classList.add("windows-magnifier-settings-hidden");
+                magnifierSettingsDialog.setAttribute("aria-hidden", "true");
+                documentRef.body.appendChild(magnifierSettingsDialog);
+            }
+            const specEditDialog = appElement("spec_edit_dialog");
+            if (specEditDialog) {
+                specEditDialog.setAttribute("role", "dialog");
+                specEditDialog.setAttribute("aria-modal", "true");
+                specEditDialog.setAttribute("aria-labelledby", "spec_edit_dialog_title");
+                specEditDialog.classList.add("windows-spec-edit-hidden");
+                specEditDialog.setAttribute("aria-hidden", "true");
+                documentRef.body.appendChild(specEditDialog);
+            }
+            const plotControlsBackdrop = documentRef.createElement("div");
+            plotControlsBackdrop.id = "plot_control_backdrop";
+            documentRef.body.appendChild(plotControlsBackdrop);
+            plotControlsBackdrop.addEventListener("click", closeActiveDialog);
+            const closePlotControls = appElement("button_close_plot_controls");
+            if (closePlotControls) closePlotControls.addEventListener("click", () => setPlotControlsOpen(false));
+            const closePeakEditing = appElement("button_close_peak_editing");
+            if (closePeakEditing) closePeakEditing.addEventListener("click", () => setPeakEditingOpen(false));
+            const closeMagnifierSettings = appElement("button_close_magnifier_settings");
+            if (closeMagnifierSettings) closeMagnifierSettings.addEventListener("click", () => setMagnifierSettingsOpen(false));
+            const closeSpecEdit = appElement("button_close_spec_edit");
+            if (closeSpecEdit) closeSpecEdit.addEventListener("click", () => setSpecEditOpen(false));
+            documentRef.addEventListener("keydown", event => {
+                if (event.key === "Escape") closeActiveDialog();
+            });
             ["load_and_save", "fid_file_area", "file_area", "pseudo3d_area", "assignment_area"].forEach(id => {
                 const element = documentRef.getElementById(id);
                 if (element) setSectionHidden(element, true);
@@ -383,6 +596,16 @@
                     if (fidArea) setSectionHidden(fidArea, true);
                 });
             }
+
+            const magnifierToggle = appElement("enable_magnifying_glass");
+            const magnifierButton = document.querySelector('[data-command="magnifier-toggle"]');
+            if (magnifierToggle && magnifierButton) {
+                const syncMagnifierButton = () => {
+                    magnifierButton.setAttribute("aria-pressed", String(magnifierToggle.checked));
+                };
+                magnifierToggle.addEventListener("change", syncMagnifierButton);
+                syncMagnifierButton();
+            }
         }
 
         function runCommand(command) {
@@ -392,6 +615,27 @@
                     break;
                 case "load":
                     clickAppElement("load_file");
+                    break;
+                case "zoom-reset":
+                    if (window.main_plot) clickAppElement("button_reset_zoom");
+                    break;
+                case "zoom-back":
+                    if (window.main_plot) clickAppElement("button_zoom_back");
+                    break;
+                case "zoom-out":
+                    if (window.main_plot) clickAppElement("button_zoom_out");
+                    break;
+                case "plot-controls":
+                    togglePlotControls();
+                    break;
+                case "peak-editing":
+                    togglePeakEditing();
+                    break;
+                case "spec-edit":
+                    toggleSpecEdit();
+                    break;
+                case "magnifier-toggle":
+                    if (window.main_plot) clickAppElement("enable_magnifying_glass");
                     break;
                 case "fid":
                     toggleSection("fid_file_area", "button_minimize_fid_area");
@@ -411,9 +655,6 @@
                 case "log":
                     togglePanel("log_area");
                     break;
-                case "reset":
-                    window.location.reload();
-                    break;
                 default:
                     break;
             }
@@ -424,6 +665,33 @@
             window.location.href = useWindowsUi ? "index_windows_ui.html" : "index.html";
         }
         styleEmbeddedApp();
+        const magnifierButton = document.querySelector('[data-command="magnifier-toggle"]');
+        if (magnifierButton) {
+            let longPressTimer;
+            let longPressTriggered = false;
+            magnifierButton.addEventListener("pointerdown", event => {
+                if (event.button !== 0) return;
+                window.clearTimeout(longPressTimer);
+                longPressTriggered = false;
+                longPressTimer = window.setTimeout(() => {
+                    longPressTriggered = true;
+                    setMagnifierSettingsOpen(true);
+                }, 600);
+            });
+            const clearLongPressTimer = () => window.clearTimeout(longPressTimer);
+            magnifierButton.addEventListener("pointerup", clearLongPressTimer);
+            magnifierButton.addEventListener("pointerleave", clearLongPressTimer);
+            magnifierButton.addEventListener("pointercancel", () => {
+                clearLongPressTimer();
+                longPressTriggered = false;
+            });
+            magnifierButton.addEventListener("contextmenu", event => event.preventDefault());
+            magnifierButton.addEventListener("click", event => {
+                if (!longPressTriggered) return;
+                longPressTriggered = false;
+                event.stopImmediatePropagation();
+            });
+        }
         document.querySelectorAll("[data-command]").forEach(button => {
             button.addEventListener("click", () => runCommand(button.dataset.command));
         });

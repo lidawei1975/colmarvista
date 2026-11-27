@@ -323,12 +323,17 @@
                 <div id="plot" class="drop-area-neighbor" style=" Padding: 10px;">
 
                     <div>
+                        <div id="plot_control_dialog" aria-hidden="false">
+                            <div class="windows-plot-controls-header" style="display: none;">
+                                <strong id="plot_control_dialog_title">Plot controls</strong>
+                                <button type="button" id="button_close_plot_controls" aria-label="Close plot controls">Close</button>
+                            </div>
                         <strong>Control:</strong>
                         <label for="plot_group">Plot group </label>
                         <input type="number" id="plot_group" value="1" min="1" max="10">
-                        <button onclick="resetzoom()">Reset all Zoom</button>,
-                        <button onclick="popzoom()">Zoom Back</button>,
-                        <button onclick="zoomout()">Zoom out 120%</button>
+                        <button id="button_reset_zoom" onclick="resetzoom()">Reset all Zoom</button>,
+                        <button id="button_zoom_back" onclick="popzoom()">Zoom Back</button>,
+                        <button id="button_zoom_out" onclick="zoomout()">Zoom out 120%</button>
                         <label for="plot_font_size">Plot font size: </label>
                         <input type="number" id="plot_font_size" value="24" min="12" max="72">
                         <label for="plot_scale_up_factor">Downloaded plot resolution factor: </label>
@@ -383,7 +388,14 @@
                                  onkeydown="if(event.key==='Enter') this.blur();" disabled
                                  title="Upper colormap limit (fires on blur)">
                          </span>
+                            </div>
                         <br>
+                        <div id="spec_edit_dialog" aria-hidden="false">
+                            <div class="windows-spec-edit-header" style="display: none;">
+                                <strong id="spec_edit_dialog_title">Spec edit</strong>
+                                <button type="button" id="button_close_spec_edit" aria-label="Close spec edit">Close</button>
+                            </div>
+                            <div id="spec_edit_controls">
                         <label for="baseline_method">Baseline: </label>
                         <select id="baseline_method" onchange="toggle_baseline_order_visibility()">
                             <option value="NONE">None</option>
@@ -411,48 +423,68 @@
                             Indirect</button>
                         <!-- Information for user: phase correction applied -->
                         <span id="pc_info"></span>
+                            </div>
+                        </div>
                         <br>
 
 
-                        <label for="peak_size">Peak size: </label>
-                        <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
-                        <label for="peak_thickness">Thickness: </label>
-                        <input type="number" id="peak_thickness" value="1" min="1" max="10">
-                        <input type="checkbox" id="filled_peaks" checked>
-                        <label for="filled_peaks"> Filled peaks</label>
-                        <lable for="peak_colormap">Color coding peak using </label>
-                            <select name="peak_colormap" id="peak_colormap">
-                                <option value="SOLID">Solid</option>
-                            </select>
-                            <label for="peak_color"> color </label>
-                            <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
-                            <br>
-                            <input type="checkbox" id="show_peak_label">
-                            <label for="show_peak_label"> Show peak label</label>
-                            <select name="labels" id="labels">
-                                <option value="ASS">ASS</option>
-                            </select>
-                            <label for="peak_label_size">Size: </label>
-                            <input type="number" id="peak_label_size" value="24">
-                            <label for="min_distance">Min peak-label distance: </label>
-                            <input type="number" id="min_distance" value="40">
-                            <label for="max_distance">Max: </label>
-                            <input type="number" id="max_distance" value="80">
-                            <label for="repulsive_force">Repulsive</label>
-                            <input type="number" id="repulsive_force" value="100">
+                        <div id="peak_display_controls">
+                            <label for="peak_size">Peak size: </label>
+                            <input type="number" id="peak_size" value="4" min="1" max="20">&nbsp;&nbsp;
+                            <label for="peak_thickness">Thickness: </label>
+                            <input type="number" id="peak_thickness" value="1" min="1" max="10">
+                            <input type="checkbox" id="filled_peaks" checked>
+                            <label for="filled_peaks"> Filled peaks</label>
+                            <lable for="peak_colormap">Color coding peak using </label>
+                                <select name="peak_colormap" id="peak_colormap">
+                                    <option value="SOLID">Solid</option>
+                                </select>
+                                <label for="peak_color"> color </label>
+                                <input type="color" id="peak_color" value="#ff0000">&nbsp;&nbsp;
+                                <br>
+                                <input type="checkbox" id="show_peak_label">
+                                <label for="show_peak_label"> Show peak label</label>
+                                <select name="labels" id="labels">
+                                    <option value="ASS">ASS</option>
+                                </select>
+                                <label for="peak_label_size">Size: </label>
+                                <input type="number" id="peak_label_size" value="24">
+                                <label for="min_distance">Min peak-label distance: </label>
+                                <input type="number" id="min_distance" value="40">
+                                <label for="max_distance">Max: </label>
+                                <input type="number" id="max_distance" value="80">
+                                <label for="repulsive_force">Repulsive</label>
+                                <input type="number" id="repulsive_force" value="100">
+                        </div>
                             <br>
 
 
-                            <input type="checkbox" id="allow_brush_to_remove" disabled>
-                            <label for="allow_brush_to_remove"> Brush to remove peaks.</label>
-                            <input type="checkbox" id="allow_drag_and_drop" disabled>
-                            <label for="allow_drag_and_drop"> Drag and drop to move (or remove) peaks.</label>
-                            <input type="checkbox" id="allow_click_to_add_peak" disabled>
-                            <label for="allow_click_to_add_peak"> Click to add peaks.</label>
+                            <div id="peak_editing_dialog" aria-hidden="false">
+                                <div class="windows-peak-editing-header" style="display: none;">
+                                    <strong id="peak_editing_dialog_title">Peak editing</strong>
+                                    <button type="button" id="button_close_peak_editing" aria-label="Close peak editing">Close</button>
+                                </div>
+                                <div id="peak_editing_controls">
+                                    <label class="windows-peak-editing-option">
+                                        <input type="checkbox" id="allow_brush_to_remove" disabled>
+                                        <span>Brush to remove peaks.</span>
+                                    </label>
+                                    <label class="windows-peak-editing-option">
+                                        <input type="checkbox" id="allow_drag_and_drop" disabled>
+                                        <span>Drag and drop to move (or remove) peaks.</span>
+                                    </label>
+                                    <label class="windows-peak-editing-option">
+                                        <input type="checkbox" id="allow_click_to_add_peak" disabled>
+                                        <span>Click to add peaks.</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="plot_1d_view_controls">
                             <input type="radio" id="select_plot_1d_proj" name="select_plot_1d" value="projection">
                             <label for="select_plot_1d_proj">Projection</label>
                             <input type="radio" id="select_plot_1d_cs" name="select_plot_1d" value="cross_section" checked>
                             <label for="select_plot_1d_cs">Cross section</label>
+                            </div>
                             <br><br>
                     </div>
 
@@ -462,10 +494,15 @@
                             <div id="cross_section_empty" class="resizable_stack_invisible"
                                 style="width: 200px; height: 200px;">
 
+                                <div id="magnifier_settings_dialog" aria-hidden="false">
+                                    <div class="windows-magnifier-settings-header" style="display: none;">
+                                        <strong id="magnifier_settings_dialog_title">Magnifier settings</strong>
+                                        <button type="button" id="button_close_magnifier_settings" aria-label="Close magnifier settings">Close</button>
+                                    </div>
                                 <fieldset>
                                     <legend>Magnifying glass</legend>
                                     <input type="checkbox" id="enable_magnifying_glass">
-                                    <label for="magnifying_glass">Enable <img id="magnifying_glass"
+                                    <label for="enable_magnifying_glass">Enable <img id="magnifying_glass"
                                             src="img/magnifying_glass_icon.png" alt="magnifying glass" width="20"
                                             height="20"> </label>
                                     <br>
@@ -475,6 +512,7 @@
                                     <input type="number" id="magnifying_glass_ratio" value="10.0" min="2.0" max="30.0"
                                         step="1.0">
                                 </fieldset>
+                                </div>
                             </div>
 
                             <!-- On top of the main plot, show 1D cross section of selected trace. Same width as 2D plot -->

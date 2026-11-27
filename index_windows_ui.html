@@ -68,43 +68,51 @@
             min-height: 68px;
             display: flex;
             align-items: stretch;
-            gap: 8px;
-            padding: 6px 12px;
+            gap: 3px;
+            padding: 4px 6px;
             overflow-x: auto;
         }
 
         .ribbon-group {
             display: flex;
             align-items: center;
-            gap: 4px;
-            padding: 0 10px 0 2px;
+            gap: 2px;
+            padding: 0 3px 0 2px;
             border-right: 1px solid #e2e8f0;
         }
 
         .ribbon-group:last-child { border-right: 0; }
 
         .ribbon-command {
-            min-width: 74px;
-            height: 50px;
+            min-width: 54px;
+            height: 44px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 4px;
-            padding: 4px 8px;
+            gap: 2px;
+            padding: 3px 4px;
             color: #334155;
             background: transparent;
             border: 1px solid transparent;
             border-radius: 4px;
             cursor: pointer;
             font: inherit;
-            font-size: 11px;
+            font-size: 10px;
             white-space: nowrap;
         }
 
         .ribbon-command:hover { background: var(--accent-soft); border-color: #b7d4ee; color: #075b9e; }
         .ribbon-command:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-        .command-icon { font-size: 18px; line-height: 1; color: var(--accent); }
+        .command-icon { font-size: 16px; line-height: 1; color: var(--accent); }
+        .ribbon-command[data-command="plot-controls"] { min-width: 52px; }
+        .ribbon-command[data-command="plot-controls"] > span:last-child { max-width: 48px; white-space: normal; text-align: center; line-height: 1; }
+        .ribbon-command[data-command="peak-editing"] { min-width: 52px; }
+        .ribbon-command[data-command="peak-editing"] > span:last-child { max-width: 48px; white-space: normal; text-align: center; line-height: 1; }
+        .ribbon-command[data-command="spec-edit"] { min-width: 52px; }
+        .ribbon-command[data-command="spec-edit"] > span:last-child { max-width: 48px; white-space: normal; text-align: center; line-height: 1; }
+        .ribbon-command[data-command="magnifier-toggle"][aria-pressed="true"] { background: var(--accent-soft); border-color: #b7d4ee; color: #075b9e; }
+        .command-image { width: 18px; height: 18px; object-fit: contain; }
 
         #workspace {
             position: relative;
@@ -142,9 +150,9 @@
         .status-right { display: flex; gap: 14px; }
 
         @media (max-width: 720px) {
-            .ribbon { min-height: 60px; }
-            .ribbon-command { min-width: 62px; height: 44px; font-size: 10px; }
-            .command-icon { font-size: 15px; }
+            .ribbon { min-height: 56px; }
+            .ribbon-command { min-width: 54px; height: 40px; font-size: 9px; }
+            .command-icon { font-size: 14px; }
             .window-state, .status-right { display: none; }
         }
     </style>
@@ -178,6 +186,27 @@
                     <span class="command-icon">[L]</span><span>Load session</span>
                 </button>
             </div>
+            <div class="ribbon-group" aria-label="View controls">
+                <button class="ribbon-command" type="button" data-command="zoom-reset" title="Reset all zoom">
+                    <span class="command-icon">[Z]</span><span>Reset zoom</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="zoom-back" title="Return to the previous zoom">
+                    <span class="command-icon">[&lt;]</span><span>Zoom back</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="zoom-out" title="Zoom out 120%">
+                    <span class="command-icon">[-]</span><span>Zoom out</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="plot-controls" aria-controls="plot_control_dialog" aria-expanded="false" title="Show or hide plot controls">
+                    <span class="command-icon">[C]</span><span>Plot controls</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="spec-edit" aria-controls="spec_edit_dialog" aria-expanded="false" title="Show baseline, phase correction and indirect-dimension controls">
+                    <span class="command-icon">[SE]</span><span>Spect edit</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="magnifier-toggle" aria-controls="magnifier_settings_dialog" aria-pressed="false" title="Click to toggle magnifier; press and hold for size and ratio settings">
+                    <img class="command-image" src="img/magnifying_glass_icon.png" alt="">
+                    <span>Magnifier</span>
+                </button>
+            </div>
             <div class="ribbon-group">
                 <button class="ribbon-command" type="button" data-command="fid" title="Open Bruker time-domain processing">
                     <span class="command-icon">[F]</span><span>FID process</span>
@@ -198,13 +227,11 @@
                 <button class="ribbon-command" type="button" data-command="peaks" title="Show or hide the peak table">
                     <span class="command-icon">[P]</span><span>Peak table</span>
                 </button>
+                <button class="ribbon-command" type="button" data-command="peak-editing" aria-controls="peak_editing_dialog" aria-expanded="false" title="Show or hide peak editing options">
+                    <span class="command-icon">[E]</span><span>Peak editing</span>
+                </button>
                 <button class="ribbon-command" type="button" data-command="log" title="Show processing log">
                     <span class="command-icon">[=]</span><span>Processing log</span>
-                </button>
-            </div>
-            <div class="ribbon-group">
-                <button class="ribbon-command" type="button" data-command="reset" title="Reload the application workspace">
-                    <span class="command-icon">[R]</span><span>Reset view</span>
                 </button>
             </div>
         </nav>
@@ -220,6 +247,6 @@
         <span class="status-right"><span>Native processing controls</span><span>Windows UI</span></span>
     </footer>
 
-    <script src="js/2d_bootstrap.js?v=20261126_5" data-controller="windows"></script>
+    <script src="js/2d_bootstrap.js?v=20261127_9" data-controller="windows"></script>
 </body>
 </html>
