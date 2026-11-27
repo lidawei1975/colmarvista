@@ -10819,6 +10819,12 @@ function make_log_movable() {
     const header = log_area ? log_area.querySelector(".log-header") : null;
     if (!log_area || !header) return;
 
+    const initial_rect = log_area.getBoundingClientRect();
+    log_area.style.top = initial_rect.top + "px";
+    log_area.style.left = initial_rect.left + "px";
+    log_area.style.right = "auto";
+    log_area.style.bottom = "auto";
+
     let startX, startY, initialLeft, initialTop;
 
     header.onmousedown = function (e) {
