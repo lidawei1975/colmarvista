@@ -456,13 +456,14 @@
                 #spec_edit_dialog .windows-spec-edit-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
                 #spec_edit_dialog .windows-spec-edit-header button { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #f8fafc; color: #334155; cursor: pointer; }
                 #spec_edit_controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+                #cross_section_x, #cross_section_y { box-sizing: content-box !important; }
                 #plot_control_backdrop { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.38); z-index: 10001; }
                 body.windows-plot-controls-open #plot_control_backdrop, body.windows-peak-editing-open #plot_control_backdrop, body.windows-magnifier-settings-open #plot_control_backdrop, body.windows-spec-edit-open #plot_control_backdrop { display: block; }
                 #button_reset_zoom, #button_zoom_back, #button_zoom_out { display: none !important; }
-                #vis_parent { height: clamp(280px, calc(100vh - 470px), 800px) !important; }
                 #load_and_save { position: absolute !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
                 #peak_area.windows-peak-visible { display: block !important; }
                 #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
+                #section2 > #fid_file_area:not(#log_area):not(#spectra_list) { z-index: 10002 !important; border: 2px solid #64748b !important; }
                 :root { --windows-spectrum-rail-width: 220px; }
                 @media (max-width: 720px) { :root { --windows-spectrum-rail-width: min(220px, calc(100vw - 120px)); } }
                 body.windows-spectrum-list-collapsed { --windows-spectrum-rail-width: 38px; }
@@ -511,6 +512,23 @@
             `;
             documentRef.head.appendChild(theme);
             initializeSpectrumSidebar(documentRef);
+            const mainPlotParent = appElement("vis_parent");
+            if (mainPlotParent) {
+                const startingHeight = Math.min(800, Math.max(300, window.innerHeight - 470));
+                mainPlotParent.style.height = `${startingHeight}px`;
+            }
+            const crossSectionEmpty = appElement("cross_section_empty");
+            const crossSectionY = appElement("cross_section_y");
+            if (crossSectionEmpty && crossSectionY) {
+                const syncCrossSectionSpacer = () => {
+                    crossSectionEmpty.style.width = `${crossSectionY.getBoundingClientRect().width}px`;
+                };
+                syncCrossSectionSpacer();
+                const alignmentObserver = new ResizeObserver(syncCrossSectionSpacer);
+                alignmentObserver.observe(crossSectionY);
+                documentRef.defaultView.__windowsCrossSectionAlignmentObserver = alignmentObserver;
+                documentRef.defaultView.addEventListener("resize", syncCrossSectionSpacer);
+            }
             const plotControls = appElement("plot_control_dialog");
             if (plotControls) {
                 plotControls.setAttribute("role", "dialog");
@@ -586,14 +604,6 @@
                             ft2Form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
                         }
                     }
-                });
-            }
-
-            const fidForm = documentRef.getElementById("fid_file_form");
-            if (fidForm) {
-                fidForm.addEventListener("submit", () => {
-                    const fidArea = documentRef.getElementById("fid_file_area");
-                    if (fidArea) setSectionHidden(fidArea, true);
                 });
             }
 

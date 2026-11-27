@@ -56,7 +56,7 @@
             }
             document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true }));
             if (controller === "windows") {
-                await loadScript("js/2d_windows_ui.js?v=20261127_7");
+                await loadScript("js/2d_windows_ui.js?v=20261127_13");
             }
         } finally {
             if (jquery && typeof jquery.holdReady === "function") jquery.holdReady(false);
