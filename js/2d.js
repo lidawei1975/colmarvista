@@ -727,6 +727,7 @@ $(document).ready(function () {
              * flag: 1 (reprocess)
              */
             webassembly_worker.postMessage(fid_process_parameters);
+            document.dispatchEvent(new CustomEvent("colmar:fid-processing-started"));
             /**
              * Let user know the processing is started
              */
@@ -1184,6 +1185,7 @@ function run_pseudo3d(flag) {
         peak_xppm: peak_xppm,
         peak_yppm: peak_yppm,
     }, all_files.map(f => f.buffer));
+    document.dispatchEvent(new CustomEvent("colmar:pseudo3d-processing-started"));
 }
 
 function release_webassembly_worker2() {

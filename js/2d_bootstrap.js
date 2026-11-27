@@ -28,7 +28,7 @@
         "js/tooltips.js?v=20261014_1",
         "js/wasm_runner.js?v=20261022_1",
         "js/2d_common.js?v=20261126_3",
-        "js/2d.js?v=20261127_4"
+        "js/2d.js?v=20261127_6"
     ];
 
     function loadScript(url) {
@@ -56,7 +56,7 @@
             }
             document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true }));
             if (controller === "windows") {
-                await loadScript("js/2d_windows_ui.js?v=20261127_19");
+                await loadScript("js/2d_windows_ui.js?v=20261127_25");
             }
         } finally {
             if (jquery && typeof jquery.holdReady === "function") jquery.holdReady(false);

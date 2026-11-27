@@ -14,6 +14,27 @@
             if (element) element.click();
         }
 
+        function setRibbonButtonExpanded(command, expanded) {
+            const button = document.querySelector(`[data-command="${command}"]`);
+            if (button) button.setAttribute("aria-expanded", String(expanded));
+        }
+
+        function setPeakTableEnabled(enabled) {
+            peakTableEnabled = enabled;
+            window.colmarWindowsPeakTableEnabled = enabled;
+            const button = document.querySelector('[data-command="peaks"]');
+            if (button) {
+                button.setAttribute("aria-pressed", String(enabled));
+                button.title = enabled ? "Hide the peak table" : "Show the peak table";
+            }
+
+            if (!enabled || window.current_spectrum_index_of_peaks === -1) {
+                if (typeof window.remove_peak_table === "function") window.remove_peak_table();
+            } else if (typeof window.show_peak_table === "function") {
+                window.show_peak_table();
+            }
+        }
+
         function togglePanel(id) {
             const element = appElement(id);
             if (element) {
@@ -23,6 +44,7 @@
                 if (id === "peak_area") element.classList.toggle("windows-peak-visible", hidden);
                 else element.classList.toggle("windows-panel-hidden", !hidden);
                 element.style.display = hidden ? (id === "log_area" ? "flex" : "block") : "none";
+                if (id === "log_area") setRibbonButtonExpanded("log", hidden);
             }
         }
 
@@ -169,6 +191,12 @@
             if (!element) return;
             const isHidden = !element.classList.contains("windows-section-hidden");
             setSectionHidden(element, isHidden);
+            const command = {
+                fid_file_area: "fid",
+                pseudo3d_area: "pseudo3d",
+                assignment_area: "transfer"
+            }[id];
+            if (command) setRibbonButtonExpanded(command, !isHidden);
             if (!isHidden && buttonId) {
                 const button = appElement(buttonId);
                 if (button && button.innerText.trim() === "+") button.click();
@@ -182,6 +210,58 @@
             if (buttonId) {
                 const button = appElement(buttonId);
                 if (button && button.innerText.trim() === "+") button.click();
+            }
+        }
+
+        function createPanelCloseButton(documentRef, label, closePanel) {
+            const button = documentRef.createElement("button");
+            button.type = "button";
+            button.className = "windows-panel-close";
+            button.textContent = "Close";
+            button.title = `Close ${label}`;
+            button.setAttribute("aria-label", `Close ${label}`);
+            button.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                closePanel();
+            });
+            return button;
+        }
+
+        function initializeRibbonDialogClosers(documentRef) {
+            const sectionPanels = [
+                ["fid_file_area", "fid", "FID processing"],
+                ["pseudo3d_area", "pseudo3d", "pseudo-3D fitting"],
+                ["assignment_area", "transfer", "assignment transfer"]
+            ];
+
+            for (const [id, command, label] of sectionPanels) {
+                const panel = documentRef.getElementById(id);
+                const heading = panel && panel.querySelector("p");
+                if (!panel || !heading || heading.querySelector(".windows-panel-close")) continue;
+                panel.classList.add("windows-ribbon-dialog");
+                heading.classList.add("windows-ribbon-dialog-heading");
+                heading.appendChild(createPanelCloseButton(documentRef, label, () => {
+                    setSectionHidden(panel, true);
+                    setRibbonButtonExpanded(command, false);
+                }));
+            }
+
+            const logArea = documentRef.getElementById("log_area");
+            const logActions = logArea && logArea.querySelector(".log-actions");
+            if (logArea && logActions && !logActions.querySelector(".windows-panel-close")) {
+                logArea.classList.add("windows-ribbon-dialog");
+                const closeButton = createPanelCloseButton(documentRef, "processing log", () => togglePanel("log_area"));
+                closeButton.classList.add("windows-panel-close-inline");
+                logActions.appendChild(closeButton);
+            }
+
+            const peakArea = documentRef.getElementById("peak_area");
+            const peakHeader = peakArea && peakArea.querySelector(":scope > .header_sticky");
+            if (peakArea && peakHeader && !peakHeader.querySelector(".windows-panel-close")) {
+                peakArea.classList.add("windows-ribbon-dialog");
+                peakHeader.classList.add("windows-peak-table-header");
+                peakHeader.appendChild(createPanelCloseButton(documentRef, "peak table", () => setPeakTableEnabled(false)));
             }
         }
 
@@ -465,7 +545,9 @@
                 #fid_file_area.windows-section-hidden, #file_area.windows-section-hidden, #pseudo3d_area.windows-section-hidden, #assignment_area.windows-section-hidden { display: none !important; }
                 #file_area.windows-section-hidden { visibility: hidden !important; }
                 #load_and_save.windows-section-hidden { display: none !important; }
+                #section2 > .windows-ribbon-dialog { border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
                 #plot { width: 100% !important; padding: 10px !important; border-color: #94a3b8 !important; border-radius: 6px !important; background: #fff !important; }
+                #plot > div:first-child { display: none !important; }
                 #plot_control_dialog.windows-plot-controls-hidden { display: none !important; }
                 #plot_control_dialog.windows-plot-controls-open { position: fixed !important; top: 50% !important; left: 50% !important; right: auto !important; bottom: auto !important; transform: translate(-50%, -50%) !important; display: block !important; width: min(920px, calc(100vw - 32px)) !important; max-height: calc(100vh - 48px) !important; min-height: 0 !important; margin: 0 !important; padding: 14px !important; overflow: auto !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 16px 48px rgba(15,23,42,.28) !important; z-index: 10002 !important; }
                 #plot_control_dialog .windows-plot-controls-header { display: flex !important; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -14px 12px; padding: 10px 14px; border-bottom: 1px solid #cbd5e1; background: #fff; z-index: 1; }
@@ -498,8 +580,19 @@
                 #button_reset_zoom, #button_zoom_back, #button_zoom_out { display: none !important; }
                 #load_and_save { position: absolute !important; top: 24px !important; left: 50% !important; transform: translateX(-50%) !important; width: 440px !important; min-height: 0 !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #cbd5e1 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.22) !important; }
                 #peak_area.windows-peak-visible { display: block !important; }
+                #peak_area.windows-ribbon-dialog { border: 1px solid #94a3b8 !important; border-radius: 7px !important; background: #fff !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
+                #peak_area .windows-peak-table-header { display: flex !important; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+                #peak_area .windows-panel-close { margin-left: auto; }
+                .windows-ribbon-dialog-heading { position: relative; padding-right: 72px !important; }
+                .windows-panel-close { padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #334155; cursor: pointer; font: inherit; font-size: 12px; line-height: 1.2; white-space: nowrap; }
+                .windows-panel-close:hover { border-color: #3182ce; background: #eaf4fd; color: #075b9e; }
+                .windows-ribbon-dialog-heading > .windows-panel-close { position: absolute; top: 50%; right: 0; transform: translateY(-50%); }
+                #log_area .log-actions .windows-panel-close { flex: 0 0 auto; }
                 #section2 > #fid_file_area, #section2 > #file_area, #section2 > #pseudo3d_area, #section2 > #assignment_area { position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: min(760px, calc(100% - 32px)) !important; max-height: calc(100% - 32px) !important; overflow: auto !important; margin: 0 !important; padding: 16px !important; z-index: 9999 !important; background: #fff !important; border: 1px solid #94a3b8 !important; border-radius: 7px !important; box-shadow: 0 12px 32px rgba(15,23,42,.24) !important; }
+                    #section2 > #fid_file_area:not(#log_area):not(#spectra_list) { width: min(900px, calc(100% - 32px)) !important; }
+                    #section2 > #pseudo3d_area:not(#log_area):not(#spectra_list), #section2 > #assignment_area:not(#log_area):not(#spectra_list) { width: min(640px, calc(100% - 32px)) !important; }
                 #section2 > #fid_file_area:not(#log_area):not(#spectra_list) { z-index: 10002 !important; border: 2px solid #64748b !important; }
+                #fid_file_area #button_minimize_fid_area, #pseudo3d_area #button_minimize_preudo3d_area, #assignment_area #button_minimize_assignment_area { display: none !important; }
                 :root { --windows-spectrum-rail-width: 220px; --windows-log-top: 112px; }
                 @media (max-width: 720px) { :root { --windows-spectrum-rail-width: min(220px, calc(100vw - 120px)); --windows-log-top: 100px; } }
                 body.windows-spectrum-list-collapsed { --windows-spectrum-rail-width: 38px; }
@@ -551,6 +644,7 @@
                 button, input, select { font-family: inherit !important; }
             `;
             documentRef.head.appendChild(theme);
+            initializeRibbonDialogClosers(documentRef);
             initializeSpectrumSidebar(documentRef);
             const mainPlotParent = appElement("vis_parent");
             if (mainPlotParent) {
@@ -631,6 +725,17 @@
             const logArea = documentRef.getElementById("log_area");
             if (logArea) logArea.classList.add("windows-panel-hidden");
 
+            documentRef.addEventListener("colmar:fid-processing-started", () => {
+                const fidArea = documentRef.getElementById("fid_file_area");
+                if (fidArea) setSectionHidden(fidArea, true);
+                setRibbonButtonExpanded("fid", false);
+            });
+            documentRef.addEventListener("colmar:pseudo3d-processing-started", () => {
+                const pseudo3dArea = documentRef.getElementById("pseudo3d_area");
+                if (pseudo3dArea) setSectionHidden(pseudo3dArea, true);
+                setRibbonButtonExpanded("pseudo3d", false);
+            });
+
             const ft2Input = documentRef.getElementById("userfile");
             const ft2Form = documentRef.getElementById("ft2_file_form");
             if (ft2Input) {
@@ -700,18 +805,7 @@
                     toggleSection("assignment_area", "button_minimize_assignment_area");
                     break;
                 case "peaks":
-                    peakTableEnabled = !peakTableEnabled;
-                    window.colmarWindowsPeakTableEnabled = peakTableEnabled;
-                    const peakTableButton = document.querySelector('[data-command="peaks"]');
-                    if (peakTableButton) {
-                        peakTableButton.setAttribute("aria-pressed", String(peakTableEnabled));
-                        peakTableButton.title = peakTableEnabled ? "Hide the peak table" : "Show the peak table";
-                    }
-                    if (!peakTableEnabled || window.current_spectrum_index_of_peaks === -1) {
-                        if (typeof window.remove_peak_table === "function") window.remove_peak_table();
-                    } else if (typeof window.show_peak_table === "function") {
-                        window.show_peak_table();
-                    }
+                    setPeakTableEnabled(!peakTableEnabled);
                     break;
                 case "log":
                     togglePanel("log_area");
