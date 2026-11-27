@@ -519,6 +519,11 @@
             documentRef.addEventListener("keydown", event => {
                 if (event.key === "Escape" && activeDetails) closeDetails();
             });
+            documentRef.addEventListener("colmar:fid-edit-started", () => {
+                if (activeDetails) closeDetails(false);
+                openSection("fid_file_area", "button_minimize_fid_area");
+                setRibbonButtonExpanded("fid", true);
+            });
 
             const observer = new documentRef.defaultView.MutationObserver(decorateRows);
             observer.observe(list, { childList: true });
@@ -721,6 +726,10 @@
             ["load_and_save", "fid_file_area", "file_area", "pseudo3d_area", "assignment_area"].forEach(id => {
                 const element = documentRef.getElementById(id);
                 if (element) setSectionHidden(element, true);
+            });
+            ["button_minimize_dosy_area", "button_minimize_cest_area"].forEach(id => {
+                const button = appElement(id);
+                if (button && button.innerText.trim() === "+") button.click();
             });
             const logArea = documentRef.getElementById("log_area");
             if (logArea) logArea.classList.add("windows-panel-hidden");

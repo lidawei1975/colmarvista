@@ -7152,6 +7152,7 @@ function reprocess_spectrum(self, spectrum_index) {
         current_reprocess_spectrum_index = spectrum_index;
         if (main_plot) main_plot.current_reprocess_spectrum_index = spectrum_index;
         set_current_spectrum(spectrum_index);
+        document.dispatchEvent(new CustomEvent("colmar:fid-edit-started"));
 
 
         /**
