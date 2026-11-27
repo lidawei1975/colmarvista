@@ -261,13 +261,28 @@ class file_drop_processor {
     }
 
     async process_file_attachment(entry) {
-        const files = await this.get_files_from_entry(entry);
-        await this.attach_files(files);
+        return this.track_file_operation(async () => {
+            const files = await this.get_files_from_entry(entry);
+            await this.attach_files(files);
+        });
+    }
+
+    async track_file_operation(operation) {
+        const release = typeof window.colmarBeginFileRead === 'function'
+            ? window.colmarBeginFileRead()
+            : () => {};
+        try {
+            return await operation();
+        } finally {
+            release();
+        }
     }
 
     async drop_handler(e) {
         e.preventDefault();
         this.elem.style.outline = '';
+
+        return this.track_file_operation(async () => {
 
         // Reset container for this drop operation
         this.container = new DataTransfer();
@@ -330,6 +345,7 @@ class file_drop_processor {
         }
 
         await this.attach_files(allFiles);
+        });
     }
 
     async click_handler(e) {
@@ -340,6 +356,8 @@ class file_drop_processor {
         }
 
         e.preventDefault();
+
+        return this.track_file_operation(async () => {
 
         // 1. Try modern File System Access API
         if (typeof window.showDirectoryPicker !== 'undefined') {
@@ -367,14 +385,27 @@ class file_drop_processor {
         dirInput.directory = true; // For Firefox
         dirInput.multiple = true;
 
-        dirInput.addEventListener('change', async (evt) => {
-            const files = evt.target.files ? Array.from(evt.target.files) : [];
-            if (files.length === 0) return;
+        await new Promise(resolve => {
+            let finished = false;
+            const finish = async files => {
+                if (finished) return;
+                finished = true;
+                try {
+                    if (files.length > 0) {
+                        console.log(`Fallback picked ${files.length} flat files from directory`);
+                        await this.attach_files(files);
+                    }
+                } finally {
+                    resolve();
+                }
+            };
 
-            console.log(`Fallback picked ${files.length} flat files from directory`);
-            await this.attach_files(files);
+            dirInput.addEventListener('change', evt => {
+                finish(evt.target.files ? Array.from(evt.target.files) : []);
+            }, { once: true });
+            dirInput.addEventListener('cancel', () => finish([]), { once: true });
+            dirInput.click();
         });
-
-        dirInput.click();
+        });
     }
 };

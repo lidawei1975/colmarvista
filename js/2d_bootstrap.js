@@ -18,7 +18,7 @@
         "js/peaks.js?v=20260929_1",
         "js/spectrum.js",
         "js/spectrum_fit.js",
-        "js/file_drop.js",
+        "js/file_drop.js?v=20261127_1",
         "js/make_table.js?v=20260926_1",
         "js/simple_peak_picker.js",
         "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js",
@@ -26,9 +26,9 @@
         "js/tools/HuangarianInt32.js",
         "js/tutorial.js",
         "js/tooltips.js?v=20261014_1",
-        "js/wasm_runner.js?v=20261022_1",
-        "js/2d_common.js?v=20261126_3",
-        "js/2d.js?v=20261127_7"
+        "js/wasm_runner.js?v=20261127_2",
+        "js/2d_common.js?v=20261127_6",
+        "js/2d.js?v=20261127_11"
     ];
 
     function loadScript(url) {
@@ -56,7 +56,7 @@
             }
             document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true }));
             if (controller === "windows") {
-                await loadScript("js/2d_windows_ui.js?v=20261127_27");
+                await loadScript("js/2d_windows_ui.js?v=20261127_30");
             }
         } finally {
             if (jquery && typeof jquery.holdReady === "function") jquery.holdReady(false);

@@ -8,6 +8,31 @@
 
         let peakTableEnabled = false;
         window.colmarWindowsPeakTableEnabled = peakTableEnabled;
+        let windowsUiActive = true;
+        let windowsThemeElement = null;
+        let windowsOriginalMainPlotHeight = null;
+        let windowsOriginalSpacerWidth = null;
+        let windowsCrossSectionAlignmentObserver = null;
+        const windowsMovedElements = [];
+
+        function moveElementForWindowsUi(element, destination = document.body) {
+            if (!element || !element.parentNode || element.parentNode === destination) return;
+            const placeholder = document.createComment("windows-ui-placeholder");
+            element.parentNode.insertBefore(placeholder, element);
+            windowsMovedElements.push({ element, placeholder });
+            destination.appendChild(element);
+        }
+
+        function restoreWindowsUiElements() {
+            for (let index = windowsMovedElements.length - 1; index >= 0; index--) {
+                const { element, placeholder } = windowsMovedElements[index];
+                if (placeholder.parentNode) {
+                    placeholder.parentNode.insertBefore(element, placeholder);
+                    placeholder.remove();
+                }
+            }
+            windowsMovedElements.length = 0;
+        }
 
         function clickAppElement(id) {
             const element = appElement(id);
@@ -273,7 +298,11 @@
             const heading = documentRef.querySelector("#spectra_list > h4");
             if (heading) {
                 heading.classList.add("windows-spectrum-sidebar-header");
+                const legacyHeading = documentRef.createElement("span");
+                legacyHeading.className = "windows-spectrum-sidebar-legacy-label";
+                legacyHeading.textContent = heading.textContent.trim();
                 heading.replaceChildren();
+                heading.appendChild(legacyHeading);
                 const toggle = documentRef.createElement("button");
                 toggle.type = "button";
                 toggle.className = "windows-spectrum-list-toggle";
@@ -352,6 +381,8 @@
 
                 if (restoreFocus && trigger.isConnected) trigger.focus();
             }
+
+            documentRef.defaultView.__closeWindowsSpectrumDetails = () => closeDetails(false);
 
             function updateSpectrumVisibility(row) {
                 const spectrumIndex = Number.parseInt(row.id.slice("spectrum-".length), 10);
@@ -603,6 +634,7 @@
                 body.windows-spectrum-list-collapsed { --windows-spectrum-rail-width: 38px; }
                 #spectra_list { position: absolute !important; top: 8px !important; right: auto !important; bottom: 8px !important; left: 8px !important; width: var(--windows-spectrum-rail-width) !important; min-width: 0 !important; max-width: var(--windows-spectrum-rail-width) !important; height: auto !important; max-height: none !important; margin: 0 !important; padding: 6px !important; overflow-x: hidden !important; overflow-y: auto !important; z-index: 10000 !important; box-sizing: border-box !important; }
                 #spectra_list h4 { display: block !important; margin: 0 0 6px !important; padding: 0 !important; font-size: 13px !important; }
+                .windows-spectrum-sidebar-legacy-label { display: none !important; }
                 #spectra_list_ol { margin: 0 !important; padding: 0 !important; list-style: none !important; }
                 #section2 > .flex-container { width: calc(100% - var(--windows-spectrum-rail-width) - 10px) !important; min-width: 0 !important; margin-left: calc(var(--windows-spectrum-rail-width) + 10px) !important; }
                 #spectra_list_ol > li.windows-spectrum-row { display: block !important; width: 100% !important; margin: 0 0 4px !important; padding: 0 !important; }
@@ -649,23 +681,27 @@
                 button, input, select { font-family: inherit !important; }
             `;
             documentRef.head.appendChild(theme);
+            windowsThemeElement = theme;
             initializeRibbonDialogClosers(documentRef);
             initializeSpectrumSidebar(documentRef);
             const mainPlotParent = appElement("vis_parent");
             if (mainPlotParent) {
+                windowsOriginalMainPlotHeight = mainPlotParent.style.height;
                 const startingHeight = Math.min(800, Math.max(300, window.innerHeight - 470));
                 mainPlotParent.style.height = `${startingHeight}px`;
             }
             const crossSectionEmpty = appElement("cross_section_empty");
             const crossSectionY = appElement("cross_section_y");
             if (crossSectionEmpty && crossSectionY) {
+                windowsOriginalSpacerWidth = crossSectionEmpty.style.width;
                 const syncCrossSectionSpacer = () => {
+                    if (!windowsUiActive) return;
                     crossSectionEmpty.style.width = `${crossSectionY.getBoundingClientRect().width}px`;
                 };
                 syncCrossSectionSpacer();
-                const alignmentObserver = new ResizeObserver(syncCrossSectionSpacer);
-                alignmentObserver.observe(crossSectionY);
-                documentRef.defaultView.__windowsCrossSectionAlignmentObserver = alignmentObserver;
+                windowsCrossSectionAlignmentObserver = new ResizeObserver(syncCrossSectionSpacer);
+                windowsCrossSectionAlignmentObserver.observe(crossSectionY);
+                documentRef.defaultView.__windowsCrossSectionAlignmentObserver = windowsCrossSectionAlignmentObserver;
                 documentRef.defaultView.addEventListener("resize", syncCrossSectionSpacer);
             }
             const plotControls = appElement("plot_control_dialog");
@@ -675,12 +711,12 @@
                 plotControls.setAttribute("aria-labelledby", "plot_control_dialog_title");
                 plotControls.classList.add("windows-plot-controls-hidden");
                 plotControls.setAttribute("aria-hidden", "true");
-                documentRef.body.appendChild(plotControls);
+                moveElementForWindowsUi(plotControls);
             }
             const peakDisplayControls = appElement("peak_display_controls");
-            if (plotControls && peakDisplayControls) plotControls.appendChild(peakDisplayControls);
+            if (plotControls && peakDisplayControls) moveElementForWindowsUi(peakDisplayControls, plotControls);
             const plot1dViewControls = appElement("plot_1d_view_controls");
-            if (plotControls && plot1dViewControls) plotControls.appendChild(plot1dViewControls);
+            if (plotControls && plot1dViewControls) moveElementForWindowsUi(plot1dViewControls, plotControls);
             const peakEditingDialog = appElement("peak_editing_dialog");
             if (peakEditingDialog) {
                 peakEditingDialog.setAttribute("role", "dialog");
@@ -688,7 +724,7 @@
                 peakEditingDialog.setAttribute("aria-labelledby", "peak_editing_dialog_title");
                 peakEditingDialog.classList.add("windows-peak-editing-hidden");
                 peakEditingDialog.setAttribute("aria-hidden", "true");
-                documentRef.body.appendChild(peakEditingDialog);
+                moveElementForWindowsUi(peakEditingDialog);
             }
             const magnifierSettingsDialog = appElement("magnifier_settings_dialog");
             if (magnifierSettingsDialog) {
@@ -697,7 +733,7 @@
                 magnifierSettingsDialog.setAttribute("aria-labelledby", "magnifier_settings_dialog_title");
                 magnifierSettingsDialog.classList.add("windows-magnifier-settings-hidden");
                 magnifierSettingsDialog.setAttribute("aria-hidden", "true");
-                documentRef.body.appendChild(magnifierSettingsDialog);
+                moveElementForWindowsUi(magnifierSettingsDialog);
             }
             const specEditDialog = appElement("spec_edit_dialog");
             if (specEditDialog) {
@@ -706,7 +742,7 @@
                 specEditDialog.setAttribute("aria-labelledby", "spec_edit_dialog_title");
                 specEditDialog.classList.add("windows-spec-edit-hidden");
                 specEditDialog.setAttribute("aria-hidden", "true");
-                documentRef.body.appendChild(specEditDialog);
+                moveElementForWindowsUi(specEditDialog);
             }
             const plotControlsBackdrop = documentRef.createElement("div");
             plotControlsBackdrop.id = "plot_control_backdrop";
@@ -825,9 +861,145 @@
         }
 
 
-        function switchUi(useWindowsUi) {
-            window.location.href = useWindowsUi ? "index_windows_ui.html" : "index.html";
+        function syncUiModeControls(useWindowsUi) {
+            const windowsToggle = document.getElementById("ui-mode-toggle");
+            if (windowsToggle) windowsToggle.checked = useWindowsUi;
+            const legacyToggle = document.querySelector("#navbar-placeholder .navbar input[type='checkbox']");
+            if (legacyToggle) legacyToggle.checked = useWindowsUi;
         }
+
+        function moveWindowsUiControls() {
+            const plotControls = appElement("plot_control_dialog");
+            const peakDisplayControls = appElement("peak_display_controls");
+            const plot1dViewControls = appElement("plot_1d_view_controls");
+            moveElementForWindowsUi(plotControls);
+            moveElementForWindowsUi(peakDisplayControls, plotControls);
+            moveElementForWindowsUi(plot1dViewControls, plotControls);
+            moveElementForWindowsUi(appElement("peak_editing_dialog"));
+            moveElementForWindowsUi(appElement("magnifier_settings_dialog"));
+            moveElementForWindowsUi(appElement("spec_edit_dialog"));
+        }
+
+        function setRibbonSectionsHidden(hidden) {
+            const sectionCommands = {
+                fid_file_area: "fid",
+                pseudo3d_area: "pseudo3d",
+                assignment_area: "transfer"
+            };
+            ["load_and_save", "fid_file_area", "file_area", "pseudo3d_area", "assignment_area"].forEach(id => {
+                const element = appElement(id);
+                if (element) setSectionHidden(element, hidden);
+                if (sectionCommands[id]) setRibbonButtonExpanded(sectionCommands[id], !hidden);
+            });
+            for (const [id, hiddenText] of [
+                ["button_minimize_dosy_area", hidden ? "-" : "+"],
+                ["button_minimize_cest_area", hidden ? "-" : "+"]
+            ]) {
+                const button = appElement(id);
+                const shouldExpand = hidden;
+                if (button && ((shouldExpand && button.innerText.trim() === "+") || (!shouldExpand && button.innerText.trim() === "-"))) {
+                    button.click();
+                }
+            }
+            const logArea = appElement("log_area");
+            if (logArea) {
+                logArea.classList.toggle("windows-panel-hidden", hidden);
+                if (hidden) logArea.style.display = "none";
+                else logArea.style.removeProperty("display");
+                setRibbonButtonExpanded("log", !hidden);
+            }
+        }
+
+        function switchUi(useWindowsUi, force = false) {
+            if (useWindowsUi === windowsUiActive) {
+                syncUiModeControls(windowsUiActive);
+                return true;
+            }
+
+            if (!force && typeof window.colmar2dIsIdle === "function" && !window.colmar2dIsIdle()) {
+                syncUiModeControls(windowsUiActive);
+                window.alert("Wait for background processing to finish before switching UI.");
+                return false;
+            }
+
+            closeActiveDialog();
+            if (typeof window.__closeWindowsSpectrumDetails === "function") {
+                window.__closeWindowsSpectrumDetails();
+            }
+
+            const root = document.documentElement;
+            const body = document.body;
+            const mainPlotParent = appElement("vis_parent");
+            const crossSectionEmpty = appElement("cross_section_empty");
+            const crossSectionY = appElement("cross_section_y");
+
+            if (useWindowsUi) {
+                windowsUiActive = true;
+                root.classList.remove("legacy-ui-mode");
+                body.classList.remove("legacy-ui-mode");
+                body.classList.add("windows-ui-active");
+                if (windowsThemeElement) windowsThemeElement.disabled = false;
+                moveWindowsUiControls();
+                setPlotControlsOpen(false);
+                setPeakEditingOpen(false);
+                setMagnifierSettingsOpen(false);
+                setSpecEditOpen(false);
+                setRibbonSectionsHidden(true);
+                if (current_reprocess_spectrum_index !== -1) {
+                    openSection("fid_file_area", "button_minimize_fid_area");
+                }
+                if (mainPlotParent) {
+                    mainPlotParent.style.height = `${Math.min(800, Math.max(300, window.innerHeight - 470))}px`;
+                }
+                if (windowsCrossSectionAlignmentObserver && crossSectionY) {
+                    windowsCrossSectionAlignmentObserver.observe(crossSectionY);
+                    if (crossSectionEmpty) crossSectionEmpty.style.width = `${crossSectionY.getBoundingClientRect().width}px`;
+                }
+                window.colmarWindowsPeakTableEnabled = peakTableEnabled;
+                setPeakTableEnabled(peakTableEnabled);
+                document.title = "COLMARvista 2D - Windows UI";
+            } else {
+                windowsUiActive = false;
+                body.classList.remove("windows-ui-active", "windows-spectrum-list-collapsed");
+                body.classList.add("legacy-ui-mode");
+                root.classList.add("legacy-ui-mode");
+                if (windowsThemeElement) windowsThemeElement.disabled = true;
+                restoreWindowsUiElements();
+                ["plot_control_dialog", "peak_editing_dialog", "magnifier_settings_dialog", "spec_edit_dialog"].forEach(id => {
+                    const dialog = appElement(id);
+                    if (!dialog) return;
+                    dialog.removeAttribute("role");
+                    dialog.removeAttribute("aria-modal");
+                    dialog.removeAttribute("aria-labelledby");
+                    dialog.setAttribute("aria-hidden", "false");
+                });
+                setRibbonSectionsHidden(false);
+                if (mainPlotParent && windowsOriginalMainPlotHeight !== null) {
+                    mainPlotParent.style.height = windowsOriginalMainPlotHeight;
+                }
+                if (windowsCrossSectionAlignmentObserver) windowsCrossSectionAlignmentObserver.disconnect();
+                if (crossSectionEmpty && windowsOriginalSpacerWidth !== null) {
+                    crossSectionEmpty.style.width = windowsOriginalSpacerWidth;
+                }
+                delete window.colmarWindowsPeakTableEnabled;
+                if (window.current_spectrum_index_of_peaks !== -1 && typeof window.show_peak_table === "function") {
+                    window.show_peak_table();
+                } else if (typeof window.remove_peak_table === "function") {
+                    window.remove_peak_table();
+                }
+                document.title = "COLMARvista";
+            }
+
+            syncUiModeControls(windowsUiActive);
+            const url = new URL(window.location.href);
+            if (windowsUiActive) url.searchParams.delete("ui");
+            else url.searchParams.set("ui", "legacy");
+            window.history.replaceState(null, "", url);
+            window.dispatchEvent(new Event("resize"));
+            return true;
+        }
+
+        window.colmarSwitchUiMode = switchUi;
         styleEmbeddedApp();
         const magnifierButton = document.querySelector('[data-command="magnifier-toggle"]');
         if (magnifierButton) {
@@ -860,3 +1032,20 @@
             button.addEventListener("click", () => runCommand(button.dataset.command));
         });
         document.getElementById("ui-mode-toggle").addEventListener("change", (event) => switchUi(event.target.checked));
+        document.addEventListener("click", event => {
+            const modeLink = event.target.closest("[data-ui-mode]");
+            if (modeLink) {
+                event.preventDefault();
+                switchUi(modeLink.dataset.uiMode === "windows");
+                return;
+            }
+            const legacyLink = event.target.closest('a[href="index.html"]');
+            if (legacyLink) {
+                event.preventDefault();
+                switchUi(false);
+            }
+        });
+
+        if (new URLSearchParams(window.location.search).get("ui") === "legacy") {
+            switchUi(false, true);
+        }

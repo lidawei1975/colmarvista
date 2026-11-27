@@ -134,6 +134,19 @@
             box-shadow: var(--shadow);
         }
 
+        html.legacy-ui-mode, html.legacy-ui-mode body { width: auto; height: auto; min-height: 100%; overflow: auto; }
+        html.legacy-ui-mode body { display: block; color: #000; background: #fff; font-family: Arial, sans-serif; }
+        html.legacy-ui-mode #app-topbar, html.legacy-ui-mode #statusbar { display: none !important; }
+        html.legacy-ui-mode #workspace { display: block; min-height: 0; padding: 0; overflow: visible; }
+        html.legacy-ui-mode #app-view-root { position: static; width: 100%; height: auto; min-height: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+        html.legacy-ui-mode .windows-panel-close,
+        html.legacy-ui-mode .windows-spectrum-actions,
+        html.legacy-ui-mode .windows-spectrum-list-toggle,
+        html.legacy-ui-mode #windows-spectrum-dialog,
+        html.legacy-ui-mode #windows-spectrum-backdrop,
+        html.legacy-ui-mode #plot_control_backdrop { display: none !important; }
+        html.legacy-ui-mode .windows-spectrum-sidebar-legacy-label { display: inline !important; }
+
         #statusbar {
             flex: 0 0 30px;
             display: flex;
@@ -170,7 +183,7 @@
                     <a href="index_3d.html">3D</a>
                     <a href="index_document.html" target="_blank" rel="noopener">Document</a>
                     <a href="about.html">About</a>
-                    <a href="index.html">Old UI</a>
+                    <a href="index.html" data-ui-mode="legacy">Old UI</a>
                 </nav>
             </div>
             <label class="ui-switch" title="Switch between the Windows-style UI and the original interface">
@@ -248,6 +261,6 @@
         <span class="status-right"><span>Native processing controls</span><span>Windows UI</span></span>
     </footer>
 
-    <script src="js/2d_bootstrap.js?v=20261127_29" data-controller="windows"></script>
+    <script src="js/2d_bootstrap.js?v=20261127_34" data-controller="windows"></script>
 </body>
 </html>

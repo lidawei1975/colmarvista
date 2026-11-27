@@ -168,6 +168,10 @@
             return this.getModule().then(() => true, () => false);
         }
 
+        isIdle() {
+            return this._queue.length === 0 && this._active.size === 0;
+        }
+
         /**
          * Run one task in a fresh worker.
          *
@@ -224,6 +228,9 @@
             const facade = {
                 onmessage: null,
                 onerror: null,
+                isIdle: function () {
+                    return runner.isIdle();
+                },
                 postMessage: function (message, transferList) {
                     return runner.run(message, transferList, {
                         onMessage: function (event) {

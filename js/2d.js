@@ -113,14 +113,24 @@ let draggedItem = null;
  */
 const read_file = (file) => {
     return new Promise((resolve, reject) => {
+        const releaseRead = typeof window.colmarBeginFileRead === "function"
+            ? window.colmarBeginFileRead()
+            : () => {};
         var reader = new FileReader();
         reader.onload = function () {
+            releaseRead();
             return resolve(reader.result);
         };
         reader.onerror = function (e) {
+            releaseRead();
             reject("Error reading file");
         };
-        reader.readAsArrayBuffer(file);
+        try {
+            reader.readAsArrayBuffer(file);
+        } catch (error) {
+            releaseRead();
+            reject(error);
+        }
     });
 };
 
@@ -129,22 +139,40 @@ const read_file = (file) => {
  */
 const read_file_text = (file) => {
     return new Promise((resolve, reject) => {
+        const releaseRead = typeof window.colmarBeginFileRead === "function"
+            ? window.colmarBeginFileRead()
+            : () => {};
         var reader = new FileReader();
         reader.onload = function () {
+            releaseRead();
             return resolve(reader.result);
         };
         reader.onerror = function (e) {
+            releaseRead();
             reject("Error reading file");
         };
-        reader.readAsText(file);
+        try {
+            reader.readAsText(file);
+        } catch (error) {
+            releaseRead();
+            reject(error);
+        }
     });
 };
+
+function track_file_reader(reader) {
+    if (typeof window.colmarBeginFileRead === "function") {
+        const releaseRead = window.colmarBeginFileRead();
+        reader.addEventListener("loadend", releaseRead, { once: true });
+    }
+    return reader;
+}
 // updateBaseline2DUI was removed as 2D baseline settings were moved to standalone controls
 
 
 $(document).ready(function () {
 
-    fetch('navbar.html')
+    fetch('navbar.html?v=20261127_1')
         .then(response => response.text())
         .then(data => {
             document.getElementById('navbar-placeholder').innerHTML = data;
@@ -337,7 +365,7 @@ $(document).ready(function () {
     document.getElementById('pseudo3d_file').addEventListener('change', function (e) {
         let file = document.getElementById('pseudo3d_file').files[0];
         if (file) {
-            var reader = new FileReader();
+            var reader = track_file_reader(new FileReader());
             reader.onload = function () {
                 pseudo3d_fitted_peaks_object = new cpeaks();
                 pseudo3d_fitted_peaks_object.process_peaks_tab(reader.result);
@@ -916,7 +944,7 @@ $(document).ready(function () {
     document.getElementById('load_file').addEventListener('change', function (e) {
         let file = document.getElementById('load_file').files[0];
         if (file) {
-            var reader = new FileReader();
+            var reader = track_file_reader(new FileReader());
             reader.onload = function () {
                 /**
                  * Read as array buffer
@@ -5555,7 +5583,7 @@ function load_peak_list(spectrum_index) {
     }
 
     let file = file_input.files[0];
-    let reader = new FileReader();
+    let reader = track_file_reader(new FileReader());
     reader.onload = function (e) {
         let peak_list = new cpeaks();
         /**
@@ -7760,6 +7788,7 @@ let pseudo3d_profile_plot_instance = null;
 let pseudo3d_profile_resize_observer = null;
 let chemex_virtual_files_synced = false;
 let sim_debounce_timer = null;
+let sim_debounce_release = null;
 let sim_panel_events_initialized = false;
 
 function is_pseudo3d_active() {
@@ -8680,8 +8709,19 @@ function trigger_single_peak_simulation(peakIndex) {
     if (sim_debounce_timer) {
         clearTimeout(sim_debounce_timer);
     }
+    if (sim_debounce_release) {
+        sim_debounce_release();
+        sim_debounce_release = null;
+    }
+    const releasePendingSimulation = typeof window.colmarBeginChemexJob === "function"
+        ? window.colmarBeginChemexJob()
+        : () => {};
+    sim_debounce_release = releasePendingSimulation;
 
     sim_debounce_timer = setTimeout(async () => {
+        sim_debounce_timer = null;
+        const releaseChemexJob = sim_debounce_release || (() => {});
+        sim_debounce_release = null;
         const params = get_single_peak_sim_params_from_ui();
         const badge = document.getElementById('chemex_sim_status_badge');
         const notice = document.getElementById('chemex_sim_notice');
@@ -8709,9 +8749,14 @@ function trigger_single_peak_simulation(peakIndex) {
                 const msg = e.data || {};
                 if (msg.type === "simulation_update_result" && msg.residue === (peakIndex + "N")) {
                     worker.removeEventListener("message", simHandler);
-                    apply_simulation_result_to_plot(peakIndex, msg.data, params);
+                    try {
+                        apply_simulation_result_to_plot(peakIndex, msg.data, params);
+                    } finally {
+                        releaseChemexJob();
+                    }
                 } else if (msg.type === "simulation_update_error" && msg.residue === (peakIndex + "N")) {
                     worker.removeEventListener("message", simHandler);
+                    releaseChemexJob();
                     console.warn("Simulation error for peak #" + peakIndex + ":", msg.error);
                     if (badge) {
                         badge.innerText = 'Sim Error';
@@ -8727,6 +8772,7 @@ function trigger_single_peak_simulation(peakIndex) {
                 }
             };
             worker.addEventListener("message", simHandler);
+            worker.addEventListener("error", releaseChemexJob, { once: true });
 
             worker.postMessage({
                 type: "simulate_residue",
@@ -8735,6 +8781,7 @@ function trigger_single_peak_simulation(peakIndex) {
                 baseDir: "."
             });
         } catch (err) {
+            releaseChemexJob();
             console.error("Failed to run live simulation:", err);
             if (badge) {
                 badge.innerText = 'Initial Guess';
@@ -8840,6 +8887,9 @@ async function run_single_peak_chemex_fit(peakIndex) {
     const notice = document.getElementById('chemex_sim_notice');
 
     const params = get_single_peak_sim_params_from_ui();
+    const releaseChemexJob = typeof window.colmarBeginChemexJob === "function"
+        ? window.colmarBeginChemexJob()
+        : () => {};
 
     if (fitBtn) {
         fitBtn.disabled = true;
@@ -8868,6 +8918,7 @@ async function run_single_peak_chemex_fit(peakIndex) {
             const msg = e.data || {};
             if (msg.type === "fit_complete_with_params" && msg.residue === residue) {
                 worker.removeEventListener("message", singleFitHandler);
+                releaseChemexJob();
                 if (fitBtn) {
                     fitBtn.disabled = false;
                     fitBtn.innerText = '⚡ Fit This Peak Only';
@@ -8928,6 +8979,7 @@ async function run_single_peak_chemex_fit(peakIndex) {
 
             } else if (msg.type === "user_fit_error" && msg.residue === residue) {
                 worker.removeEventListener("message", singleFitHandler);
+                releaseChemexJob();
                 if (fitBtn) {
                     fitBtn.disabled = false;
                     fitBtn.innerText = '⚡ Fit This Peak Only';
@@ -8949,6 +9001,7 @@ async function run_single_peak_chemex_fit(peakIndex) {
         };
 
         worker.addEventListener("message", singleFitHandler);
+    worker.addEventListener("error", releaseChemexJob, { once: true });
 
         worker.postMessage({
             type: "fit_from_user_params",
@@ -8959,6 +9012,7 @@ async function run_single_peak_chemex_fit(peakIndex) {
         });
 
     } catch (err) {
+        releaseChemexJob();
         if (fitBtn) {
             fitBtn.disabled = false;
             fitBtn.innerText = '⚡ Fit This Peak Only';
@@ -9437,7 +9491,7 @@ function toggle_cest_filter_multi_peaks() {
 function load_cest_offsets_file(inputEl) {
     if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
     const file = inputEl.files[0];
-    const reader = new FileReader();
+    const reader = track_file_reader(new FileReader());
 
     reader.onload = function (e) {
         const text = e.target.result;
@@ -10164,6 +10218,7 @@ function run_chemex_only() {
     }
 
     chemex_is_running = true;
+    window.colmarChemexBusy = true;
     let btnRun = document.getElementById("button_run_chemex");
     let btnGen = document.getElementById("button_gen_chemex_input");
     let statusEl = document.getElementById("cest_result");
@@ -10179,6 +10234,7 @@ function run_chemex_only() {
             if (msg.type === "fit_all_complete") {
                 chemex_worker.removeEventListener("message", fitHandler);
                 chemex_is_running = false;
+                window.colmarChemexBusy = false;
                 chemex_virtual_files_synced = true;
                 if (btnRun) btnRun.disabled = false;
                 if (btnGen) btnGen.disabled = false;
@@ -10225,6 +10281,7 @@ function run_chemex_only() {
             } else if (msg.type === "fit_all_error") {
                 chemex_worker.removeEventListener("message", fitHandler);
                 chemex_is_running = false;
+                window.colmarChemexBusy = false;
                 if (btnRun) btnRun.disabled = false;
                 if (btnGen) btnGen.disabled = false;
                 if (statusEl) {
@@ -10252,6 +10309,7 @@ function run_chemex_only() {
         });
     }).catch(err => {
         chemex_is_running = false;
+        window.colmarChemexBusy = false;
         if (btnRun) btnRun.disabled = false;
         if (btnGen) btnGen.disabled = false;
         if (statusEl) {
@@ -10277,6 +10335,7 @@ function download_chemex_cest_results() {
         const msg = e.data || {};
         if (msg.type === "output_zip_ready") {
             chemex_worker.removeEventListener("message", zipHandler);
+            window.colmarChemexBusy = false;
             if (statusEl) statusEl.innerHTML = '<span style="color: #2e7d32;">Results zip downloaded.</span>';
 
             let byteCharacters = atob(msg.zipBase64);
@@ -10296,12 +10355,14 @@ function download_chemex_cest_results() {
             URL.revokeObjectURL(url);
         } else if (msg.type === "zip_error") {
             chemex_worker.removeEventListener("message", zipHandler);
+            window.colmarChemexBusy = false;
             if (statusEl) statusEl.innerHTML = `<span style="color: #d32f2f;">Zip packaging error: ${msg.error}</span>`;
             alert("Failed to package ChemEx results: " + msg.error);
         }
     };
 
     chemex_worker.addEventListener("message", zipHandler);
+    window.colmarChemexBusy = true;
     chemex_worker.postMessage({ type: "get_output_zip", outputDir: "Output" });
 }
 
@@ -11384,7 +11445,7 @@ function retry_assignment_transfer() {
 function load_assignment_file(inputElement) {
     if (!inputElement || !inputElement.files || inputElement.files.length === 0) return;
     const file = inputElement.files[0];
-    const reader = new FileReader();
+    const reader = track_file_reader(new FileReader());
     reader.onload = function (e) {
         last_loaded_assignment_text = e.target.result;
         last_loaded_assignment_filename = file.name;

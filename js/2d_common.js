@@ -2,6 +2,9 @@
     const WEBASSEMBLY_JOB_KEY = "#sym:webassembly_job ";
     const state = {
         my_contour_worker: null,
+        pending_contour_jobs: 0,
+        pending_file_reads: 0,
+        pending_chemex_jobs: 0,
         webassembly_worker: null,
         webassembly_worker2: null,
         wasm_2d_runner: null,
@@ -69,6 +72,37 @@
         });
     }
 
+    global.colmarBeginFileRead = function () {
+        state.pending_file_reads += 1;
+        let completed = false;
+        return function () {
+            if (completed) return;
+            completed = true;
+            state.pending_file_reads = Math.max(0, state.pending_file_reads - 1);
+        };
+    };
+
+    global.colmarBeginChemexJob = function () {
+        state.pending_chemex_jobs += 1;
+        let completed = false;
+        return function () {
+            if (completed) return;
+            completed = true;
+            state.pending_chemex_jobs = Math.max(0, state.pending_chemex_jobs - 1);
+        };
+    };
+
+    global.colmar2dIsIdle = function () {
+        const body = global.document && global.document.body;
+        return (!state.wasm_2d_runner || state.wasm_2d_runner.isIdle())
+            && state.pending_contour_jobs === 0
+            && state.pending_file_reads === 0
+            && state.pending_chemex_jobs === 0
+            && !state.webassembly_worker2
+            && !global.colmarChemexBusy
+            && !(body && body.classList.contains("processing-background-job"));
+    };
+
     function getWebAssemblyJobFlag(data) {
         if (!data) return undefined;
         return data[WEBASSEMBLY_JOB_KEY] || data.webassembly_job;
@@ -76,6 +110,24 @@
 
     try {
         state.my_contour_worker = new Worker("js/shared/contour_worker_2d.js");
+        const contourWorkerPostMessage = state.my_contour_worker.postMessage.bind(state.my_contour_worker);
+        state.my_contour_worker.postMessage = function (...args) {
+            state.pending_contour_jobs += 1;
+            try {
+                return contourWorkerPostMessage(...args);
+            } catch (error) {
+                state.pending_contour_jobs = Math.max(0, state.pending_contour_jobs - 1);
+                throw error;
+            }
+        };
+        state.my_contour_worker.addEventListener("message", event => {
+            const message = event.data && event.data.message;
+            if (typeof message === "string" && message.startsWith("Calculating ")) return;
+            state.pending_contour_jobs = Math.max(0, state.pending_contour_jobs - 1);
+        });
+        state.my_contour_worker.addEventListener("error", () => {
+            state.pending_contour_jobs = 0;
+        });
         state.wasm_2d_runner = new EphemeralWasmRunner({
             label: "webdp1d_cpp",
             workerUrl: "./js/webass_2d.js",
